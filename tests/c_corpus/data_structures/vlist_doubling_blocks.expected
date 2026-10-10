@@ -1,0 +1,4 @@
+conses=4016 tails=1515 forks=786 nth queries=1670, cells verified=2092
+1000-element list: 11 blocks, 2780 block hops for 1000 index reads
+longest version chain: 108 blocks, total blocks allocated: 2360
+fork checks: fork len 5, grown len 7, original len 6

@@ -1,0 +1,5 @@
+delivered 2350 bytes in 24 data packets + FIN, crc 44ca5a0e
+window=4 payload=100
+injected loss: data=3 acks=2
+recovery needed timeouts: yes, go-back-N retransmissions >= drops: yes
+receiver discarded out-of-order packets: yes

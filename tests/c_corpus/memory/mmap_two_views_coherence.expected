@@ -1,0 +1,5 @@
+overlap pages: 2
+cross-window writes observed immediately: all
+pread vs window B mismatches: 0
+pwrite visible in both windows: yes
+windows cover file offsets [0,5) and [3,8) in pages

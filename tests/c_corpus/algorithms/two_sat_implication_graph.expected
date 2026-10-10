@@ -1,0 +1,13 @@
+round  0:  6 clauses -> SAT   111111111010
+round  1:  8 clauses -> SAT   111110111100
+round  2: 10 clauses -> SAT   111011011100
+round  3: 12 clauses -> SAT   111101101101
+round  4: 14 clauses -> SAT   011100011000
+round  5: 16 clauses -> SAT   101011111001
+round  6: 18 clauses -> UNSAT
+round  7: 20 clauses -> SAT   000000001100
+round  8: 22 clauses -> UNSAT
+round  9: 24 clauses -> SAT   100010101011
+round 10: 26 clauses -> SAT   101000001110
+round 11: 28 clauses -> UNSAT
+sat 9, unsat 3

@@ -1,0 +1,10 @@
+1x1 -> 1x1 checksum=513 corner=513
+  in-place square transpose matches
+8x8 -> 8x8 checksum=577233844 corner=13296
+  in-place square transpose matches
+13x29 -> 29x13 checksum=253381212 corner=75060
+50x7 -> 7x50 checksum=706621663 corner=7692
+64x64 -> 64x64 checksum=429534473 corner=25887
+  in-place square transpose matches
+37x37 -> 37x37 checksum=510336611 corner=90170
+  in-place square transpose matches

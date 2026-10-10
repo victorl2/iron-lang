@@ -1,0 +1,39 @@
+00:1b:63:84:45:e6
+  00:1B:63:84:45:E6 00-1b-63-84-45-e6 001b.6384.45e6 001b638445e6
+  oui=001b63 unicast, universal, individual, vendor: Apple
+3C-5A-B4-00-11-22
+  3C:5A:B4:00:11:22 3c-5a-b4-00-11-22 3c5a.b400.1122 3c5ab4001122
+  oui=3c5ab4 unicast, universal, individual, vendor: Google
+b827.eb12.3456
+  B8:27:EB:12:34:56 b8-27-eb-12-34-56 b827.eb12.3456 b827eb123456
+  oui=b827eb unicast, universal, individual, vendor: Raspberry Pi Foundation
+080027aabbcc
+  08:00:27:AA:BB:CC 08-00-27-aa-bb-cc 0800.27aa.bbcc 080027aabbcc
+  oui=080027 unicast, universal, individual, vendor: PCS Systems (VirtualBox)
+01:00:5e:7f:00:01
+  01:00:5E:7F:00:01 01-00-5e-7f-00-01 0100.5e7f.0001 01005e7f0001
+  oui=01005e multicast, universal, group, vendor: unknown
+ff:ff:ff:ff:ff:ff
+  FF:FF:FF:FF:FF:FF ff-ff-ff-ff-ff-ff ffff.ffff.ffff ffffffffffff
+  oui=ffffff broadcast, locally-administered, group, vendor: unknown
+02:42:ac:11:00:02
+  02:42:AC:11:00:02 02-42-ac-11-00-02 0242.ac11.0002 0242ac110002
+  oui=0242ac unicast, locally-administered, individual, vendor: unknown
+33:33:00:00:00:fb
+  33:33:00:00:00:FB 33-33-00-00-00-fb 3333.0000.00fb 3333000000fb
+  oui=333300 multicast, locally-administered, group, vendor: unknown
+00:50:56:c0:00:08
+  00:50:56:C0:00:08 00-50-56-c0-00-08 0050.56c0.0008 005056c00008
+  oui=005056 unicast, universal, individual, vendor: VMware
+de:ad:be:ef:00:01
+  DE:AD:BE:EF:00:01 de-ad-be-ef-00-01 dead.beef.0001 deadbeef0001
+  oui=deadbe unicast, locally-administered, individual, vendor: unknown
+rejected 10 malformed MACs
+group 224.0.0.1 -> 01:00:5e:00:00:01
+group 224.0.0.251 -> 01:00:5e:00:00:fb
+group 224.0.1.22 -> 01:00:5e:00:01:16
+group 232.0.0.1 -> 01:00:5e:00:00:01
+group 239.127.0.1 -> 01:00:5e:7f:00:01
+group 224.128.0.1 -> 01:00:5e:00:00:01
+group 238.255.255.255 -> 01:00:5e:7f:ff:ff
+groups sharing one MAC (of 32 candidates in 224/4): 32

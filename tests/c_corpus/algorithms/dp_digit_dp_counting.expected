@@ -1,0 +1,29 @@
+n=9 k=3 count=4
+n=9 k=5 count=2
+n=9 k=7 count=2
+n=9 k=9 count=2
+n=100 k=3 count=31
+n=100 k=5 count=19
+n=100 k=7 count=13
+n=100 k=9 count=11
+n=999 k=3 count=280
+n=999 k=5 count=164
+n=999 k=7 count=116
+n=999 k=9 count=94
+n=12345 k=3 count=2779
+n=12345 k=5 count=1662
+n=12345 k=7 count=1182
+n=12345 k=9 count=926
+n=99999 k=3 count=22156
+n=99999 k=5 count=13294
+n=99999 k=7 count=9485
+n=99999 k=9 count=7386
+n=250000 k=3 count=50617
+n=250000 k=5 count=30350
+n=250000 k=7 count=21674
+n=250000 k=9 count=16873
+range k=11 [9876543210,123456789012]: 3254551457
+numbers up to 500 without digit 7: 405
+numbers up to 1000 without digit 7: 729
+numbers up to 1500 without digit 7: 1134
+numbers up to 2000 without digit 7: 1458

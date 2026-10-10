@@ -1,0 +1,6 @@
+rejected foreign     198
+rejected misaligned  196
+rejected double-free 415
+counters: double=415 foreign=198 misaligned=196
+peak in use=100 of 100, exhausted 572 times
+slot indices after drain: 14 92

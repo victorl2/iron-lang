@@ -1,0 +1,6 @@
+ascending  B      keys=4000 nodes= 999 height=5 fill=50% min-keys=4 splits=994 redistributions=0 three-way=0
+ascending  B*     keys=4000 nodes= 666 height=5 fill=75% min-keys=4 splits=4 redistributions=1320 three-way=657
+random     B      keys=3385 nodes= 598 height=5 fill=70% min-keys=4 splits=593 redistributions=0 three-way=0
+random     B*     keys=3385 nodes= 505 height=4 fill=83% min-keys=5 splits=3 redistributions=1155 three-way=498
+descending B      keys=4000 nodes= 999 height=5 fill=50% min-keys=4 splits=994 redistributions=0 three-way=0
+descending B*     keys=4000 nodes= 797 height=5 fill=62% min-keys=5 splits=4 redistributions=1585 three-way=788

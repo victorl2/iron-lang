@@ -1,0 +1,6 @@
+n=  16 coeffs=  31 c[0]=abd282e10a6513e0 c[n-1]=0e09b6eb9a93c250 hash=80d1fb78297cfd48
+n=  32 coeffs=  63 c[0]=c1b8ed0585debb73 c[n-1]=2e8b1829d4191135 hash=cc9271566dee9efb
+n=  64 coeffs= 127 c[0]=9e527a199619a18d c[n-1]=ed35fe86d0136123 hash=aa60753afb646626
+n= 256 coeffs= 511 c[0]=e35619b881d01960 c[n-1]=e820562bb36caf6d hash=5d88306d67910300
+n=1024 coeffs=2047 c[0]=f19faf99c0b43604 c[n-1]=21bec315f6dcadfc hash=3c1ef25506b23977
+C(30,15) = 155117520 via polynomial square

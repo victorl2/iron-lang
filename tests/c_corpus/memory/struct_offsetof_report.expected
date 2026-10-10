@@ -1,0 +1,36 @@
+Mixed: size 32 align 8
+  a        offset  0 size  1
+  b        offset  4 size  4
+  c        offset  8 size  1
+  d        offset 16 size  8
+  e        offset 24 size  2
+  padding 16
+Sorted: size 16 align 8
+  padding 0
+Tagged: size 16 align 8
+  tag      offset  0 size  1
+  u        offset  8 size  8
+Nested: size 16 align 4
+  x        offset  0 size  2
+  inner    offset  4 size  8
+  tail     offset 12 size  3
+  inner.q at 8
+WithPtr: size 16 align 8
+  ptr      offset  0 size  8
+  flag     offset  8 size  1
+  buf      offset  9 size  5
+  n        offset 14 size  2
+Arrays: size 24 align 4
+  a        offset  0 size  3
+  b        offset  4 size  6
+  c        offset 12 size 12
+Over: size 48 align 16
+  flag     offset  0 size  1
+  vec      offset 16 size 16
+  after    offset 32 size  1
+Vec: size 24 align 8
+  x        offset  0 size  8
+  y        offset  8 size  8
+  w        offset 16 size  4
+array stride Mixed: 32
+array total Mixed[3]: 96

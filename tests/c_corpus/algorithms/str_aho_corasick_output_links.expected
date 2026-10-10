@@ -1,0 +1,20 @@
+trie nodes: 16
+  end  3: she (start 1)
+  end  3: he (start 2)
+  end  5: hers (start 2)
+  end  8: his (start 6)
+  end  8: is (start 7)
+  end 10: a (start 10)
+  end 12: ash (start 10)
+  end 13: she (start 11)
+  end 13: he (start 12)
+  end 14: shes (start 11)
+total matches: 10
+he    313
+she   54
+his   68
+hers  0
+is    328
+a     1554
+ash   66
+shes  6

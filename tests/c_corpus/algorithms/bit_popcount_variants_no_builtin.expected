@@ -1,0 +1,15 @@
+special values:
+  0000000000000000 popcount= 0 parity=0
+  0000000000000001 popcount= 1 parity=1
+  0000000000000002 popcount= 1 parity=1
+  0000000000000003 popcount= 2 parity=0
+  8000000000000000 popcount= 1 parity=1
+  ffffffffffffffff popcount=64 parity=0
+  aaaaaaaaaaaaaaaa popcount=32 parity=0
+  00ff00ff00ff00ff popcount=32 parity=0
+  123456789abcdef0 popcount=32 parity=0
+  7fffffffffffffff popcount=63 parity=1
+random words checked: 20000, total set bits: 639791
+most common popcount: 15 (768 words)
+set bits in 0..1023 = 5120, in 0..5000 = 29809
+array of 101 words: 3213 set bits

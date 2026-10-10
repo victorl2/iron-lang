@@ -1,0 +1,11 @@
+1. fresh acquire: acquired
+2. child sees live owner (the parent): busy
+3. non-owner release refused
+4. owner release ok
+5. lock left by dead child: stole stale lock (owner was the dead child: 1)
+6. child holds lock: busy (owner alive) (owner is the child: 1)
+7. after the child released: acquired
+8. empty lock file: stole corrupt lock
+9. garbage lock file: stole corrupt lock
+10. counter after 125 guarded increments: 125
+11. no lock file left behind

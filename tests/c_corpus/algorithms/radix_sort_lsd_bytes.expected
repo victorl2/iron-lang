@@ -1,0 +1,7 @@
+mask=ffffffff passes=4 min=425603 max=4294935291
+mask=00ffffff passes=3 min=1016 max=16776502
+mask=0000ffff passes=2 min=0 max=65534
+mask=000000ff passes=1 min=0 max=255
+mask=00ff00ff passes=2 min=12 max=16711935
+mask=00000000 passes=0 min=0 max=0
+signed passes=4 min=-524243 max=524205 negatives=10182

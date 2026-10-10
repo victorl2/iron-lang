@@ -1,0 +1,4 @@
+n=5 edges=2 maxout=1 maxin=1 undirected=2 loops=0 hash=c3372d36 thash=9e452d3a
+n=17 edges=91 maxout=9 maxin=10 undirected=86 loops=6 hash=51adf807 thash=6f599b23
+n=33 edges=57 maxout=5 maxin=5 undirected=57 loops=2 hash=43eb6cdd thash=46976b29
+n=48 edges=1135 maxout=30 maxin=33 undirected=869 loops=25 hash=a45cc2a2 thash=7e850c26

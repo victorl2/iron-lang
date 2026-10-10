@@ -1,0 +1,6 @@
+even keys 0..398: depth=4 splits=90
+random: inserts=1032 deletes=981 size=251 max depth=5
+splits=182 borrows=172 merges=73
+range scans: 18408 keys returned over 7081 leaf visits
+scan [100,140]: 19 keys, first=102 last=139, 7 leaves
+drained

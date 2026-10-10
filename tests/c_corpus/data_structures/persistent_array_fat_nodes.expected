@@ -1,0 +1,7 @@
+versions=600 cells=40 point queries verified=24040
+total fat-node entries=640, fattest cell=0 with 62 entries
+version   0: sum=0 first=0 last=0
+version 150: sum=5002 first=17 last=865
+version 300: sum=1987 first=-995 last=-764
+version 450: sum=8311 first=84 last=983
+version 600: sum=-4558 first=554 last=294

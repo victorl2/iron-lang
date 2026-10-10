@@ -1,0 +1,16 @@
+words=6000 distinct=156
+shard 0 distinct=53
+shard 1 distinct=14
+shard 2 distinct=18
+shard 3 distinct=71
+ 1. kaka0  253
+ 2. loka0  163
+ 3. mika0  153
+ 4. neka0  145
+ 5. toka0  140
+ 6. zaka0  130
+ 7. saka0  120
+ 8. ruka0  115
+ 9. kalo0  110
+10. beka0  109
+least frequent: toru1 1

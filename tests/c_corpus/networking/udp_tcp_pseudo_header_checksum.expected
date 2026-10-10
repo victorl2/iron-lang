@@ -1,0 +1,10 @@
+udp v4 payload hello, udp    len=18 checksum=0x0dc6
+udp v4 payload odd length!   len=19 checksum=0x92ed
+udp v4 payload (empty)       len= 8 checksum=0xd6bd
+tcp flags=S   seq=1000 len=20 checksum=0xe7df
+tcp flags=AS  seq=1100 len=20 checksum=0xe76b
+tcp flags=A   seq=1200 len=20 checksum=0xe709
+tcp flags=AP  seq=1300 len=38 checksum=0x07eb
+tcp flags=AF  seq=1400 len=20 checksum=0xe640
+udp v6 checksum=0xc8ae
+fuzz: 500 segments verified, single-bit corruption detected 500, missed 0

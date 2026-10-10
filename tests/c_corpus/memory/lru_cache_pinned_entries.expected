@@ -1,0 +1,9 @@
+after simple accesses: hits=1 misses=6 evictions=2
+  lru: 2 5 1 4 (size 4)
+pinned 4 entries
+  lru: 2* 5* 1* 4* (size 4)
+orphans: value=81, in_cache=0, misses=8, size=4
+orphaned frees so far: 2, live entries=4
+  lru: 21 20 2* 1* (size 4)
+evictions=4 hits=5 misses=10
+final live=0

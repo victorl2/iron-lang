@@ -1,0 +1,12 @@
+random         mem=10    runs=1002  avg_len=20.0     first_run=21
+random         mem=100   runs=101   avg_len=198.0    first_run=171
+random         mem=1000  runs=11    avg_len=1818.2   first_run=1765
+sorted         mem=10    runs=1     avg_len=20000.0  first_run=20000
+sorted         mem=100   runs=1     avg_len=20000.0  first_run=20000
+sorted         mem=1000  runs=1     avg_len=20000.0  first_run=20000
+reversed       mem=10    runs=2000  avg_len=10.0     first_run=10
+reversed       mem=100   runs=200   avg_len=100.0    first_run=100
+reversed       mem=1000  runs=20    avg_len=1000.0   first_run=1000
+nearly sorted  mem=10    runs=903   avg_len=22.1     first_run=18
+nearly sorted  mem=100   runs=19    avg_len=1052.6   first_run=889
+nearly sorted  mem=1000  runs=1     avg_len=20000.0  first_run=20000

@@ -1,0 +1,3 @@
+node objsize=48 allocs=1596 ctor=365 reuse=1231 dtor=365
+buf  objsize=32 allocs=1277 ctor=256 reuse=1021 dtor=256
+reaped objects=621 refused=0

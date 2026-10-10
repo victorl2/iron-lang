@@ -1,0 +1,6 @@
+philosopher 0: meals=300 units=300
+philosopher 1: meals=300 units=600
+philosopher 2: meals=300 units=900
+philosopher 3: meals=300 units=1200
+philosopher 4: meals=300 units=1500
+total meals=1500

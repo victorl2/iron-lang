@@ -1,0 +1,8 @@
+size   1: ok overrun underrun both
+size   7: ok overrun underrun both
+size  16: ok overrun underrun both
+size  33: ok overrun underrun both
+size 100: ok overrun underrun both
+totals: ok=5 under=5 over=5 both=5
+guard sweep: 52/52 positions, all 32 guard-byte flips detected
+intact block check=ok size=20

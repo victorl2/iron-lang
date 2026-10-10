@@ -1,0 +1,13 @@
+batch  0 size 1 sum    1 xor    1 via marker
+batch  1 size 7 sum   91 xor   17 via full
+batch  2 size 1 sum   25 xor   25 via marker
+batch  3 size 7 sum  259 xor   41 via full
+batch  4 size 7 sum  406 xor   54 via full
+batch  5 size 7 sum  553 xor   83 via full
+batch  6 size 7 sum  700 xor   96 via full
+batch  7 size 1 sum  112 xor  112 via marker
+batch  8 size 7 sum  868 xor  120 via full
+batch  9 size 7 sum 1015 xor  133 via full
+batch 10 size 7 sum 1162 xor  146 via full
+batch 11 size 6 sum 1113 xor  123 via marker
+batches 38 (full 21, marker 16, close 1) items 200 total 59900

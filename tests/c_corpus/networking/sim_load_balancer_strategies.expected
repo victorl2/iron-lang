@@ -1,0 +1,9 @@
+smooth WRR over 40 picks: counts 5 5 10 20, longest run 2
+strategy        mean   p50   p99    max | requests per backend (speeds 1 1 2 4)
+round-robin    20672   742 88472  92173 |  5000  5000  5000  5000
+smooth-wrr       137    70   959   1998 |  2500  2500  5000 10000
+random         20253   643 82074  84190 |  4926  4986  5032  5056
+least-conn        66    17   550   1024 |  3118  3033  5679  8170
+weighted-lc       55    20   375    799 |  3116  2928  5372  8584
+p2c              141    56   975   1567 |  3189  3124  5688  7999
+p2c-weighted     109    44   740   1381 |  2906  3130  5656  8308

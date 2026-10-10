@@ -1,0 +1,7 @@
+samples=11300 gaps=293 start=2023-11-14 22:13:20
+rollups: 1-minute buckets=189, 1-hour buckets=4
+2023-11-14 22:13:20  n=3544 min=2068 max=2718 avg=2396
+2023-11-14 23:13:20  n=3441 min=2615 max=2938 avg=2774
+2023-11-15 00:13:20  n=3530 min=2488 max=2985 avg=2780
+2023-11-15 01:13:20  n= 492 min=2555 max=2904 avg=2742
+empty minute buckets=1, file sizes raw=45216 m1=3796 h1=96

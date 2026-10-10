@@ -1,0 +1,9 @@
+ok            2532
+short-header  366
+bad-magic     947
+trunc-record  230
+trunc-value   1081
+bad-type      727
+too-big       100
+trailing      17
+items accepted: 6784

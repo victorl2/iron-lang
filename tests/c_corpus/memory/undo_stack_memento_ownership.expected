@@ -1,0 +1,11 @@
+typed          "hello world" cur=11  hist=3 pos=2 evicted=0
+backspace 3    "hello wo" cur=8  hist=4 pos=3 evicted=0
+undo           "hello world" cur=11  hist=4 pos=2 evicted=0
+undo           "hello" cur=5  hist=4 pos=1 evicted=0
+redo           "hello world" cur=11  hist=4 pos=2 evicted=0
+new edit       "hello world!!" cur=13  hist=4 pos=3 evicted=0
+redo after new edit: 0
+many edits     "hello world!!012345" cur=19  hist=5 pos=4 evicted=5
+undo to oldest "hello world!!01" cur=15  hist=5 pos=0 evicted=5
+undo steps possible: 4 (history bounded by 5)
+live mementos at end: 0

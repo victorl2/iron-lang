@@ -1,0 +1,87 @@
+>> set a 5 0 3\r\nabc\r\n
+   STORED
+>> add a 0 0 1\r\nx\r\n
+   NOT_STORED
+>> add b 7 0 2\r\nhi\r\n
+   STORED
+>> replace zz 0 0 1\r\nx\r\n
+   NOT_STORED
+>> append a 0 0 2\r\nde\r\n
+   STORED
+>> prepend a 0 0 2\r\n<<\r\n
+   STORED
+>> get a b nothing\r\n
+   VALUE a 5 7
+   <7 data bytes>
+   VALUE b 7 2
+   <2 data bytes>
+   END
+>> gets a\r\n
+   VALUE a 5 7 4
+   <7 data bytes>
+   END
+>> cas a 5 0 4 1\r\nnope\r\n
+   EXISTS
+>> cas a 5 0 4 4\r\nWXYZ\r\n
+   STORED
+>> cas gone 0 0 1 1\r\nx\r\n
+   NOT_FOUND
+>> gets a\r\n
+   VALUE a 5 4 5
+   <4 data bytes>
+   END
+>> set n 0 0 2\r\n10\r\n
+   STORED
+>> incr n 5\r\n
+   15
+>> decr n 100\r\n
+   0
+>> incr a 1\r\n
+   CLIENT_ERROR cannot increment or decrement non-numeric value
+>> incr missing 1\r\n
+   NOT_FOUND
+>> set bin 0 0 7\r\nx\r\ny\r\nz\r\n
+   STORED
+>> get bin\r\n
+   VALUE bin 0 7
+   <7 data bytes>
+   END
+>> set bad 0 0 3\r\nabcde\r\n
+   CLIENT_ERROR bad data chunk
+>> set quiet 0 0 1 noreply\r\nq\r\n
+   (no reply)
+>> get quiet\r\n
+   VALUE quiet 0 1
+   <1 data bytes>
+   END
+>> set ttl 1 10 3\r\nnew\r\n
+   STORED
+>> advance 9\r\n
+   OK
+>> get ttl\r\n
+   VALUE ttl 1 3
+   <3 data bytes>
+   END
+>> touch ttl 100\r\n
+   TOUCHED
+>> advance 50\r\n
+   OK
+>> get ttl\r\n
+   VALUE ttl 1 3
+   <3 data bytes>
+   END
+>> advance 100\r\n
+   OK
+>> get ttl\r\n
+   END
+>> delete a\r\n
+   DELETED
+>> delete a\r\n
+   NOT_FOUND
+>> frobnicate\r\n
+   ERROR
+>> flush_all\r\n
+   OK
+>> get b n bin\r\n
+   END
+hits=8 misses=5

@@ -1,0 +1,13 @@
+ready   (6): io#1 net#2 gc#3 ui#4 db#5 log#6
+by-age  (6): io#1 net#2 gc#3 ui#4 db#5 log#6
+double insert: -1
+cross-list insert: -1
+ready   (3): ui#4 db#5 log#6
+running (2): io#1 gc#3
+done    (1): net#2
+first running: io
+running (1): io#1
+ready   (2): ui#4 log#6
+by-age  (4): io#1 net#2 ui#4 log#6
+remove unlinked: -1
+errors seen: 3

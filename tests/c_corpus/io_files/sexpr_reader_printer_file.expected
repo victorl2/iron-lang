@@ -1,0 +1,14 @@
+form 1: (define (fact n) (if (<= n 1) 1 (* n (fact (- n 1)))))
+form 2: (print "result:\n" 'done (1 . 2) (a b . c) () '(x y) -17 - -)
+tree 0: -57
+tree 1: (("" 30 lambda (-542 x1 "hi" . 9)) (foo "q\"uote" -172 (x1)) <=)
+tree 2: +
+tree 3: lambda
+random round trips ok, total chars=2098
+bad 0: missing ')'
+bad 1: unexpected ')'
+bad 2: unexpected ')'
+bad 3: expected ')' after dotted tail
+bad 4: unterminated string
+bad 5: unexpected character
+bad 6: unexpected end

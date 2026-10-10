@@ -1,0 +1,3 @@
+classic target 35: 4 subsets, first found: 20 15
+40 random instances: subsets=8043 nodes plain=2093400 pruned=100768
+duplicates: 10 distinct multisets sum to 16 (130 index subsets)

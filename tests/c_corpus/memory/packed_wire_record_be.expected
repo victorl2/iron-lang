@@ -1,0 +1,9 @@
+encoded 47 bytes
+c0 de 03 81 01 02 03 04 ff ff fe e0 8e 04 fb 35
+00 08 73 65 6e 73 6f 72 2d 41 03 00 01 ff ff ff
+fb ab cd 7f ff ff ff ff ff 80 00 00 00 7a db
+decode: ok
+round trip: seq=16909060 ts=-1234567890123 items=3
+truncations rejected: 47
+bit flips caught: 376 of 376
+small buffer: refused

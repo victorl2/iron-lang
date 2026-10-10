@@ -1,0 +1,25 @@
+ 0 fib  (-1) -> error: negative input
+ 1 div  (1) -> 1000
+ 2 isqrt(74000) -> 272
+ 3 fib  (13) -> 233
+ 4 div  (4) -> 250
+ 5 isqrt(185000) -> 430
+ 6 fib  (-1) -> error: negative input
+ 7 div  (7) -> 500
+ 8 isqrt(296000) -> 544
+ 9 fib  (19) -> 4181
+10 div  (10) -> error: division by zero
+11 isqrt(407000) -> 637
+12 fib  (-1) -> error: negative input
+13 div  (13) -> 333
+14 isqrt(518000) -> 719
+15 fib  (25) -> 75025
+16 div  (16) -> 1000
+17 isqrt(629000) -> 793
+18 fib  (-1) -> error: negative input
+19 div  (19) -> 250
+20 isqrt(740000) -> 860
+21 fib  (31) -> 1346269
+22 div  (22) -> 500
+23 isqrt(851000) -> 922
+ok 19 error 5 sum 1434718

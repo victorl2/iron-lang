@@ -1,0 +1,16 @@
+example: state=done chunks=3 body=24 bytes starting [Wikipedia] trailers=2 leftover=20 bytes [GET /next ]
+  trailer: Expires: never
+  trailer: X-Sum: 42
+300 random messages x 3 feed strategies ok: 356498 wire bytes carried 325010 body bytes, up to 18 chunks
+bad 1: error (missing-chunk-size)
+bad 2: error (missing-chunk-size)
+bad 3: error (missing-CRLF-after-data)
+bad 4: error (bad-chunk-size-char)
+bad 5: error (bad-trailer)
+bad 6: error (chunk-size-overflow)
+bad 7: error (bad-extension)
+bad 8: error (missing-chunk-size)
+bad 9: error (bad-chunk-size-char)
+bad 10: error (expected-LF)
+truncated mid-chunk: state=data remaining=2 so far [hel]
+resumed: state=done body=[hello]

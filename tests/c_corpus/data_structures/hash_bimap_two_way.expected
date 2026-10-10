@@ -1,0 +1,3 @@
+puts=23997 identical no-ops=25 deletes=3428 pairs=134/512
+displacement histogram (0,1,2 pairs evicted per put): 7982 11620 4395
+total displaced=20410

@@ -1,0 +1,7 @@
+n=1 queries=899 digest=49410829
+n=2 queries=920 digest=971728765
+n=5 queries=901 digest=990019995
+n=17 queries=872 digest=27976885
+n=100 queries=937 digest=158543157
+n=300 queries=890 digest=837113535
+(x+1 then 2x)(5)=12, (2x then x+1)(5)=11

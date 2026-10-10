@@ -1,0 +1,6 @@
+baseline: 25 allocations, result 10669
+failure points tried: 25, all returned NOMEM with zero leaks
+quartile 1: 7 failures
+quartile 2: 6 failures
+quartile 3: 6 failures
+quartile 4: 6 failures

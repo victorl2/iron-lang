@@ -1,0 +1,15 @@
+fill then drain
+  unsorted array  steps=4504500   final_size=0 popsum=149974447
+  sorted array    steps=2226671   final_size=0 popsum=149974447
+  sorted list     steps=2199150   final_size=0 popsum=149974447
+  binary heap     steps=61417     final_size=0 popsum=149974447
+steady state ~800
+  unsorted array  steps=2218347   final_size=850 popsum=95047132
+  sorted array    steps=710121    final_size=850 popsum=95047132
+  sorted list     steps=681959    final_size=850 popsum=95047132
+  binary heap     steps=59881     final_size=850 popsum=95047132
+bursty
+  unsorted array  steps=564600    final_size=400 popsum=139377669
+  sorted array    steps=346243    final_size=400 popsum=139377669
+  sorted list     steps=326116    final_size=400 popsum=139377669
+  binary heap     steps=41832     final_size=400 popsum=139377669

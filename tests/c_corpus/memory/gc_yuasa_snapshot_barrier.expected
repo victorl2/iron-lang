@@ -1,0 +1,7 @@
+barrier ablation: snapshot objects lost with barrier 0, without 1
+objects allocated: 883
+cycles: 13, mark slices: 43
+deletion barrier shaded: 2, allocated black: 17
+snapshot objects retained: 145, floating garbage: 20
+swept: 871
+oracle checks: 14

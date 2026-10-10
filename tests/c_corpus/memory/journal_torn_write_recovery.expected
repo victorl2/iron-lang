@@ -1,0 +1,4 @@
+clean run writes 34 bytes
+crash points tested: 35
+recovered to old state: 21, new state: 14 (of which replayed from journal: 13), torn/mixed: 0
+naive in-place update: 9 of 13 crash points leave a torn state

@@ -1,0 +1,9 @@
+register, overlapping reads of 0 and 5: linearizable
+register, read of 0 after a completed write of 5: NOT linearizable
+register, read of 1 after write 1 then write 2: NOT linearizable
+queue, concurrent enqueues then dequeues 2,1: linearizable
+queue, sequential enqueues 1,2 then dequeue 2: NOT linearizable
+queue, dequeue overlapping an enqueue reports empty: linearizable
+counter, two overlapping increments both returning 0: NOT linearizable
+recorded register histories linearizable: 25/25, corrupted rejected: 25/25
+recorded counter histories linearizable: 25/25, corrupted rejected: 25/25

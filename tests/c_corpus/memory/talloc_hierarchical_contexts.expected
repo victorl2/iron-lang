@@ -1,0 +1,15 @@
+root (8)
+  conf (32)
+    keys (24)
+  request (16)
+    headers (64)
+    body (128)
+      tmp (4)
+total bytes 276 in 7 contexts
+after steal: request subtree=2 body subtree=2
+freed request: headers request | live=5 dtors=1
+freed conf: keys conf | live=3
+root (8)
+  body (128)
+    tmp (4)
+freed root: tmp body root | live=0 dtors=2

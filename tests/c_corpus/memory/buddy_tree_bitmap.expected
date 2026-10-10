@@ -1,0 +1,12 @@
+order 0 (  16 bytes): 801 allocations
+order 1 (  32 bytes): 880 allocations
+order 2 (  64 bytes): 929 allocations
+order 3 ( 128 bytes): 381 allocations
+order 4 ( 256 bytes): 648 allocations
+order 5 ( 512 bytes): 73 allocations
+order 6 (1024 bytes): 87 allocations
+order 7 (2048 bytes): 14 allocations
+order 8 (4096 bytes): 0 allocations
+failed=404 peak units=255 of 256, tree steps=23046
+live now=30 used units=211 longest order+1=5
+fully coalesced back to one 4096-byte block

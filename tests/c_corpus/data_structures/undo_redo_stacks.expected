@@ -1,0 +1,5 @@
+commands: set=2809 add=2730 swap=2800 fill=2731
+undo=4921 redo=1066 failed_undo=0 failed_redo=2943
+undo_depth=64 redo_depth=0 dropped_redo=3855 evicted=7151
+doc: 44 44 -19 -19 -21 -10 -10 -10
+oldest retained: -33 21 19 -33 -40 48 19 19

@@ -1,0 +1,26 @@
+natural | plain
+(empty)                 | (empty)
+a                       | Doc1.txt
+a0                      | IMG3.png
+a00                     | a
+a1b2                    | a0
+a01b3                   | a00
+a1b10                   | a01b3
+Doc1.txt                | a1b10
+doc9.txt                | a1b2
+doc010.txt              | doc010.txt
+doc10.txt               | doc10.txt
+img1.png                | doc9.txt
+img002.png              | img002.png
+img02.png               | img02.png
+img2.png                | img1.png
+IMG3.png                | img10.png
+img10.png               | img12.png
+img12.png               | img2.png
+v1.9.3                  | v1.10
+v1.9.12                 | v1.10.2
+v1.10                   | v1.9.12
+v1.10.2                 | v1.9.3
+x99999999999999999999   | x100000000000000000000
+x100000000000000000000  | x99999999999999999999
+comparator checks passed for 40 random names

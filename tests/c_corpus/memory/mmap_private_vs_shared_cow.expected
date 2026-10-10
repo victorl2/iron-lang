@@ -1,0 +1,7 @@
+private view changed: yes
+file unchanged after private writes: yes
+file changed after shared writes: yes
+private view isolated from shared writes: yes
+after child: private anon byte=1 shared anon byte=2
+private file byte0 in parent still 0xEE: yes
+shared file byte1 seen by parent: 0x66

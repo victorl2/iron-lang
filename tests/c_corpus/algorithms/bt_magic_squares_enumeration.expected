@@ -1,0 +1,12 @@
+order 3: constant=15 squares=8 nodes=446
+first found: 2 9 4 7 5 3 6 1 8
+order 3 semi-magic (rows and columns only): 72 squares, nodes=10414
+order 2: squares=0
+order 4: constant=34 fundamental squares=880 nodes=1842526
+times 8 symmetries = 7040 squares in total
+first fundamental square:
+   1 15 14  4
+  12  6  7  9
+   8 10 11  5
+  13  3  2 16
+smallest-corner histogram (value:count): 1:208 2:200 3:166 4:178 5:64 6:48 7:16

@@ -1,0 +1,4 @@
+atomic add of 6 items: 8 allocations, list now 9 items
+atomic: 8/8 failure points left the list untouched
+naive : 7/8 failure points left a partial batch behind
+live after all runs: 0

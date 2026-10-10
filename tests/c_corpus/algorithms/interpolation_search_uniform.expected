@@ -1,0 +1,4 @@
+uniform    found=1000 interp_probes=4069 binary_probes=22955 winner=interpolation
+doubling   found=1000 interp_probes=55289 binary_probes=11124 winner=binary
+clusters   found=1000 interp_probes=550776 binary_probes=23016 winner=binary
+all-equal: 1 -1

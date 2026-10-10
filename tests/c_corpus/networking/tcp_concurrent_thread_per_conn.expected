@@ -1,0 +1,7 @@
+conn 5: hotel -> LETOH
+conn 4: golf 123 -> 321 FLOG
+conn 3: echo-foxtrot -> TORTXOF-OHCE
+conn 2: delta -> ATLED
+conn 1: bravo charlie -> EILRAHC OVARB
+conn 0: alpha -> AHPLA
+6 workers handled 54 request bytes

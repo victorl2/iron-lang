@@ -1,0 +1,8 @@
+initial fork 0: holder=0 token=1
+initial fork 1: holder=1 token=2
+initial fork 2: holder=2 token=3
+initial fork 3: holder=3 token=4
+initial fork 4: holder=4 token=5
+initial fork 5: holder=0 token=5
+philosophers=6 meals each=250 total=1500
+forks changed hands: yes

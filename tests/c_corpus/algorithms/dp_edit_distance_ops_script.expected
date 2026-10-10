@@ -1,0 +1,13 @@
+kitten    -> sitting   lev=3 osa=3 ops=S===S=I
+flaw      -> lawn      lev=2 osa=2 ops=D===I
+intention -> execution lev=5 osa=5 ops=SSSSS====
+ca        -> abc       lev=3 osa=3 ops=ISS
+          -> abc       lev=3 osa=3 ops=III
+same      -> same      lev=0 osa=0 ops=====
+sunday    -> saturday  lev=3 osa=3 ops==II=S===
+random 0: b abca lev=3 weighted(3,2,2)=6
+random 1: cabcabca aaccbac lev=5 weighted(3,2,2)=12
+random 2: ab abbba lev=3 weighted(3,2,2)=6
+random 3: ccb bbbbcccb lev=5 weighted(3,2,2)=10
+random 4: abaca acacbcb lev=4 weighted(3,2,2)=10
+random 5: bcb caababa lev=5 weighted(3,2,2)=11

@@ -1,0 +1,10 @@
+part1: unions=399 rollbacks=67 final_comps=1 history=39
+part2: edges=120 depth=6 comps_range=[11,38] checksum=233738
+  t= 0 comps=38 largest= 2
+  t= 8 comps=26 largest= 5
+  t=16 comps=18 largest=11
+  t=24 comps=22 largest= 8
+  t=32 comps=18 largest=19
+  t=40 comps=13 largest=19
+  t=48 comps=19 largest=10
+  t=56 comps=13 largest=25

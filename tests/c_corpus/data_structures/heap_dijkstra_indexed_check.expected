@@ -1,0 +1,6 @@
+graph 0 (out-degree ~3): reachable=1945 distance_sum=173565
+  indexed: pops=1945 decrease_keys=322   lazy: pushes=2266 stale_pops=321
+graph 1 (out-degree ~6): reachable=2142 distance_sum=99427
+  indexed: pops=2142 decrease_keys=1081   lazy: pushes=3222 stale_pops=1080
+graph 2 (out-degree ~11): reachable=2160 distance_sum=61015
+  indexed: pops=2160 decrease_keys=2031   lazy: pushes=4193 stale_pops=2033

@@ -1,0 +1,7 @@
+1 thread: iterations=5 cost=10206302
+cluster 0: centroid (-501,-405) size 242
+cluster 1: centroid (598,598) size 232
+cluster 2: centroid (-453,351) size 227
+cluster 3: centroid (450,-303) size 251
+cluster 4: centroid (2,502) size 248
+identical for 2..8 threads

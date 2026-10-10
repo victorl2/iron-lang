@@ -1,0 +1,8 @@
+tcp recv 0: timed out, waited at least 30ms: yes
+tcp recv 1: timed out, waited at least 30ms: yes
+tcp recv 2: timed out, waited at least 30ms: yes
+timeout reads back as a sub-second value: yes
+before the sender wakes: timed out
+second attempt received 4 bytes: late
+udp recvfrom: timed out
+socketpair recv: timed out

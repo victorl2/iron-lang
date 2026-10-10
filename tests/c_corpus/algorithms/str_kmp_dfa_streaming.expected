@@ -1,0 +1,15 @@
+pattern ACGT     states=5  row for state 4: 1 0 0 0
+  uniform : 59 matches, first at 182
+  A-skewed: 9 matches, first at 167
+pattern AAAA     states=5  row for state 4: 4 0 0 0
+  uniform : 125 matches, first at 68
+  A-skewed: 4752 matches, first at 17
+pattern GATTACA  states=8  row for state 7: 0 0 1 0
+  uniform : 2 matches, first at 10398
+  A-skewed: 2 matches, first at 3873
+pattern ACAC     states=5  row for state 4: 3 0 0 0
+  uniform : 192 matches, first at 5
+  A-skewed: 100 matches, first at 99
+pattern TTT      states=4  row for state 3: 0 0 0 3
+  uniform : 143 matches, first at 102
+  A-skewed: 19 matches, first at 128

@@ -1,0 +1,19 @@
+v0  disc  1 fin 26
+v1  disc  7 fin 24
+v2  disc  6 fin 25
+v3  disc 16 fin 23
+v4  disc  9 fin 10
+v5  disc  8 fin 15
+v6  disc  2 fin  5
+v7  disc 19 fin 20
+v8  disc  3 fin  4
+v9  disc 27 fin 28
+v10 disc 18 fin 21
+v11 disc 12 fin 13
+v12 disc 11 fin 14
+v13 disc 17 fin 22
+tree edges: 12
+back edges: 8
+forward edges: 3
+cross edges: 9
+graph is cyclic

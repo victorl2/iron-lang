@@ -1,0 +1,29 @@
+D  x  y  (x^2 - D y^2 = 1)  period
+  2           3          2  period 1 (-1 solvable)
+  3           2          1  period 2 
+  5           9          4  period 1 (-1 solvable)
+  6           5          2  period 2 
+  7           8          3  period 4 
+  8           3          1  period 2 
+ 10          19          6  period 1 (-1 solvable)
+ 11          10          3  period 2 
+ 13         649        180  period 5 (-1 solvable)
+ 14          15          4  period 4 
+ 15           4          1  period 2 
+ 17          33          8  period 1 (-1 solvable)
+ 19         170         39  period 6 
+ 21          55         12  period 6 
+ 22         197         42  period 6 
+ 23          24          5  period 4 
+ 29        9801       1820  period 5 (-1 solvable)
+ 31        1520        273  period 8 
+ 41        2049        320  period 3 (-1 solvable)
+ 46       24335       3588  period 12 
+ 61  1766319049  226153980  period 11 (-1 solvable)
+ 67       48842       5967  period 10 
+ 76       57799       6630  period 12 
+ 85      285769      30996  period 5 (-1 solvable)
+ 94     2143295     221064  period 16 
+D=7 solutions: (8,3) (127,48) (2024,765) (32257,12192) (514088,194307) (8193151,3096720)
+negative Pell parity rule consistent on 72/72 non-square D up to 80
+D=61: x=1766319049 y=226153980

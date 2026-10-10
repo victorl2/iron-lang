@@ -1,0 +1,5 @@
+ascending 200: depth=7 splits=190
+deleted 100 from the top: size=100 depth=6 borrows=0 merges=99
+random: inserts=1289 deletes=1200 size=189 max depth=7
+splits=1074 borrows=349 merges=940
+drained

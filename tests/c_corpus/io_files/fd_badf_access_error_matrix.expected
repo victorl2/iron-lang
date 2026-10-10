@@ -1,0 +1,25 @@
+descriptor       read     write    lseek    fstat    ftrunc  
+rdonly file      ok       EBADF    ok       ok       EINVAL/other
+wronly file      EBADF    not-EBADF ok       ok       ok      
+directory        EISDIR   EBADF    ok       ok       EINVAL/other
+pipe read end    EAGAIN   EBADF    ESPIPE   ok       EINVAL/other
+pipe write end   EBADF    not-EBADF ESPIPE   ok       EINVAL/other
+closed fd        EBADF    EBADF    EBADF    EBADF    EBADF   
+never opened fd  EBADF    EBADF    EBADF    EBADF    EBADF   
+negative fd      EBADF    EBADF    EBADF    EBADF    EBADF   
+write to rdonly: EBADF
+read from wronly: EBADF
+read from directory: EISDIR
+write to rdonly directory: EBADF
+read from pipe write end: EBADF
+write to pipe read end: EBADF
+pread on pipe: ESPIPE
+read from empty nonblocking pipe: EAGAIN
+zero-length read on file: 0
+lseek to -5: EINVAL
+pwrite at -1: EINVAL
+second close: EBADF
+close(-1): EBADF
+dup2 onto -1: EBADF
+flock on closed fd: EBADF
+fsync on closed fd: EBADF

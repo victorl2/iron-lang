@@ -1,0 +1,6 @@
+even           kept=4555 sum=40534 first=-148 last=806
+negative       kept=4411 sum=-2226908 first=-247 last=-690
+div7-not-div3  kept= 864 sum=-27832 first=-14 last=-952
+none           kept=   0 sum=0 first=0 last=0
+all            kept=9000 sum=38537 first=261 last=806
+chained: negatives=4411 then even=2207

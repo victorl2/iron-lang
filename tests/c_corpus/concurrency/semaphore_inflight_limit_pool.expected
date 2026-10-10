@@ -1,0 +1,7 @@
+try_acquire 3,2,1,1 on capacity 4: 1 0 1 0
+weight 1: 120 jobs
+weight 2: 120 jobs
+weight 3: 120 jobs
+weight 4: 120 jobs
+total jobs 480, work sum 15854782
+in-use never exceeded capacity 4: yes

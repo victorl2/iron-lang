@@ -1,0 +1,7 @@
+trial 0: edges  23 flow  15 augmentations  2 avg hops 3.0 source side 9 (brute side 9)
+trial 1: edges  50 flow  37 augmentations 10 avg hops 3.8 source side 11 (brute side 11)
+trial 2: edges  53 flow  61 augmentations 10 avg hops 3.3 source side 13 (brute side 13)
+trial 3: edges  67 flow  35 augmentations  6 avg hops 3.0 source side 1 (brute side 1)
+trial 4: edges  87 flow  42 augmentations  8 avg hops 2.7 source side 13 (brute side 13)
+trial 5: edges 106 flow  92 augmentations 14 avg hops 2.7 source side 13 (brute side 13)
+total edges 386

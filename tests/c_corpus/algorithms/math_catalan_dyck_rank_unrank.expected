@@ -1,0 +1,8 @@
+Catalan: 1 1 2 5 14 42 132 429 1430 4862 16796 58786 208012
+Dyck words n=3: ((())) (()()) (())() ()(()) ()()()
+n<=9: all Dyck words round-trip through rank/unrank in sorted order
+last Dyck word n=16: ()()()()()()()()()()()()()()()()
+word #11785890 n=16: ((()()(()()((()))))()()())(()())
+binary trees with 8 nodes by height: h1:0 h2:0 h3:0 h4:94 h5:376 h6:480 h7:352 h8:128
+stack-sortable permutations counted for n=1..8 match Catalan
+parenthesizations of 6 factors: 42

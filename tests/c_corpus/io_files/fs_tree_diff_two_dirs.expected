@@ -1,0 +1,13 @@
+S README (10 -> 25 bytes)
+T assets/logo.bin (file -> dir)
+- docs/faq.txt
++ docs/new.txt
+L latest (docs/guide.txt -> docs/new.txt)
++ src/extra
+P src/main.c (0644 -> 0755)
+M src/util/a.c (same size, different bytes)
+T src/util/b.c (file -> symlink)
+- tmp
+summary: +2 -2 content=1 size=1 type=2 mode=1 link=1
+--- self diff
+A vs A: no differences

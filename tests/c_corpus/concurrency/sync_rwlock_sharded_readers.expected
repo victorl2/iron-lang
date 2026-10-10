@@ -1,0 +1,7 @@
+shard 0 served 800 reads
+shard 1 served 800 reads
+shard 2 served 400 reads
+shard 3 served 400 reads
+cells: 160 161 162 163 164 165
+inconsistent observations 0
+while writer holds all shards: trywrlock busy=yes tryrdlock busy=yes

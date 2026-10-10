@@ -1,0 +1,5 @@
+k=1     replacements=9      best=0/6746 kth=0/6746
+k=5     replacements=41     best=0/6746 kth=0/9820
+k=20    replacements=123    best=0/6746 kth=8/9498
+k=100   replacements=462    best=0/6746 kth=49/104
+k=1000  replacements=2297   best=0/6746 kth=487/6728

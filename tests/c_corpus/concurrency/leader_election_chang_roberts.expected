@@ -1,0 +1,10 @@
+ring of  2: ids 121 117
+  leader id 121 at position 0, election messages=3, announcements=2
+ring of  7: ids 146 143 181 145 101 110 158
+  leader id 181 at position 2, election messages=18, announcements=7
+ring of 13: ids 170 100 125 130 166 103 132 178 ...
+  leader id 192 at position 11, election messages=48, announcements=13
+ring of 24: ids 195 102 186 111 189 149 106 174 ...
+  leader id 195 at position 0, election messages=83, announcements=24
+ascending layout of 16: election messages=31
+descending layout of 16: election messages=136

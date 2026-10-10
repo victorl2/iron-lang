@@ -1,0 +1,3 @@
+points 2000, tree height 12 (log2 n = 11)
+400 queries: 84405 reported, 108890 nodes visited
+max-y-in-range checksum 9943135

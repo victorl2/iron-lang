@@ -1,0 +1,13 @@
+file 320 bytes, magic FXT1, cols=3 rows=24
+col 0: price  frac=16
+col 1: weight frac=16
+col 2: ratio  frac=24
+row 0: price=    195.46 weight=   4.436 ratio=  0.363000 price*weight=867.061
+row 1: price=    652.86 weight=   7.048 ratio=  0.182000 price*weight=4601.360
+row 2: price=    756.42 weight=   1.370 ratio=  0.749000 price*weight=1036.292
+row 3: price=    696.17 weight=   3.662 ratio= -0.842000 price*weight=2549.376
+row 4: price=    277.04 weight=   6.767 ratio=  0.242000 price*weight=1874.729
+col price sum ~ 11236.4063 (exact 1123641/100)
+col weight sum ~ 99.9688 (exact 99972/1000)
+col ratio sum ~ 0.0660 (exact 66/1000)
+1.5 * -1.25 = 1.5000 * -1.2500 = -1.87500

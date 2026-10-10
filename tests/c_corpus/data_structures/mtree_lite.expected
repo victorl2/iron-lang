@@ -1,0 +1,7 @@
+objects 1200 nodes 469 height 6 splits 463
+range r=15: 366 hits over 100 queries, avg distance computations 143 (brute 1200)
+range r=30: 2027 hits over 100 queries, avg distance computations 175 (brute 1200)
+range r=60: 6884 hits over 100 queries, avg distance computations 222 (brute 1200)
+k= 1: avg distance computations 215 (brute 1200), sum of distances 11949
+k= 5: avg distance computations 316 (brute 1200), sum of distances 80200
+k=10: avg distance computations 383 (brute 1200), sum of distances 189948

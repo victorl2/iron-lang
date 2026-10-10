@@ -1,0 +1,6 @@
+deferred allocs=6564 fails=489 frees=6468
+         coalesce passes=558 block visits=79505 exact-list pops=6276 splits=1541 retries=558
+         end: free blocks=21 adjacent free pairs=3 (max sampled 40)
+eager    allocs=6646 fails=407 frees=6550
+         coalesce passes=6550 block visits=780961 exact-list pops=6042 splits=2585 retries=0
+         end: free blocks=16 adjacent free pairs=0 (max sampled 0)

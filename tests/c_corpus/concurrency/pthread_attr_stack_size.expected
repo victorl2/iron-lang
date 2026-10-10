@@ -1,0 +1,4 @@
+stack 512 KiB: depth 500 -> 1008
+stack 1024 KiB: depth 1000 -> 2008
+stack 2048 KiB: depth 2000 -> 4008
+tiny stack rejected: yes

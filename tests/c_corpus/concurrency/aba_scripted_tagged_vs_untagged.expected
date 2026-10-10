@@ -1,0 +1,14 @@
+-- untagged head --
+initial                      stack: 1 2 3
+victim reads top=1 next=2, then pauses
+after adversary pop,pop,push stack: 1 3
+victim CAS(top, 1, 2): succeeds
+after victim CAS             stack: 2 3
+top now points at node 2, which was already popped: corrupted
+-- tagged head (32-bit tag) --
+after adversary pop,pop,push stack: 1 3
+victim CAS with stale tag 0: fails
+current tag is 3, victim must retry
+-- tag width and wraparound --
+16-bit tag after 65536 tag bumps: stale CAS succeeds (false positive)
+32-bit tag after 65536 tag bumps: stale CAS fails

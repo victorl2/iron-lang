@@ -1,0 +1,6 @@
+objects allocated: 732
+compactions: 22
+objects moved: 338 (1672 words slid)
+words reclaimed: 3553, heap top at end: 107 of 300
+linear heap scans: 1098
+oracle checks: 22

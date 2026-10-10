@@ -1,0 +1,7 @@
+16 nodes, 4096 lookups: mean hops=2.07 max=5 (log2 N = 4)
+hop histogram: 0:256 1:1205 2:1348 3:721 4:404 5:162
+joined 16 nodes: 769 lookups wrong before finger repair, stable after 4 more rounds, wrong after=0
+8 concurrent joins: stable after 5 rounds
+failed node ids: 56 73 148 212
+after 4 failures: 0 wrong lookups before repair, ring repaired in 1 rounds, wrong after=0
+alive nodes: 20

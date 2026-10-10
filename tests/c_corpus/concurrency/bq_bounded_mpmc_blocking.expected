@@ -1,0 +1,8 @@
+capacity 8 producers 3 consumers 4
+producer 0 delivered 600
+producer 1 delivered 600
+producer 2 delivered 600
+total 1800 sum 180539100
+order preserved per producer: yes
+high water within capacity: yes
+put after close: rejected

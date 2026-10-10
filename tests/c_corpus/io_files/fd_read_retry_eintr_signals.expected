@@ -1,0 +1,5 @@
+handler ran 4 times, pselect interrupted 4 times, became ready 4 times
+payload received in order: abcd
+pending while blocked: 1, handler count: 0
+after unblocking: handler count 1 (two sends coalesced)
+read loop through a signal: 200000 bytes, corrupt=0, handler ran 1 time

@@ -1,0 +1,13 @@
+open returns the lowest free number: 1
+closed number reused first: 1
+pipe takes two lowest numbers in order: 1
+dup fills the hole left by close: 1
+F_DUPFD with minimum 100 lands exactly there: 1
+second F_DUPFD with minimum 100 lands one higher: 1
+after closing 100 it is handed out again: 1
+F_DUPFD with minimum 0 behaves like dup: 1
+F_DUPFD_CLOEXEC: new fd cloexec=1, original cloexec=0
+F_DUPFD from a cloexec source: cloexec=0
+F_DUPFD with negative minimum: 1 EINVAL
+after close(0) the next open returns 0: 1
+descriptor table back to its starting shape

@@ -1,0 +1,8 @@
+ready    count=12  cost=234
+running  count=14  cost=299
+done     count=94  cost=2402
+transitions=2472
+     0   969     0
+   313     0   642
+   548     0     0
+global head order: 106 28 74 19 73 0

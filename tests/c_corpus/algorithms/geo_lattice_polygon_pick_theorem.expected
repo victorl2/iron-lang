@@ -1,0 +1,12 @@
+unit-square     2A=  2 B= 4 I=  0
+triangle-3-4    2A= 12 B= 8 I=  3
+sheared         2A= 40 B=12 I= 15
+empty-triangle  2A=  1 B= 3 I=  0
+thin-sliver     2A=  1 B= 3 I=  0
+hexagon         2A= 60 B=10 I= 26
+random triangles: tested=60 sum_interior=2806 sum_boundary=442
+scale 1: interior=4 boundary=4
+scale 2: interior=17 boundary=8
+scale 3: interior=40 boundary=12
+scale 4: interior=73 boundary=16
+scale 5: interior=116 boundary=20

@@ -1,0 +1,5 @@
+inserts=735 erases=495 size=240
+iterator steps validated=64889
+erase-while-iterating removed 80 keys, 160 remain
+range erase [100,200): 40 of 160 keys removed
+last five keys: 398 395 389 386 383

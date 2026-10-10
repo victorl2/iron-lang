@@ -1,0 +1,9 @@
+n=  1 rooms= 1 load: 1
+n=  4 rooms= 2 load: 2 2
+n= 10 rooms= 6 load: 3 3 1 1 1 1
+  assignment by id: 0->R0 1->R1 2->R4 3->R1 4->R3 5->R1 6->R2 7->R0 8->R5 9->R0
+n= 25 rooms= 7 load: 5 5 4 4 2 3 2
+n=100 rooms=11 load: 13 11 13 10 10 7 7 8 8 7 6
+n=500 rooms=20 load: 32 30 29 33 28 27 31 26 28 27 27 23 ...
+back to back needs 1 room
+stacked needs 4 rooms

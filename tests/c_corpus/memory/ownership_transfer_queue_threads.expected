@@ -1,0 +1,4 @@
+messages produced: 600, consumed: 600
+payload sum: 592248 (expected 592248)
+ownership violations: 0, order violations: 0
+queue empty at end: 1

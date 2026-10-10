@@ -1,0 +1,19 @@
+symbols=16 longest code=6 weighted cost=202 bits
+  'a' freq=11 len=2 code=00
+  '_' freq= 9 len=3 code=010
+  'e' freq= 7 len=3 code=011
+  's' freq= 8 len=3 code=100
+  'b' freq= 3 len=4 code=1010
+  'h' freq= 4 len=4 code=1011
+  'l' freq= 5 len=4 code=1100
+  'r' freq= 3 len=4 code=1101
+  'c' freq= 1 len=6 code=111000
+  'd' freq= 1 len=6 code=111001
+  'k' freq= 1 len=6 code=111010
+  'm' freq= 1 len=6 code=111011
+  'o' freq= 1 len=6 code=111100
+  't' freq= 1 len=6 code=111101
+  'y' freq= 1 len=6 code=111110
+  'z' freq= 1 len=6 code=111111
+round trip: 300 symbols in 1392 bits
+200 random alphabets, total cost=2742095

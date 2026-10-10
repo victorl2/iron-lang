@@ -1,0 +1,20 @@
+posix_memalign align=    8 size=   29 ok
+posix_memalign align=   16 size=   53 ok
+posix_memalign align=   32 size=  101 ok
+posix_memalign align=   64 size=  197 ok
+posix_memalign align=  128 size=  389 ok
+posix_memalign align=  256 size=  773 ok
+posix_memalign align=  512 size= 1541 ok
+posix_memalign align= 1024 size= 3077 ok
+posix_memalign align= 2048 size= 6149 ok
+posix_memalign align= 4096 size=12293 ok
+posix_memalign align= 8192 size=24581 ok
+64 blocks at alignment 64: overlaps=0
+aligned_alloc align=  16 blocks 1..4 ok
+aligned_alloc align=  32 blocks 1..4 ok
+aligned_alloc align=  64 blocks 1..4 ok
+aligned_alloc align= 128 blocks 1..4 ok
+aligned_alloc align= 256 blocks 1..4 ok
+aligned_alloc align=1024 blocks 1..4 ok
+aligned_alloc pattern total: 1902416
+zero-size request accepted

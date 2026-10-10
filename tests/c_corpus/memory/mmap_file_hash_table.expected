@@ -1,0 +1,5 @@
+distinct keys=399 grows=4 cap=1024
+deleted=133 live=266 tombs=133
+after reopen: hits=266 misses=399 value-sum=53151862
+average probes (x100): 158
+reinserted=20 tombstones before=133 after=131

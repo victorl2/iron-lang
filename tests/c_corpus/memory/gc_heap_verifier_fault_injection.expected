@@ -1,0 +1,22 @@
+workload done: 6 of 48 slots in use, verifier says clean
+fault  0 live field set to a free slot        -> dangling-ref
+fault  1 live field set past the heap         -> ref-out-of-range
+fault  2 free list tail linked to its head    -> freelist-cycle
+fault  3 live slot pushed onto the free list  -> dangling-ref+used-slot-on-freelist+freelist-length
+fault  4 free list truncated                  -> freelist-length
+fault  5 mark bit left set                    -> stale-mark
+fault  6 forwarding pointer left behind       -> stale-forward
+fault  7 canary overwritten                   -> canary
+fault  8 two live objects share an id         -> duplicate-id
+fault  9 root points at a free slot           -> bad-root
+bit flips: 600 trials, 438 detected, 162 silent
+  ref-out-of-range       reported in 73 trials
+  dangling-ref           reported in 54 trials
+  freelist-cycle         reported in 8 trials
+  used-slot-on-freelist  reported in 55 trials
+  freelist-length        reported in 60 trials
+  stale-mark             reported in 87 trials
+  stale-forward          reported in 67 trials
+  canary                 reported in 141 trials
+  duplicate-id           reported in 0 trials
+  bad-root               reported in 0 trials

@@ -1,0 +1,8 @@
+|A|=3 |B|=0 union=3 intersection=0 A-B=3
+|A|=36 |B|=5 union=41 intersection=0 A-B=36
+|A|=18 |B|=114 union=127 intersection=5 A-B=13
+|A|=72 |B|=47 union=111 intersection=8 A-B=64
+total union size over 40 rounds=5872
+join heights 10 and 3 -> 11, size 1006
+split/join updates: inserts=885 deletes=621 size=264 height=10
+split/rejoin at 14 pivots ok

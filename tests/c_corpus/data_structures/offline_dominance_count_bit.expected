@@ -1,0 +1,3 @@
+points=1500 queries=800 events=4700
+total counted=145287 empty rectangles=11
+busiest rectangle #657 [1..190]x[33..199] holds 1228

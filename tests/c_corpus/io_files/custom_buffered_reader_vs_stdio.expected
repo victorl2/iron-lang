@@ -1,0 +1,4 @@
+file bytes=861
+ops: getc=589 peek=568 read=590 gets=558 seek=611 relseek=532 tell=552
+bytes via read=29212 digest=4653249f
+refills=974 in-buffer seeks=277

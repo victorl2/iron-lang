@@ -1,0 +1,9 @@
+remove 3rd from end   : 1 2 3 4 5 7 8
+middle: 4
+rotate right 10       : 5 7 8 1 2 3 4
+odd-even regroup      : 5 8 2 4 7 1 3
+palindrome 1 0
+1999 + 12 (lsd first) : 1 1 0 2
+strictly unique       : 2 4
+intersection value: 1
+randomized checks=2000

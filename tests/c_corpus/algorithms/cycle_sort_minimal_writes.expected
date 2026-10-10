@@ -1,0 +1,4 @@
+distinct      misplaced=298  writes: cycle=298  selection=490  insertion=23250
+few keys      misplaced=234  writes: cycle=234  selection=480  insertion=16970
+rotated       misplaced=300  writes: cycle=300  selection=598  insertion=5110
+nearly sorted misplaced=36   writes: cycle=36   selection=48   insertion=323

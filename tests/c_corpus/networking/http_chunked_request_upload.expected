@@ -1,0 +1,6 @@
+upload 0: 200 chunked received=6000 crc=7905c9f7
+upload 1: 200 chunked received=2500 crc=f6bceaf9
+upload 2: 200 chunked received=1 crc=3aba3bbe
+upload 3: 200 fixed received=300 crc=c243e8f8
+invalid chunk size: 400 Bad Request, body=bad chunk framing
+server: ok=4 bad=1

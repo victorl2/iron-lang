@@ -1,0 +1,11 @@
+Vandermonde n=2 det=191 formula=191
+Vandermonde n=4 det=101848 formula=101848
+Vandermonde n=6 det=858351 formula=858351
+Vandermonde n=8 det=860745 formula=860745
+random 5x5 matrices with entries in 0..6: 30 inverted, 0 singular
+unique system rank 4, solution: 3 1 4 1
+3x5 system rank 2, pivots at columns: 0 2
+free variables: 3
+particular solution: 5 0 2 0 0
+inconsistent system detected: yes (rank 1)
+rank of sum of three outer products: 3

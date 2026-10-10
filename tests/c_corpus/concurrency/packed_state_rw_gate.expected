@@ -1,0 +1,3 @@
+state word: idle=0, writer active=4294967296, two readers=2
+a=2400 b=2400 after 3 writers x 800 writes
+torn reads=0 overlaps=0 gate idle=yes

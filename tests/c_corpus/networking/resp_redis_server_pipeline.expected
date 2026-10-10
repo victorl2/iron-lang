@@ -1,0 +1,72 @@
+> SET greeting hello
+  +OK
+> GET greeting
+  "hello"
+> APPEND greeting  world
+  (int) 11
+> STRLEN greeting
+  (int) 11
+> INCR hits
+  (int) 1
+> INCRBY hits 41
+  (int) 42
+> DECR hits
+  (int) 41
+> INCR greeting
+  -ERR value is not an integer or out of range
+> LPUSH q a b c
+  (int) 3
+> RPUSH q z
+  (int) 4
+> LRANGE q 0 -1
+  [4 items]
+    "c"
+    "b"
+    "a"
+    "z"
+> LRANGE q 1 2
+  [2 items]
+    "b"
+    "a"
+> LLEN q
+  (int) 4
+> LPOP q
+  "c"
+> GET q
+  -WRONGTYPE Operation against a key holding the wrong kind of value
+> TYPE q
+  +list
+> TYPE hits
+  +string
+> TYPE nothing
+  +none
+> MSET k1 v1 k2 v2
+  +OK
+> MGET k1 nope k2
+  [3 items]
+    "v1"
+    (nil)
+    "v2"
+> EXISTS k1 k2 k3
+  (int) 2
+> DEL k1 k3 hits
+  (int) 2
+> KEYS *
+  [3 items]
+    "greeting"
+    "k2"
+    "q"
+> LPUSH greeting x
+  -WRONGTYPE Operation against a key holding the wrong kind of value
+> BOGUS
+  -ERR unknown command 'BOGUS'
+> GET
+  -ERR wrong number of arguments
+> PING
+  +PONG
+> PING pong-me
+  "pong-me"
+> SET bin <9 bytes with CRLF, sent bytewise>
+  +OK
+  "a\r\nb\r\n\r\nc"
+server executed 30 commands, 4 keys remain

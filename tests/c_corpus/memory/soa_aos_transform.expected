@@ -1,0 +1,9 @@
+AoS: 24 bytes/element, 24000 bytes total
+payload per element: 23, padding waste per element: 1
+SoA: 23000 payload bytes across 7 columns
+total mass  AoS=1681.0000 SoA=1681.0000
+centroid    AoS=(-0.0402, -0.1240, -0.1419)
+            SoA=(-0.0402, -0.1240, -0.1419)
+alive per group: 115 89 79 91 83 106 112 102
+round trip after mutation: identical
+mass after mutation: 1489.7500

@@ -1,0 +1,18 @@
+n=1 phi=1 mu=1
+n=12 phi=4 mu=0
+n=30 phi=8 mu=-1
+n=97 phi=96 mu=-1
+n=210 phi=48 mu=1
+n=1000 phi=400 mu=0
+n=30000 phi=8000 mu=0
+Mertens(10) = -1
+Mertens(100) = 1
+Mertens(1000) = 2
+Mertens(10000) = -23
+Mertens(30000) = 18
+coprime pairs in [1,10]^2: 63 (sum phi 32)
+coprime pairs in [1,100]^2: 6087 (sum phi 3044)
+coprime pairs in [1,1000]^2: 608383 (sum phi 304192)
+coprime pairs in [1,30000]^2: 547143547 (sum phi 273571774)
+squarefree numbers up to 30000: 18242
+smallest phi(n)/n ratio at n=2310 (phi=480)

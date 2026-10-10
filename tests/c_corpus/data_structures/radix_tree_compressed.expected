@@ -1,0 +1,7 @@
+inserted=1129 erased=647 live=482 nodes=541
+first: aa aaa aaaa aaaac aaac aaaca
+last: dddb dddba dddbb dddc dddcc ddddb
+prefix ab: 35
+prefix dcd: 7
+prefix b: 122
+prefix cccc: 2

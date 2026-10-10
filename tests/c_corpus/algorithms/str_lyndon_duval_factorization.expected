@@ -1,0 +1,13 @@
+banana       -> b an an a (4 factors)
+abracadabra  -> abracad abr a (3 factors)
+aaabaab      -> aaabaab (1 factors)
+zyx          -> z y x (3 factors)
+abcabcabc    -> abc abc abc (3 factors)
+a            -> a (1 factors)
+cbaabcab     -> c b aabcab (3 factors)
+Lyndon words over 3 letters by length: 3 3 8 18 48 116 312
+random alphabet=2 factors=9
+random alphabet=3 factors=12
+random alphabet=2 factors=14
+random alphabet=3 factors=9
+random alphabet=2 factors=7

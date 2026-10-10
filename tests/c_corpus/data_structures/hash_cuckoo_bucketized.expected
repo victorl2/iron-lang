@@ -1,0 +1,7 @@
+n=4667 buckets=2048 slots=8192 load=0.5697
+inserts=5697 path moves=1771 failed placements (grow)=9
+buckets with 0 items: 184
+buckets with 1 items: 434
+buckets with 2 items: 511
+buckets with 3 items: 465
+buckets with 4 items: 454

@@ -1,0 +1,15 @@
+33111222
+13112122
+33333311
+12211231
+21331323
+22232321
+22231231
+22312112
+cost to far corner: 21
+shortest paths to far corner: 13
+shortest-path DAG edges: 78
+   1   1   1   1   1   1   1   1
+   1   2   2   3   4   5   5   5
+   1   2   2   4   4   4   9   5
+   1   2   4   4   4   4   4   5

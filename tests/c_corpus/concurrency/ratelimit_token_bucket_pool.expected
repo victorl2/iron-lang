@@ -1,0 +1,18 @@
+tick  0 refill  5 processed  5 bucket left  0
+tick  1 refill  0 processed  0 bucket left  0
+tick  2 refill  0 processed  0 bucket left  0
+tick  3 refill 30 processed 12 bucket left  0
+tick  4 refill  3 processed  3 bucket left  0
+tick  5 refill  3 processed  3 bucket left  0
+tick  6 refill  3 processed  3 bucket left  0
+tick  7 refill  3 processed  3 bucket left  0
+tick  8 refill  0 processed  0 bucket left  0
+tick  9 refill 20 processed 12 bucket left  0
+tick 10 refill  2 processed  2 bucket left  0
+tick 11 refill  2 processed  2 bucket left  0
+tick 12 refill  2 processed  2 bucket left  0
+tick 13 refill  2 processed  2 bucket left  0
+tick 14 refill 25 processed 12 bucket left  0
+tick 15 refill 25 processed 12 bucket left  0
+processed 73 of 100 tasks, tokens wasted at capacity 52
+result sum 3242809

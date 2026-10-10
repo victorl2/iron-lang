@@ -1,0 +1,8 @@
+step  5000: n= 1912 trie nodes= 11805 max probes/query pair=12
+step 10000: n= 3705 trie nodes= 19841 max probes/query pair=12
+step 15000: n= 5397 trie nodes= 26399 max probes/query pair=12
+step 20000: n= 7038 trie nodes= 32001 max probes/query pair=12
+step 25000: n= 8625 trie nodes= 36972 max probes/query pair=12
+step 30000: n=10097 trie nodes= 41312 max probes/query pair=12
+inserted 11782 erased 1685, queries 14970, levels W=16
+drained: nodes=0

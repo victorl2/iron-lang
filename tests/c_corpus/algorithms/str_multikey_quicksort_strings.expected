@@ -1,0 +1,4 @@
+short random words     first=aacpvi     last=zzqqhq     dups=105  multikey char compares=31642
+long shared prefixes   first=internationalization last=internationalizationccccccb dups=2043 multikey char compares=84513
+url-like paths         first=/etc/a     last=/var/log/eeeecd dups=1148 multikey char compares=51814
+many duplicates        first=a          last=ccc        dups=2961 multikey char compares=16690

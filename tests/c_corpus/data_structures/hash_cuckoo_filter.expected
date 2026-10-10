@@ -1,0 +1,4 @@
+fingerprint bits= 8 first failure at 3997 items load=0.9758 kicks=11837 fpr=0.0282
+fingerprint bits=12 first failure at 3968 items load=0.9688 kicks=7787 fpr=0.0020
+fingerprint bits=16 first failure at 4005 items load=0.9778 kicks=11519 fpr=0.0001
+mixed: inserts=10991 deletes=8980 live=2011 load=0.2455 kicks=3

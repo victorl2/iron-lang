@@ -1,0 +1,37 @@
+initial:
+  data     -> -              not a link
+  dirlink  -> data           dir target
+  nope     -> nowhere/deeper dangling
+  ok       -> data/real.txt  file target
+  plain    -> -              not a link
+  soon     -> data/later.txt dangling
+open(soon, RDONLY): ENOENT
+open(soon, CREAT|EXCL): EEXIST
+open(soon, CREAT): created target data/later.txt size=5
+open(nope, CREAT): ENOENT
+after repair:
+  data     -> -              not a link
+  dirlink  -> data           dir target
+  nope     -> nowhere/deeper dangling
+  ok       -> data/real.txt  file target
+  plain    -> -              not a link
+  soon     -> data/later.txt file target
+after renaming real.txt:
+  data     -> -              not a link
+  dirlink  -> data           dir target
+  nope     -> nowhere/deeper dangling
+  ok       -> data/real.txt  dangling
+  plain    -> -              not a link
+  soon     -> data/later.txt file target
+after unlink(ok) and unlink(later.txt):
+  data     -> -              not a link
+  dirlink  -> data           dir target
+  nope     -> nowhere/deeper dangling
+  plain    -> -              not a link
+  soon     -> data/later.txt dangling
+after removing data/:
+  dirlink  -> data           dangling
+  nope     -> nowhere/deeper dangling
+  plain    -> -              not a link
+  soon     -> data/later.txt dangling
+dangling links: 3 of 4 entries

@@ -1,0 +1,11 @@
+"AGGTAB" vs "GXTXAYB": len=4 distinct=1 [GTAB]
+"ABCBDAB" vs "BDCABA": len=4 distinct=3 [BCAB,BCBA,BDAB]
+"XMJYAUZ" vs "MZJAWXU": len=4 distinct=1 [MJAU]
+"AAAA" vs "AA": len=2 distinct=1 [AA]
+"ABC" vs "DEF": len=0 distinct=1 []
+"" vs "ABC": len=0 distinct=1 []
+random 0: babcaca cabcabcaaaccbac -> 7
+random 1: ababbbabaccbbbbb cccbcbabacaacacbcb -> 9
+random 2: bcbcaabababaaaccaab bbcacbacabacaabcbbc -> 13
+random 3: bbaabbbcbc baaaabaaaacac -> 6
+random 4: bbbaccab abbcbbbb -> 4

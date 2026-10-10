@@ -1,0 +1,4 @@
+scenarios=102
+without doublewrite: torn scenarios leaving a corrupt page=36
+with doublewrite: corrupt pages=0, batches completed by recovery=40, torn dw discarded=22
+pages restored from dw=160
