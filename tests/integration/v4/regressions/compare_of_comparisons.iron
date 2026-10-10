@@ -1,0 +1,17 @@
+-- A comparison of two comparisons: the inner one was inlined without
+-- parentheses, `true != b == 3`, which C reads as `(true != b) == 3` (#336).
+func pick(n: Int) -> Int {
+    return n * 3
+}
+
+func main() {
+    val a = pick(2)
+    val b = pick(1) + 1
+    val x = (a == 6) != (b == 3)
+    val y = (b == 3) == false
+    val z = (a < b) == (b < a)
+    println("{x} {y} {z}")
+    if (a == 6) != (b == 3) {
+        println("branch taken")
+    }
+}

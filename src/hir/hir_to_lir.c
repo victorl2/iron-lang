@@ -2102,6 +2102,25 @@ static IronLIR_ValueId lower_expr_as(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr,
     return coerce_to_optional(ctx, v, target, expr ? expr->span : (Iron_Span){0});
 }
 
+
+/* The run-time value of variant `vi` of a plain (payload-free) enum: its
+ * explicit value, or one more than the previous variant's, as in the C
+ * typedef. Values used to be the variant's position, so `KeyboardKey.SPACE
+ * = 32` reached raylib as 48 and `{e}` named the wrong variant (#338).
+ * Enums with payloads keep the position: it is the tag. */
+static int64_t enum_variant_runtime_value(Iron_Type *et, int vi) {
+    if (!et || et->kind != IRON_TYPE_ENUM || !et->enu.decl ||
+        et->enu.decl->has_payloads || vi < 0 || vi >= et->enu.decl->variant_count)
+        return vi;
+    Iron_EnumDecl *ed = et->enu.decl;
+    int64_t v = -1;
+    for (int j = 0; j <= vi; j++) {
+        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+        v = ev->has_explicit_value ? (int64_t)ev->explicit_value : v + 1;
+    }
+    return v;
+}
+
 static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     if (!expr) return IRON_LIR_VALUE_INVALID;
     if (!ctx->current_block) return IRON_LIR_VALUE_INVALID; /* dead code after return */
@@ -3856,7 +3875,9 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
 
         /* Tag value as constant integer */
         IronLIR_ValueId tag_const = iron_lir_const_int(ctx->current_func, ctx->current_block,
-                                                         (int64_t)expr->enum_construct.variant_index,
+                                                         enum_variant_runtime_value(
+                                                             expr->enum_construct.type,
+                                                             expr->enum_construct.variant_index),
                                                          int_type, span)->id;
         arrput(field_vals, tag_const);
 
@@ -4908,7 +4929,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                             }
                         }
                     }
-                    arrput(case_values, vidx);
+                    arrput(case_values, (int)enum_variant_runtime_value(subj_type, vidx));
                     arrput(case_blocks, arm_blk->id);
                 } else {
                     /* Non-integer pattern: use as default arm */
