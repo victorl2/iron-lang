@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
-project(iron VERSION 4.11.0 LANGUAGES C)
+project(iron VERSION 4.12.0 LANGUAGES C)
 
 # Full release version, including any pre-release suffix (e.g. "1.0.0-alpha").
 # CMake's project(VERSION ...) only accepts numeric MAJOR.MINOR.PATCH[.TWEAK],
 # so the suffixed form lives in its own variable and is baked into the binaries
 # as IRON_VERSION_STRING below. Both this line and the project() line above are
 # kept in sync with the latest GitHub release by .github/workflows/changelog-on-release.yml.
-set(IRON_VERSION_FULL "4.11.0-alpha")
+set(IRON_VERSION_FULL "4.12.0-alpha")
 
 # ── Version info baked at compile time ─────────────────────────────────────
 execute_process(
@@ -3009,6 +3009,12 @@ if(NOT WIN32 AND Python3_Interpreter_FOUND)
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/conditions.iron
                    $<TARGET_FILE:iron> dap)
   set_tests_properties(debug_dap_eval_smoke PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+  # What iron dap, iron debug and iron debug --check say when Python,
+  # lldb-dap / gdb 14+ or a debugger is missing (PATH of our own).
+  add_test(NAME debug_setup_messages
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_setup_messages.sh
+                   $<TARGET_FILE:iron> ${Python3_EXECUTABLE})
+  set_tests_properties(debug_setup_messages PROPERTIES TIMEOUT 120)
 endif()
 # The adapter's Iron expression evaluator against a fake debugger (any host).
 if(Python3_EXECUTABLE)
@@ -3016,6 +3022,11 @@ if(Python3_EXECUTABLE)
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/test_iron_eval.py
                    ${CMAKE_SOURCE_DIR}/src/debug/iron_dap.py)
   set_tests_properties(debug_iron_eval PROPERTIES TIMEOUT 60)
+  # What the adapter says about its debugger: missing, misnamed, no Python.
+  add_test(NAME debug_dap_setup
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/test_dap_setup.py
+                   ${CMAKE_SOURCE_DIR}/src/debug/iron_dap.py)
+  set_tests_properties(debug_dap_setup PROPERTIES TIMEOUT 60)
 endif()
 # #312: a panic stops the debugger on the Iron line (iron debug, iron dap).
 if(NOT WIN32)
