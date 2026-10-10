@@ -27,3 +27,10 @@ nvim --headless -u NONE \
     --cmd "set rtp^=$REPO/editors/neovim" \
     -l "$REPO/editors/neovim/test/e2e/dap_test.lua" \
     "$REPO/tests/integration/debug/stepping.iron" "$IRON"
+
+# The run / debug commands: :IronDebugTest on the test under the cursor.
+nvim --headless -u NONE \
+    --cmd "set rtp^=$NVIM_DAP_DIR" \
+    --cmd "set rtp^=$REPO/editors/neovim" \
+    -l "$REPO/editors/neovim/test/e2e/dap_test_block.lua" \
+    "$REPO/tests/integration/debug/conditions.iron" "$IRON"

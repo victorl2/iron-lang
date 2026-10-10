@@ -1,0 +1,19 @@
+[
+  {
+    "label": "iron test $ZED_CUSTOM_test_name",
+    "command": "iron",
+    "args": ["test", "$ZED_FILE", "$ZED_CUSTOM_test_name"],
+    "tags": ["iron-test"]
+  },
+  {
+    "label": "iron run $ZED_FILENAME",
+    "command": "iron",
+    "args": ["run", "$ZED_FILE"],
+    "tags": ["iron-main"]
+  },
+  {
+    "label": "iron test $ZED_FILENAME",
+    "command": "iron",
+    "args": ["test", "$ZED_FILE"]
+  }
+]

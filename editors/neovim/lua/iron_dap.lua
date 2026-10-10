@@ -61,8 +61,80 @@ end
 
 --- Register the `iron` adapter and configurations with nvim-dap.
 --- @param opts table|nil { iron = path to the iron CLI (default: "iron" on PATH) }
+--- The iron CLI (setup's opts.iron, else "iron" on PATH).
+M.iron = 'iron'
+
+--- Run `iron <args...>` in a terminal split below.
+function M.run_in_terminal(args)
+  local cmd = { M.iron }
+  vim.list_extend(cmd, args)
+  vim.cmd('botright 15split')
+  vim.cmd('enew')
+  if vim.fn.has('nvim-0.11') == 1 then
+    vim.fn.jobstart(cmd, { term = true })
+  else
+    vim.fn.termopen(cmd)
+  end
+  vim.cmd('startinsert')
+end
+
+local function current_file()
+  local file = vim.api.nvim_buf_get_name(0)
+  if file == '' or not file:match('%.iron$') then
+    vim.notify('iron: open a .iron file first', vim.log.levels.WARN)
+    return nil
+  end
+  return file
+end
+
+--- :IronRun - build and run the current file.
+function M.run_file()
+  local file = current_file()
+  if file then M.run_in_terminal({ 'run', file }) end
+end
+
+--- :IronTest [name] - one test (the name, else the test under the cursor),
+--- or every test of the file when there is neither.
+function M.test(name)
+  local file = current_file()
+  if not file then return end
+  name = (name and name ~= '') and name or M.test_at_cursor()
+  M.run_in_terminal(name and { 'test', file, name } or { 'test', file })
+end
+
+local function start_debugging(config)
+  local ok, dap = pcall(require, 'dap')
+  if not ok then
+    vim.notify('iron: debugging needs nvim-dap', vim.log.levels.WARN)
+    return
+  end
+  dap.run(vim.tbl_extend('force', { type = 'iron', request = 'launch' }, config))
+end
+
+--- :IronDebug - debug the current file.
+function M.debug_file()
+  local file = current_file()
+  if file then
+    start_debugging({ name = 'Iron: debug ' .. vim.fn.fnamemodify(file, ':t'), program = file })
+  end
+end
+
+--- :IronDebugTest [name] - debug one test alone (the name, else the test
+--- under the cursor).
+function M.debug_test(name)
+  local file = current_file()
+  if not file then return end
+  name = (name and name ~= '') and name or M.test_at_cursor()
+  if not name then
+    vim.notify('iron: no test block at or above the cursor', vim.log.levels.WARN)
+    return
+  end
+  start_debugging({ name = 'Iron: debug test "' .. name .. '"', program = file, test = name })
+end
+
 function M.setup(opts)
   opts = opts or {}
+  if opts.iron then M.iron = opts.iron end
   local ok, dap = pcall(require, 'dap')
   if not ok then
     vim.notify('iron_dap: nvim-dap is not installed', vim.log.levels.WARN)

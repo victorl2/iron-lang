@@ -383,6 +383,28 @@ impl zed::Extension for IronLspExtension {
     ) -> std::result::Result<zed::DebugScenario, String> {
         debug::scenario(config)
     }
+
+    fn dap_locator_create_scenario(
+        &mut self,
+        locator_name: String,
+        build_task: zed::TaskTemplate,
+        resolved_label: String,
+        _debug_adapter_name: String,
+    ) -> Option<zed::DebugScenario> {
+        if locator_name != debug::LOCATOR {
+            return None;
+        }
+        debug::locate(&build_task, &resolved_label)
+    }
+
+    fn run_dap_locator(
+        &mut self,
+        _locator_name: String,
+        _build_task: zed::TaskTemplate,
+    ) -> std::result::Result<zed::DebugRequest, String> {
+        // The scenarios have no build step: `iron dap` builds the program.
+        Err("the Iron locator has no build step to resolve".to_string())
+    }
 }
 
 zed::register_extension!(IronLspExtension);

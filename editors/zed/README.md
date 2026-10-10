@@ -60,6 +60,15 @@ All settings live under `lsp.iron-lsp` in Zed's `settings.json`:
   `editor: toggle inlay hints`, ctrl-;). In Zed 1.23, enabling them only
   under `languages.Iron` did not show them.
 
+## Running and testing
+
+Iron files get run buttons in the gutter: on `func main`, to run the file
+(`iron run`), and on every `test "..."` block, to run that test alone
+(`iron test <file> <name>`). The same menu offers **Debug**, which starts
+the Iron debugger on the file or on that one test (the extension's
+`iron` debug locator turns the task into a debug session). `task: spawn`
+also lists `iron test <file>` for every test of the file.
+
 ## Debugging
 
 The extension adds an `Iron` debug adapter to Zed's debugger. It runs

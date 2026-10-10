@@ -23,6 +23,10 @@ ironls = ">= 4.0.0, < 5.0.0"
 # configuration schema is debug_adapter_schemas/Iron.json.
 [debug_adapters.Iron]
 
+# Turns the `iron run` / `iron test` tasks of the gutter's run buttons
+# (languages/iron/runnables.scm, tasks.json) into Iron debug sessions.
+[debug_locators.iron]
+
 # The tree-sitter grammar lives in this repository. Zed clones it at `commit`
 # and compiles grammars/tree-sitter/iron/src/parser.c, so the commit must
 # contain the generated src/ (committed since the grammar PR for #347).
