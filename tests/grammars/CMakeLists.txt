@@ -136,6 +136,27 @@ if(IRON_BUILD_GRAMMARS AND IRON_NPM_EXECUTABLE AND IRON_NODE_EXECUTABLE AND BASH
         FIXTURES_REQUIRED tree_sitter_deps
         SKIP_RETURN_CODE 77
         TIMEOUT 60)
+
+    # Every query file Neovim and Zed load compiles against the grammar,
+    # and the editor copies match grammars/tree-sitter/iron/queries/.
+    add_test(NAME test_tree_sitter_queries
+        COMMAND ${BASH_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tests/grammars/tree_sitter/check_queries.sh")
+    set_tests_properties(test_tree_sitter_queries PROPERTIES
+        LABELS "phase-m5-invariant"
+        FIXTURES_REQUIRED tree_sitter_deps
+        SKIP_RETURN_CODE 77
+        TIMEOUT 120)
+
+    # The committed generated parser (read by Zed) matches grammar.js.
+    add_test(NAME test_tree_sitter_parser_in_sync
+        COMMAND ${BASH_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tests/grammars/tree_sitter/check_parser_sync.sh")
+    set_tests_properties(test_tree_sitter_parser_in_sync PROPERTIES
+        LABELS "phase-m5-invariant"
+        FIXTURES_REQUIRED tree_sitter_deps
+        SKIP_RETURN_CODE 77
+        TIMEOUT 120)
 else()
     add_test(NAME test_tree_sitter_corpus
         COMMAND ${CMAKE_COMMAND} -E echo
@@ -160,6 +181,15 @@ else()
     set_tests_properties(test_tree_sitter_v4_rules PROPERTIES
         LABELS "phase-m5-invariant;phase35-invariant"
         SKIP_REGULAR_EXPRESSION "SKIPPED")
+
+    foreach(_ts_shim test_tree_sitter_queries test_tree_sitter_parser_in_sync)
+        add_test(NAME ${_ts_shim}
+            COMMAND ${CMAKE_COMMAND} -E echo
+                    "SKIPPED: tree-sitter-cli pre-reqs missing (npm/node/bash)")
+        set_tests_properties(${_ts_shim} PROPERTIES
+            LABELS "phase-m5-invariant"
+            SKIP_REGULAR_EXPRESSION "SKIPPED")
+    endforeach()
 endif()
 
 # Nested add_subdirectory: the tests/editors/ subtree lands here instead of

@@ -33,13 +33,23 @@ npm; npm must be available at install time).
 ```bash
 cd grammars/tree-sitter/iron
 npm install                    # installs tree-sitter-cli locally
-npx tree-sitter generate       # produces src/parser.c (gitignored)
+npx tree-sitter generate       # regenerates src/ (committed)
 npx tree-sitter test           # runs the 42-fixture corpus
 ```
 
-Generated `src/parser.c` is **not committed** — it is a reproducible
-artifact from `grammar.js`. The committed `grammar.js` is drift-gated
-against the lexer kw_table (see [Regenerating](#regenerating-after-lexer-changes)).
+The generated parser under `src/` (`parser.c`, `grammar.json`,
+`node-types.json`, `tree_sitter/`) **is committed**: Zed builds the grammar
+straight from this repository at a pinned commit and does not run
+`tree-sitter generate`. Regenerate it with tree-sitter-cli 0.26.x (the CI
+version) whenever `grammar.js` changes; the CTest
+`test_tree_sitter_parser_in_sync` and the CI `tree-sitter-wasm` job fail
+when it is stale. The committed `grammar.js` is drift-gated against the
+lexer kw_table (see [Regenerating](#regenerating-after-lexer-changes)).
+
+The queries in `queries/` are the source for the editors: run
+`scripts/sync-editor-queries.sh` after editing them to refresh the copies in
+`editors/neovim/queries/iron/` and `editors/zed/languages/iron/`
+(`test_tree_sitter_queries` compiles all of them against the grammar).
 
 ## WASM Build
 
@@ -111,10 +121,10 @@ Then rebuild the parser locally:
 
 ```bash
 cd grammars/tree-sitter/iron
-npx tree-sitter generate       # rebuilds src/parser.c (gitignored)
+npx tree-sitter generate       # rebuilds src/ (committed)
 ```
 
-Commit `grammar.js` (drift-gated); do NOT commit `src/parser.c`.
+Commit `grammar.js` (drift-gated) together with the regenerated `src/`.
 The CTest `test_grammar_keyword_drift_tree_sitter` diffs
 committed-vs-generated; drift is a hard CI failure.
 
