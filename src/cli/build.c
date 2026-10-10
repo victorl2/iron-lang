@@ -958,6 +958,10 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         static char natvis_flag[4300];
         argv_buf[ai++] = "/link";
         argv_buf[ai++] = "/DEBUG";
+        /* /DEBUG turns on incremental linking, which routes every call
+         * through a jump table; LLDB cannot step into a function through
+         * it (lldb-dap on Windows, #388). */
+        argv_buf[ai++] = "/INCREMENTAL:NO";
         if (write_debug_natvis(c_file, natvis_path, sizeof(natvis_path))) {
             snprintf(natvis_flag, sizeof(natvis_flag), "/NATVIS:%s", natvis_path);
             argv_buf[ai++] = natvis_flag;
