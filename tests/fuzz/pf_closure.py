@@ -129,6 +129,12 @@ class ClosureGen(Gen):
             # a var parameter is written back to the caller: lambdas leave it alone
             vis = self.visible()
             ns = [n for n in ns if not (vis[n][1] and vis[n][2] == n and n not in self.globals)]
+            # A lambda that captures a `var` holding a closure can close a
+            # reference cycle through closure envs, which the runtime only
+            # reclaims for the single recursive lambda (manual 3.7): only
+            # s_crec builds that shape.
+            if typ.startswith('func'):
+                ns = [n for n in ns if not vis[n][1]]
         return ns
 
     # ------------------------------------------------------ expressions
@@ -292,7 +298,9 @@ class ClosureGen(Gen):
         """var f: func(Int) -> Int = ...; f = func(n) { ... f(n - 1) ... }"""
         r = self.r
         name = self.fresh('rf')
-        uid = self.bind(name, F1, True)
+        # its own type tag: copying or replacing the recursive closure could
+        # close a cycle the runtime does not reclaim
+        uid = self.bind(name, F1 + ' rec', True)
         self.push()
         pn = self.fresh('n')
         pu = self.bind(pn, 'Int')
