@@ -5021,16 +5021,37 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
              * scope-exit drop is skipped below); any other place is copied
              * for the caller, who will drop the returned value. */
             IronHIR_Expr *rv = stmt->return_stmt.value;
-            if (rv->kind == IRON_HIR_EXPR_IDENT &&
-                type_needs_drop(ret_type, ctx->program) &&
-                hmgeti(ctx->var_alloca_map, rv->ident.var_id) >= 0 &&
-                !var_is_capture(ctx, rv->ident.var_id) &&
-                !iron_hir_var_is_boxed(ctx->hir, rv->ident.var_id)) {
+            /* Only a binding this frame owns can move: a parameter is lent
+             * by the caller and a global outlives the call, so returning
+             * either copies (the copy hook runs, rc fields are retained). */
+            bool rv_owned = rv->kind == IRON_HIR_EXPR_IDENT &&
+                            hmgeti(ctx->param_map, rv->ident.var_id) < 0 &&
+                            !var_is_capture(ctx, rv->ident.var_id) &&
+                            !iron_hir_var_is_boxed(ctx->hir, rv->ident.var_id);
+            ptrdiff_t rv_slot = rv_owned ? hmgeti(ctx->var_alloca_map, rv->ident.var_id) : -1;
+            if (rv_slot >= 0) {
+                IronLIR_ValueId sv = ctx->var_alloca_map[rv_slot].value;
+                if (sv < (IronLIR_ValueId)arrlen(ctx->current_func->value_table) &&
+                    ctx->current_func->value_table[sv] &&
+                    ctx->current_func->value_table[sv]->kind == IRON_LIR_ALLOCA &&
+                    ctx->current_func->value_table[sv]->alloca.global_name) {
+                    rv_owned = false;
+                    rv_slot = -1;
+                }
+            }
+            if (rv_owned && rv_slot >= 0 &&
+                type_needs_drop(ret_type, ctx->program)) {
                 /* (A captured var belongs to the env, not this frame: it
                  * is copied for the caller below, never moved. A var in
                  * a capture cell is owned by the cell, which other closures
                  * may still share: the caller gets a copy, #246.) */
                 ctx->moved_slot = hmget(ctx->var_alloca_map, rv->ident.var_id);
+            } else if (rv_owned && ret_type && ret_type->kind == IRON_TYPE_OBJECT &&
+                       !type_needs_drop(ret_type, ctx->program) &&
+                       (rv_slot >= 0 || hmgeti(ctx->val_binding_map, rv->ident.var_id) >= 0)) {
+                /* A local of a type with no drop (a copy hook only) moves
+                 * too: copying it ran the copy hook for a value nobody else
+                 * holds, which a droppable local does not. */
             } else if (ctx->cur_is_init && rv->kind == IRON_HIR_EXPR_IDENT &&
                        rv->ident.name && strcmp(rv->ident.name, "self") == 0) {
                 /* init hands the object it built to the caller as is: the
