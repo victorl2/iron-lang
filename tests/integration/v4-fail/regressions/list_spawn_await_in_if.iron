@@ -1,0 +1,11 @@
+-- @expected-error: E0328
+-- A spawn whose await only a branch runs cannot borrow a list (#639).
+func main() {
+    val xs = [1, 2]
+    val t = spawn("t") {
+        return xs.len()
+    }
+    if xs.len() > 5 {
+        println("{await t}")
+    }
+}

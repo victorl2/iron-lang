@@ -46,7 +46,6 @@ typedef struct {
      * argument is fine and any other lambda capturing one is an error. A
      * spawn capturing one must be awaited in the block that starts it. */
     bool               lambda_is_call_arg;
-    bool               spawn_awaited_here;
     /* nocopy captures (#512): how the lambda being reached is used, and
      * whether the spawn being reached is surely awaited in its block. */
     int                lambda_use;       /* LambdaUse */
@@ -92,8 +91,6 @@ static bool type_holds_owned_list(const struct Iron_Type *t, int depth) {
     return false;
 }
 
-/* Does `node` contain `await <name>`? */
-static bool awaits_ident(Iron_Node *node, const char *name);
 
 static void report_list_capture(CaptureCtx *ctx, Iron_Span span, const char *name,
                                 const char *what, const char *help) {
@@ -118,61 +115,6 @@ static void report_list_capture(CaptureCtx *ctx, Iron_Span span, const char *nam
  * pointer value, and the runtime's shared handles Mutex, Channel, RWLock
  * and Arena, which a closure or task holds its own reference to. */
 
-/* Is `t` one of the runtime's reference counted handles a closure or a
- * task may share (manual 7.1)? Their guards are not: they stay nocopy. */
-static bool type_is_shared_handle(const struct Iron_Type *t) {
-    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || !t->object.decl->name)
-        return false;
-    const char *n = t->object.decl->name;
-    return strcmp(n, "Mutex") == 0 || strcmp(n, "Channel") == 0 ||
-           strcmp(n, "RWLock") == 0 || strcmp(n, "Arena") == 0;
-}
-
-/* The nocopy object type `t` is or holds by value (through fields, fixed
- * arrays, optionals, tuples and enum payloads), or NULL. A dynamic list is
- * left to the list rule (E0328); rc, weak rc and pointers share. */
-static const struct Iron_Type *type_nocopy_part(const struct Iron_Type *t, int depth) {
-    if (!t || depth > 16) return NULL;
-    switch ((int)t->kind) {
-        case IRON_TYPE_NULLABLE:
-            return type_nocopy_part(t->nullable.inner, depth + 1);
-        case IRON_TYPE_ARRAY:
-            if (t->array.size < 0 && !t->array.is_bounded) return NULL;
-            return type_nocopy_part(t->array.elem, depth + 1);
-        case IRON_TYPE_TUPLE:
-            for (int i = 0; i < t->tuple.elem_count; i++) {
-                const struct Iron_Type *r = type_nocopy_part(t->tuple.elem_types[i], depth + 1);
-                if (r) return r;
-            }
-            return NULL;
-        case IRON_TYPE_ENUM:
-            if (!t->enu.decl || !t->enu.variant_payload_types) return NULL;
-            for (int v = 0; v < t->enu.decl->variant_count; v++) {
-                Iron_EnumVariant *ev = (Iron_EnumVariant *)t->enu.decl->variants[v];
-                if (!ev || !t->enu.variant_payload_types[v]) continue;
-                for (int k = 0; k < ev->payload_count; k++) {
-                    const struct Iron_Type *r =
-                        type_nocopy_part(t->enu.variant_payload_types[v][k], depth + 1);
-                    if (r) return r;
-                }
-            }
-            return NULL;
-        case IRON_TYPE_OBJECT: {
-            if (!t->object.decl || type_is_shared_handle(t)) return NULL;
-            Iron_ObjectDecl *od = t->object.decl;
-            if (od->is_nocopy) return t;
-            for (int i = 0; i < od->field_count; i++) {
-                Iron_Field *f = (Iron_Field *)od->fields[i];
-                const struct Iron_Type *r = f ? type_nocopy_part(f->resolved_type, depth + 1) : NULL;
-                if (r) return r;
-            }
-            return NULL;
-        }
-        default:
-            return NULL;
-    }
-}
-
 /* A captured value the rule governs: a val binding or parameter (not a
  * `var`, which is shared through its cell, nor a `heap` binding) whose type
  * is or holds a nocopy object. Returns that object type. */
@@ -182,7 +124,7 @@ static const struct Iron_Type *capture_nocopy_part(const Iron_CaptureEntry *c) {
         Iron_ValDecl *vd = (Iron_ValDecl *)c->sym->decl_node;
         if (vd->init && vd->init->kind == IRON_NODE_HEAP) return NULL;
     }
-    return type_nocopy_part(c->type, 0);
+    return iron_type_nocopy_part(c->type);
 }
 
 /* ── Does a callee keep a closure it is given? ───────────────────────────
@@ -1082,12 +1024,18 @@ static void find_captures(CaptureCtx *ctx, Iron_LambdaExpr *le) {
         le->captures      = arr;
         le->capture_count = count;
 
-        if (!ctx->lambda_is_call_arg) {
+        /* A callee that keeps the closure (stores it, a constructor, push)
+         * would keep the borrow past the call too. */
+        if (ctx->lambda_use != LUSE_ARG_BORROW) {
             for (int ci = 0; ci < count; ci++) {
                 if (!type_holds_owned_list(arr[ci].type, 0)) continue;
                 report_list_capture(ctx, le->span, arr[ci].name, "closure",
-                    "a closure bound, returned or stored outlives the borrow: "
-                    "share the list as `rc [T]`, or pass the closure directly as an argument");
+                    ctx->lambda_use == LUSE_ARG_KEEPS || ctx->lambda_use == LUSE_FIELD ||
+                    ctx->lambda_use == LUSE_LIST
+                    ? "the callee keeps the closure (it stores it), so the closure outlives the borrow: "
+                      "share the list as `rc [T]`"
+                    : "a closure bound, returned or stored outlives the borrow: "
+                      "share the list as `rc [T]`, or pass the closure directly as an argument");
                 break;
             }
         }
@@ -1169,12 +1117,15 @@ static void find_spawn_captures(CaptureCtx *ctx, Iron_SpawnStmt *ss) {
         ss->captures      = arr;
         ss->capture_count = count;
 
-        if (!ctx->spawn_awaited_here) {
+        /* An await that a return, break or continue may skip, or that only
+         * a branch runs, leaves the task running past the list. */
+        if (!ctx->spawn_strict_await) {
             for (int ci = 0; ci < count; ci++) {
                 if (!type_holds_owned_list(arr[ci].type, 0)) continue;
                 report_list_capture(ctx, ss->span, arr[ci].name, "spawn",
                     "await the handle in the same block (`val h = spawn(...) {...}` "
-                    "then `await h`), or share the list as `rc [T]`");
+                    "then `await h`, with no return, break or continue before it), "
+                    "or share the list as `rc [T]`");
                 break;
             }
         }
@@ -1242,211 +1193,6 @@ static void find_pfor_captures(CaptureCtx *ctx, Iron_ForStmt *fs) {
 
 /* ── Lambda walker ────────────────────────────────────────────────────────── */
 
-/* Recursively walk `node` searching for IRON_NODE_LAMBDA nodes. When found,
- * first recurse into the lambda body to process nested lambdas (inner-out
- * ordering), then process the lambda itself. */
-static bool awaits_ident(Iron_Node *node, const char *name) {
-    if (!node || !name) return false;
-    switch ((int)(node->kind)) {
-        case IRON_NODE_LAMBDA: {
-            Iron_LambdaExpr *le = (Iron_LambdaExpr *)node;
-            (void)le;
-            break;
-        }
-        case IRON_NODE_BLOCK: {
-            Iron_Block *blk = (Iron_Block *)node;
-            for (int i = 0; i < blk->stmt_count; i++) {
-                if (awaits_ident(blk->stmts[i], name)) return true;
-            }
-            break;
-        }
-        case IRON_NODE_VAL_DECL: {
-            Iron_ValDecl *vd = (Iron_ValDecl *)node;
-            if (awaits_ident(vd->init, name)) return true;
-            break;
-        }
-        case IRON_NODE_VAR_DECL: {
-            Iron_VarDecl *vd = (Iron_VarDecl *)node;
-            if (awaits_ident(vd->init, name)) return true;
-            break;
-        }
-        case IRON_NODE_ASSIGN: {
-            Iron_AssignStmt *as = (Iron_AssignStmt *)node;
-            if (awaits_ident(as->value, name)) return true;
-            break;
-        }
-        case IRON_NODE_RETURN: {
-            Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
-            if (awaits_ident(rs->value, name)) return true;
-            break;
-        }
-        case IRON_NODE_IF: {
-            Iron_IfStmt *is = (Iron_IfStmt *)node;
-            if (awaits_ident(is->condition, name)) return true;
-            if (awaits_ident(is->body, name)) return true;
-            for (int i = 0; i < is->elif_count; i++) {
-                if (awaits_ident(is->elif_conds[i], name)) return true;
-                if (awaits_ident(is->elif_bodies[i], name)) return true;
-            }
-            if (awaits_ident(is->else_body, name)) return true;
-            break;
-        }
-        case IRON_NODE_WHILE: {
-            Iron_WhileStmt *ws = (Iron_WhileStmt *)node;
-            if (awaits_ident(ws->condition, name)) return true;
-            if (awaits_ident(ws->body, name)) return true;
-            break;
-        }
-        case IRON_NODE_FOR: {
-            Iron_ForStmt *fs = (Iron_ForStmt *)node;
-            if (awaits_ident(fs->iterable, name)) return true;
-            if (awaits_ident(fs->body, name)) return true;
-            break;
-        }
-        case IRON_NODE_MATCH: {
-            Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
-            if (awaits_ident(ms->subject, name)) return true;
-            for (int i = 0; i < ms->case_count; i++) {
-                if (awaits_ident(ms->cases[i], name)) return true;
-            }
-            if (awaits_ident(ms->else_body, name)) return true;
-            break;
-        }
-        case IRON_NODE_MATCH_CASE: {
-            Iron_MatchCase *mc = (Iron_MatchCase *)node;
-            if (awaits_ident(mc->body, name)) return true;
-            break;
-        }
-        case IRON_NODE_CALL: {
-            Iron_CallExpr *ce = (Iron_CallExpr *)node;
-            if (awaits_ident(ce->callee, name)) return true;
-            for (int i = 0; i < ce->arg_count; i++) {
-                if (awaits_ident(ce->args[i], name)) return true;
-            }
-            break;
-        }
-        case IRON_NODE_METHOD_CALL: {
-            Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
-            if (awaits_ident(mc->object, name)) return true;
-            for (int i = 0; i < mc->arg_count; i++) {
-                if (awaits_ident(mc->args[i], name)) return true;
-            }
-            break;
-        }
-        case IRON_NODE_BINARY: {
-            Iron_BinaryExpr *be = (Iron_BinaryExpr *)node;
-            if (awaits_ident(be->left, name)) return true;
-            if (awaits_ident(be->right, name)) return true;
-            break;
-        }
-        case IRON_NODE_UNARY: {
-            Iron_UnaryExpr *ue = (Iron_UnaryExpr *)node;
-            if (awaits_ident(ue->operand, name)) return true;
-            break;
-        }
-        case IRON_NODE_FIELD_ACCESS: {
-            Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
-            if (awaits_ident(fa->object, name)) return true;
-            break;
-        }
-        case IRON_NODE_INDEX: {
-            Iron_IndexExpr *ie = (Iron_IndexExpr *)node;
-            if (awaits_ident(ie->object, name)) return true;
-            if (awaits_ident(ie->index, name)) return true;
-            break;
-        }
-        case IRON_NODE_SLICE: {
-            Iron_SliceExpr *se = (Iron_SliceExpr *)node;
-            if (awaits_ident(se->object, name)) return true;
-            if (awaits_ident(se->start, name)) return true;
-            if (awaits_ident(se->end, name)) return true;
-            break;
-        }
-        case IRON_NODE_HEAP: {
-            Iron_HeapExpr *he = (Iron_HeapExpr *)node;
-            if (awaits_ident(he->inner, name)) return true;
-            break;
-        }
-        case IRON_NODE_RC: {
-            Iron_RcExpr *re = (Iron_RcExpr *)node;
-            if (awaits_ident(re->inner, name)) return true;
-            break;
-        }
-        case IRON_NODE_COMPTIME: {
-            Iron_ComptimeExpr *ce = (Iron_ComptimeExpr *)node;
-            if (awaits_ident(ce->inner, name)) return true;
-            break;
-        }
-        case IRON_NODE_IS: {
-            Iron_IsExpr *ie = (Iron_IsExpr *)node;
-            if (awaits_ident(ie->expr, name)) return true;
-            break;
-        }
-        case IRON_NODE_AWAIT: {
-            Iron_AwaitExpr *ae = (Iron_AwaitExpr *)node;
-            if (ae->handle && ae->handle->kind == IRON_NODE_IDENT &&
-                ((Iron_Ident *)ae->handle)->name &&
-                strcmp(((Iron_Ident *)ae->handle)->name, name) == 0)
-                return true;
-            if (awaits_ident(ae->handle, name)) return true;
-            break;
-        }
-        case IRON_NODE_CONSTRUCT: {
-            Iron_ConstructExpr *ce = (Iron_ConstructExpr *)node;
-            for (int i = 0; i < ce->arg_count; i++) {
-                if (awaits_ident(ce->args[i], name)) return true;
-            }
-            break;
-        }
-        case IRON_NODE_ARRAY_LIT: {
-            Iron_ArrayLit *al = (Iron_ArrayLit *)node;
-            if (awaits_ident(al->size, name)) return true;
-            for (int i = 0; i < al->element_count; i++) {
-                if (awaits_ident(al->elements[i], name)) return true;
-            }
-            break;
-        }
-        case IRON_NODE_INTERP_STRING: {
-            Iron_InterpString *is = (Iron_InterpString *)node;
-            for (int i = 0; i < is->part_count; i++) {
-                if (awaits_ident(is->parts[i], name)) return true;
-            }
-            break;
-        }
-        case IRON_NODE_FREE: {
-            Iron_FreeStmt *fs = (Iron_FreeStmt *)node;
-            if (awaits_ident(fs->expr, name)) return true;
-            break;
-        }
-        case IRON_NODE_LEAK: {
-            Iron_LeakStmt *ls = (Iron_LeakStmt *)node;
-            if (awaits_ident(ls->expr, name)) return true;
-            break;
-        }
-        case IRON_NODE_DEFER: {
-            Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
-            if (awaits_ident(ds->expr, name)) return true;
-            break;
-        }
-        case IRON_NODE_IN_ARENA: {
-            Iron_InArenaBlock *ia = (Iron_InArenaBlock *)node;
-            if (awaits_ident(ia->body, name)) return true;
-            break;
-        }
-        case IRON_NODE_SPAWN: {
-            Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
-            (void)ss;
-            break;
-        }
-        /* -Wswitch-enum opt-out: walk_node_for_lambdas is a generic AST
-         * walker; every kind that does not contain a lambda / spawn / pfor
-         * is a valid no-op. */
-        default:
-            break;
-    }
-    return false;
-}
-
 /* Walk `child` with the lambda use `use` (it applies only if `child` is
  * itself a lambda literal: walk_node_for_lambdas clears it otherwise). */
 static void walk_with_use(CaptureCtx *ctx, Iron_Node *child, int use, const char *name) {
@@ -1512,27 +1258,20 @@ static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
             for (int i = 0; i < blk->stmt_count; i++) {
                 Iron_Node *st = blk->stmts[i];
                 /* `val h = spawn(...) {...}` awaited later in this block. */
-                bool prev = ctx->spawn_awaited_here;
                 bool prev_strict = ctx->spawn_strict_await;
                 bool prev_stmt = ctx->spawn_is_stmt;
                 ctx->spawn_strict_await = false;
                 ctx->spawn_is_stmt = st && st->kind == IRON_NODE_SPAWN;
                 if (st && st->kind == IRON_NODE_VAL_DECL) {
                     Iron_ValDecl *vd = (Iron_ValDecl *)st;
-                    if (vd->init && vd->init->kind == IRON_NODE_SPAWN && vd->name) {
-                        bool awaited = false;
-                        for (int j = i + 1; j < blk->stmt_count && !awaited; j++)
-                            awaited = awaits_ident(blk->stmts[j], vd->name);
-                        ctx->spawn_awaited_here = awaited;
+                    if (vd->init && vd->init->kind == IRON_NODE_SPAWN && vd->name)
                         ctx->spawn_strict_await = spawn_surely_awaited(blk, i, vd->name);
-                    }
                 } else if (st && st->kind == IRON_NODE_VAR_DECL) {
                     Iron_VarDecl *vd = (Iron_VarDecl *)st;
                     if (vd->init && vd->init->kind == IRON_NODE_SPAWN && vd->name)
                         ctx->spawn_strict_await = spawn_surely_awaited(blk, i, vd->name);
                 }
                 walk_node_for_lambdas(ctx, st);
-                ctx->spawn_awaited_here = prev;
                 ctx->spawn_strict_await = prev_strict;
                 ctx->spawn_is_stmt = prev_stmt;
             }
@@ -1670,16 +1409,13 @@ static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_AWAIT: {
             Iron_AwaitExpr *ae = (Iron_AwaitExpr *)node;
-            bool prev = ctx->spawn_awaited_here;
             bool prev_strict = ctx->spawn_strict_await;
             bool prev_stmt = ctx->spawn_is_stmt;
             if (ae->handle && ae->handle->kind == IRON_NODE_SPAWN) {
-                ctx->spawn_awaited_here = true;
                 ctx->spawn_strict_await = true;
                 ctx->spawn_is_stmt = false;
             }
             walk_node_for_lambdas(ctx, ae->handle);
-            ctx->spawn_awaited_here = prev;
             ctx->spawn_strict_await = prev_strict;
             ctx->spawn_is_stmt = prev_stmt;
             break;
@@ -1886,7 +1622,6 @@ void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
     ctx.arena            = arena;
     ctx.diags            = diags;
     ctx.lambda_is_call_arg = false;
-    ctx.spawn_awaited_here = false;
     ctx.cancel_flag      = cancel_flag;
     ctx.readonly_context = false;
     ctx.program          = program;

@@ -1,0 +1,16 @@
+-- @expected-error: E0328
+-- A callee that stores its closure parameter keeps the closure past the
+-- list it borrows (#639).
+object B {
+    val f: func() -> Int
+}
+func keep(f: func() -> Int) -> B {
+    return B(f)
+}
+func make() -> B {
+    val xs = [1, 2, 3]
+    return keep(func() -> Int { return xs.len() })
+}
+func main() {
+    println("{make().f()}")
+}
