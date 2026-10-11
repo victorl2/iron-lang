@@ -724,6 +724,9 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     /* Int overflow wraps (section 10.6): the same -fwrapv the other hosts
      * pass. clang-cl already relaxes strict aliasing, as MSVC does. */
     argv_buf[ai++] = "/clang:-fwrapv";
+    /* Float arithmetic is IEEE double, rounded after every operation:
+     * no fused multiply-add (section 10.6). */
+    argv_buf[ai++] = "/clang:-ffp-contract=off";
     /* ...so clang's overflow warnings on the generated C are noise. */
     argv_buf[ai++] = "/clang:-Wno-integer-overflow";
     /* The runtime uses the standard C library by name; the UCRT's
@@ -816,6 +819,10 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     /* Overflow wraps by definition: clang's warning on the C is noise. */
     argv_buf[ai++] = "-Wno-integer-overflow";
     argv_buf[ai++] = "-fno-strict-aliasing";
+    /* Float arithmetic rounds after every operation (section 10.6): with
+     * the default contraction `a * b + c` became one fused multiply-add on
+     * arm64 and printed another value than on x86-64. */
+    argv_buf[ai++] = "-ffp-contract=off";
     if (iron_toolchain_sysroot()) {
         argv_buf[ai++] = "-isysroot";
         argv_buf[ai++] = iron_toolchain_sysroot();
@@ -1080,6 +1087,10 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
     /* Overflow wraps by definition: clang's warning on the C is noise. */
     argv_buf[ai++] = "-Wno-integer-overflow";
     argv_buf[ai++] = "-fno-strict-aliasing";
+    /* Float arithmetic rounds after every operation (section 10.6): with
+     * the default contraction `a * b + c` became one fused multiply-add on
+     * arm64 and printed another value than on x86-64. */
+    argv_buf[ai++] = "-ffp-contract=off";
     if (iron_toolchain_sysroot()) {
         argv_buf[ai++] = "-isysroot";
         argv_buf[ai++] = iron_toolchain_sysroot();
@@ -1360,6 +1371,7 @@ static int invoke_cross(const char *c_file, const char *output, IronBuildOpts op
     cc[ci++] = "-fwrapv";
     cc[ci++] = "-Wno-integer-overflow";
     cc[ci++] = "-fno-strict-aliasing";
+    cc[ci++] = "-ffp-contract=off";
     cc[ci++] = opts.release ? "-O2" : "-O3";
     cc[ci++] = "-nostdinc";
     cc[ci++] = "-isystem";

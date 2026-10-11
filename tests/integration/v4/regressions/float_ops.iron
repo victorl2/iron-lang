@@ -1,0 +1,22 @@
+-- Float is an IEEE double rounded after every operation: `a * b + c` was
+-- contracted into one fused multiply-add on arm64 (clang's default), so
+-- 7.0 * 0.1 + 0.2 printed 0.9 there and 0.9000000000000001 on x86-64.
+-- `%` on floats (manual 3.2: + - * / % on any numeric type) emitted C's `%`,
+-- which does not compile on doubles.
+func pk(x: Float) -> Float {
+    return x
+}
+
+func main() {
+    val a = pk(7.0)
+    val b = pk(0.1)
+    val c = pk(0.2)
+    println("{a * b + c} {c + a * b} {a * b - c}")
+    val f = pk(7.5)
+    val g = pk(2.0)
+    var h = pk(-7.25)
+    h = h % 2.0
+    val s: Float32 = 5.5
+    val t: Float32 = 2.0
+    println("{f % g} {-f % g} {h} {7.5 % 2.0} {s % t}")
+}

@@ -19,12 +19,27 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <inttypes.h>
+
+#include "util/pthread_compat.h"
 /* WR-10: <sys/stat.h> and <errno.h> were only needed by the
  * comptime_cache_{read,write} functions, which have been deleted as
  * dead code (cache read returned a value that was always discarded,
  * cache write had no corresponding live reader). */
 
 /* ── Internal helpers ────────────────────────────────────────────────────── */
+
+#define IRON_COMPTIME_MAX_DEPTH 256
+
+/* The evaluator recurses once per nested Iron call; its frames stay small
+ * (message buffers live in out-of-line helpers) so 256 calls fit in a
+ * 1 MB thread stack, the Windows default. */
+#if defined(__GNUC__) || defined(__clang__)
+#define IRON_COMPTIME_NOINLINE __attribute__((noinline))
+#elif defined(_MSC_VER)
+#define IRON_COMPTIME_NOINLINE __declspec(noinline)
+#else
+#define IRON_COMPTIME_NOINLINE
+#endif
 
 static Iron_ComptimeVal *cval_alloc(Iron_ComptimeCtx *ctx,
                                      Iron_ComptimeValKind kind) {
@@ -59,6 +74,36 @@ static Iron_ComptimeVal *cval_string(Iron_ComptimeCtx *ctx,
     Iron_ComptimeVal *v = cval_alloc(ctx, IRON_CVAL_STRING);
     v->as_string.data = data;
     v->as_string.len  = len;
+    return v;
+}
+
+/* A copy of v with storage of its own: lists and objects are values. */
+static Iron_ComptimeVal *cval_copy(Iron_ComptimeCtx *ctx, Iron_ComptimeVal *v) {
+    if (!v) return v;
+    if (v->kind == IRON_CVAL_ARRAY) {
+        Iron_ComptimeVal *c = cval_alloc(ctx, IRON_CVAL_ARRAY);
+        if (!c) return v;
+        c->as_array.count = v->as_array.count;
+        c->as_array.elems = iron_arena_alloc(ctx->arena,
+            (size_t)(v->as_array.count ? v->as_array.count : 1) * sizeof(Iron_ComptimeVal *),
+            _Alignof(Iron_ComptimeVal *));
+        if (!c->as_array.elems) return v;
+        for (int i = 0; i < v->as_array.count; i++)
+            c->as_array.elems[i] = cval_copy(ctx, v->as_array.elems[i]);
+        return c;
+    }
+    if (v->kind == IRON_CVAL_STRUCT) {
+        Iron_ComptimeVal *c = cval_alloc(ctx, IRON_CVAL_STRUCT);
+        if (!c) return v;
+        c->as_struct = v->as_struct;
+        c->as_struct.field_vals = iron_arena_alloc(ctx->arena,
+            (size_t)(v->as_struct.field_count ? v->as_struct.field_count : 1) *
+                sizeof(Iron_ComptimeVal *), _Alignof(Iron_ComptimeVal *));
+        if (!c->as_struct.field_vals) return v;
+        for (int i = 0; i < v->as_struct.field_count; i++)
+            c->as_struct.field_vals[i] = cval_copy(ctx, v->as_struct.field_vals[i]);
+        return c;
+    }
     return v;
 }
 
@@ -186,31 +231,19 @@ static Iron_ComptimeVal *eval_binary_vals(Iron_ComptimeCtx *ctx, Iron_OpKind op,
                  * overflowing comptime expression becomes a diagnostic
                  * instead of optimizer-dependent behavior. */
                 int64_t result;
-                if (__builtin_add_overflow(lv->as_int, rv->as_int, &result)) {
-                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                               "comptime: integer overflow in addition");
-                    return cval_null(ctx);
-                }
+                (void)__builtin_add_overflow(lv->as_int, rv->as_int, &result);  /* wraps */
                 return cval_int(ctx, result);
             }
             case IRON_TOK_MINUS: {
                 /* FIX-01 rank 14: signed int64_t subtraction overflow is UB. */
                 int64_t result;
-                if (__builtin_sub_overflow(lv->as_int, rv->as_int, &result)) {
-                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                               "comptime: integer overflow in subtraction");
-                    return cval_null(ctx);
-                }
+                (void)__builtin_sub_overflow(lv->as_int, rv->as_int, &result);  /* wraps */
                 return cval_int(ctx, result);
             }
             case IRON_TOK_STAR: {
                 /* FIX-01 rank 14: signed int64_t multiplication overflow is UB. */
                 int64_t result;
-                if (__builtin_mul_overflow(lv->as_int, rv->as_int, &result)) {
-                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                               "comptime: integer overflow in multiplication");
-                    return cval_null(ctx);
-                }
+                (void)__builtin_mul_overflow(lv->as_int, rv->as_int, &result);  /* wraps */
                 return cval_int(ctx, result);
             }
             case IRON_TOK_SLASH:
@@ -220,11 +253,8 @@ static Iron_ComptimeVal *eval_binary_vals(Iron_ComptimeCtx *ctx, Iron_OpKind op,
                     return cval_null(ctx);
                 }
                 /* FIX-01 rank 14: INT64_MIN / -1 is also UB (C11 6.5.5p6). */
-                if (lv->as_int == INT64_MIN && rv->as_int == -1) {
-                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                               "comptime: integer overflow in division (INT64_MIN / -1)");
-                    return cval_null(ctx);
-                }
+                if (lv->as_int == INT64_MIN && rv->as_int == -1)
+                    return cval_int(ctx, INT64_MIN);   /* wraps, as at run time */
                 return cval_int(ctx, lv->as_int / rv->as_int);
             case IRON_TOK_PERCENT:
                 if (rv->as_int == 0) {
@@ -233,11 +263,8 @@ static Iron_ComptimeVal *eval_binary_vals(Iron_ComptimeCtx *ctx, Iron_OpKind op,
                     return cval_null(ctx);
                 }
                 /* FIX-01 rank 14: INT64_MIN % -1 is also UB. */
-                if (lv->as_int == INT64_MIN && rv->as_int == -1) {
-                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                               "comptime: integer overflow in modulo (INT64_MIN % -1)");
-                    return cval_null(ctx);
-                }
+                if (lv->as_int == INT64_MIN && rv->as_int == -1)
+                    return cval_int(ctx, 0);
                 return cval_int(ctx, lv->as_int % rv->as_int);
             case IRON_TOK_EQUALS:     return cval_bool(ctx, lv->as_int == rv->as_int);
             case IRON_TOK_NOT_EQUALS: return cval_bool(ctx, lv->as_int != rv->as_int);
@@ -291,8 +318,17 @@ static Iron_ComptimeVal *eval_binary_vals(Iron_ComptimeCtx *ctx, Iron_OpKind op,
         }
     }
 
-    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-               "comptime: unsupported binary operation");
+    {
+        /* Bitwise operators, shifts and string concatenation or comparison
+         * are not available at compile time (manual 8): E0231. */
+        bool on_strings = lv->kind == IRON_CVAL_STRING || rv->kind == IRON_CVAL_STRING;
+        emit_error_help(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
+                        on_strings
+                            ? "comptime: string operators are not available at compile time"
+                            : "comptime: this operator is not available at compile time",
+                        "compile-time evaluation covers + - * / %, comparisons, and, or "
+                        "and not on numbers and booleans");
+    }
     return cval_null(ctx);
 }
 
@@ -313,19 +349,112 @@ static Iron_OpKind comptime_compound_base_op(Iron_OpKind op) {
     }
 }
 
+/* Whether the program declares an anonymous init for the object. */
+static bool comptime_object_has_init(Iron_ComptimeCtx *ctx, const char *type_name) {
+    if (!ctx->program || !type_name) return false;
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (md->is_init && !md->init_name && md->type_name &&
+            strcmp(md->type_name, type_name) == 0)
+            return true;
+    }
+    return false;
+}
+
+/* The file read of `read_file(path)`, out of line: its path buffer used to
+ * sit in the frame of the recursive evaluator, once per nested call. */
+static IRON_COMPTIME_NOINLINE Iron_ComptimeVal *comptime_read_file(Iron_ComptimeCtx *ctx,
+                                                                   Iron_Node *node,
+                                                                   const char *rel) {
+    /* Build full path: source_file_dir + "/" + arg */
+    char full_path[4096];
+    if (ctx->source_file_dir && ctx->source_file_dir[0] != '\0') {
+        snprintf(full_path, sizeof(full_path), "%s/%s",
+                 ctx->source_file_dir, rel);
+    } else {
+        snprintf(full_path, sizeof(full_path), "%s", rel);
+    }
+
+    FILE *rf = fopen(full_path, "rb");
+    if (!rf) {
+        char msg[512];
+        snprintf(msg, sizeof(msg),
+                 "comptime read_file: cannot open '%s'", full_path);
+        const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+        if (!msg_copy) { /* HARD-09 REPLACE (comptime.c:iron_comptime_eval_expr read_file error msg) */ msg_copy = "analyzer error"; }
+        emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                   msg_copy);
+        return cval_null(ctx);
+    }
+    if (fseek(rf, 0, SEEK_END) != 0) {
+        fclose(rf);
+        emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                   "comptime read_file: cannot seek file");
+        return cval_null(ctx);
+    }
+    long fsize = ftell(rf);
+    rewind(rf);
+    if (fsize < 0) fsize = 0;
+    char *fbuf = iron_arena_alloc(ctx->arena, (size_t)fsize + 1,
+                                  _Alignof(char));
+    if (!fbuf) { /* HARD-09 REPLACE (comptime.c:iron_comptime_eval_expr read_file fbuf) */ return NULL; }
+    size_t nread = fread(fbuf, 1, (size_t)fsize, rf);
+    fclose(rf);
+    fbuf[nread] = '\0';
+
+    ctx->steps++;  /* count read_file as 1 step */
+    return cval_string(ctx, fbuf, nread);
+}
+
+static IRON_COMPTIME_NOINLINE void comptime_not_callable(Iron_ComptimeCtx *ctx, Iron_Node *node,
+                                                        const char *func_name) {
+    char msg[256];
+    snprintf(msg, sizeof(msg), "comptime: '%s' cannot be called at compile time", func_name);
+    emit_error_help(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
+                    iron_arena_strdup(ctx->arena, msg, strlen(msg)),
+                    "compile-time evaluation calls top-level Iron functions");
+}
+
+static IRON_COMPTIME_NOINLINE void comptime_unavailable_kind(Iron_ComptimeCtx *ctx,
+                                                            Iron_Node *node) {
+    /* Name what is not available (manual 8); "expression kind not
+     * supported" left the reader to guess which part. */
+    const char *what =
+        node->kind == IRON_NODE_METHOD_CALL  ? "a method call" :
+        node->kind == IRON_NODE_FIELD_ACCESS ? "field access" :
+        node->kind == IRON_NODE_SLICE        ? "slicing" :
+        node->kind == IRON_NODE_INTERP_STRING ? "string interpolation" :
+        node->kind == IRON_NODE_LAMBDA       ? "a lambda" :
+        node->kind == IRON_NODE_IS           ? "a type test" : "match";
+    char msg[160];
+    if (node->kind == IRON_NODE_METHOD_CALL && ((Iron_MethodCallExpr *)node)->method)
+        snprintf(msg, sizeof(msg), "comptime: method calls are not available at compile time ('.%s()')",
+                 ((Iron_MethodCallExpr *)node)->method);
+    else
+        snprintf(msg, sizeof(msg), "comptime: %s is not available at compile time", what);
+    const char *help =
+        (node->kind == IRON_NODE_METHOD_CALL && ((Iron_MethodCallExpr *)node)->method &&
+         strcmp(((Iron_MethodCallExpr *)node)->method, "push") == 0)
+        ? "build the list with fill(n, v) and assign its elements, xs[i] = v"
+        : "compile-time evaluation covers literals, arithmetic, list indexing, "
+          "object construction, len / range / fill / read_file and calls to "
+          "top-level functions";
+    emit_error_help(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
+                    iron_arena_strdup(ctx->arena, msg, strlen(msg)), help);
+}
+
 Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                                            Iron_Node *node) {
     if (!node || ctx->had_error) return cval_null(ctx);
 
-    /* Call depth guard: prevents C stack overflow from recursive comptime.
-     * Each function call adds multiple C frames (eval_expr -> eval_stmt ->
-     * eval_stmts -> eval_stmt -> eval_expr...), so 50 nested Iron function
-     * calls translates to ~200+ C stack frames — safely within typical
-     * 8MB stack limits while still allowing non-trivial recursion like
-     * fib(10) which has max depth ~10. */
-    if (ctx->call_depth >= 50) {
+    /* Call depth guard: each Iron call nests a dozen C frames of this
+     * evaluator, so recursion is bounded (manual 8) well inside the
+     * smallest default thread stack (1 MB on Windows). */
+    if (ctx->call_depth >= IRON_COMPTIME_MAX_DEPTH) {
         emit_error(ctx, IRON_ERR_COMPTIME_STEP_LIMIT, node->span,
-                   "comptime evaluation exceeded step limit (1000000 steps)");
+                   "comptime evaluation nests calls more than 256 deep");
         return cval_null(ctx);
     }
 
@@ -381,9 +510,11 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
             Iron_Ident *id = (Iron_Ident *)node;
             Iron_ComptimeVal *val = lookup_local(ctx, id->name);
             if (val) return val;
-            /* Could be a global constant — not supported in basic comptime */
-            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                       "comptime: unresolved identifier in comptime context");
+            /* A global (or anything else outside the evaluated function):
+             * not available at compile time (manual 8). */
+            emit_error_help(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
+                            "comptime: only parameters and local bindings can be read at compile time",
+                            "pass the value as an argument");
             return cval_null(ctx);
         }
 
@@ -438,12 +569,8 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                      * behavior (C11 6.5.3.3p3) because INT64_MAX cannot
                      * represent -(INT64_MIN) = 9223372036854775808.
                      * Reject it explicitly before the negation. */
-                    if (operand->as_int == INT64_MIN) {
-                        emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                                   "comptime: integer overflow in negation (INT64_MIN)");
-                        return cval_null(ctx);
-                    }
-                    return cval_int(ctx, -operand->as_int);
+                    /* -INT64_MIN wraps to INT64_MIN, as at run time. */
+                    return cval_int(ctx, (int64_t)(0u - (uint64_t)operand->as_int));
                 }
                 if (operand->kind == IRON_CVAL_FLOAT)
                     return cval_float(ctx, -operand->as_float);
@@ -453,8 +580,8 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                     return cval_bool(ctx, !operand->as_bool);
             }
 
-            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                       "comptime: unsupported unary operation");
+            emit_error(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
+                       "comptime: this operator is not available at compile time");
             return cval_null(ctx);
         }
 
@@ -516,7 +643,8 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                     (size_t)(n->as_int ? n->as_int : 1) * sizeof(Iron_ComptimeVal *),
                     _Alignof(Iron_ComptimeVal *));
                 if (!arr->as_array.elems) return cval_null(ctx);
-                for (int64_t i = 0; i < n->as_int; i++) arr->as_array.elems[i] = fv;
+                for (int64_t i = 0; i < n->as_int; i++)
+                    arr->as_array.elems[i] = i == 0 ? fv : cval_copy(ctx, fv);
                 ctx->steps += n->as_int;
                 return arr;
             }
@@ -547,52 +675,57 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                     return cval_null(ctx);
                 }
 
-                /* Build full path: source_file_dir + "/" + arg */
-                const char *rel = path_val->as_string.data;
-                char full_path[4096];
-                if (ctx->source_file_dir && ctx->source_file_dir[0] != '\0') {
-                    snprintf(full_path, sizeof(full_path), "%s/%s",
-                             ctx->source_file_dir, rel);
-                } else {
-                    snprintf(full_path, sizeof(full_path), "%s", rel);
-                }
+                return comptime_read_file(ctx, node, path_val->as_string.data);
+            }
 
-                FILE *rf = fopen(full_path, "rb");
-                if (!rf) {
-                    char msg[512];
-                    snprintf(msg, sizeof(msg),
-                             "comptime read_file: cannot open '%s'", full_path);
-                    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-                    if (!msg_copy) { /* HARD-09 REPLACE (comptime.c:iron_comptime_eval_expr read_file error msg) */ msg_copy = "analyzer error"; }
-                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                               msg_copy);
-                    return cval_null(ctx);
-                }
-                if (fseek(rf, 0, SEEK_END) != 0) {
-                    fclose(rf);
-                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                               "comptime read_file: cannot seek file");
-                    return cval_null(ctx);
-                }
-                long fsize = ftell(rf);
-                rewind(rf);
-                if (fsize < 0) fsize = 0;
-                char *fbuf = iron_arena_alloc(ctx->arena, (size_t)fsize + 1,
-                                              _Alignof(char));
-                if (!fbuf) { /* HARD-09 REPLACE (comptime.c:iron_comptime_eval_expr read_file fbuf) */ return NULL; }
-                size_t nread = fread(fbuf, 1, (size_t)fsize, rf);
-                fclose(rf);
-                fbuf[nread] = '\0';
-
-                ctx->steps++;  /* count read_file as 1 step */
-                return cval_string(ctx, fbuf, nread);
+            /* Int(x), Float(x) and the other conversions are not in the
+             * compile-time subset (manual 8). */
+            if (call->is_primitive_cast) {
+                emit_error_help(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
+                                "comptime: conversions are not available at compile time",
+                                "compute with one numeric type");
+                return cval_null(ctx);
             }
 
             /* Look up function in global scope */
             Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, func_name);
+
+            /* `Point(1, 2)`: object construction (manual 8). The value is
+             * its fields; an object with an init would have to run it,
+             * which compile-time evaluation does not do. */
+            if (sym && sym->sym_kind == IRON_SYM_TYPE && sym->decl_node &&
+                sym->decl_node->kind == IRON_NODE_OBJECT_DECL) {
+                Iron_ObjectDecl *od = (Iron_ObjectDecl *)sym->decl_node;
+                if (comptime_object_has_init(ctx, od->name) ||
+                    od->generic_param_count > 0 || call->arg_count != od->field_count) {
+                    emit_error_help(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
+                                    "comptime: only an object without an init can be built at compile time",
+                                    "construct it positionally, one argument per field");
+                    return cval_null(ctx);
+                }
+                Iron_ComptimeVal *v = cval_alloc(ctx, IRON_CVAL_STRUCT);
+                if (!v) return cval_null(ctx);
+                int fc = od->field_count;
+                v->as_struct.type_name = od->name;
+                v->as_struct.field_count = fc;
+                v->as_struct.field_names = iron_arena_alloc(ctx->arena,
+                    (size_t)(fc ? fc : 1) * sizeof(const char *), _Alignof(const char *));
+                v->as_struct.field_vals = iron_arena_alloc(ctx->arena,
+                    (size_t)(fc ? fc : 1) * sizeof(Iron_ComptimeVal *),
+                    _Alignof(Iron_ComptimeVal *));
+                if (!v->as_struct.field_names || !v->as_struct.field_vals) return cval_null(ctx);
+                for (int i = 0; i < fc; i++) {
+                    v->as_struct.field_names[i] = ((Iron_Field *)od->fields[i])->name;
+                    /* fields are values: a list argument is copied in */
+                    v->as_struct.field_vals[i] =
+                        cval_copy(ctx, iron_comptime_eval_expr(ctx, call->args[i]));
+                    if (ctx->had_error) return cval_null(ctx);
+                }
+                return v;
+            }
+
             if (!sym || sym->sym_kind != IRON_SYM_FUNCTION) {
-                emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                           "comptime: function not found in global scope");
+                comptime_not_callable(ctx, node, func_name);
                 return cval_null(ctx);
             }
 
@@ -604,9 +737,9 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
             }
 
             /* Depth + step check — depth check first prevents stack overflow */
-            if (ctx->call_depth >= 10000) {
+            if (ctx->call_depth >= IRON_COMPTIME_MAX_DEPTH) {
                 emit_error(ctx, IRON_ERR_COMPTIME_STEP_LIMIT, node->span,
-                           "comptime evaluation exceeded step limit (1000000 steps)");
+                           "comptime evaluation nests calls more than 256 deep");
                 return cval_null(ctx);
             }
             ctx->steps++;
@@ -770,30 +903,7 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
         case IRON_NODE_LAMBDA:
         case IRON_NODE_IS:
         case IRON_NODE_MATCH: {
-            /* Name what is not available (manual 8); "expression kind not
-             * supported" left the reader to guess which part. */
-            const char *what =
-                node->kind == IRON_NODE_METHOD_CALL  ? "a method call" :
-                node->kind == IRON_NODE_FIELD_ACCESS ? "field access" :
-                node->kind == IRON_NODE_SLICE        ? "slicing" :
-                node->kind == IRON_NODE_INTERP_STRING ? "string interpolation" :
-                node->kind == IRON_NODE_LAMBDA       ? "a lambda" :
-                node->kind == IRON_NODE_IS           ? "a type test" : "match";
-            char msg[160];
-            if (node->kind == IRON_NODE_METHOD_CALL && ((Iron_MethodCallExpr *)node)->method)
-                snprintf(msg, sizeof(msg), "comptime: method calls are not available at compile time ('.%s()')",
-                         ((Iron_MethodCallExpr *)node)->method);
-            else
-                snprintf(msg, sizeof(msg), "comptime: %s is not available at compile time", what);
-            const char *help =
-                (node->kind == IRON_NODE_METHOD_CALL && ((Iron_MethodCallExpr *)node)->method &&
-                 strcmp(((Iron_MethodCallExpr *)node)->method, "push") == 0)
-                ? "build the list with fill(n, v) and assign its elements, xs[i] = v"
-                : "compile-time evaluation covers literals, arithmetic, list indexing, "
-                  "object construction, len / range / fill / read_file and calls to "
-                  "top-level functions";
-            emit_error_help(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
-                            iron_arena_strdup(ctx->arena, msg, strlen(msg)), help);
+            comptime_unavailable_kind(ctx, node);
             return cval_null(ctx);
         }
 
@@ -818,9 +928,9 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
 static void eval_stmt(Iron_ComptimeCtx *ctx, Iron_Node *node) {
     if (!node || ctx->had_error || ctx->had_return) return;
     /* Guard against deep recursion (mirrors the check in eval_expr) */
-    if (ctx->call_depth >= 50) {
+    if (ctx->call_depth >= IRON_COMPTIME_MAX_DEPTH) {
         emit_error(ctx, IRON_ERR_COMPTIME_STEP_LIMIT, node->span,
-                   "comptime evaluation exceeded step limit (1000000 steps)");
+                   "comptime evaluation nests calls more than 256 deep");
         return;
     }
 
@@ -1127,9 +1237,34 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
             return (Iron_Node *)al;
         }
 
-        /* AUDIT-02 #9: STRUCT / NULL round-trip back to AST is not supported
-         * yet — returning NULL propagates as a comptime error upstream. */
-        case IRON_CVAL_STRUCT:
+        /* An object built at compile time: the positional construction of
+         * its field values (objects without an init only, see CALL). */
+        case IRON_CVAL_STRUCT: {
+            if (!resolved_type || resolved_type->kind != IRON_TYPE_OBJECT ||
+                !resolved_type->object.decl)
+                return NULL;
+            Iron_ObjectDecl *od = resolved_type->object.decl;
+            if (od->field_count != val->as_struct.field_count) return NULL;
+            Iron_ConstructExpr *ce = iron_arena_alloc(arena, sizeof(Iron_ConstructExpr),
+                                                      _Alignof(Iron_ConstructExpr));
+            if (!ce) return NULL;
+            memset(ce, 0, sizeof(*ce));
+            ce->span          = span;
+            ce->kind          = IRON_NODE_CONSTRUCT;
+            ce->resolved_type = resolved_type;
+            ce->type_name     = od->name;
+            ce->arg_count     = od->field_count;
+            ce->args = iron_arena_arr_new(arena, (size_t)(od->field_count ? od->field_count : 1),
+                                          sizeof(Iron_Node *));
+            if (!ce->args) return NULL;
+            for (int i = 0; i < od->field_count; i++) {
+                Iron_Field *f = (Iron_Field *)od->fields[i];
+                ce->args[i] = iron_comptime_val_to_ast(val->as_struct.field_vals[i], arena,
+                                                       span, f ? f->resolved_type : NULL);
+                if (!ce->args[i]) return NULL;
+            }
+            return (Iron_Node *)ce;
+        }
         case IRON_CVAL_NULL:
             return NULL;
     }
@@ -1137,6 +1272,9 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
 }
 
 /* ── AST walker for replacing IRON_NODE_COMPTIME nodes ───────────────────── */
+
+#define IRON_COMPTIME_STACK (64u * 1024u * 1024u)   /* reserved, not committed */
+
 
 /* Context for the replacement walk */
 typedef struct {
@@ -1198,6 +1336,10 @@ static void replace_in_node(Iron_Node **slot, ReplaceCtx *rctx) {
                 *slot = replacement;
                 return;
             }
+            emit_error_help(rctx->eval_ctx, IRON_ERR_COMPTIME_RESTRICTION, orig_span,
+                            "comptime: this result cannot be kept as a constant",
+                            "compile-time evaluation produces numbers, booleans, strings, "
+                            "lists and objects without an init");
         }
         /* On error: leave node as-is (error already emitted) */
         return;
@@ -1376,6 +1518,17 @@ static void replace_in_node_array(Iron_Node **nodes, int count,
 
 /* ── Main entry point ────────────────────────────────────────────────────── */
 
+typedef struct {
+    Iron_Node  **slot;
+    ReplaceCtx  *rctx;
+} ComptimeRun;
+
+static void *comptime_thread(void *p) {
+    ComptimeRun *r = (ComptimeRun *)p;
+    replace_in_node(r->slot, r->rctx);
+    return NULL;
+}
+
 void iron_comptime_apply(Iron_Program *program, Iron_Scope *global_scope,
                           Iron_Arena *arena, Iron_DiagList *diags,
                           const char *source_file_dir, bool force_comptime,
@@ -1399,6 +1552,7 @@ void iron_comptime_apply(Iron_Program *program, Iron_Scope *global_scope,
     eval_ctx.had_return      = false;
     eval_ctx.return_val      = NULL;
     eval_ctx.mode            = mode;  /* HARD-02: FS gating */
+    eval_ctx.program         = program;
 
     /* WR-10: the comptime source-hash cache was deleted — read-side was
      * dead code (cached value discarded at the only call site) and
@@ -1414,7 +1568,24 @@ void iron_comptime_apply(Iron_Program *program, Iron_Scope *global_scope,
     rctx.eval_ctx = &eval_ctx;
     rctx.arena    = arena;
 
-    replace_in_node((Iron_Node **)&program, &rctx);
+    /* The evaluator recurses once per nested Iron call; it runs on a
+     * thread whose stack holds the 256 nested calls it allows in every
+     * build (a sanitizer build's frames are many times larger: the main
+     * thread's stack overflowed at 200 calls, and the language server's
+     * worker threads have smaller stacks still). */
+    ComptimeRun run = { (Iron_Node **)&program, &rctx };
+    pthread_attr_t attr;
+    pthread_t th;
+    bool threaded = false;
+    if (pthread_attr_init(&attr) == 0) {
+        if (pthread_attr_setstacksize(&attr, (size_t)IRON_COMPTIME_STACK) == 0 &&
+            pthread_create(&th, &attr, comptime_thread, &run) == 0) {
+            pthread_join(th, NULL);
+            threaded = true;
+        }
+        pthread_attr_destroy(&attr);
+    }
+    if (!threaded) replace_in_node((Iron_Node **)&program, &rctx);
 
     /* Clean up stb_ds arrays */
     arrfree(eval_ctx.call_stack);

@@ -1,0 +1,34 @@
+-- @expect-panic: stale pointer dereference
+-- A pointer to a freed heap value passed to a `*T` parameter (manual 6.4:
+-- every dereference verifies the generation): the callee does not know
+-- what its parameter points into and checked nothing, so `rdd(p)` read
+-- freed memory and printed a value. The check now runs at the call.
+-- (On macOS the heap generations, counted from 1, also matched the small
+-- numbers the allocator writes into a freed block's header, so even a
+-- checked read passed some of the time.)
+object D {
+    var hp: Int
+    val tag: Int
+    init(hp: Int, tag: Int) {
+        self.hp = hp
+        self.tag = tag
+    }
+    drop {
+        println("drop {self.tag}")
+    }
+}
+
+func rdd(p: *D) -> Int {
+    return p.hp * 10 + p.tag
+}
+
+func main() {
+    var keep = heap D(1, 1)
+    defer free keep
+    var h = heap D(49, 19)
+    val p = &h
+    println("{rdd(p)}")
+    free h
+    println("freed")
+    println("{rdd(p)}")
+}

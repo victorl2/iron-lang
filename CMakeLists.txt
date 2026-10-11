@@ -1154,6 +1154,21 @@ add_test(NAME diag_comptime_unsupported
         -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/comptime_unsupported.expected_help
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/comptime_unsupported.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+# Every construct compile-time evaluation leaves out is E0231.
+add_test(NAME diag_comptime_boundary
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/comptime_boundary.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/comptime_boundary.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/comptime_boundary.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+# A read-only pointer does not write its pointee; no implicit Int32 -> Int.
+add_test(NAME diag_pointer_and_numeric_rules
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/pointer_and_numeric_rules.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/pointer_and_numeric_rules.expected_help
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 
 # A diagnostic is reported once even when two passes find it.
 add_test(NAME diag_reported_once
@@ -1551,8 +1566,16 @@ if(Python3_EXECUTABLE)
     # (tests/fuzz/prog_fuzz.py). Fixed seeds.
     add_test(NAME prog_fuzz
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
-            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz)
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz
+            stmt coll obj closure)
     set_tests_properties(prog_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
+    # The same for numeric types, generics, pointers and Box, and comptime
+    # (expected compile errors and panics included).
+    add_test(NAME prog_fuzz_types
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_types
+            num generic ptr comptime)
+    set_tests_properties(prog_fuzz_types PROPERTIES LABELS "codegen" TIMEOUT 900)
     # The same for concurrency (spawn / await, Mutex, channels, parallel
     # for; outputs deterministic by construction) and for arenas.
     add_test(NAME prog_fuzz_conc

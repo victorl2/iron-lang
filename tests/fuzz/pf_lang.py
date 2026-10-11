@@ -951,3 +951,25 @@ class FuncDef:
 
 def copy_param(v, p):
     return v
+
+
+class Expected(list):
+    """A program's expected outcome (prog_fuzz.py): its output lines, plus
+    `errors`, a set of diagnostic codes one of which the compiler must
+    report (the program does not build), `panic`, text the run must print
+    to stderr when it aborts after the lines, and `leaks_ok`, leaks
+    allowed (the leak checkers are off)."""
+
+    def __init__(self, lines=(), errors=None, panic=None, leaks_ok=False):
+        super().__init__(lines)
+        self.errors = set(errors) if errors else None
+        self.panic = panic
+        self.leaks_ok = leaks_ok
+
+
+class PanicX(Exception):
+    """The modelled program aborts here (a panic the manual defines)."""
+
+    def __init__(self, msg):
+        super().__init__(msg)
+        self.msg = msg

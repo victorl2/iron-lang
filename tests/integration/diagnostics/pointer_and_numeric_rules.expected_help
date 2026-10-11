@@ -1,0 +1,9 @@
+error[E0234]: cannot write a field through a read-only pointer
+pointer_and_numeric_rules.iron:21:5
+pointer_and_numeric_rules.iron:25:9
+error[E0202]: type mismatch: expected 'Int', got 'Int32'
+pointer_and_numeric_rules.iron:29:5
+pointer_and_numeric_rules.iron:30:21
+error[E0217]: argument 1 type mismatch: expected 'Int', got 'Int32'
+error[E0292]: literal 18446744073709551615 does not fit in Int
+error[E0292]: literal 18446744073709551615 does not fit in UInt32

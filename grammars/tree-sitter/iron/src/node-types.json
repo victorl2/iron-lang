@@ -1609,6 +1609,14 @@
           {
             "type": "return_statement",
             "named": true
+          },
+          {
+            "type": "val_declaration",
+            "named": true
+          },
+          {
+            "type": "var_declaration",
+            "named": true
           }
         ]
       },
@@ -1654,6 +1662,14 @@
           },
           {
             "type": "return_statement",
+            "named": true
+          },
+          {
+            "type": "val_declaration",
+            "named": true
+          },
+          {
+            "type": "var_declaration",
             "named": true
           }
         ]

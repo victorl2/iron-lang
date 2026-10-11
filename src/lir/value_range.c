@@ -826,11 +826,16 @@ static void narrow_from_comparison(IronLIR_InstrKind cmp_kind,
         existing.is_top = false;
     }
 
+    /* C - 1 and C + 1 saturate: at INT64_MIN / INT64_MAX they overflowed
+     * (undefined behavior; the branch they describe cannot be taken). */
+    int64_t cm1 = const_val == INT64_MIN ? INT64_MIN : const_val - 1;
+    int64_t cp1 = const_val == INT64_MAX ? INT64_MAX : const_val + 1;
+
     switch ((int)(cmp_kind)) {
     case IRON_LIR_LT:
         /* x < C: true -> [min, C-1], false -> [C, max] */
         *true_range = (ValueRange){ .min = existing.min,
-                                     .max = const_val - 1 < existing.max ? const_val - 1 : existing.max,
+                                     .max = cm1 < existing.max ? cm1 : existing.max,
                                      .is_top = false };
         *false_range = (ValueRange){ .min = const_val > existing.min ? const_val : existing.min,
                                       .max = existing.max,
@@ -841,13 +846,13 @@ static void narrow_from_comparison(IronLIR_InstrKind cmp_kind,
         *true_range = (ValueRange){ .min = existing.min,
                                      .max = const_val < existing.max ? const_val : existing.max,
                                      .is_top = false };
-        *false_range = (ValueRange){ .min = const_val + 1 > existing.min ? const_val + 1 : existing.min,
+        *false_range = (ValueRange){ .min = cp1 > existing.min ? cp1 : existing.min,
                                       .max = existing.max,
                                       .is_top = false };
         break;
     case IRON_LIR_GT:
         /* x > C: true -> [C+1, max], false -> [min, C] */
-        *true_range = (ValueRange){ .min = const_val + 1 > existing.min ? const_val + 1 : existing.min,
+        *true_range = (ValueRange){ .min = cp1 > existing.min ? cp1 : existing.min,
                                      .max = existing.max,
                                      .is_top = false };
         *false_range = (ValueRange){ .min = existing.min,
@@ -860,7 +865,7 @@ static void narrow_from_comparison(IronLIR_InstrKind cmp_kind,
                                      .max = existing.max,
                                      .is_top = false };
         *false_range = (ValueRange){ .min = existing.min,
-                                      .max = const_val - 1 < existing.max ? const_val - 1 : existing.max,
+                                      .max = cm1 < existing.max ? cm1 : existing.max,
                                       .is_top = false };
         break;
     case IRON_LIR_EQ:

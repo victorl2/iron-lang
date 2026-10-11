@@ -2008,7 +2008,14 @@ bool enum_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
             if (pt->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, pt, want_copy)) return true;
             if (emit_type_is_bvec(pt) && bvec_needs_glue(ctx, pt, want_copy)) return true;
             if (pt->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, pt, want_copy)) return true;
-            if (pt->kind == IRON_TYPE_ENUM && pt->enu.decl != ed &&
+            /* Another enum, or another instance of this generic enum
+             * (`Opt[Opt[rc T]]`: the inner rc leaked); only the same
+             * instance (a recursive payload) is skipped. */
+            if (pt->kind == IRON_TYPE_ENUM &&
+                !(pt->enu.decl == ed &&
+                  (pt->enu.mangled_name == t->enu.mangled_name ||
+                   (pt->enu.mangled_name && t->enu.mangled_name &&
+                    strcmp(pt->enu.mangled_name, t->enu.mangled_name) == 0))) &&
                 enum_needs_glue(ctx, pt, want_copy)) return true;
         }
     }
@@ -2543,6 +2550,18 @@ static const char *hash_key_eq_expr(EmitCtx *ctx, const Iron_Type *k, Iron_StrBu
     const char *tc = emit_type_to_c(k, ctx);
     const char *name = k->object.decl->name;
     const char *lower = hash_method_prefix(ctx, name);
+    /* A key type the program never constructs (a `Counter[Pt]()` whose
+     * table stays empty): its Hashable conversion is not emitted (dead
+     * implementor), so the comparison, which can never run, must not
+     * name it (undefined Iron_Hashable_from_Pt at link time). */
+    if (ctx->iface_reg) {
+        Iron_IfaceEntry *he = iron_iface_lookup(ctx->iface_reg, "Hashable");
+        bool alive = false;
+        for (int j = 0; he && j < he->impl_count; j++)
+            if (he->impls[j].is_alive && strcmp(he->impls[j].type_name, name) == 0)
+                alive = true;
+        if (he && !alive) return "((void)a, (void)b, false)";
+    }
     char ikey[512];
     snprintf(ikey, sizeof(ikey), "Iron_Hashable:%s", name);
     bool indirect = ctx->indirect_variants && shgeti(ctx->indirect_variants, ikey) >= 0;
@@ -2624,10 +2643,27 @@ const char *emit_ensure_hash(EmitCtx *ctx, const Iron_Type *t) {
                         name, is_map ? "Map[K, V] hash table" : "Set[T] hash table",
                         iron_strbuf_get(&protos));
     iron_strbuf_free(&protos);
-    iron_strbuf_appendf(&body,
-        "static inline uint64_t %s_khash(const %s *k) { return %s; }\n"
-        "static inline bool %s_keq(const %s *a, const %s *b) { return %s; }\n",
-        name, k_c, k_hash, name, k_c, k_c, k_eq);
+    if (K->kind == IRON_TYPE_OBJECT) {
+        /* An object key is compared through its equals(other: Hashable),
+         * which takes the Iron_Hashable union by value: a table emitted
+         * with the struct of an object that holds it (a generic
+         * `Counter[Pt]` with a Map[K, Int] field) came before that union
+         * was complete. Declare the helpers here, define them with the
+         * lifted functions, after every type. */
+        iron_strbuf_appendf(&body,
+            "static inline uint64_t %s_khash(const %s *k);\n"
+            "static inline bool %s_keq(const %s *a, const %s *b);\n",
+            name, k_c, name, k_c, k_c);
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "static inline uint64_t %s_khash(const %s *k) { return %s; }\n"
+            "static inline bool %s_keq(const %s *a, const %s *b) { return %s; }\n\n",
+            name, k_c, k_hash, name, k_c, k_c, k_eq);
+    } else {
+        iron_strbuf_appendf(&body,
+            "static inline uint64_t %s_khash(const %s *k) { return %s; }\n"
+            "static inline bool %s_keq(const %s *a, const %s *b) { return %s; }\n",
+            name, k_c, k_hash, name, k_c, k_c, k_eq);
+    }
     iron_strbuf_appendf(&body, "static inline void %s_kcopy(%s *k) {\n", name, k_c);
     emit_copy_fixup_lvalue(&body, 1, ctx, (Iron_Type *)K, "(*k)");
     iron_strbuf_appendf(&body, "    (void)k;\n}\n");

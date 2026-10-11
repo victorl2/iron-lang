@@ -1,0 +1,66 @@
+-- Generic methods (`func m[T](...)` in an object):
+--  - a result whose type is an instance created by the method's own
+--    instantiation (`-> Cell[T]`) kept the error type of the first round
+--    and was emitted as an `int`;
+--  - a call on a receiver that is not a binding (`Plain(1).with(x)`) used
+--    the template's signature: "unknown type 'T'";
+--  - a Map keyed by an object the program never constructs named that
+--    object's Hashable conversion, which is not emitted: link error.
+object Pt impl Hashable {
+    val x: Int
+    val y: Int
+    pure func hash() -> Int {
+        return self.x * 31 + self.y
+    }
+    pure func equals(other: Hashable) -> Bool {
+        if other is Pt {
+            return self.x == other.x and self.y == other.y
+        }
+        return false
+    }
+}
+
+object Pair[A, B] {
+    val first: A
+    val second: B
+}
+
+object Cell[T] {
+    var v: T
+    init(v: T) {
+        self.v = v
+    }
+    readonly func pair_with[U](u: U) -> Pair[T, U] {
+        return Pair(self.v, u)
+    }
+}
+
+object Plain {
+    val k: Int
+    readonly func wrap[T](x: T) -> Cell[T] {
+        return Cell(x)
+    }
+    readonly func with[T](x: T) -> Pair[Int, T] {
+        return Pair(self.k, x)
+    }
+}
+
+object Counter[K: Hashable] {
+    var m: Map[K, Int]
+    init() {
+        self.m = Map[K, Int]()
+    }
+    readonly func kinds() -> Int {
+        return self.m.len()
+    }
+}
+
+func main() {
+    val p = Plain(4)
+    val c = p.wrap(5)
+    val w = Plain(1).with("z")
+    val q = Cell(2.5).pair_with(Plain(3).wrap("s").v)
+    println("{c.v} {w.first} {w.second} {q.first} {q.second}")
+    val empty = Counter[Pt]()
+    println("{empty.kinds()}")
+}

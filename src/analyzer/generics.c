@@ -148,7 +148,11 @@ const char *iron_generics_request(Iron_Node *decl, Iron_Type **args, int argc,
             return NULL;
         }
         const char *txt = iron_type_to_string(t, arena);
-        if (!txt) { arrfree(texts); iron_strbuf_free(&sb); return NULL; }
+        /* A type not resolved yet inside the argument (`Opt[<error>]` for
+         * `Opt.Some(Pair(s, p))` before Pair[String, Pt] exists) prints
+         * with angle brackets: the clone would not parse. The next round
+         * asks again with the type resolved. */
+        if (!txt || strchr(txt, '<')) { arrfree(texts); iron_strbuf_free(&sb); return NULL; }
         arrput(texts, txt);
         iron_strbuf_appendf(&sb, "__");
         mangle_append(&sb, txt);

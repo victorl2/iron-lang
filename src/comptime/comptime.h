@@ -80,6 +80,9 @@ typedef struct {
      * Flows from iron_analyze_buffer → iron_analyze_with_mode →
      * iron_comptime_apply → Iron_ComptimeCtx. */
     IronAnalysisMode      mode;
+    /* The program being evaluated: its init declarations decide which
+     * objects can be built at compile time. */
+    Iron_Program         *program;
 } Iron_ComptimeCtx;
 
 /* ── Public API ──────────────────────────────────────────────────────────── */

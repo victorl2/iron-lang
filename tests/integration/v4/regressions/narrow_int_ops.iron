@@ -1,0 +1,33 @@
+-- Integer types narrower than 64 bits (manual 2.1, 3.2):
+--  - a shift by the type's width or more gives 0 (or the sign for `>>`),
+--    but a constant count was emitted as the plain C operator, undefined
+--    past the width: UInt32 >> 33 printed garbage, UInt8 >> 33 printed
+--    18446744073709551615;
+--  - a division, remainder or shift computed by a 64-bit helper was used
+--    unwrapped inside a larger expression: ~(31 / d) on UInt32 printed -4
+--    as if it were an Int;
+--  - constants folded by the optimizer were not wrapped to the width nor
+--    compared unsigned: `m + m < 0` with m = 100 : Int8 was false.
+func pk(n: Int) -> Int {
+    return n
+}
+
+func main() {
+    var a: UInt32 = 2052059452
+    var b: Int32 = -5
+    var c: UInt8 = 200
+    var d: Int8 = -100
+    println("{a >> 33} {a << 33} {a >> 32} {b >> 40} {b << 40} {c >> 9} {c << 9} {d >> 9} {d << 9}")
+    var k = 33
+    println("{a >> k} {a << k} {b >> k} {c >> k} {d >> k}")
+    a >>= 33
+    c <<= 8
+    println("{a} {c}")
+    val u = UInt32(pk(4294967265))
+    val q = UInt32(pk(9))
+    println("{~(31 / q)} {~(31 % q)} {~(u >> 3) > u} {~(31 / q) > u << (u & 127)}")
+    var n: UInt8 = 20
+    var m: Int8 = 100
+    var w: UInt32 = 4000000000
+    println("{26 * n <= 255 + n} {m + m < 0} {m * 3 > 0} {w + w < w} {w * 2}")
+}

@@ -1,0 +1,33 @@
+-- An instance of a generic enum holding another instance of the same enum
+-- (`Opt[Opt[rc Item]]`) had no drop glue for its payload: the lifecycle
+-- walk skipped every payload of the same enum declaration as if it were a
+-- recursive one, so the rc handle inside leaked (the leak oracle and
+-- valgrind report it) and its drop never ran.
+object Item {
+    val n: Int
+    drop {
+        println("drop item {self.n}")
+    }
+}
+
+enum Opt[T] {
+    Some(T),
+    None,
+}
+
+func tag[T](o: Opt[T]) -> String {
+    match o {
+        Opt.Some(v) -> return "some"
+        Opt.None -> return "none"
+    }
+    return ""
+}
+
+func main() {
+    {
+        val q = rc Item(1)
+        val o = Opt.Some(Opt.Some(q))
+        println("{tag(o)}")
+    }
+    println("after")
+}

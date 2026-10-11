@@ -1,0 +1,47 @@
+-- A function evaluated with `comptime` gives what it gives at run time
+-- (manual 8). It did not:
+--  - Int arithmetic that wraps at run time (manual 2.1) was a compile
+--    error "integer overflow" (also INT64_MIN / -1 and -INT64_MIN);
+--  - recursion deeper than 50 calls was reported as the step limit;
+--  - object construction (listed in manual 8) failed with "function not
+--    found", and an object result could not be kept as a constant.
+object Pt {
+    val x: Int
+    val y: Int
+}
+
+func ovf(n: Int) -> Int {
+    var x = 9223372036854775807
+    x += n
+    var y = x * 3
+    val m = -9223372036854775807 - 1
+    return x + y + m / -1 + -m
+}
+
+func depth(n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    return n + depth(n - 1)
+}
+
+func corner(a: Int) -> Pt {
+    var p = Pt(a, a * 2)
+    if a > 3 {
+        p = Pt(a - 1, 0)
+    }
+    return p
+}
+
+val OVF = comptime ovf(1)
+val DEPTH = comptime depth(200)
+val CORNER = comptime corner(5)
+
+func main() {
+    println("{OVF} {ovf(1)}")
+    println("{DEPTH} {depth(200)}")
+    val c = corner(5)
+    println("{CORNER.x},{CORNER.y} {c.x},{c.y}")
+    val local = comptime corner(2)
+    println("{local.x},{local.y}")
+}
