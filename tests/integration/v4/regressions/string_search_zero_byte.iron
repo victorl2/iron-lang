@@ -1,0 +1,12 @@
+-- contains, index_of, count, split and replace searched with strstr: a zero
+-- byte in the text ended the search, and a needle starting with a zero
+-- byte matched as empty, so count and replace walked past the end of the
+-- string (hang or crash). They search by length now (#486).
+func main() {
+    val z = String.from_byte(0)
+    val s = "a" + z + "b" + z + "c"
+    println("{s.contains("b")} {s.contains(z)} {s.index_of("c")} {s.count(z)} {s.split(z).len()}")
+    println(s.replace(z, "-"))
+    println("{"xyz".contains("")} {"xyz".index_of("")} {"xyz".count("")} {"a,b".split(",").len()}")
+    println("{"aXbXc".replace("X", "--")} {"aaa".replace("aa", "b")} {"ab".replace("abc", "z")}")
+}

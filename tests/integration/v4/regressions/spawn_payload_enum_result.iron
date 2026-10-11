@@ -1,0 +1,28 @@
+-- A spawn returning an enum with payload variants: the result was cast
+-- through intptr_t like a plain enum (C compile error), but such an enum
+-- is a struct and is boxed like an object. Found by the sync program
+-- fuzzer (#475).
+enum Tok {
+    Num(Int),
+    Word(String),
+}
+
+func show(t: Tok) -> String {
+    match t {
+        Tok.Num(n) -> return "num {n}"
+        Tok.Word(w) -> return "word {w.len()}"
+    }
+    return ""
+}
+
+func main() {
+    val label = "a string long enough to live on the heap, not inline"
+    val a = spawn("a") {
+        return Tok.Word(label + "!")
+    }
+    val b = spawn("b") {
+        return Tok.Num(label.len())
+    }
+    println(show(await b))
+    println(show(await a))
+}

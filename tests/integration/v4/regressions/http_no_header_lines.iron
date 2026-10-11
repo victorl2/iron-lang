@@ -1,0 +1,47 @@
+-- An HTTP message with no header lines: the server rejected an HTTP/1.0
+-- request without headers (Host is optional in HTTP/1.0) and the client
+-- rejected a response without headers, because the end of the start line
+-- was searched for before the CRLF that ends it. Found by the http
+-- program fuzzer (#487).
+import http
+import net
+
+func main() {
+    val l = Http.listen("127.0.0.1", 0)
+    if l.error != 0 {
+        println("listen failed")
+        return
+    }
+    val port = HttpServer.port(l.server)
+    val srv = l.server
+    val h = spawn("server") {
+        val acc = HttpServer.accept(srv, 10000)
+        val req = HttpConnection.read_request(acc.connection, 8192, 8192, 5000)
+        val text = "{req.error} {req.method} {req.path} {req.version} {req.keep_alive}"
+        val s = HttpConnection.send_response(acc.connection, Http.text_response(200, text), 5000)
+        HttpConnection.close(acc.connection)
+        val acc2 = HttpServer.accept(srv, 10000)
+        val req2 = HttpConnection.read_request(acc2.connection, 8192, 8192, 5000)
+        val (n, we) = TcpSocket.write(TcpSocket(acc2.connection.fd), "HTTP/1.0 200 OK\u{d}\n\u{d}\nno headers", 5000)
+        HttpConnection.close(acc2.connection)
+        return req2.error
+    }
+    val (sock, de) = Net.tcp_dial("127.0.0.1", port, 5000)
+    val (n, we) = TcpSocket.write(sock, "GET /x HTTP/1.0\u{d}\n\u{d}\n", 5000)
+    var got = ""
+    var reading = true
+    while reading {
+        val (part, re) = TcpSocket.read(sock, 65536, 5000)
+        if re.code != 0 or part.byte_len() == 0 {
+            reading = false
+        } else {
+            got = got + part
+        }
+    }
+    TcpSocket.close(sock)
+    println(got.split("\u{d}\n\u{d}\n")[1])
+    val r = Http.get("http://127.0.0.1:{port}/y", 5000)
+    println("{r.error} {r.status} {r.body}")
+    println("{await h}")
+    HttpServer.close(srv)
+}

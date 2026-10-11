@@ -372,6 +372,16 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
                 (strcmp(mc->method, "put") == 0 || strcmp(mc->method, "get_or") == 0 ||
                  strcmp(mc->method, "add") == 0))
                 require_fresh(c, mc->args[mc->arg_count - 1]);
+            /* A lock keeps what `set` gives it and a channel what `send`
+             * gives it, as a map keeps what `put` gives it (#431). */
+            if (rt && rt->kind == IRON_TYPE_OBJECT && rt->object.decl &&
+                rt->object.decl->name && mc->method && mc->arg_count > 0) {
+                const char *on = rt->object.decl->name;
+                if (((strcmp(on, "MutexGuard") == 0 || strcmp(on, "RWWriteGuard") == 0) &&
+                     strcmp(mc->method, "set") == 0) ||
+                    (strcmp(on, "Channel") == 0 && strcmp(mc->method, "send") == 0))
+                    require_fresh(c, mc->args[mc->arg_count - 1]);
+            }
             break;
         }
         default:

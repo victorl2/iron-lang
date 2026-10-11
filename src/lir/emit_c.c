@@ -55,7 +55,16 @@ static bool debug_c_ident(const char *n);
 static bool spawn_result_fits_pointer(Iron_Type *t) {
     if (!t) return true;
     switch ((int)t->kind) {
-    case IRON_TYPE_BOOL: case IRON_TYPE_ENUM:
+    case IRON_TYPE_ENUM:
+        /* only a plain C enum: one with payload variants is a struct */
+        if (t->enu.decl) {
+            for (int i = 0; i < t->enu.decl->variant_count; i++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)t->enu.decl->variants[i];
+                if (ev && ev->payload_count > 0) return false;
+            }
+        }
+        return true;
+    case IRON_TYPE_BOOL:
     case IRON_TYPE_PTR: case IRON_TYPE_RC: case IRON_TYPE_WEAK_RC:
         return true;
     default:
@@ -74,6 +83,9 @@ static void emit_spawn_publish_result(Iron_StrBuf *out, Iron_Type *ret, const ch
         "    *_box = _result;\n"
         "    _h->result = _box;\n", ret_c, ret_c, ret_c);
 }
+
+static void emit_iface_wrap_operand(Iron_StrBuf *sb, IronLIR_ValueId vid, IronLIR_Func *fn,
+                                    EmitCtx *ctx, IronLIR_BlockId use_block_id, int depth);
 
 static const char *cap_c_name(const char *n) {
     static const char *const kw[] = {
@@ -655,7 +667,8 @@ static bool emit_optional_cast(Iron_StrBuf *sb, IronLIR_Instr *instr,
             iron_strbuf_appendf(sb, "%s_from_%s(",
                                 emit_mangle_name(din->interface.decl->name, ctx->arena),
                                 src->object.decl->name);
-        emit_expr_to_buf(sb, instr->cast.value, fn, ctx, use_block_id, depth + 1);
+        if (wrap) emit_iface_wrap_operand(sb, instr->cast.value, fn, ctx, use_block_id, depth + 1);
+        else emit_expr_to_buf(sb, instr->cast.value, fn, ctx, use_block_id, depth + 1);
         if (wrap) iron_strbuf_appendf(sb, ")");
         iron_strbuf_appendf(sb, ", .has_value = true })");
         return true;
@@ -672,6 +685,23 @@ static bool emit_optional_cast(Iron_StrBuf *sb, IronLIR_Instr *instr,
 void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                        IronLIR_Func *fn, EmitCtx *ctx,
                        IronLIR_BlockId use_block_id, int depth);
+
+/* The operand of `<Iface>_from_<Impl>(...)`: a heap or arena value is a fat
+ * pointer here, though it is used like a stack value (manual 6.2), so the
+ * object is copied out of its allocation into the interface value. */
+static void emit_iface_wrap_operand(Iron_StrBuf *sb, IronLIR_ValueId vid, IronLIR_Func *fn,
+                                    EmitCtx *ctx, IronLIR_BlockId use_block_id, int depth) {
+    if (emit_val_is_any_fat_ptr(fn, vid)) {
+        const char *pt = emit_fat_ptr_pointee_type_c(fn, vid, ctx);
+        if (pt) {
+            iron_strbuf_appendf(sb, "(*((%s *)(", pt);
+            emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, depth);
+            iron_strbuf_appendf(sb, ").addr))");
+            return;
+        }
+    }
+    emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, depth);
+}
 
 /* ── Arena handle helpers (Phase 28 arena codegen fix) ────────────────────── */
 
@@ -737,7 +767,7 @@ static void emit_construct_field_value(Iron_StrBuf *sb, IronLIR_Func *fn,
         iron_strbuf_appendf(sb, "%s_from_%s(",
                             emit_mangle_name(ft->interface.decl->name, ctx->arena),
                             vt->object.decl->name);
-        emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, depth);
+        emit_iface_wrap_operand(sb, vid, fn, ctx, use_block_id, depth);
         iron_strbuf_appendf(sb, ")");
         return;
     }
@@ -1774,7 +1804,7 @@ static void emit_enum_payload_value(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *
         iron_strbuf_appendf(sb, "%s_from_%s(",
                             emit_mangle_name(pt->interface.decl->name, ctx->arena),
                             vt->object.decl->name);
-        emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, depth);
+        emit_iface_wrap_operand(sb, vid, fn, ctx, use_block_id, depth);
         iron_strbuf_appendf(sb, ")");
         return;
     }
@@ -2792,7 +2822,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                         /* This is an interface dispatch call — wrap the arg */
                         iron_strbuf_appendf(sb, "%s_from_%s(",
                             im, arg_type->object.decl->name);
-                        emit_expr_to_buf(sb, arg_id, fn, ctx, use_block_id, depth+1);
+                        emit_iface_wrap_operand(sb, arg_id, fn, ctx, use_block_id, depth+1);
                         iron_strbuf_appendf(sb, ")");
                         did_wrap = true;
                         break;
@@ -2815,7 +2845,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                         iron_strbuf_appendf(sb, "%s_from_%s(",
                             emit_mangle_name(pt->interface.decl->name, ctx->arena),
                             arg_type->object.decl->name);
-                        emit_expr_to_buf(sb, arg_id, fn, ctx, use_block_id, depth+1);
+                        emit_iface_wrap_operand(sb, arg_id, fn, ctx, use_block_id, depth+1);
                         iron_strbuf_appendf(sb, ")");
                         did_wrap = true;
                     }
@@ -3172,9 +3202,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     "static Iron_String _iron_lit_%d;\n"
                     "static _Atomic int _iron_lit_%d_ready;\n"
                     "static inline Iron_String _iron_lit_%d_get(void) {\n"
-                    "    if (atomic_load_explicit(&_iron_lit_%d_ready, memory_order_acquire) == 2) return _iron_lit_%d;\n"
+                    "    if (atomic_load_explicit(&_iron_lit_%d_ready, memory_order_acquire) == 2) {\n"
+                    "        IRON_HB_AFTER(&_iron_lit_%d_ready);\n"
+                    "        return _iron_lit_%d;\n"
+                    "    }\n"
                     "    Iron_String s = iron_string_from_literal(\"",
-                    lit_idx, lit_idx, lit_idx, lit_idx, lit_idx);
+                    lit_idx, lit_idx, lit_idx, lit_idx, lit_idx, lit_idx);
                 for (size_t i = 0; i < slen; i++) {
                     unsigned char ch = (unsigned char)sv[i];
                     switch (ch) {
@@ -3194,10 +3227,11 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     "    int expect = 0;\n"
                     "    if (atomic_compare_exchange_strong(&_iron_lit_%d_ready, &expect, 1)) {\n"
                     "        _iron_lit_%d = s;\n"
+                    "        IRON_HB_BEFORE(&_iron_lit_%d_ready);\n"
                     "        atomic_store_explicit(&_iron_lit_%d_ready, 2, memory_order_release);\n"
                     "    }\n"
                     "    return s;\n"
-                    "}\n\n", slen, lit_idx, lit_idx, lit_idx);
+                    "}\n\n", slen, lit_idx, lit_idx, lit_idx, lit_idx);
             }
             iron_strbuf_appendf(sb, " = _iron_lit_%d_get();\n", lit_idx);
             break;
@@ -3989,6 +4023,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             if (vid_is_var_param(fn, instr->store.value)) {
                 iron_strbuf_appendf(sb, "*");
                 emit_val(sb, instr->store.value);
+            } else if (needs_iface_wrap) {
+                emit_iface_wrap_operand(sb, instr->store.value, fn, ctx, ctx->current_block_id, 0);
             } else if (deref_fat) {
                 iron_strbuf_appendf(sb, "*((%s *)(", emit_type_to_c(slot_t, ctx));
                 emit_expr_to_buf(sb, instr->store.value, fn, ctx, ctx->current_block_id, 0);
@@ -4606,7 +4642,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ", ");
                 if (wrap) iron_strbuf_appendf(sb, "%s_from_%s(", im, vt->object.decl->name);
-                emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
+                if (wrap) emit_iface_wrap_operand(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
+                else emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, "%s);\n", wrap ? ")" : "");
                 if (g_emit_line_directives) {
                     emit_indent(sb, ind);
@@ -5544,7 +5581,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                     sp_iface, et->object.decl->name);
                                 emit_receiver_addr(sb, fn, ctx, self_arg, ctx->current_block_id);
                                 iron_strbuf_appendf(sb, ", ");
-                                emit_expr_to_buf(sb, push_val, fn, ctx, ctx->current_block_id, 0);
+                                emit_iface_wrap_operand(sb, push_val, fn, ctx, ctx->current_block_id, 0);
                                 iron_strbuf_appendf(sb, ");\n");
                                 break;
                             } else if (et && et->kind == IRON_TYPE_INTERFACE) {
@@ -5625,7 +5662,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 iron_strbuf_appendf(sb, ", ");
                                 if (wrap) iron_strbuf_appendf(sb, "%s_from_%s(", sp_iface,
                                                               avt->object.decl->name);
-                                emit_expr_to_buf(sb, av, fn, ctx, ctx->current_block_id, 0);
+                                if (wrap) emit_iface_wrap_operand(sb, av, fn, ctx, ctx->current_block_id, 0);
+                                else emit_expr_to_buf(sb, av, fn, ctx, ctx->current_block_id, 0);
                                 if (wrap) iron_strbuf_appendf(sb, ")");
                             }
                             iron_strbuf_appendf(sb, ");\n");
@@ -6558,8 +6596,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                         const char *im2 = emit_mangle_name(ent->iface_name, ctx->arena);
                                         iron_strbuf_appendf(sb, "%s_from_%s(",
                                             im2, arg_t2->object.decl->name);
-                                        emit_expr_to_buf(sb, arg_id, fn, ctx,
-                                                         ctx->current_block_id, 0);
+                                        emit_iface_wrap_operand(sb, arg_id, fn, ctx,
+                                                                ctx->current_block_id, 0);
                                         iron_strbuf_appendf(sb, ")");
                                         wrapped = true;
                                         break;
@@ -6719,7 +6757,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         fn->return_type->interface.decl->name, ctx->arena);
                     iron_strbuf_appendf(sb, "return %s_from_%s(",
                         iface_m, rv_type->object.decl->name);
-                    emit_expr_to_buf(sb, instr->ret.value, fn, ctx, ctx->current_block_id, 0);
+                    emit_iface_wrap_operand(sb, instr->ret.value, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ");\n");
                     ret_wrapped = true;
                 }
@@ -7376,7 +7414,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         iface_mangled, et->object.decl->name);
                     emit_val(sb, instr->id);
                     iron_strbuf_appendf(sb, ", ");
-                    emit_expr_to_buf(sb, eid, fn, ctx, ctx->current_block_id, 0);
+                    emit_iface_wrap_operand(sb, eid, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ");\n");
                 }
             }
@@ -7426,7 +7464,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     if (et && et->kind == IRON_TYPE_OBJECT && et->object.decl) {
                         iron_strbuf_appendf(sb, "%s_from_%s(",
                             iface_mangled, et->object.decl->name);
-                        emit_expr_to_buf(sb, eid, fn, ctx, ctx->current_block_id, 0);
+                        emit_iface_wrap_operand(sb, eid, fn, ctx, ctx->current_block_id, 0);
                         iron_strbuf_appendf(sb, ")");
                     } else {
                         emit_expr_to_buf(sb, eid, fn, ctx, ctx->current_block_id, 0);
@@ -12364,6 +12402,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     /* Map / Set tables (#193): resolve the symbolic callee names and emit
      * each instantiation after the object structs it stores. */
     emit_resolve_hash_calls(&ctx);
+    emit_resolve_resource_calls(&ctx);
 
     /* ── Phase 3: Function prototypes ────────────────────────────────────── */
     for (int i = 0; i < module->func_count; i++) {

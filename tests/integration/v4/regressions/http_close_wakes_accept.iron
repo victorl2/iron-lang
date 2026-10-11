@@ -1,0 +1,24 @@
+-- Closing a server wakes a task blocked in accept on it (the shutdown
+-- pattern of the networking guide). The listener was only closed, which
+-- does not wake a poll() in another thread, so the accept waited for its
+-- whole timeout. Found by the http program fuzzer (#508).
+import http
+import time
+
+func main() {
+    val l = Http.listen("127.0.0.1", 0)
+    if l.error != 0 {
+        println("listen failed")
+        return
+    }
+    val srv = l.server
+    val h = spawn("server") {
+        val acc = HttpServer.accept(srv, 30000)
+        return acc.error
+    }
+    Time.sleep(200)
+    val started = Time.now_ms()
+    HttpServer.close(srv)
+    val e = await h
+    println("{e != 0} {Time.now_ms() - started < 5000}")
+}
