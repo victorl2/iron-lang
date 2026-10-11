@@ -2167,6 +2167,9 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 6b. Lower HIR to LIR */
     Iron_Arena ir_arena = iron_arena_create(1024 * 1024);
+    /* --debug: set before lowering too, which names more bindings then. */
+    iron_lir_emit_set_line_directives(opts.target != IRON_TARGET_WEB && opts.debug_info &&
+                                      !opts.release);
     IronLIR_Module *ir_module = iron_hir_to_lir(hir_module, (Iron_Program *)ast,
                                                analysis.global_scope,
                                                &ir_arena, &diags);

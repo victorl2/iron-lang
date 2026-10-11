@@ -15,6 +15,7 @@
 
 #include "hir/hir_to_lir.h"
 #include "lir/verify.h"
+#include "lir/emit_c.h"
 #include "diagnostics/diagnostics.h"
 #include "analyzer/types.h"
 #include "vendor/stb_ds.h"
@@ -4557,6 +4558,17 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                     if (hmgeti(ctx->current_func->value_names, init_val) < 0) {
                         hmput(ctx->current_func->value_names, init_val,
                               iron_hir_var_name(ctx->hir, vid));
+                    } else if (iron_lir_emit_debug_build() && init_val != IRON_LIR_VALUE_INVALID &&
+                               ctx->current_block && !block_is_terminated(ctx->current_block) &&
+                               iron_hir_var_name(ctx->hir, vid)) {
+                        /* --debug: `val b = a` shares a's value, which
+                         * already carries a's name, so no debugger listed
+                         * b. A slot of its own, written once here, names
+                         * it (the program keeps using the value). */
+                        IronLIR_ValueId shadow = emit_alloca_in_entry(
+                            ctx, type, iron_hir_var_name(ctx->hir, vid), span);
+                        iron_lir_store(ctx->current_func, ctx->current_block, shadow,
+                                       init_val, span);
                     }
                     tag_arena_ctor_binding(ctx, init_val, vid);
                     /* Phase 26 POL-06 / Phase 27 POL-08 / Phase 37 rc-balance:

@@ -103,6 +103,19 @@ static void emit_closure_env_typedef(EmitCtx *ctx, const char *env_type,
                                      Iron_CaptureEntry *cap_meta, int cap_count) {
     if (shgeti(ctx->mono_registry, (char *)env_type) >= 0) return;
     shput(ctx->mono_registry, (char *)env_type, true);
+    /* A var capture points at its shared cell through a typedef of its
+     * own, <env>_cell_<name>: the debugger formatters (src/debug) tell it
+     * from a captured value that is itself a pointer and show the value. */
+    for (int ci = 0; ci < cap_count; ci++) {
+        if (!cap_meta[ci].is_mutable) continue;
+        const char *field_type = cap_meta[ci].is_heap_handle
+                                 ? "Iron_FatPtr"
+                                 : cap_meta[ci].type
+                                 ? emit_type_to_c(cap_meta[ci].type, ctx)
+                                 : "void*";
+        iron_strbuf_appendf(&ctx->struct_bodies, "typedef %s %s_cell_%s;\n",
+                            field_type, env_type, cap_c_name(cap_meta[ci].name));
+    }
     iron_strbuf_appendf(&ctx->struct_bodies, "typedef struct {\n");
     for (int ci = 0; ci < cap_count; ci++) {
         const char *field_type = cap_meta[ci].is_heap_handle
@@ -110,9 +123,12 @@ static void emit_closure_env_typedef(EmitCtx *ctx, const char *env_type,
                                  : cap_meta[ci].type
                                  ? emit_type_to_c(cap_meta[ci].type, ctx)
                                  : "void*";
-        iron_strbuf_appendf(&ctx->struct_bodies,
-                            cap_meta[ci].is_mutable ? "    %s *%s;\n" : "    %s %s;\n",
-                            field_type, cap_c_name(cap_meta[ci].name));
+        if (cap_meta[ci].is_mutable)
+            iron_strbuf_appendf(&ctx->struct_bodies, "    %s_cell_%s *%s;\n", env_type,
+                                cap_c_name(cap_meta[ci].name), cap_c_name(cap_meta[ci].name));
+        else
+            iron_strbuf_appendf(&ctx->struct_bodies, "    %s %s;\n", field_type,
+                                cap_c_name(cap_meta[ci].name));
     }
     iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n\n", env_type);
 }
@@ -9775,6 +9791,9 @@ static void debug_name_value(EmitValueName **map, DebugTakenName **taken,
     /* `iron__...`: a binding the parser made up (assert_eq's operands), a
      * temporary rather than one of the program's names. */
     if (strncmp(name, "iron__", 6) == 0) return;
+    /* `__tuple_tmp_N` and the like: the lowering's own bindings, also
+     * temporaries (a destructured tuple showed as `tuple_tmp_5_179`). */
+    if (strncmp(name, "__", 2) == 0) return;
     char buf[160];
     if (!c_name_reserved(name) && shgeti(*taken, name) < 0) {
         snprintf(buf, sizeof(buf), "%s", name);
