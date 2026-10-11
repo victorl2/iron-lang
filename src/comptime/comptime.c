@@ -289,7 +289,10 @@ static Iron_ComptimeVal *eval_binary_vals(Iron_ComptimeCtx *ctx, Iron_OpKind op,
             case IRON_TOK_MINUS:      return cval_float(ctx, l - r);
             case IRON_TOK_STAR:       return cval_float(ctx, l * r);
             case IRON_TOK_SLASH:
-                if (r == 0.0) {
+                /* IEEE: a float divided by zero is an infinity or NaN at run
+                 * time, so it is the same here (manual 8: the evaluation
+                 * computes what the call computes at run time). */
+                if (lv->kind != IRON_CVAL_FLOAT && rv->kind != IRON_CVAL_FLOAT && r == 0.0) {
                     emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
                                "comptime: division by zero");
                     return cval_null(ctx);
@@ -591,8 +594,11 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
             Iron_CallExpr *call = (Iron_CallExpr *)node;
 
             /* Get function name from callee ident */
+            /* A call through anything but a function name (a value, a
+             * generic instance, `Map[K, V]()`) is a construct comptime
+             * leaves out (E0231, manual 8), not an evaluation error. */
             if (call->callee->kind != IRON_NODE_IDENT) {
-                emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                emit_error(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
                            "comptime: only named function calls are supported");
                 return cval_null(ctx);
             }
@@ -1182,7 +1188,14 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
             lit->kind          = IRON_NODE_FLOAT_LIT;
             lit->resolved_type = resolved_type;
             char buf[64];
-            snprintf(buf, sizeof(buf), "%.17g", val->as_float);
+            double fv = val->as_float;
+            /* NaN and the infinities in the spelling strtod reads back
+             * (the lowering parses the literal; the emitter writes them as
+             * 0.0/0.0 and 1.0/0.0). */
+            if (fv != fv) snprintf(buf, sizeof(buf), "nan");
+            else if (fv > 1.7976931348623157e308) snprintf(buf, sizeof(buf), "inf");
+            else if (fv < -1.7976931348623157e308) snprintf(buf, sizeof(buf), "-inf");
+            else snprintf(buf, sizeof(buf), "%.17g", fv);
             lit->value = iron_arena_strdup(arena, buf, strlen(buf));
             if (!lit->value) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast FloatLit value) */ return NULL; }
             return (Iron_Node *)lit;
@@ -1222,9 +1235,15 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
             al->type_ann      = NULL;
             al->size          = NULL;
             al->element_count = val->as_array.count;
-            al->elements = iron_arena_arr_new(arena,
-                (size_t)val->as_array.count, sizeof(Iron_Node *));
-            if (!al->elements) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast ArrayLit elements) */ return NULL; }
+            /* (An empty list, `fill(0, v)`, has no elements to allocate: the
+             * NULL from a zero-sized allocation rejected it as "cannot be
+             * kept as a constant".) */
+            al->elements = NULL;
+            if (val->as_array.count > 0) {
+                al->elements = iron_arena_arr_new(arena,
+                    (size_t)val->as_array.count, sizeof(Iron_Node *));
+                if (!al->elements) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast ArrayLit elements) */ return NULL; }
+            }
             /* Elements carry the array's element type: with NULL the
              * lowered literal had void elements and emitted invalid C. */
             Iron_Type *elem_type =
