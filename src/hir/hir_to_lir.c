@@ -280,6 +280,16 @@ static bool type_is_rc_like(Iron_Type *t) {
  * view; storing it into a binding requires its own retain. */
 static bool hir_expr_is_place(IronHIR_Expr *e);
 
+/* The temporary of `val (a, b) = f()` (hir_lower.c names it `__tuple_mv_`
+ * when the tuple came from a call, method call or await): nothing else owns
+ * it, so its elements move into the bindings. The temporary of
+ * `val (a, b) = t` is a copy of the binding t, whose elements stay owned
+ * by t and are copied. */
+static bool tuple_base_moves(const IronHIR_Expr *base) {
+    return base && base->kind == IRON_HIR_EXPR_IDENT && base->ident.name &&
+           strncmp(base->ident.name, "__tuple_mv_", 11) == 0;
+}
+
 static bool rc_expr_transfers_ownership(IronHIR_Expr *e) {
     if (!e) return false;
     /* A field or element read off an owned temporary (`make().handle`,
@@ -291,8 +301,9 @@ static bool rc_expr_transfers_ownership(IronHIR_Expr *e) {
         IronHIR_Expr *base = e->kind == IRON_HIR_EXPR_FIELD_ACCESS
                            ? e->field_access.object : e->index.array;
         if (!base || !base->type || base->kind == IRON_HIR_EXPR_STRING_LIT) return false;
-        /* Destructuring moves each element out of the tuple temporary. */
-        if (base->type->kind == IRON_TYPE_TUPLE) return true;
+        /* Destructuring a call's tuple moves each element out of the
+         * temporary; destructuring a tuple binding copies them. */
+        if (base->type->kind == IRON_TYPE_TUPLE) return tuple_base_moves(base);
         if (type_is_rc_like(base->type)) return rc_expr_transfers_ownership(base);
         return !hir_expr_is_place(base);
     }
@@ -644,12 +655,14 @@ static bool hir_expr_is_borrowed_elem(IronHIR_Expr *e) {
  * temporary (`make_probe().name`) is not a place: lowering copies the
  * field out and drops the temporary, so the read is an owned value. */
 static bool hir_expr_is_place(IronHIR_Expr *e) {
-    /* An element of a tuple is owned by whoever reads it: a tuple is only
-     * ever taken apart (`val (a, b) = f()`, every position bound, see
-     * hir_lower.c), and the temporary holding it is never dropped. */
+    /* An element of a call's tuple is owned by whoever reads it: the tuple
+     * is only taken apart (`val (a, b) = f()`, every position bound, see
+     * hir_lower.c), and the temporary holding it is never dropped. An
+     * element of a tuple binding is a place like any field. */
     if (e && e->kind == IRON_HIR_EXPR_FIELD_ACCESS && e->field_access.object &&
         e->field_access.object->type &&
-        e->field_access.object->type->kind == IRON_TYPE_TUPLE)
+        e->field_access.object->type->kind == IRON_TYPE_TUPLE &&
+        tuple_base_moves(e->field_access.object))
         return false;
     /* A cast (an interface view, an unwrap) of a place still names it. */
     while (e && (e->kind == IRON_HIR_EXPR_FIELD_ACCESS || e->kind == IRON_HIR_EXPR_INDEX ||
