@@ -68,7 +68,7 @@ sys.path.insert(0, HERE)
 from pf_lang import Bail, Expected  # noqa: E402
 
 AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime',
-         'sync')
+         'sync', 'arenax')
 
 
 def generator(area):
