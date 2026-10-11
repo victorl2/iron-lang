@@ -60,6 +60,7 @@ Iron_Arena_RT *iron_arena_rt_new(uint64_t capacity, bool threadsafe,
     a->prev       = NULL;
     IRON_ATOMIC_U64_INIT(a->atomic_offset, 0);
     IRON_ATOMIC_U64_INIT(a->gen, 1);  /* Pitfall 3: gen starts at 1 */
+    IRON_ATOMIC_U64_INIT(a->refs, 1);
     return a;
 }
 
@@ -161,8 +162,17 @@ uint64_t iron_arena_rt_capacity(Iron_Arena_RT *a) {           /* ARENA-01 */
     return a->capacity;
 }
 
+/* A spawned task that uses the arena keeps it alive until it finishes; the
+ * owner's destroy then only drops its reference. */
+void iron_arena_rt_retain(Iron_Arena_RT *a) {
+    if (a) (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(a->refs, 1);
+}
+
 void iron_arena_rt_destroy(Iron_Arena_RT *a) {
     if (!a) return;
+    if (IRON_ATOMIC_U64_FETCH_SUB_RELEASE(a->refs, 1) != 1) return;
+    IRON_ATOMIC_FENCE_ACQUIRE();
+    (void)IRON_ATOMIC_U64_LOAD_ACQUIRE(a->refs);
     free(a->base);
     free(a);
 }

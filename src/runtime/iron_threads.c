@@ -880,6 +880,7 @@ struct Iron_Channel {
     iron_cond_t     not_full;
     iron_cond_t     not_empty;
     bool            closed;
+    iron_atomic_u64 refs;       /* the owner's and each spawned task's */
 };
 
 Iron_Channel *Iron_channel_create(int capacity) {
@@ -895,6 +896,7 @@ Iron_Channel *Iron_channel_create(int capacity) {
     ch->tail     = 0;
     ch->count    = 0;
     ch->closed   = false;
+    IRON_ATOMIC_U64_INIT(ch->refs, 1);
 
     IRON_MUTEX_INIT(ch->lock);
     IRON_COND_INIT(ch->not_full);
@@ -972,8 +974,12 @@ void Iron_channel_close(Iron_Channel *ch) {
  * elem_drop == NULL preserves the historical box-free-only behavior for
  * trivially-destructible T (closes the STDLIB-08 documented gap when the
  * glue passes a real trampoline). */
+void Iron_channel_retain(Iron_Channel *ch) {
+    if (ch) (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(ch->refs, 1);
+}
+
 void Iron_channel_destroy_with(Iron_Channel *ch, void (*elem_drop)(void *)) {
-    if (!ch) return;
+    if (!ch || !iron_shared_release(&ch->refs)) return;
     for (int i = 0; i < ch->count; i++) {
         void *box = ch->ring[(ch->head + i) % ch->capacity];
         if (box && elem_drop) elem_drop(box);
@@ -1007,7 +1013,20 @@ Iron_Mutex *Iron_mutex_create(void *initial_value, size_t size) {
         memcpy(m->value, initial_value, size);
     }
     IRON_MUTEX_INIT(m->lock);
+    IRON_ATOMIC_U64_INIT(m->refs, 1);
     return m;
+}
+
+void Iron_mutex_retain(Iron_Mutex *m) {
+    if (m) (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(m->refs, 1);
+}
+
+/* Drop one reference; true when it was the last (the caller frees). */
+bool iron_shared_release(iron_atomic_u64 *refs) {
+    if (IRON_ATOMIC_U64_FETCH_SUB_RELEASE(*refs, 1) != 1) return false;
+    IRON_ATOMIC_FENCE_ACQUIRE();
+    (void)IRON_ATOMIC_U64_LOAD_ACQUIRE(*refs);   /* the fence, as TSan sees it */
+    return true;
 }
 
 void *Iron_mutex_lock(Iron_Mutex *m) {
@@ -1027,7 +1046,7 @@ void Iron_mutex_unlock(Iron_Mutex *m) {
  * previously leaked its resource. elem_drop == NULL preserves the
  * historical free-only behavior for trivially-destructible T. */
 void Iron_mutex_destroy_with(Iron_Mutex *m, void (*elem_drop)(void *)) {
-    if (!m) return;
+    if (!m || !iron_shared_release(&m->refs)) return;
     if (m->value && elem_drop) elem_drop(m->value);
     free(m->value);
     IRON_MUTEX_DESTROY(m->lock);
