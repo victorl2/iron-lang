@@ -26,8 +26,11 @@ Usage:
         still matches, to stay on the construct of interest)
 
 Disagreeing files are written to OUT/<kind>/. With --fail-on ts-rejects
-(the default) the exit status is 1 when the grammar rejects a file the
-compiler accepts, outside the known gaps listed in KNOWN.
+(the default) the exit status is 1 when the grammar rejects a generated or
+corpus program the compiler accepts, outside the known gaps listed in
+KNOWN; mutants are reported (and fail with --strict-mutants). Review the
+mutant ts-rejects of a campaign by hand: the compiler accepting a mutant
+the grammar rejects has been a compiler bug (a stray `}`, `Int[]`).
 """
 from __future__ import annotations
 
@@ -206,6 +209,10 @@ def main(argv=None):
     ap.add_argument('-j', type=int, default=4)
     ap.add_argument('--out', default='ts_diff_out')
     ap.add_argument('--fail-on', default='ts-rejects', choices=['ts-rejects', 'none', 'both'])
+    ap.add_argument('--strict-mutants', action='store_true',
+                    help='a mutant the compiler accepts and the grammar rejects fails too (by '
+                    'default only unmutated programs fail: a mutant can be valid in a way the '
+                    'grammar does not need to cover, such as an expression pattern)')
     ap.add_argument('--reduce')
     ap.add_argument('--keep', help='with --reduce: a regex the reduced file must still match')
     args = ap.parse_args(argv)
@@ -252,9 +259,13 @@ def main(argv=None):
         d = os.path.join(args.out, kind + ('-known' if is_known else ''))
         os.makedirs(d, exist_ok=True)
         shutil.copy(p, os.path.join(d, os.path.basename(p)))
-        if not is_known and (args.fail_on == 'both' or args.fail_on == kind):
+        counted = not is_known and (args.fail_on == 'both' or args.fail_on == kind) and \
+            (origin == 'orig' or args.strict_mutants)
+        if counted:
             failing += 1
-            print(f'{kind}: {name} ({origin}) -> {os.path.join(d, os.path.basename(p))}')
+        if not is_known:
+            print(f'{kind}: {name} ({origin}) -> {os.path.join(d, os.path.basename(p))}'
+                  + ('' if counted else ' (reported, not failing)'))
     shutil.rmtree(work, ignore_errors=True)
     total = len(res)
     summary = ', '.join(f'{o} {k}={n}' for (o, k), n in sorted(counts.items()))

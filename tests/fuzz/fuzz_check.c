@@ -52,7 +52,8 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
 
 static bool has_syntax_error(const Iron_DiagList *d) {
     for (int i = 0; i < d->count; i++)
-        if (d->items[i].level == IRON_DIAG_ERROR && d->items[i].code < 200) return true;
+        if (d->items[i].level == IRON_DIAG_ERROR && d->items[i].code < 200 &&
+            d->items[i].code != 175 && d->items[i].code != 176) return true;   /* 175, 176: also resolve */
     return false;
 }
 

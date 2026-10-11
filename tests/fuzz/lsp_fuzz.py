@@ -1278,6 +1278,14 @@ def run_session(args, seed, files):
             with open(os.path.join(d, os.path.basename(doc.path)), 'w', encoding='utf-8',
                       newline='', errors='surrogatepass') as f:
                 f.write(doc.text)
+        # the texts the requests still pending were made on: a crash or a
+        # hang happened on one of them
+        for item in s.pending[:20]:
+            rid, method, _params, pdoc, _v, ptext = item[:6]
+            with open(os.path.join(d, f'pending_{rid}_{method.split("/")[-1]}_'
+                                   f'{os.path.basename(pdoc.path)}'), 'w', encoding='utf-8',
+                      newline='', errors='surrogatepass') as f:
+                f.write(ptext)
         if 'fail_text' in s.ctx:
             path, text = s.ctx['fail_text']
             with open(os.path.join(d, 'at_failure_' + os.path.basename(path)), 'w', encoding='utf-8',

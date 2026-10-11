@@ -148,6 +148,21 @@ if(IRON_BUILD_GRAMMARS AND IRON_NPM_EXECUTABLE AND IRON_NODE_EXECUTABLE AND BASH
         SKIP_RETURN_CODE 77
         TIMEOUT 120)
 
+    # The grammar accepts what the compiler's parser accepts, on generated
+    # programs and mutants (tests/fuzz/ts_diff.py, fixed seed).
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_EXECUTABLE)
+        add_test(NAME test_tree_sitter_differential
+            COMMAND ${BASH_EXECUTABLE}
+                    "${CMAKE_SOURCE_DIR}/tests/grammars/tree_sitter/ts_differential.sh"
+                    ${Python3_EXECUTABLE} $<TARGET_FILE:ironc>)
+        set_tests_properties(test_tree_sitter_differential PROPERTIES
+            LABELS "phase-m5-invariant;fuzz"
+            FIXTURES_REQUIRED tree_sitter_deps
+            SKIP_RETURN_CODE 77
+            TIMEOUT 300)
+    endif()
+
     # The committed generated parser (read by Zed) matches grammar.js.
     add_test(NAME test_tree_sitter_parser_in_sync
         COMMAND ${BASH_EXECUTABLE}

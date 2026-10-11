@@ -1,0 +1,8 @@
+-- An interface method without a name was skipped without a diagnostic.
+interface Shape {
+    func func area() -> Int
+}
+
+func main() {
+    println("a")
+}

@@ -744,6 +744,13 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         Iron_Node *inner = iron_parse_type_annotation_impl(p);
         if (inner && inner->kind == IRON_NODE_TYPE_ANNOTATION) {
             Iron_TypeAnnotation *ia = (Iron_TypeAnnotation *)inner;
+            if (ia->is_pointer && ia->is_nullable) {
+                /* `??*T` read as `?*T`. */
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN, q_span,
+                               "a pointer type takes one leading '?'", NULL);
+                return inner;
+            }
             if (ia->is_pointer) {
                 ia->is_nullable = true;
                 ia->span = iron_span_merge(q_span, ia->span);
@@ -1046,6 +1053,14 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
             iron_skip_newlines(p);
         }
         IRON_ARENA_ARR_ADOPT(p->arena, ann->generic_args);
+        if (ann->generic_arg_count == 0 && iron_check(p, IRON_TOK_RBRACKET)) {
+            /* `T[]` was read as a plain `T` (a list is `[T]`). */
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected a type argument",
+                           "a list of T is written [T]");
+        }
         iron_expect(p, IRON_TOK_RBRACKET);
         /* `Name[T]?`: the `?` after the type arguments (the printer's form;
          * `Name?[T]` is still accepted above). */
@@ -6267,8 +6282,12 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         Iron_Token *fsig_start = iron_current(p);
         iron_advance(p);  /* consume 'func' */
 
-        /* Method name: must be a regular identifier */
+        /* Method name: must be a regular identifier (it was skipped without
+         * a word, so `func func area()` passed). */
         if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected method name after 'func'");
             iron_parser_sync_member(p);
             continue;
         }

@@ -12,6 +12,7 @@ fix with a regression test.
 | `parser` | `build/tests/fuzz/fuzz_parser` | Iron source bytes | lexer and parser |
 | `typecheck` | `build/tests/fuzz/fuzz_typecheck` | token blob (`tests/fuzz/iron_gen.c`) | parser, resolve, typecheck |
 | `hir_to_lir` | `build/tests/fuzz/fuzz_hir_to_lir` | token blob | the above, HIR lowering, HIR to LIR |
+| `check` | `build/tests/fuzz/fuzz_check` | Iron source bytes | analysis as `ironc check` and the language server run it (stdlib prelude, broken buffers included), formatter idempotence |
 | `lsp_frame` | `build/tests/fuzz/lsp/fuzz_lsp_frame` | bytes | Content-Length framing |
 | `lsp_json` | `build/tests/fuzz/lsp/fuzz_lsp_json` | bytes | JSON parsing into the arena |
 | `lsp_dispatch` | `build/tests/fuzz/lsp/fuzz_lsp_dispatch` | bytes | method lookup and routing |
@@ -148,6 +149,65 @@ arena.
 * **Harness teardown.** A target that does not free what it builds (token
   arrays, HIR and LIR modules) leaks per input; teardown should mirror
   `src/cli/build.c`.
+
+## The tools: language server, formatter, tree-sitter grammar
+
+Three Python fuzzers drive the tools the way editors and users do. They
+need only Python 3 and a build (`ironls`, `ironc`); run them against an
+ASan+UBSan build. Each takes `--seed` and is deterministic for a seed
+(apart from timing), writes failing cases under `--out`, and has a short
+fixed-seed ctest entry (`lsp_fuzz_short`, `fmt_fuzz_short`,
+`test_tree_sitter_differential`).
+
+**`tests/fuzz/lsp_fuzz.py`** plays editing sessions against `ironls`:
+documents from the corpus and from the `prog_fuzz.py` generators, random
+incremental edits (typing one character at a time, pasting fragments of
+other files, deleting spans, unbalanced braces, half-typed strings and
+interpolations, characters outside the BMP), several changes in one
+notification, close/reopen churn, `$/cancelRequest`, and requests of every
+kind at random positions (inside surrogate pairs and past the end of lines
+too) under the utf-16 and utf-8 encodings. It checks that the server does
+not exit, hang (per-request deadline) or print a sanitizer report, that
+it does not drift from the client's text (it sends ironls's `contentHash`
+extension with every change), that responses are well formed (ranges
+inside the document and on character boundaries, no overlapping edits,
+semantic tokens that decode, no duplicate diagnostics, parents containing
+children), and that the published diagnostics agree with `ironc check`.
+
+```sh
+python3 tests/fuzz/lsp_fuzz.py --ironls build/ironls --ironc build/ironc \
+    --seed 1000 --sessions 200 --steps 400 -j 6 --out lsp-fuzz
+# a failing session, replayed and reported (unanswered requests, crash
+# notices, sanitizer reports, peak RSS):
+python3 tests/fuzz/lsp_fuzz.py --ironls build/ironls --replay lsp-fuzz/fail/<seed>/session.jsonl
+# the server's diagnostics for one file next to ironc check's:
+python3 tests/fuzz/lsp_fuzz.py --ironls build/ironls --ironc build/ironc --show file.iron
+```
+
+`at_failure_<name>.iron` in a failure directory is the text the failing
+response was computed on. On a file that does not parse, `ironc check`
+and the server report different follow-on errors by design (the CLI
+drops a broken statement, the server keeps the partial tree), so only the
+first syntax error is compared there.
+
+**`tests/fuzz/fmt_fuzz.py`** formats corpus and generated programs and
+perturbations of them (indentation, tabs, trailing whitespace, blank
+lines, comments, CRLF, final newline) and checks idempotence, that every
+comment survives, that diagnostics are unchanged, that `ironc fmt` refuses
+only files that do not parse, that a perturbation of horizontal whitespace
+or line ends formats like the original, and with `--ironls` that
+`textDocument/formatting` and a whole-document `rangeFormatting` give what
+`ironc fmt` writes. `--run` builds and runs each program before and after
+formatting and compares the output.
+
+**`tests/fuzz/ts_diff.py`** gives the tree-sitter grammar and the
+compiler's parser the same generated programs and mutants of them and
+reports where they disagree: `ts-rejects` (the compiler accepts, the
+grammar has ERROR nodes: an editor marks valid code) and `ts-accepts`
+(the grammar is looser than the language). `--reduce FILE --keep REGEX`
+shrinks a disagreement. It needs `tree-sitter` (0.26.x, as the committed
+parser; `tree-sitter generate --js-runtime native` regenerates it without
+Node).
 
 ## Turning a finding into a fix
 

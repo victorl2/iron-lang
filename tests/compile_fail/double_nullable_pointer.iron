@@ -1,0 +1,9 @@
+-- `? ?*P` was read as `?*P`.
+object P {
+    val a: Int
+}
+
+func main() {
+    val o: ? ?*P = null
+    println("a")
+}
