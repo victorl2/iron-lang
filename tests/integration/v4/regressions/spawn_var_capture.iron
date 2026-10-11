@@ -1,0 +1,48 @@
+-- `var` bindings a spawn or parallel for body reads are passed by address.
+-- Three ways that failed the C compile:
+--   - a var never assigned again: its slot was narrowed to int8_t (or
+--     promoted away) and the env took the address of the wrong thing;
+--   - a var of main read by a spawn or parallel for nested in a parallel
+--     for body: the address of the enclosing body's alias slot, which is
+--     not declared there (the env field itself is the pointer);
+--   - a capture named like a C keyword (`long`, `short`): parallel for env
+--     fields used the raw name. (#426)
+func main() {
+    var w = 3
+    val m = Mutex(0)
+    for i in range(4) parallel {
+        val g = m.lock()
+        g.set(g.get() + w)
+    }
+    {
+        val g = m.lock()
+        println("never reassigned {g.get()}")
+    }
+
+    var base = 2
+    val n = Mutex(0)
+    for i in range(3) parallel {
+        val h = spawn("nested") { return i + base }
+        val v = await h
+        for j in range(2) parallel {
+            val g = n.lock()
+            g.set(g.get() + v * base + j)
+        }
+    }
+    {
+        val g = n.lock()
+        println("through nested bodies {g.get()}")
+    }
+
+    val long = 3
+    var short = 4
+    val h = spawn("keywords") { return long * 10 + short }
+    println("spawn {await h}")
+    val k = Mutex(0)
+    for i in range(3) parallel {
+        val g = k.lock()
+        g.set(g.get() + long + short)
+    }
+    val g = k.lock()
+    println("parallel for {g.get()}")
+}

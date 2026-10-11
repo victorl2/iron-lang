@@ -2136,6 +2136,31 @@ static bool lir_value_roots_at_arena(IronLIR_Func *fn, IronLIR_ValueId vid) {
         case IRON_LIR_GET_FIELD:   vid = def->field.object;    break;
         case IRON_LIR_GET_INDEX:   vid = def->index.array;     break;
         case IRON_LIR_PTR_OFFSET:  vid = def->ptr_offset.ptr;  break;
+        case IRON_LIR_LOAD: {
+            /* A `var` binding: arena-rooted when every store into its slot
+             * is an arena allocation (`&p` of a `var p = heap(in: a) T()`
+             * was checked as a heap pointer and failed on every deref). */
+            IronLIR_ValueId slot = def->load.ptr;
+            IronLIR_Instr *a = (slot != IRON_LIR_VALUE_INVALID &&
+                                slot < (IronLIR_ValueId)arrlen(fn->value_table))
+                               ? fn->value_table[slot] : NULL;
+            if (!a || a->kind != IRON_LIR_ALLOCA) return false;
+            bool any = false;
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *st = blk->instrs[ii];
+                    if (!st || st->kind != IRON_LIR_STORE || st->store.ptr != slot) continue;
+                    IronLIR_ValueId sv = st->store.value;
+                    IronLIR_Instr *sd = (sv != IRON_LIR_VALUE_INVALID &&
+                                         sv < (IronLIR_ValueId)arrlen(fn->value_table))
+                                        ? fn->value_table[sv] : NULL;
+                    if (!sd || sd->kind != IRON_LIR_ARENA_ALLOC) return false;
+                    any = true;
+                }
+            }
+            return any;
+        }
         default: return false;
         }
     }
@@ -5828,6 +5853,17 @@ static void ssa_collect_addr_taken(IronLIR_Func *fn) {
             case IRON_LIR_MAKE_CLOSURE:
                 for (int ci = 0; ci < in->make_closure.capture_count; ci++)
                     ssa_mark_addr_taken(fn, in->make_closure.captures[ci]);
+                break;
+            /* A `var` captured by a spawn or parallel for body is passed
+             * as the address of its slot: promoted, the env took the
+             * address of the stored constant (C compile error). */
+            case IRON_LIR_SPAWN:
+                for (int ci = 0; ci < in->spawn.capture_count; ci++)
+                    ssa_mark_addr_taken(fn, in->spawn.captures[ci]);
+                break;
+            case IRON_LIR_PARALLEL_FOR:
+                for (int ci = 0; ci < in->parallel_for.capture_count; ci++)
+                    ssa_mark_addr_taken(fn, in->parallel_for.captures[ci]);
                 break;
             case IRON_LIR_STORE:
                 ssa_mark_addr_taken(fn, in->store.value);

@@ -1,0 +1,3 @@
+spawn 42
+parallel for 36
+lambda 36 true

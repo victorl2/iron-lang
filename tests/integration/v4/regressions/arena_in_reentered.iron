@@ -1,0 +1,38 @@
+-- `in a { }` entered again for an arena already active (directly nested, or
+-- through a function doing `in a` called inside `in a`): the active-arena
+-- stack was linked through the arenas themselves, so the arena pointed to
+-- itself. Leaving the blocks left the wrong arena on top: later bare `heap`
+-- allocations went to it, and to a destroyed one here (heap use after free). (#460)
+object Pt {
+    val x: Int
+    val y: Int
+}
+
+func in_twice(a: Arena, k: Int) -> Int {
+    var t = 0
+    in a {
+        val p = heap Pt(k, k)
+        t = p.x + p.y
+    }
+    return t
+}
+
+func main() {
+    val outer = Arena(65536)
+    in outer {
+        val inner = Arena(4096)
+        in inner {
+            val p = heap Pt(1, 2)
+            in inner {
+                val q = heap Pt(3, 4)
+                println("{p.x} {q.y}")
+            }
+            println("{in_twice(inner, 5)}")
+        }
+        val r = heap Pt(7, 8)
+        println("{r.x} {inner.used() > 0}")
+    }
+    println("{outer.used() > 0}")
+    val solo = Arena(4096)
+    println("{in_twice(solo, 2)} {solo.used() > 0}")
+}

@@ -133,6 +133,11 @@ void iron_cell_release(void *value) {
     uint64_t prev = IRON_ATOMIC_U64_FETCH_SUB_RELEASE(h->rc, 1);
     if (prev == 1) {
         IRON_ATOMIC_FENCE_ACQUIRE();
+        /* A spawned task shares the cell (#458). The acquire load of the
+         * count is what the fence does, in a form ThreadSanitizer models
+         * (it does not see standalone fences and reported the free as a
+         * race with the other thread's decrement). */
+        (void)IRON_ATOMIC_U64_LOAD_ACQUIRE(h->rc);
         if (h->drop) h->drop(value);
         free(h);
     }

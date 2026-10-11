@@ -120,11 +120,14 @@ static void emit_closure_env_typedef(EmitCtx *ctx, const char *env_type,
 /* A lambda whose closure is never built (it sits in unreachable code, after
  * a return) is still emitted, and its body reads the captures through the
  * env struct that only building the closure declares. Declare the missing
- * ones after all functions are written. */
+ * ones after all functions are written. The same holds for a spawn or a
+ * parallel for that is never started. */
 void emit_unbuilt_closure_envs(EmitCtx *ctx, IronLIR_Module *module) {
     for (int i = 0; i < module->func_count; i++) {
         IronLIR_Func *fn = module->funcs[i];
-        if (!fn || fn->is_extern || !fn->name || strncmp(fn->name, "__lambda_", 9) != 0 ||
+        if (!fn || fn->is_extern || !fn->name ||
+            (strncmp(fn->name, "__lambda_", 9) != 0 && strncmp(fn->name, "__spawn_", 8) != 0 &&
+             strncmp(fn->name, "__pfor_", 7) != 0) ||
             fn->capture_count <= 0 || !fn->capture_metadata)
             continue;
         Iron_StrBuf sb = iron_strbuf_create(64);
@@ -832,11 +835,34 @@ static bool emit_call_param_is_arena(EmitCtx *ctx, IronLIR_Func *fn,
 static void emit_spawn_env_string_releases(Iron_StrBuf *sb, const Iron_CaptureEntry *caps,
                                            int count) {
     for (int ci = 0; ci < count; ci++) {
+        if (caps[ci].is_mutable && caps[ci].is_boxed) {
+            /* the env's share of a captured var's cell (taken when the
+             * task started, see emit_spawn_env_cell_retains) */
+            bool cl = caps[ci].type && caps[ci].type->kind == IRON_TYPE_FUNC;
+            iron_strbuf_appendf(sb, "    %s(_e->%s);\n",
+                                cl ? "iron_cell_release_closure" : "iron_cell_release",
+                                cap_c_name(caps[ci].name));
+            continue;
+        }
         if (caps[ci].is_mutable || !caps[ci].type) continue;
         if (caps[ci].type->kind == IRON_TYPE_STRING)
             iron_strbuf_appendf(sb, "    iron_string_release(&_e->%s);\n", cap_c_name(caps[ci].name));
         else if (caps[ci].type->kind == IRON_TYPE_FUNC)
             iron_strbuf_appendf(sb, "    iron_closure_release(_e->%s);\n", cap_c_name(caps[ci].name));
+    }
+}
+
+/* A spawned task can outlive the block of a `var` it reads (a spawn that is
+ * never awaited always may): like a closure env (#210), its env takes a
+ * share of the var's cell, released when the task's env is freed. Without
+ * it the block's end freed the cell while the task still read it. */
+static void emit_spawn_env_cell_retains(Iron_StrBuf *sb, int ind, unsigned env_id,
+                                        const Iron_CaptureEntry *caps, int count) {
+    for (int ci = 0; ci < count; ci++) {
+        if (!caps[ci].is_mutable || !caps[ci].is_boxed) continue;
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "iron_cell_retain(_env_%u->%s);\n", env_id,
+                            cap_c_name(caps[ci].name));
     }
 }
 
@@ -2743,6 +2769,35 @@ static const IronLIR_Func *g_line_fn;   /* function the next two describe */
 static unsigned g_line_fn_first;        /* its first line (entry block) */
 static unsigned g_line_fn_last;         /* the line of its last statement so far */
 static void emit_line_directive(Iron_StrBuf *sb, unsigned line, const char *file);
+/* A fire-and-forget spawn discards the body's result: call the lifted
+ * function with its own signature (a call through `void (*)(void *)` is
+ * undefined behavior) and drop the value it returns. Writes the call into
+ * `out`; `arg` is the env expression or NULL. Glue the drop needs is
+ * ensured before anything is written to lifted_funcs by the caller. */
+static void emit_ff_spawn_call(Iron_StrBuf *out, EmitCtx *ctx, const char *func_name,
+                               const char *c_func_name, const char *arg) {
+    IronLIR_Func *lifted_fn = NULL;
+    for (int fi = 0; fi < ctx->module->func_count; fi++) {
+        if (ctx->module->funcs[fi]->name &&
+            strcmp(ctx->module->funcs[fi]->name, func_name) == 0) {
+            lifted_fn = ctx->module->funcs[fi];
+            break;
+        }
+    }
+    Iron_Type *rt = lifted_fn ? lifted_fn->return_type : NULL;
+    if (!rt || rt->kind == IRON_TYPE_VOID) {
+        iron_strbuf_appendf(out, "    %s(%s);\n", c_func_name, arg ? arg : "");
+        return;
+    }
+    const char *drop_fn = emit_cell_drop_fn(ctx, rt);
+    iron_strbuf_appendf(out, "    %s _r = %s(%s);\n", emit_type_to_c(rt, ctx), c_func_name,
+                        arg ? arg : "");
+    if (drop_fn && strcmp(drop_fn, "NULL") != 0)
+        iron_strbuf_appendf(out, "    %s(&_r);\n", drop_fn);
+    else
+        iron_strbuf_appendf(out, "    (void)_r;\n");
+}
+
 static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx);
 
@@ -8014,8 +8069,11 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_drop_lvalue(&spawn_obj_drops, 1, ctx, ct, lv);
             }
 
-            /* Emit wrapper into lifted_funcs section */
-            iron_strbuf_appendf(&ctx->lifted_funcs,
+            /* The wrapper, written once: a spawn in a deferred block is
+             * emitted at every exit of the block, and each copy wrote the
+             * wrapper again (C redefinition). */
+            Iron_StrBuf spawn_wrap = iron_strbuf_create(256);
+            iron_strbuf_appendf(&spawn_wrap,
                 has_return && cap_count > 0 && cap_meta && env_type
                     ? "static void %s(void *_arg, Iron_Handle *_h) {\n"
                     : "static void %s(void *_arg) {\n",
@@ -8026,40 +8084,45 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                  * wrappers publish through the handle before the runtime
                  * signals completion, then release the one-shot env. */
                 if (has_return && ret_c) {
-                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                    iron_strbuf_appendf(&spawn_wrap,
                         "    %s *_e = (%s *)_arg;\n", env_type, env_type);
-                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                    iron_strbuf_appendf(&spawn_wrap,
                         "    %s _result = %s(_e);\n", ret_c, c_func_name);
-                    emit_spawn_publish_result(&ctx->lifted_funcs, lifted_fn->return_type, ret_c);
-                    emit_spawn_env_string_releases(&ctx->lifted_funcs, cap_meta, cap_count);
-                    iron_strbuf_appendf(&ctx->lifted_funcs, "%s", iron_strbuf_get(&spawn_obj_drops));
-                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                    emit_spawn_publish_result(&spawn_wrap, lifted_fn->return_type, ret_c);
+                    emit_spawn_env_string_releases(&spawn_wrap, cap_meta, cap_count);
+                    iron_strbuf_appendf(&spawn_wrap, "%s", iron_strbuf_get(&spawn_obj_drops));
+                    iron_strbuf_appendf(&spawn_wrap,
                         "    iron_mem_free(_arg);\n");
                 } else {
-                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                    iron_strbuf_appendf(&spawn_wrap,
                         "    %s *_e = (%s *)_arg;\n", env_type, env_type);
-                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                    iron_strbuf_appendf(&spawn_wrap,
                         "    %s(_e);\n", c_func_name);
-                    emit_spawn_env_string_releases(&ctx->lifted_funcs, cap_meta, cap_count);
-                    iron_strbuf_appendf(&ctx->lifted_funcs, "%s", iron_strbuf_get(&spawn_obj_drops));
-                    iron_strbuf_appendf(&ctx->lifted_funcs, "    iron_mem_free(_arg);\n");
+                    emit_spawn_env_string_releases(&spawn_wrap, cap_meta, cap_count);
+                    iron_strbuf_appendf(&spawn_wrap, "%s", iron_strbuf_get(&spawn_obj_drops));
+                    iron_strbuf_appendf(&spawn_wrap, "    iron_mem_free(_arg);\n");
                 }
             } else {
                 /* Non-capturing spawn: arg is the handle itself (self-ref) */
-                iron_strbuf_appendf(&ctx->lifted_funcs,
+                iron_strbuf_appendf(&spawn_wrap,
                     "    Iron_Handle *_h = (Iron_Handle *)_arg;\n");
                 if (has_return && ret_c) {
-                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                    iron_strbuf_appendf(&spawn_wrap,
                         "    %s _result = %s();\n", ret_c, c_func_name);
-                    emit_spawn_publish_result(&ctx->lifted_funcs, lifted_fn->return_type, ret_c);
+                    emit_spawn_publish_result(&spawn_wrap, lifted_fn->return_type, ret_c);
                 } else {
-                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                    iron_strbuf_appendf(&spawn_wrap,
                         "    %s();\n", c_func_name);
                 }
             }
 
-            iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
+            iron_strbuf_appendf(&spawn_wrap, "}\n\n");
             iron_strbuf_free(&spawn_obj_drops);
+            if (shgeti(ctx->mono_registry, (char *)wrapper_name) < 0) {
+                shput(ctx->mono_registry, (char *)wrapper_name, true);
+                iron_strbuf_appendf(&ctx->lifted_funcs, "%s", iron_strbuf_get(&spawn_wrap));
+            }
+            iron_strbuf_free(&spawn_wrap);
 
             if (cap_count > 0 && cap_meta && env_type) {
                 /* Capturing handled spawn: allocate env, populate, use Iron_handle_create */
@@ -8076,8 +8139,11 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_indent(sb, ind);
                     iron_strbuf_appendf(sb, "_env_%u->%s = ", instr->id, cap_c_name(cap_meta[ci].name));
                     if (cap_meta[ci].is_mutable) {
-                        iron_strbuf_appendf(sb, "&");
-                        emit_val(sb, instr->spawn.captures[ci]);
+                        /* the outer variable's storage, as for a closure:
+                         * in a lifted body that is the enclosing env's
+                         * pointer, not the address of its alias slot */
+                        emit_receiver_addr(sb, fn, ctx, instr->spawn.captures[ci],
+                                           ctx->current_block_id);
                     } else {
                         emit_capture_rhs(sb, instr->spawn.captures[ci], &cap_meta[ci], ctx);
                     }
@@ -8106,10 +8172,11 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         emit_copy_fixup_lvalue(sb, ind, ctx, cap_meta[ci].type, lv);
                     }
                 }
+                emit_spawn_env_cell_retains(sb, ind, instr->id, cap_meta, cap_count);
                 /* Result wrappers receive both env and handle so the value is
                  * visible to await before completion is signalled. */
                 emit_indent(sb, ind);
-                iron_strbuf_appendf(sb, "Iron_Handle *");
+                if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_Handle *");
                 emit_val(sb, instr->id);
                 if (has_return) {
                     iron_strbuf_appendf(sb, " = Iron_handle_create_result("
@@ -8123,7 +8190,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             } else {
                 /* Non-capturing handled spawn: use iron_handle_create_self_ref */
                 emit_indent(sb, ind);
-                iron_strbuf_appendf(sb, "Iron_Handle *");
+                if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_Handle *");
                 emit_val(sb, instr->id);
                 iron_strbuf_appendf(sb, " = iron_handle_create_self_ref("
                                     "(void (*)(void *))%s);\n", wrapper_name);
@@ -8147,8 +8214,11 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_indent(sb, inner);
                     iron_strbuf_appendf(sb, "_env_%u->%s = ", instr->id, cap_c_name(cap_meta[ci].name));
                     if (cap_meta[ci].is_mutable) {
-                        iron_strbuf_appendf(sb, "&");
-                        emit_val(sb, instr->spawn.captures[ci]);
+                        /* the outer variable's storage, as for a closure:
+                         * in a lifted body that is the enclosing env's
+                         * pointer, not the address of its alias slot */
+                        emit_receiver_addr(sb, fn, ctx, instr->spawn.captures[ci],
+                                           ctx->current_block_id);
                     } else {
                         emit_capture_rhs(sb, instr->spawn.captures[ci], &cap_meta[ci], ctx);
                     }
@@ -8177,6 +8247,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         emit_copy_fixup_lvalue(sb, ind, ctx, cap_meta[ci].type, lv);
                     }
                 }
+                emit_spawn_env_cell_retains(sb, inner, instr->id, cap_meta, cap_count);
                 /* Emit a simple wrapper that calls with env and frees */
                 Iron_StrBuf ff_wrapper_sb = iron_strbuf_create(64);
                 iron_strbuf_appendf(&ff_wrapper_sb, "%s_ff_wrapper", c_func_name);
@@ -8190,6 +8261,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     shput(ctx->mono_registry, (char *)ff_wrapper, true);
                     /* The env's shares and copies go with the env (#262):
                      * built first, since ensuring glue appends to lifted_funcs. */
+                    Iron_StrBuf ff_call = iron_strbuf_create(64);
+                    emit_ff_spawn_call(&ff_call, ctx, func_name, c_func_name, "_e");
                     Iron_StrBuf ff_drops = iron_strbuf_create(64);
                     emit_spawn_env_string_releases(&ff_drops, cap_meta, cap_count);
                     for (int ci = 0; ci < cap_count; ci++) {
@@ -8207,13 +8280,13 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         "static void %s(void *_arg) {\n", ff_wrapper);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    %s *_e = (%s *)_arg;\n", env_type, env_type);
-                    iron_strbuf_appendf(&ctx->lifted_funcs,
-                        "    %s(_e);\n", c_func_name);
+                    iron_strbuf_appendf(&ctx->lifted_funcs, "%s", iron_strbuf_get(&ff_call));
                     iron_strbuf_appendf(&ctx->lifted_funcs, "%s", iron_strbuf_get(&ff_drops));
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    iron_mem_free(_arg);\n");
                     iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
                     iron_strbuf_free(&ff_drops);
+                    iron_strbuf_free(&ff_call);
                 }
 
                 emit_indent(sb, inner);
@@ -8222,7 +8295,22 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "}\n");
             } else {
-                /* Non-capturing fire-and-forget */
+                /* Non-capturing fire-and-forget: through a wrapper with
+                 * the pool's signature. */
+                Iron_StrBuf ffw_sb = iron_strbuf_create(64);
+                iron_strbuf_appendf(&ffw_sb, "%s_ff_wrapper", c_func_name);
+                const char *ffw = iron_arena_strdup(ctx->arena, iron_strbuf_get(&ffw_sb), ffw_sb.len);
+                if (!ffw) iron_oom_abort("emit_c.c:emit_instr SPAWN ff wrapper (no env)");
+                iron_strbuf_free(&ffw_sb);
+                if (shgeti(ctx->mono_registry, (char *)ffw) < 0) {
+                    shput(ctx->mono_registry, (char *)ffw, true);
+                    Iron_StrBuf ff_call = iron_strbuf_create(64);
+                    emit_ff_spawn_call(&ff_call, ctx, func_name, c_func_name, NULL);
+                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                        "static void %s(void *_arg) {\n    (void)_arg;\n%s}\n\n",
+                        ffw, iron_strbuf_get(&ff_call));
+                    iron_strbuf_free(&ff_call);
+                }
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "Iron_pool_submit(");
                 if (instr->spawn.pool_val == IRON_LIR_VALUE_INVALID) {
@@ -8230,7 +8318,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 } else {
                     emit_val(sb, instr->spawn.pool_val);
                 }
-                iron_strbuf_appendf(sb, ", (void (*)(void *))%s, NULL);\n", c_func_name);
+                iron_strbuf_appendf(sb, ", %s, NULL);\n", ffw);
             }
         }
         break;
@@ -8272,38 +8360,41 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         iron_strbuf_free(&wrapper_sb);
 
         /* Emit context struct typedef into lifted_funcs section.
-         * For capturing pfor, embed env fields directly in the ctx struct. */
-        iron_strbuf_appendf(&ctx->lifted_funcs, "typedef struct {\n");
-        iron_strbuf_appendf(&ctx->lifted_funcs, "    int64_t start;\n");
-        iron_strbuf_appendf(&ctx->lifted_funcs, "    int64_t end;\n");
+         * For capturing pfor, embed env fields directly in the ctx struct.
+         * Written once: a parallel for in a deferred block is emitted at
+         * every exit of the block (C redefinition). */
+        Iron_StrBuf pfor_wrap = iron_strbuf_create(512);
+        iron_strbuf_appendf(&pfor_wrap, "typedef struct {\n");
+        iron_strbuf_appendf(&pfor_wrap, "    int64_t start;\n");
+        iron_strbuf_appendf(&pfor_wrap, "    int64_t end;\n");
         if (pfor_cap_count > 0 && pfor_cap_meta) {
             for (int ci = 0; ci < pfor_cap_count; ci++) {
                 const char *field_type = pfor_cap_meta[ci].type
                                          ? emit_type_to_c(pfor_cap_meta[ci].type, ctx)
                                          : "void*";
                 if (pfor_cap_meta[ci].is_mutable) {
-                    iron_strbuf_appendf(&ctx->lifted_funcs,
-                        "    %s *%s;\n", field_type, pfor_cap_meta[ci].name);
+                    iron_strbuf_appendf(&pfor_wrap,
+                        "    %s *%s;\n", field_type, cap_c_name(pfor_cap_meta[ci].name));
                 } else {
-                    iron_strbuf_appendf(&ctx->lifted_funcs,
-                        "    %s %s;\n", field_type, pfor_cap_meta[ci].name);
+                    iron_strbuf_appendf(&pfor_wrap,
+                        "    %s %s;\n", field_type, cap_c_name(pfor_cap_meta[ci].name));
                 }
             }
         }
-        iron_strbuf_appendf(&ctx->lifted_funcs, "} %s;\n\n", ctx_type);
+        iron_strbuf_appendf(&pfor_wrap, "} %s;\n\n", ctx_type);
 
         /* Resolve the mangled C name for the chunk function. */
         const char *chunk_c_name = emit_mangle_func_name(chunk_func, ctx->arena);
 
         /* Emit wrapper function into lifted_funcs section.
          * For captures, build a pseudo-env and pass it as first arg. */
-        iron_strbuf_appendf(&ctx->lifted_funcs,
+        iron_strbuf_appendf(&pfor_wrap,
             "static void %s(void *_arg) {\n", wrapper_name);
-        iron_strbuf_appendf(&ctx->lifted_funcs,
+        iron_strbuf_appendf(&pfor_wrap,
             "    %s *_c = (%s *)_arg;\n", ctx_type, ctx_type);
-        iron_strbuf_appendf(&ctx->lifted_funcs,
+        iron_strbuf_appendf(&pfor_wrap,
             "    int64_t _start = _c->start;\n");
-        iron_strbuf_appendf(&ctx->lifted_funcs,
+        iron_strbuf_appendf(&pfor_wrap,
             "    int64_t _end   = _c->end;\n");
         if (pfor_cap_count > 0 && pfor_cap_meta) {
             /* Build a local env struct to pass to the chunk function */
@@ -8326,41 +8417,46 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                              : "void*";
                     if (pfor_cap_meta[ci].is_mutable) {
                         iron_strbuf_appendf(&ctx->struct_bodies,
-                            "    %s *%s;\n", field_type, pfor_cap_meta[ci].name);
+                            "    %s *%s;\n", field_type, cap_c_name(pfor_cap_meta[ci].name));
                     } else {
                         iron_strbuf_appendf(&ctx->struct_bodies,
-                            "    %s %s;\n", field_type, pfor_cap_meta[ci].name);
+                            "    %s %s;\n", field_type, cap_c_name(pfor_cap_meta[ci].name));
                     }
                 }
                 iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n\n", env_type);
             }
 
-            iron_strbuf_appendf(&ctx->lifted_funcs,
+            iron_strbuf_appendf(&pfor_wrap,
                 "    %s _local_env;\n", env_type);
             for (int ci = 0; ci < pfor_cap_count; ci++) {
-                iron_strbuf_appendf(&ctx->lifted_funcs,
+                iron_strbuf_appendf(&pfor_wrap,
                     "    _local_env.%s = _c->%s;\n",
-                    pfor_cap_meta[ci].name, pfor_cap_meta[ci].name);
+                    cap_c_name(pfor_cap_meta[ci].name), cap_c_name(pfor_cap_meta[ci].name));
             }
-            iron_strbuf_appendf(&ctx->lifted_funcs,
+            iron_strbuf_appendf(&pfor_wrap,
                 "    iron_mem_free(_arg);\n");
-            iron_strbuf_appendf(&ctx->lifted_funcs,
+            iron_strbuf_appendf(&pfor_wrap,
                 "    for (int64_t _i = _start; _i < _end; _i++) {\n");
-            iron_strbuf_appendf(&ctx->lifted_funcs,
+            iron_strbuf_appendf(&pfor_wrap,
                 "        %s(&_local_env, _i);\n", chunk_c_name);
-            iron_strbuf_appendf(&ctx->lifted_funcs,
+            iron_strbuf_appendf(&pfor_wrap,
                 "    }\n");
         } else {
-            iron_strbuf_appendf(&ctx->lifted_funcs,
+            iron_strbuf_appendf(&pfor_wrap,
                 "    iron_mem_free(_arg);\n");
-            iron_strbuf_appendf(&ctx->lifted_funcs,
+            iron_strbuf_appendf(&pfor_wrap,
                 "    for (int64_t _i = _start; _i < _end; _i++) {\n");
-            iron_strbuf_appendf(&ctx->lifted_funcs,
+            iron_strbuf_appendf(&pfor_wrap,
                 "        %s(_i);\n", chunk_c_name);
-            iron_strbuf_appendf(&ctx->lifted_funcs,
+            iron_strbuf_appendf(&pfor_wrap,
                 "    }\n");
         }
-        iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
+        iron_strbuf_appendf(&pfor_wrap, "}\n\n");
+        if (shgeti(ctx->mono_registry, (char *)wrapper_name) < 0) {
+            shput(ctx->mono_registry, (char *)wrapper_name, true);
+            iron_strbuf_appendf(&ctx->lifted_funcs, "%s", iron_strbuf_get(&pfor_wrap));
+        }
+        iron_strbuf_free(&pfor_wrap);
 
         /* Emit inline range-splitting and submission loop */
         emit_indent(sb, ind);
@@ -8384,6 +8480,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             "int64_t _chunk_size = (_total + _nthreads - 1) / _nthreads;\n");
         emit_indent(sb, inner);
         iron_strbuf_appendf(sb, "if (_chunk_size < 1) _chunk_size = 1;\n");
+
+        /* The loop's own completion group: a pool-wide barrier would also
+         * wait for the chunk running this loop (nested parallel for) or for
+         * unrelated work, and deadlock. */
+        emit_indent(sb, inner);
+        iron_strbuf_appendf(sb, "Iron_PoolGroup _pgrp = {0};\n");
 
         /* Submission loop */
         emit_indent(sb, inner);
@@ -8409,10 +8511,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (pfor_cap_count > 0 && pfor_cap_meta) {
             for (int ci = 0; ci < pfor_cap_count; ci++) {
                 emit_indent(sb, inner2);
-                iron_strbuf_appendf(sb, "_pctx->%s = ", pfor_cap_meta[ci].name);
+                iron_strbuf_appendf(sb, "_pctx->%s = ", cap_c_name(pfor_cap_meta[ci].name));
                 if (pfor_cap_meta[ci].is_mutable) {
-                    iron_strbuf_appendf(sb, "&");
-                    emit_val(sb, instr->parallel_for.captures[ci]);
+                    emit_receiver_addr(sb, fn, ctx, instr->parallel_for.captures[ci],
+                                       ctx->current_block_id);
                 } else {
                     emit_capture_rhs(sb, instr->parallel_for.captures[ci],
                                      &pfor_cap_meta[ci], ctx);
@@ -8422,13 +8524,13 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         }
         emit_indent(sb, inner2);
         iron_strbuf_appendf(sb,
-            "Iron_pool_submit(Iron_global_pool, %s, _pctx);\n", wrapper_name);
+            "Iron_pool_submit_group(Iron_global_pool, %s, _pctx, &_pgrp);\n", wrapper_name);
         emit_indent(sb, inner);
         iron_strbuf_appendf(sb, "}\n");
 
         /* Barrier */
         emit_indent(sb, inner);
-        iron_strbuf_appendf(sb, "Iron_pool_barrier(Iron_global_pool);\n");
+        iron_strbuf_appendf(sb, "Iron_pool_group_wait(Iron_global_pool, &_pgrp);\n");
 
         /* Close scope */
         emit_indent(sb, ind);
@@ -8446,7 +8548,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_val(sb, instr->await.handle);
             iron_strbuf_appendf(sb, ");\n");
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s ", tc);
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", tc);
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = *_box_%u;\n", instr->id);
             emit_indent(sb, ind);
@@ -8454,7 +8556,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             break;
         }
         if (instr->type) {
-            iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            /* hoisted (used across blocks): declared at function entry */
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = (%s)iron_future_await(",
                                 emit_type_to_c(instr->type, ctx));

@@ -168,19 +168,59 @@ void iron_arena_rt_destroy(Iron_Arena_RT *a) {
 }
 
 /* ── Thread-local active-arena stack (ARENA-11) ────────────────────────────
- * Intrusive singly-linked stack, mirroring iron_init_cleanup_top
- * (iron_panic.c:42). push sets a->prev = current top; pop restores prev. */
+ * `in a { }` pushes on entry and pops on exit. The tops below the current
+ * one are kept in a per-thread array, not in the arenas: the stack used to
+ * be linked through a `prev` field of each arena, so entering an arena
+ * already on the stack (`in a { in a { } }`, or a function doing `in a`
+ * called inside `in a`) made it point to itself; the pops then left the
+ * wrong arena on top, or one already destroyed. The first entries live in
+ * a fixed array; deeper nesting (recursion through `in` blocks) spills to
+ * the heap, freed once the nesting unwinds. Push and pop always pair, a
+ * NULL arena included. */
 _Thread_local Iron_Arena_RT *iron_arena_rt_tls_top = NULL;
 
+#define ARENA_STACK_FIXED 64
+static _Thread_local Iron_Arena_RT *arena_saved_fixed[ARENA_STACK_FIXED];
+static _Thread_local Iron_Arena_RT **arena_saved_more = NULL;
+static _Thread_local int arena_saved_more_cap = 0;
+static _Thread_local int arena_saved_depth = 0;
+
 void iron_arena_rt_push(Iron_Arena_RT *a) {
-    if (!a) return;
-    a->prev = iron_arena_rt_tls_top;
+    int d = arena_saved_depth;
+    if (d < ARENA_STACK_FIXED) {
+        arena_saved_fixed[d] = iron_arena_rt_tls_top;
+    } else {
+        int k = d - ARENA_STACK_FIXED;
+        if (k >= arena_saved_more_cap) {
+            int cap = arena_saved_more_cap ? arena_saved_more_cap * 2 : 64;
+            Iron_Arena_RT **more = (Iron_Arena_RT **)realloc(
+                arena_saved_more, (size_t)cap * sizeof(Iron_Arena_RT *));
+            if (!more) iron_oom_abort("iron_arena_rt.c:iron_arena_rt_push");
+            arena_saved_more = more;
+            arena_saved_more_cap = cap;
+        }
+        arena_saved_more[k] = iron_arena_rt_tls_top;
+    }
+    arena_saved_depth = d + 1;
     iron_arena_rt_tls_top = a;
 }
 
 void iron_arena_rt_pop(void) {
-    if (!iron_arena_rt_tls_top) return;
-    iron_arena_rt_tls_top = iron_arena_rt_tls_top->prev;
+    if (arena_saved_depth == 0) {
+        iron_arena_rt_tls_top = NULL;
+        return;
+    }
+    int d = --arena_saved_depth;
+    if (d < ARENA_STACK_FIXED) {
+        iron_arena_rt_tls_top = arena_saved_fixed[d];
+        if (arena_saved_more) {
+            free(arena_saved_more);
+            arena_saved_more = NULL;
+            arena_saved_more_cap = 0;
+        }
+    } else {
+        iron_arena_rt_tls_top = arena_saved_more[d - ARENA_STACK_FIXED];
+    }
 }
 
 Iron_Arena_RT *iron_arena_rt_current(void) {

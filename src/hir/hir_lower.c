@@ -1035,10 +1035,11 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             if (!name_copy) iron_oom_abort("hir_lower.c:lower_stmt_hir val_decl spawn lifted_name");
             memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
 
+            /* The body is lowered once, when the spawn is lifted
+             * (LIFT_SPAWN), as for lambdas: lowering it here as well lifted
+             * every spawn, parallel for and lambda nested in it twice, and
+             * the copy made here had no env type (C compile error). */
             IronHIR_Block *spawn_body = iron_hir_block_create(mod);
-            {
-                lower_block_hir(ctx, (Iron_Block *)ss->body, spawn_body);
-            }
 
             IronHIR_Stmt *spawn_s = iron_hir_stmt_spawn(mod, hname, spawn_body, name_copy, span);
             spawn_s->spawn.handle_var = id;  /* bind spawn result to h */
@@ -1286,13 +1287,11 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                                          true);
             IronHIR_Expr *range_expr = lower_expr_hir(ctx, fs->iterable);
 
-            push_scope(ctx);
-            declare_var(ctx, fs->var_name, loop_var);
+            /* The body is lowered once, when the chunk function is lifted
+             * (LIFT_PARALLEL_FOR): lowering it here as well lifted every
+             * spawn, parallel for and lambda nested in it twice (C compile
+             * error on the copy's missing env type). */
             IronHIR_Block *pfor_body = iron_hir_block_create(mod);
-            {
-                lower_block_hir(ctx, (Iron_Block *)fs->body, pfor_body);
-            }
-            pop_scope(ctx);
 
             /* Assign lifted name first so the HIR expr can store it */
             char lifted_name[64];
@@ -1752,10 +1751,8 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         if (!name_copy) iron_oom_abort("hir_lower.c:lower_stmt_hir spawn lifted_name");
         memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
 
+        /* Lowered once, at lift time (see the val-binding spawn above). */
         IronHIR_Block *spawn_body = iron_hir_block_create(mod);
-        {
-            lower_block_hir(ctx, (Iron_Block *)ss->body, spawn_body);
-        }
 
         IronHIR_Stmt *s = iron_hir_stmt_spawn(mod, hname, spawn_body, name_copy, span);
 
@@ -3534,9 +3531,11 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
 
         case LIFT_SPAWN: {
             Iron_SpawnStmt *ss = (Iron_SpawnStmt *)lp->ast_node;
-            /* Infer return type from the spawn body's return statement */
-            Iron_Type *spawn_ret_ty = NULL;
-            if (ss->body) {
+            /* The result type the type checker found (the body's first
+             * return value at any depth); the top-level scan is the
+             * fallback for a spawn the checker did not see. */
+            Iron_Type *spawn_ret_ty = ss->result_type;
+            if (!spawn_ret_ty && ss->body) {
                 Iron_Block *sblk = (Iron_Block *)ss->body;
                 for (int ri = 0; ri < sblk->stmt_count; ri++) {
                     if (sblk->stmts[ri]->kind == IRON_NODE_RETURN) {

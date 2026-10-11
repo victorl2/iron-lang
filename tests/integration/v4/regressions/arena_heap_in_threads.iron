@@ -1,0 +1,33 @@
+-- `heap(in: a)` inside a spawn or parallel for body (or a lambda) did not
+-- capture the arena: the resolver never resolved the `in:` expression, so
+-- capture analysis did not see the name (C compile error: undeclared
+-- identifier). Arena.threadsafe is the arena threads can share. (#428)
+object Pt {
+    val x: Int
+    val y: Int
+}
+
+func main() {
+    val ta = Arena.threadsafe(65536)
+    val h = spawn("alloc") {
+        val p = heap(in: ta) Pt(40, 2)
+        return p.x + p.y
+    }
+    println("spawn {await h}")
+    val m = Mutex(0)
+    for i in range(8) parallel {
+        val p = heap(in: ta) Pt(i, 1)
+        val g = m.lock()
+        g.set(g.get() + p.x + p.y)
+    }
+    {
+        val g = m.lock()
+        println("parallel for {g.get()}")
+    }
+    val a = Arena(4096)
+    val make = func(n: Int) -> Int {
+        val p = heap(in: a) Pt(n, n)
+        return p.x * p.y
+    }
+    println("lambda {make(6)} {a.used() > 0}")
+}
