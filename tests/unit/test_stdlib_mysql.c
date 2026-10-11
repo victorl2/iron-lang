@@ -34,6 +34,10 @@
 void setUp(void) { iron_runtime_init(0, NULL); }
 void tearDown(void) { iron_runtime_shutdown(); }
 
+/* Connections need the auth hashing from libcrypto. */
+#define REQUIRE_OPENSSL() \
+    do { if (!iron_mysql_available()) TEST_IGNORE_MESSAGE("built without OpenSSL"); } while (0)
+
 static Iron_String S(const char *s) { return iron_string_from_cstr(s, strlen(s)); }
 
 static int str_eq(Iron_String s, const char *want) {
@@ -48,6 +52,7 @@ static void hex(const uint8_t *p, size_t n, char *out) {
 /* ── Pure helpers ───────────────────────────────────────────────────────── */
 
 static void test_scrambles_match_reference_vectors(void) {
+    REQUIRE_OPENSSL();
     uint8_t scramble[20];
     for (int i = 0; i < 20; i++) scramble[i] = (uint8_t)(i + 1);
     uint8_t out[32];
@@ -552,6 +557,7 @@ static int64_t run_fake(int scenario, const char *sql, int64_t *res_out, int *se
 }
 
 static void test_fake_native_auth_and_text_result(void) {
+    REQUIRE_OPENSSL();
     int64_t res;
     int ok;
     TEST_ASSERT_EQUAL_INT64(0, run_fake(SC_NATIVE_QUERY, "SELECT id, name FROM t", &res, &ok, NULL));
@@ -584,6 +590,7 @@ static void test_fake_native_auth_and_text_result(void) {
 }
 
 static void expect_query_error(int scenario, int64_t want_code) {
+    REQUIRE_OPENSSL();
     int64_t res;
     int ok;
     TEST_ASSERT_EQUAL_INT64(0, run_fake(scenario, "SELECT 1", &res, &ok, NULL));
@@ -608,6 +615,7 @@ static void test_fake_close_mid_result_is_network_error(void) {
 }
 
 static void expect_connect_error(int scenario, int64_t want_code, bool server) {
+    REQUIRE_OPENSSL();
     int64_t res;
     int ok;
     Iron_MysqlError e;
@@ -637,6 +645,7 @@ static void test_fake_caching_full_auth_needs_tls_or_key(void) {
 }
 
 static void test_fake_auth_switch_to_native(void) {
+    REQUIRE_OPENSSL();
     int64_t res;
     int ok;
     TEST_ASSERT_EQUAL_INT64(0, run_fake(SC_SWITCH_TO_NATIVE, "SELECT 1", &res, &ok, NULL));
@@ -645,6 +654,7 @@ static void test_fake_auth_switch_to_native(void) {
 }
 
 static void test_fake_caching_sha2_fast_path(void) {
+    REQUIRE_OPENSSL();
     int64_t res;
     int ok;
     TEST_ASSERT_EQUAL_INT64(0, run_fake(SC_CACHING_FAST, "SELECT 1", &res, &ok, NULL));
@@ -653,6 +663,7 @@ static void test_fake_caching_sha2_fast_path(void) {
 }
 
 static void test_fake_row_split_over_16mb(void) {
+    REQUIRE_OPENSSL();
     int64_t res;
     int ok;
     TEST_ASSERT_EQUAL_INT64(0, run_fake(SC_LARGE_ROW, "SELECT big", &res, &ok, NULL));
@@ -671,6 +682,7 @@ static void test_fake_row_split_over_16mb(void) {
 }
 
 static void test_fake_prepared_statement_binary_protocol(void) {
+    REQUIRE_OPENSSL();
     Fake f;
     SRV_THREAD t;
     int64_t port;

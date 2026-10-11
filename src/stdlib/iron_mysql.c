@@ -430,6 +430,14 @@ static int digest(const EVP_MD *md, const void *a, size_t an, const void *b,
 }
 #endif
 
+bool iron_mysql_available(void) {
+#ifdef IRON_HAVE_OPENSSL
+    return true;
+#else
+    return false;
+#endif
+}
+
 /* mysql_native_password: SHA1(pw) XOR SHA1(scramble || SHA1(SHA1(pw))). */
 void iron_mysql_scramble_native(const uint8_t *scramble, size_t scramble_len,
                                 const char *password, size_t password_len,

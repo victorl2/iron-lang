@@ -202,6 +202,11 @@ void Iron_mysqlnative_pool_close(int64_t h);
 void Iron_mysqlnative_pool_free(int64_t h);
 int64_t Iron_mysqlnative_pool_info(int64_t h, int64_t what);
 
+/* False when the module was compiled without OpenSSL: connections then
+ * fail with IRON_ERR_MYSQL_UNAVAILABLE (the auth hashing and TLS come from
+ * libcrypto and libssl). */
+bool iron_mysql_available(void);
+
 /* Protocol helpers exposed for the unit tests (no server needed). */
 void iron_mysql_scramble_native(const uint8_t *scramble, size_t scramble_len,
                                 const char *password, size_t password_len,
