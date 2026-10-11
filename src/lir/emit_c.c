@@ -1335,12 +1335,16 @@ static const char *emit_scope_gen(IronLIR_Func *fn, int scope_id) {
         }
     }
     k = (k + 1) % 4;
-    snprintf(buf[k], sizeof(buf[k]), "_iron_sg%d", live ? scope_id : 0);
+    if (live)
+        snprintf(buf[k], sizeof(buf[k]), "_iron_sg%d", scope_id);
+    else
+        snprintf(buf[k], sizeof(buf[k]), "%s", fn->takes_local_addr ? "_iron_sg0" : "_iron_fg");
     return buf[k];
 }
 
 static const char *emit_self_gen(IronLIR_Func *fn) {
-    return fn->needs_self_gen ? "_iron_self_gen" : "_iron_sg0";
+    if (fn->needs_self_gen) return "_iron_self_gen";
+    return fn->takes_local_addr ? "_iron_sg0" : "_iron_fg";
 }
 
 /* An rc receiver of a pointer-receiver method call that the callee could
@@ -1377,6 +1381,11 @@ static IronLIR_ValueId emit_elem_list(IronLIR_Func *fn, IronLIR_ValueId v, int d
     if (d->kind == IRON_LIR_GET_INDEX) {
         Iron_Type *at = emit_get_value_type(fn, d->index.array);
         if (!at || at->kind != IRON_TYPE_ARRAY) return IRON_LIR_VALUE_INVALID;
+        /* An interface list is split by implementor: the call works on the
+         * element unpacked into a temporary and written back after it, so
+         * nothing points into the list while it runs. */
+        if (at->array.elem && at->array.elem->kind == IRON_TYPE_INTERFACE)
+            return IRON_LIR_VALUE_INVALID;
         if (at->array.size < 0 && !at->array.is_bounded) return d->index.array;
         return emit_elem_list(fn, d->index.array, depth + 1);
     }
@@ -11160,6 +11169,13 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
         iron_strbuf_appendf(sb, "uint64_t _iron_sg0 = iron_stack_gen;\n");
         emit_indent(sb, 1);
         iron_strbuf_appendf(sb, "(void)_iron_sg0;\n");
+    }
+    /* A function whose pointers to locals never leave it has no scope of
+     * its own; they carry the generation live at its entry (a scope of the
+     * caller, or static storage), which outlives every use of them. */
+    if (!fn->takes_local_addr && fn->has_addr_of) {
+        emit_indent(sb, 1);
+        iron_strbuf_appendf(sb, "uint64_t _iron_fg = iron_stack_gen; (void)_iron_fg;\n");
     }
     /* Receiver provenance (#542): the generation the caller handed over,
      * cleared so no later call reads it; a caller that did not hand one

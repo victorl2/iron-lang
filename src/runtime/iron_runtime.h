@@ -509,68 +509,78 @@ uint64_t iron_heap_next_gen(void);
 #define IRON_STACK_CHUNKS     1024u
 #define IRON_STACK_DEPTH_MAX  (IRON_STACK_CHUNK * IRON_STACK_CHUNKS - 1)
 #define IRON_STACK_THREADS    4096u
-typedef struct IronStackState {
-    _Atomic uint32_t depth;               /* current depth (owner writes) */
-    uint32_t         number;              /* registry index, 1..4095 */
-    uint64_t         next_id;             /* last id given out */
-    iron_atomic_u64  ids0[IRON_STACK_CHUNK];          /* depths 0..1023 */
-    _Atomic(iron_atomic_u64 *) more[IRON_STACK_CHUNKS]; /* deeper chunks */
-} IronStackState;
-extern _Thread_local uint64_t iron_stack_gen;          /* innermost scope's gen */
+/* A thread's scope state, in one thread-local block so the hot paths
+ * (entering and leaving a scope, checking a pointer of this thread) touch
+ * no other memory. ids[d] is the id of the scope open at depth d (0 when
+ * none); depths from 1024 live in heap chunks reached through `more`.
+ * Other threads read this block only under the registry lock, which the
+ * thread's exit takes to unregister it, so they never read a block that
+ * went away with its thread. */
+typedef _Atomic(iron_atomic_u64 *) iron_stack_chunk_ptr;
+typedef struct IronStackTLS {
+    uint64_t         gen;          /* the innermost scope's gen */
+    uint64_t         self_gen;     /* receiver handoff (#542) */
+    _Atomic uint32_t depth;        /* written by the owner only */
+    uint32_t         tno;          /* thread number, 0 until the first scope */
+    uint64_t         next_id;      /* last id given out */
+    _Atomic(iron_stack_chunk_ptr *) more;   /* chunk pointers for depths >= 1024 */
+    iron_atomic_u64  ids[IRON_STACK_CHUNK];
+} IronStackTLS;
+extern _Thread_local IronStackTLS iron_stk;
+#define iron_stack_gen (iron_stk.gen)
 /* The receiver's generation, handed from a call to the pointer-receiver
  * method it calls (#542); 0 when none was handed over. */
-extern _Thread_local uint64_t iron_self_gen;
-extern _Thread_local IronStackState *iron_stack_st;    /* this thread's table */
-extern _Atomic(IronStackState *) iron_stack_registry[IRON_STACK_THREADS];
-IronStackState *iron_stack_attach(void);               /* first scope of a thread */
-iron_atomic_u64 *iron_stack_slot_deep(IronStackState *st, uint32_t d); /* d >= 1024 */
-bool iron_stack_live_slow(IronStackState *st, uint64_t gen);
+#define iron_self_gen  (iron_stk.self_gen)
+void iron_stack_attach(void);                          /* first scope of a thread */
+void iron_stack_set_deep(uint32_t d, uint64_t id);     /* d >= 1024 */
+bool iron_stack_live_slow(uint64_t gen);
 void iron_stack_thread_exit(void);
 /* Thread number of the calling thread (0 before its first scope). */
 IRON_CHECK_FN uint32_t iron_stack_thread_no(void) {
-    return iron_stack_st ? iron_stack_st->number : 0;
+    return iron_stk.tno;
 }
 
 /* Entry to a scope: returns the gen to restore on every exit
  * (iron_stack_leave). iron_stack_gen is the new scope's gen afterwards. */
 IRON_CHECK_FN uint64_t iron_stack_enter(void) {
-    uint64_t saved = iron_stack_gen;
-    IronStackState *st = iron_stack_st;
-    if (!st) st = iron_stack_attach();
-    uint32_t d = atomic_load_explicit(&st->depth, memory_order_relaxed) + 1;
-    uint64_t id = (++st->next_id) & IRON_STACK_ID_MASK;
-    iron_atomic_u64 *slot = d < IRON_STACK_CHUNK ? &st->ids0[d] : iron_stack_slot_deep(st, d);
-    atomic_store_explicit(slot, id, memory_order_relaxed);
-    atomic_store_explicit(&st->depth, d, memory_order_release);
-    iron_stack_gen = IRON_STACK_TAG | ((uint64_t)(d < 0xFFFF ? d : 0xFFFF) << 47) |
-                     ((uint64_t)st->number << 35) | id;
+    IronStackTLS *t = &iron_stk;
+    uint64_t saved = t->gen;
+    if (!t->tno) iron_stack_attach();
+    uint32_t d = atomic_load_explicit(&t->depth, memory_order_relaxed) + 1;
+    uint64_t id = (++t->next_id) & IRON_STACK_ID_MASK;
+    if (!id) id = (++t->next_id) & IRON_STACK_ID_MASK;   /* 0 marks a closed scope */
+    if (d < IRON_STACK_CHUNK) atomic_store_explicit(&t->ids[d], id, memory_order_relaxed);
+    else iron_stack_set_deep(d, id);
+    atomic_store_explicit(&t->depth, d, memory_order_relaxed);
+    t->gen = IRON_STACK_TAG | ((uint64_t)(d < 0xFFFF ? d : 0xFFFF) << 47) |
+             ((uint64_t)t->tno << 35) | id;
     return saved;
 }
 
 IRON_CHECK_FN void iron_stack_leave(uint64_t saved) {
-    IronStackState *st = iron_stack_st;
-    uint32_t d = atomic_load_explicit(&st->depth, memory_order_relaxed);
-    /* Clear the id so a foreign reader cannot match it while the depth is
-     * still being lowered. */
-    iron_atomic_u64 *slot = d < IRON_STACK_CHUNK ? &st->ids0[d] : iron_stack_slot_deep(st, d);
-    atomic_store_explicit(slot, 0, memory_order_relaxed);
-    atomic_store_explicit(&st->depth, d - 1, memory_order_release);
-    iron_stack_gen = saved;
+    IronStackTLS *t = &iron_stk;
+    uint32_t d = atomic_load_explicit(&t->depth, memory_order_relaxed);
+    /* The id goes first: a scope is closed as soon as its slot is 0. */
+    if (d < IRON_STACK_CHUNK) atomic_store_explicit(&t->ids[d], 0, memory_order_relaxed);
+    else iron_stack_set_deep(d, 0);
+    atomic_store_explicit(&t->depth, d - 1, memory_order_relaxed);
+    t->gen = saved;
 }
 
 /* Whether the scope a stack-form gen names is still live. A gen without the
- * stack tag is not a stack pointer: true (iron_check_ptr routes those). */
+ * stack tag is not a stack pointer: true (iron_check_ptr routes those). The
+ * fast path is a pointer of this thread into its first 1024 depths: the
+ * slot of its depth still holds its id. */
 IRON_CHECK_FN bool iron_stack_gen_live(uint64_t gen) {
     if (!(gen & IRON_STACK_TAG)) return true;
     uint32_t d = IRON_STACK_DEPTH(gen);
+    IronStackTLS *t = &iron_stk;
+    if (IRON_STACK_THREAD(gen) == t->tno && d - 1u < IRON_STACK_CHUNK - 1u)
+        return atomic_load_explicit(&t->ids[d], memory_order_relaxed) == (gen & IRON_STACK_ID_MASK);
     if (d == 0) return true;                       /* static storage */
-    IronStackState *st = iron_stack_st;
-    if (!st || IRON_STACK_THREAD(gen) != st->number || d >= 0xFFFF)
-        return iron_stack_live_slow(st, gen);      /* another thread, or very deep */
-    if (d > atomic_load_explicit(&st->depth, memory_order_relaxed)) return false;
-    iron_atomic_u64 *slot = d < IRON_STACK_CHUNK ? &st->ids0[d] : iron_stack_slot_deep(st, d);
-    return atomic_load_explicit(slot, memory_order_relaxed) == (gen & IRON_STACK_ID_MASK);
+    return iron_stack_live_slow(gen);              /* another thread, or very deep */
 }
+
 /* Phase 20 PTR-10: stack-pointer panic variant (NEW Plan 20-02b).
  * Same emission channels as iron_panic_stale_pointer (text + JSON);
  * different header text "dangling stack pointer to frame" and JSON

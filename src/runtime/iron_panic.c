@@ -103,8 +103,7 @@ void iron_panic_stale_stack_pointer(const char *deref_file,
         /* frame #id at depth d (iron_runtime.h, #471) */
         unsigned owner = IRON_STACK_THREAD(captured_frame_gen);
         unsigned self_no = iron_stack_thread_no();
-        unsigned cur = iron_stack_st ? (unsigned)atomic_load_explicit(&iron_stack_st->depth,
-                                                                     memory_order_relaxed) : 0;
+        unsigned cur = (unsigned)atomic_load_explicit(&iron_stk.depth, memory_order_relaxed);
         fprintf(stderr,
                 "  captured frame: #%llu at depth %u (current depth: %u)\n",
                 (unsigned long long)(captured_frame_gen & IRON_STACK_ID_MASK),

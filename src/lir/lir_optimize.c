@@ -4273,6 +4273,10 @@ static IronLIR_ValueId canonicalize_root(IronLIR_Func *fn,
             }
             return cur;
         case IRON_LIR_LOAD:
+            /* A pointer read out of a pointer variable is its own value: the
+             * variable can be reassigned between two reads (storing a
+             * pointer is not a may-free barrier). */
+            if (prod->type && prod->type->kind == IRON_TYPE_PTR) return cur;
             cur = prod->load.ptr;
             break;
         case IRON_LIR_PTR_OFFSET:
@@ -4692,6 +4696,20 @@ bool run_rc_pair_elimination(IronLIR_Module *module, IronLIR_ElisionStat *stat) 
  *   - SPAWN / PARALLEL_FOR — concurrent free by another thread.
  * GENCHECK itself, pure ops, and the deref ops are NOT barriers. Exhaustive
  * over IronLIR_InstrKind for -Werror=switch-enum. */
+/* A value whose overwriting drops nothing: a number, a Bool, a pointer
+ * (checked or not) or an optional of those. Writing one into a slot, a
+ * field or an element cannot free, reset or end anything a pointer may
+ * point into, so it is not a may-free barrier. */
+static bool gencheck_type_owns_nothing(Iron_Type *t) {
+    if (!t) return false;
+    if (t->kind == IRON_TYPE_NULLABLE) t = t->nullable.inner;
+    if (!t) return false;
+    if (iron_type_is_integer(t) || iron_type_is_float(t)) return true;
+    return t->kind == IRON_TYPE_BOOL || t->kind == IRON_TYPE_PTR;
+}
+
+static Iron_Type *gencheck_value_type(IronLIR_Func *fn, IronLIR_ValueId v);
+
 static bool gencheck_instr_is_may_free(IronLIR_Func *fn, IronLIR_Instr *in,
                                        IronLIR_ValueId root_alloc,
                                        IronLIR_FuncSummaryEntry *summaries) {
@@ -4719,9 +4737,11 @@ static bool gencheck_instr_is_may_free(IronLIR_Func *fn, IronLIR_Instr *in,
          * may-free barrier regardless of the destination (loses some T1 wins,
          * stays sound; Trap-3 fixture pins correctness). */
         case IRON_LIR_STORE:
+            return !gencheck_type_owns_nothing(gencheck_value_type(fn, in->store.value));
         case IRON_LIR_SET_FIELD:
+            return !gencheck_type_owns_nothing(gencheck_value_type(fn, in->field.value));
         case IRON_LIR_SET_INDEX:
-            return true;
+            return !gencheck_type_owns_nothing(gencheck_value_type(fn, in->index.value));
 
         case IRON_LIR_CALL: {
             /* Escape: the root flows into the callee as an argument — the
@@ -6760,7 +6780,6 @@ static void mark_self_gen(IronLIR_Module *module) {
     for (int fi = 0; fi < module->func_count; fi++) {
         IronLIR_Func *fn = module->funcs[fi];
         if (fn->is_extern || fn->block_count == 0) continue;
-        if (fn->needs_self_gen) fn->takes_local_addr = true;
         for (int bi = 0; bi < fn->block_count; bi++) {
             IronLIR_Block *blk = fn->blocks[bi];
             for (int ii = 0; ii < blk->instr_count; ii++) {
@@ -6770,7 +6789,6 @@ static void mark_self_gen(IronLIR_Module *module) {
                 IronLIR_Func *cf = gencheck_find_func(module, call_callee_name(fn, in));
                 if (!cf || !cf->needs_self_gen) continue;
                 in->call.pass_self_gen = true;
-                fn->takes_local_addr = true;
             }
         }
     }
@@ -6829,10 +6847,188 @@ static void mark_pinned_receivers(IronLIR_Module *module) {
     if (have) iron_lir_func_summaries_free(summaries);
 }
 
+/* ── Pointer escape (#537 scope cost) ─────────────────────────────────────
+ * A scope can only have a dereference after it ends if a pointer to one of
+ * its locals leaves it. A pointer escapes when it, or a value derived from
+ * it (a cast, a phi, a load of a private local slot it was stored in),
+ * reaches: a field or element store, a store into memory other than a
+ * private local slot, a return, a closure, spawn or parallel-for capture,
+ * an object or list being built, a call whose parameter may escape (or an
+ * unknown, indirect or external callee), or any use not listed here.
+ * Dereferences, comparisons and checks are not escapes. Per-function
+ * parameter summaries are computed to a fixpoint (optimistic start, so the
+ * least fixpoint: an escape needs a finite chain of steps to a sink). */
+typedef struct { char *key; bool *value; } EscSummary;
+
+static IronLIR_Func *esc_callee(IronLIR_Module *module, IronLIR_Func *fn, IronLIR_Instr *call) {
+    return gencheck_find_func(module, call_callee_name(fn, call));
+}
+
+/* A local slot nothing else can reach: not a global, not a closure cell or
+ * capture alias, never addressed, never handed out by address. */
+static bool esc_private_slot(IronLIR_Func *fn, IronLIR_ValueId slot) {
+    if (slot == IRON_LIR_VALUE_INVALID || slot >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *a = fn->value_table[slot];
+    if (!a || a->kind != IRON_LIR_ALLOCA || a->alloca.global_name || a->alloca.is_boxed ||
+        a->alloca.addr_taken)
+        return false;
+    if (fn->capture_count > 0 && alloca_is_capture_alias(fn, slot)) return false;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            if (in->kind == IRON_LIR_ADDR_OF && in->addr_of.target == slot) return false;
+            if (in->kind == IRON_LIR_CALL) {
+                for (int ai = 0; ai < in->call.arg_count; ai++) {
+                    if (in->call.args[ai] != slot) continue;
+                    if ((in->call.args_by_addr && in->call.args_by_addr[ai]) ||
+                        (in->call.self_by_addr && ai == 0))
+                        return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+/* Whether value `root` of fn may escape, given the parameter summaries.
+ * block: the pointer is to a local of an inner block, which it also leaves
+ * by being stored in any slot or merged by a phi (a slot or merge may
+ * outlive the block; staying conservative keeps the block's scope). */
+static bool esc_value_escapes_in(IronLIR_Module *module, IronLIR_Func *fn, IronLIR_ValueId root,
+                                 EscSummary *sums, bool block) {
+    IronLIR_ValueId *work = NULL;
+    struct { IronLIR_ValueId key; bool value; } *seen = NULL;
+    arrput(work, root);
+    hmput(seen, root, true);
+    bool esc = false;
+    while (arrlen(work) > 0 && !esc) {
+        IronLIR_ValueId d = arrpop(work);
+        for (int bi = 0; bi < fn->block_count && !esc; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count && !esc; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                IronLIR_ValueId ops[MAX_OPERANDS];
+                int nops = 0;
+                opt_collect_operands(in, ops, &nops);
+                bool uses = false;
+                for (int k = 0; k < nops; k++) if (ops[k] == d) { uses = true; break; }
+                if (!uses) continue;
+#define ESC_FOLLOW(v) do { IronLIR_ValueId _f = (v); \
+                if (_f != IRON_LIR_VALUE_INVALID && hmgeti(seen, _f) < 0) { \
+                    hmput(seen, _f, true); arrput(work, _f); } } while (0)
+                switch ((int)in->kind) {
+                case IRON_LIR_PHI:
+                    if (block) { esc = true; break; }
+                    ESC_FOLLOW(in->id);
+                    break;
+                case IRON_LIR_CAST:
+                    ESC_FOLLOW(in->id);
+                    break;
+                case IRON_LIR_GENCHECK:
+                case IRON_LIR_EQ:
+                case IRON_LIR_NEQ:
+                case IRON_LIR_IS_NULL:
+                case IRON_LIR_IS_NOT_NULL:
+                case IRON_LIR_INTERP_STRING:
+                case IRON_LIR_PTR_LOAD:
+                case IRON_LIR_BRANCH:
+                case IRON_LIR_SWITCH:
+                    break;
+                case IRON_LIR_GET_FIELD:
+                    if (in->field.object != d) esc = true;
+                    break;
+                case IRON_LIR_SET_FIELD:
+                    if (in->field.value == d) esc = true;
+                    break;
+                case IRON_LIR_PTR_STORE:
+                    if (in->ptr_store.value == d) esc = true;
+                    break;
+                case IRON_LIR_STORE:
+                    if (in->store.value == d) {
+                        if (block || !esc_private_slot(fn, in->store.ptr)) { esc = true; break; }
+                        /* every load of the slot carries the pointer */
+                        for (int bj = 0; bj < fn->block_count; bj++) {
+                            IronLIR_Block *b2 = fn->blocks[bj];
+                            for (int ij = 0; ij < b2->instr_count; ij++) {
+                                IronLIR_Instr *l = b2->instrs[ij];
+                                if (l->kind == IRON_LIR_LOAD && l->load.ptr == in->store.ptr)
+                                    ESC_FOLLOW(l->id);
+                            }
+                        }
+                    }
+                    break;
+                case IRON_LIR_CALL: {
+                    if (in->call.func_ptr == d) { esc = true; break; }
+                    IronLIR_Func *cf = esc_callee(module, fn, in);
+                    if (!cf || cf->is_extern || cf->block_count == 0) { esc = true; break; }
+                    ptrdiff_t si = shgeti(sums, cf->name);
+                    for (int ai = 0; ai < in->call.arg_count && !esc; ai++) {
+                        if (in->call.args[ai] != d) continue;
+                        if (ai >= cf->param_count) { esc = true; break; }
+                        Iron_Type *pt = cf->params[ai].type;
+                        if (pt && pt->kind != IRON_TYPE_PTR) continue;   /* the callee derefs it */
+                        if (si < 0 || sums[si].value[ai]) esc = true;
+                    }
+                    break;
+                }
+                default:
+                    esc = true;   /* a return, a capture, a construct, anything else */
+                    break;
+                }
+#undef ESC_FOLLOW
+            }
+        }
+    }
+    arrfree(work);
+    hmfree(seen);
+    return esc;
+}
+
+static bool esc_value_escapes(IronLIR_Module *module, IronLIR_Func *fn, IronLIR_ValueId root,
+                              EscSummary *sums) {
+    return esc_value_escapes_in(module, fn, root, sums, false);
+}
+
+static EscSummary *esc_param_summaries(IronLIR_Module *module) {
+    EscSummary *sums = NULL;
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0 || !fn->name) continue;
+        bool *v = (bool *)calloc((size_t)(fn->param_count > 0 ? fn->param_count : 1), sizeof(bool));
+        if (!v) iron_oom_abort("lir_optimize.c:esc_param_summaries");
+        shput(sums, (char *)fn->name, v);
+    }
+    for (bool changed = true; changed; ) {
+        changed = false;
+        for (int fi = 0; fi < module->func_count; fi++) {
+            IronLIR_Func *fn = module->funcs[fi];
+            if (fn->is_extern || fn->block_count == 0 || !fn->name) continue;
+            bool *v = shget(sums, (char *)fn->name);
+            for (int pi = 0; pi < fn->param_count; pi++) {
+                if (v[pi]) continue;
+                Iron_Type *pt = fn->params[pi].type;
+                if (!pt || pt->kind != IRON_TYPE_PTR) continue;
+                if (esc_value_escapes(module, fn, (IronLIR_ValueId)(pi + 1), sums)) {
+                    v[pi] = true;
+                    changed = true;
+                }
+            }
+        }
+    }
+    return sums;
+}
+
+static void esc_summaries_free(EscSummary *sums) {
+    for (ptrdiff_t i = 0; i < shlen(sums); i++) free(sums[i].value);
+    shfree(sums);
+}
+
 void iron_lir_prune_stack_scopes(IronLIR_Module *module) {
     if (!module) return;
     mark_self_gen(module);
     mark_pinned_receivers(module);
+    EscSummary *esc_sums = esc_param_summaries(module);
     for (int fi = 0; fi < module->func_count; fi++) {
         IronLIR_Func *fn = module->funcs[fi];
         if (fn->is_extern || fn->block_count == 0) continue;
@@ -6846,17 +7042,24 @@ void iron_lir_prune_stack_scopes(IronLIR_Module *module) {
                 if (in->kind == IRON_LIR_CALL && in->call.pass_self_gen) {
                     int rs = scope_of_place(fn, in->call.args[0]);
                     in->call.recv_scope = rs;
+                    fn->has_addr_of = true;
                     if (rs > 0) hmput(used, rs, true);
+                    else any_addr = true;
                     continue;
                 }
                 if (in->kind != IRON_LIR_ADDR_OF) continue;
-                any_addr = true;
                 int sid = scope_of_place(fn, in->addr_of.target);
                 in->addr_of.scope_id = sid;
+                fn->has_addr_of = true;
+                /* A pointer that never leaves the function cannot be read
+                 * after its scope ends: that scope needs no runtime identity
+                 * (the pointer takes a generation live for the whole call). */
+                if (!esc_value_escapes_in(module, fn, in->id, esc_sums, sid > 0)) continue;
                 if (sid > 0) hmput(used, sid, true);
+                else any_addr = true;
             }
         }
-        if (any_addr) fn->takes_local_addr = true;
+        fn->takes_local_addr = any_addr || fn->needs_self_gen;
         if (any_scope) {
             for (int bi = 0; bi < fn->block_count; bi++) {
                 IronLIR_Block *blk = fn->blocks[bi];
@@ -6876,6 +7079,7 @@ void iron_lir_prune_stack_scopes(IronLIR_Module *module) {
         }
         hmfree(used);
     }
+    esc_summaries_free(esc_sums);
 }
 
 bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,

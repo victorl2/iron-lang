@@ -695,6 +695,11 @@ struct IronLIR_Func {
      * on to such a method. Its prologue takes the receiver's generation
      * from iron_self_gen. */
     bool               needs_self_gen;
+    /* The function takes an address (or hands a receiver's generation to
+     * a method): its pointers need a generation even when its own scope is
+     * elided because none of them escapes (emit_scope_gen falls back to
+     * the generation live at entry, _iron_fg). */
+    bool               has_addr_of;
 
     /* PARM-02: see the block comment above web_frame_captures. */
     bool              *param_is_var;
