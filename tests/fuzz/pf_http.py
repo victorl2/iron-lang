@@ -60,8 +60,10 @@ func handle(c: HttpConnection) -> Int {
             }
             val st = status_of(req.path)
             val resp = Http.response(st, "Content-Type: text/plain\\u{d}\\nX-Reply: r{st}", body)
-            val s = HttpConnection.send_response_keep_alive(c, resp, req.keep_alive, 3000)
-            running = req.keep_alive and s == 0
+            -- /bye answers and ends the session (Connection: close)
+            val keep = req.keep_alive and not req.path.starts_with("/bye")
+            val s = HttpConnection.send_response_keep_alive(c, resp, keep, 3000)
+            running = keep and s == 0
         }
     }
     HttpConnection.close(c)
@@ -228,9 +230,17 @@ class HttpGen(SegProgram):
         lines = [f'val {cl} = HttpClient.open(base, "", false, 1, 30000)',
                  f'println("session {{{cl}.error}}")']
         out = ['session 0']
+        bye = False
         for _ in range(r.randint(1, 5)):
             method = r.choice(['GET', 'POST', 'PUT', 'DELETE'])
             p, q, st = self.path()
+            if bye:
+                # the server closed the last connection: a new one opens
+                self.conns += 1
+                bye = False
+            if r.random() < 0.2:
+                p, st = '/bye', 200
+                bye = True
             b = self.body() if method != 'GET' else ''
             if len(b) > 100000:
                 b = b[:5000]

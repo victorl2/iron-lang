@@ -317,8 +317,8 @@ class JsonGen(SegProgram):
 
     def add_segment(self):
         r = self.r
-        pick = r.choices(['tree', 'writer', 'deep', 'numbers', 'parse', 'threads', 'misuse'],
-                         [6, 2, 1, 1, 1.5, 1, 0.5])[0]
+        pick = r.choices(['tree', 'writer', 'deep', 'numbers', 'parse', 'threads', 'misuse', 'badreader'],
+                         [6, 2, 1, 1, 1.5, 1, 0.5, 1])[0]
         self.segs.append(getattr(self, 'seg_' + pick)())
 
     # ------------------------------------------------------- generation
@@ -948,6 +948,38 @@ class JsonGen(SegProgram):
             panic = 'a document has one top-level value'
         lines.append('println("not reached")')
         return Seg(lines, ['before'], panic=panic)
+
+    # -------------------------------------------------------- badreader
+    def seg_badreader(self):
+        """A JsonReader reports the same error, line and column as
+        Json.parse on broken text, and walks valid text to the same tree."""
+        r = self.r
+        pool = []
+        root = self.tree(r.randint(1, 3), [r.randint(2, 12)], pool)
+        text = ser(reparse(root), r.choice([0, 2]))
+        lines, out = [], []
+        for _ in range(r.randint(1, 4)):
+            t = list(text)
+            c = r.random()
+            if c < 0.3 and t:
+                del t[r.randrange(len(t))]
+            elif c < 0.6:
+                t.insert(r.randint(0, len(t)), r.choice([',', ']', '}', '"', ':', 'x', '\\', '\x01', '1']))
+            elif c < 0.8 and t:
+                t = t[:r.randrange(len(t))]
+            tt = ''.join(t)
+            rd, pr = self.fresh('rd'), self.fresh('pr')
+            lines += [f'var {rd} = JsonReader({iron_lit(tt)})', f'val {pr} = Json.parse({iron_lit(tt)})',
+                      f'println("reader {{{rd}.error == {pr}.error}} {{{rd}.line == {pr}.line}} '
+                      f'{{{rd}.column == {pr}.column}} {{{rd}.error == 0 or {rd}.error_message == {pr}.error_message}}")']
+            out.append('reader true true true true')
+            if r.random() < 0.5:
+                w = self.fresh('w')
+                lines += [f'val {w} = JsonWriter.compact()', f'if {rd}.error == 0 {{', f'    echo({rd}, {w})',
+                          f'    println("{{{w}.finish() == {pr}.value.to_string()}}")', '} else {',
+                          '    println("true")', '}']
+                out.append('true')
+        return Seg(lines, out)
 
     def from_py(self, v):
         if isinstance(v, str):

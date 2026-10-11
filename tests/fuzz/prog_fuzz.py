@@ -25,8 +25,8 @@ Areas:
     comptime  functions evaluated with comptime and called at run time; the
               constructs comptime leaves out (E0231)
 
-    prog_fuzz.py AREA IRONC OUTDIR SEED [COUNT] [--valgrind | --helgrind |
-                 --drd | --asan RTDIR | --tsan RTDIR] [--runs N]
+    prog_fuzz.py AREA IRONC OUTDIR SEED [COUNT] [--valgrind | --helgrind [RTDIR] |
+                 --drd [RTDIR] | --asan RTDIR | --tsan RTDIR] [--runs N]
     prog_fuzz.py --suite IRONC OUTDIR [AREA...] (the fixed seeds ctest runs)
     prog_fuzz.py --gen AREA SEED               (print one program and its output)
     prog_fuzz.py AREA IRONC OUTDIR SEED --reduce
@@ -42,7 +42,10 @@ fails as a timeout.
 -fsanitize=address,undefined against a runtime built the same way into
 RTDIR (built on first use from the source tree next to this script);
 --tsan RTDIR does the same with -fsanitize=thread. --helgrind and --drd
-run the binary under those valgrind tools; a reported race fails it.
+run the binary under those valgrind tools; a reported race fails it. Given
+an RTDIR, they build the program and the runtime at -O0 without inlining,
+so valgrind_threads.supp can hide what the tools cannot model (C11 atomic
+refcounts and one-time initialization, glibc's thread stack cache).
 
 A program's expected outcome (pf_lang.Expected) is its output lines plus,
 optionally: `errors`, diagnostic codes one of which the build must report
@@ -114,7 +117,12 @@ SAN_COMMON = ['-g', '-O1', '-fno-omit-frame-pointer', '-std=gnu17', '-fwrapv',
 SAN_FLAGS = {
     'asan': ['-fsanitize=address,undefined', '-fno-sanitize-recover=undefined'],
     'tsan': ['-fsanitize=thread'],
+    # helgrind / DRD: unoptimized and not inlined, so the suppressions in
+    # valgrind_threads.supp can name the functions that synchronize with
+    # C11 atomics (which neither tool models)
+    'vg': ['-O0', '-fno-inline'],
 }
+VG_SUPP = os.path.join(HERE, 'valgrind_threads.supp')
 SAN = SAN_COMMON + SAN_FLAGS['asan']
 
 
@@ -198,6 +206,8 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
         os.remove(exe)
     if mode in ('asan', 'tsan'):
         b = asan_build(ironc, src, d, exe, rtlib, mode)
+    elif mode in ('helgrind', 'drd') and rtlib:
+        b = asan_build(ironc, src, d, exe, rtlib, 'vg')
     else:
         b = subprocess.run([ironc, 'build', src, '-o', exe], capture_output=True, text=True,
                            encoding='utf-8', errors='replace')
@@ -222,7 +232,8 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
         cmd = ['valgrind', '--quiet', '--leak-check=' + ('no' if leaks_ok else 'full'),
                '--errors-for-leak-kinds=definite,indirect', '--error-exitcode=99', exe]
     if mode in ('helgrind', 'drd'):
-        cmd = ['valgrind', '--quiet', f'--tool={mode}', '--error-exitcode=99', exe]
+        cmd = ['valgrind', '--quiet', f'--tool={mode}', '--error-exitcode=99',
+               f'--suppressions={VG_SUPP}', exe]
     if mode == 'asan':
         env['ASAN_OPTIONS'] = (f'detect_leaks={0 if leaks_ok else 1}:abort_on_error=0:exitcode=99:'
                                'detect_stack_use_after_return=1')
@@ -527,8 +538,16 @@ def main(argv):
             i += 1
         elif argv[i].startswith('-j') and argv[i][2:].isdigit():
             jobs = int(argv[i][2:])
-        elif argv[i] in ('--valgrind', '--helgrind', '--drd'):
+        elif argv[i] == '--valgrind':
+            mode = 'valgrind'
+        elif argv[i] in ('--helgrind', '--drd'):
+            # RTDIR is optional: with it, programs and runtime are built
+            # unoptimized for the suppressions (see SAN_FLAGS['vg'])
             mode = argv[i][2:]
+            if i + 1 < len(argv) and not argv[i + 1].startswith('-') and \
+                    not argv[i + 1].isdigit() and len(args) >= 4:
+                rtlib = build_asan_rt(argv[i + 1], 'vg')
+                i += 1
         elif argv[i] == '--runs':
             os.environ['PF_RUNS'] = argv[i + 1]
             i += 1
