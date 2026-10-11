@@ -3627,8 +3627,32 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         /* Arguments are borrowed; owned temporaries are released after the
          * call. (List push / insert take ownership on the collection path
          * above.) */
+        bool *m_by_addr = NULL;
+        bool m_any_by_addr = false;
         for (int i = (ufcs_static ? 1 : 0); i < expr->method_call.arg_count; i++) {
             IronHIR_Expr *ae = expr->method_call.args[i];
+            /* A `var` parameter of the method takes the binding by address,
+             * as for a free function (#604). */
+            {
+                int vpi = (int)arrlen(args);
+                if (callee_tf && callee_tf->param_is_var && vpi < callee_tf->param_count &&
+                    callee_tf->param_is_var[vpi] && ae && ae->kind == IRON_HIR_EXPR_IDENT) {
+                    ptrdiff_t aai = hmgeti(ctx->var_alloca_map, ae->ident.var_id);
+                    if (aai >= 0) {
+                        if (!m_by_addr) {
+                            m_by_addr = (bool *)iron_arena_alloc(
+                                ctx->lir_arena, (size_t)(callee_tf->param_count + expr->method_call.arg_count + 1) * sizeof(bool),
+                                _Alignof(bool));
+                            if (!m_by_addr) iron_oom_abort("hir_to_lir.c:method by_addr");
+                            memset(m_by_addr, 0, (size_t)(callee_tf->param_count + expr->method_call.arg_count + 1) * sizeof(bool));
+                        }
+                        m_by_addr[vpi] = true;
+                        m_any_by_addr = true;
+                        arrput(args, ctx->var_alloca_map[aai].value);
+                        continue;
+                    }
+                }
+            }
             IronLIR_ValueId av = lower_expr(ctx, ae);
             note_owned_temp(ctx, &temps, ae, av, span);
             /* A `T?` parameter takes a T argument (or null) wrapped, as a
@@ -3654,6 +3678,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         IronLIR_Instr *call = iron_lir_call(ctx->current_func, ctx->current_block,
                                               NULL, fref->id,
                                               args, arg_count, type, span);
+        if (m_any_by_addr) call->call.args_by_addr = m_by_addr;
         /* Pointer-receiver stdlib methods — the C impl takes the receiver by
          * pointer (Iron_Timer *) while the Iron method signature takes it by
          * value. Only the mutating Timer methods need this; Iron_timer_done

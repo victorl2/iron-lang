@@ -1,0 +1,16 @@
+-- A body binding shadowing a parameter of another type is the one later
+-- uses see (#546).
+func f(w: Int) -> String {
+    val w = "text"
+    return w
+}
+
+func g(n: Int) -> Int {
+    val n = n * 10
+    return n + 1
+}
+
+func main() {
+    println(f(3))
+    println("{g(3)}")
+}

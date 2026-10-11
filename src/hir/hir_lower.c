@@ -3253,6 +3253,29 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                     f->is_mut_receiver_method = true;
                 }
             }
+            /* PARM-02 for methods (#604): a `var` parameter takes the
+             * caller's binding by reference, as for a free function; the
+             * writes went to a copy. Parameter positions shift by the
+             * synthesized self. */
+            if (!is_stub) {
+                int off = total_params - md->param_count;
+                bool any_var = false;
+                for (int p = 0; p < md->param_count; p++) {
+                    Iron_Param *ap = (Iron_Param *)md->params[p];
+                    if (ap && ap->is_var && !(md->is_receiver_form && p == 0)) any_var = true;
+                }
+                if (any_var && off >= 0) {
+                    bool *pv = (bool *)iron_arena_alloc(
+                        mod->arena, (size_t)total_params * sizeof(bool), _Alignof(bool));
+                    if (!pv) iron_oom_abort("hir_lower.c:method_decl param_is_var");
+                    memset(pv, 0, (size_t)total_params * sizeof(bool));
+                    for (int p = 0; p < md->param_count; p++) {
+                        Iron_Param *ap = (Iron_Param *)md->params[p];
+                        pv[p + off] = ap && ap->is_var && !(md->is_receiver_form && p == 0);
+                    }
+                    f->param_is_var = pv;
+                }
+            }
             /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr from
              * AST method decl (set by Plan 20-02a's mark_takes_local_addr_pass). */
             f->takes_local_addr = md->takes_local_addr;
@@ -3272,6 +3295,11 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                 shgeti(ctx->global_decls_map, vd->name) < 0) {
                 shput(ctx->global_decls_map, (char *)vd->name, decl);
                 arrput(ctx->global_decl_order, vd->name);
+                /* Every global of the program is initialized before main
+                 * (manual 5.7), read or not: an initializer may have side
+                 * effects. (The standard library's stay lazy.) */
+                if (vd->init && iron_stdlib_origin_classify(vd->span.filename) == 0)
+                    activate_global(ctx, vd->name);
             }
             break;
         }
@@ -3282,6 +3310,8 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                 shgeti(ctx->global_decls_map, vd->name) < 0) {
                 shput(ctx->global_decls_map, (char *)vd->name, decl);
                 arrput(ctx->global_decl_order, vd->name);
+                if (vd->init && iron_stdlib_origin_classify(vd->span.filename) == 0)
+                    activate_global(ctx, vd->name);
             }
             break;
         }

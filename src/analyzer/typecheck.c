@@ -432,7 +432,14 @@ static Iron_Symbol *tc_define(TypeCtx *ctx, const char *name, Iron_SymbolKind ki
     Iron_Symbol *sym = iron_symbol_create(ctx->arena, name, kind, decl, span);
     sym->is_mutable = is_mutable;
     sym->type = type;
-    iron_scope_define(ctx->current_scope, ctx->arena, sym);
+    /* A body binding may shadow a parameter (manual 4.1; the resolver puts
+     * the body in a scope of its own and code generation uses the new
+     * binding). This checker runs the body in the parameters' scope, where
+     * the define failed and later uses kept the parameter's type (#546):
+     * the new binding replaces the entry. A true duplicate in one block is
+     * the resolver's E0201. */
+    if (!iron_scope_define(ctx->current_scope, ctx->arena, sym) && name)
+        shput(ctx->current_scope->symbols, (char *)name, sym);
     /* A new binding is not the narrowed one it shadows. */
     if (name && ctx->narrowed) (void)shdel(ctx->narrowed, name);
     return sym;

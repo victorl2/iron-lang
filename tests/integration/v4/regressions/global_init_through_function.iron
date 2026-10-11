@@ -1,0 +1,18 @@
+-- Globals read through a function are initialized first, and a global
+-- nothing reads is initialized too (its initializer may print, #549).
+val GB = get_ga() * 2 + 1
+val GA = 20
+val UNREAD = side()
+
+func get_ga() -> Int {
+    return GA
+}
+
+func side() -> Int {
+    println("side effect")
+    return 1
+}
+
+func main() {
+    println("{GB}")
+}
