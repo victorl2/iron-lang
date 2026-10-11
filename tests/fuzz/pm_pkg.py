@@ -406,7 +406,134 @@ def f_string_const(pk):
     pk.out.append(f'{sid} [{txt}]')
 
 
-FEATURES = [f_func_chain, f_globals, f_init_side_effect, f_object_drop, f_generic,
+def f_generic_drop(pk):
+    """A generic container in one file holding an object with a drop block
+    from another, filled and dropped in a third; nested instances."""
+    rng = pk.rng
+    a, b, c = pk.pick(), pk.pick(), pk.pick()
+    gid = pk.nid('Hold')
+    pk.add(a, f'pub object {gid}Item {{\n    pub val k: Int\n\n'
+              f'    drop {{\n        println("drop {gid}Item {{self.k}}")\n    }}\n}}')
+    pk.add(b, f'pub object {gid}[T] {{\n    pub var items: [T]\n\n'
+              f'    pub init() {{\n        self.items = []\n    }}\n\n'
+              f'    pub func put(x: T) {{\n        self.items.push(x)\n    }}\n\n'
+              f'    pub readonly func size() -> Int {{\n        return len(self.items)\n    }}\n}}')
+    n = rng.randint(0, 3)
+    ks = [rng.randint(0, 99) for _ in range(n)]
+    body = [f'    var h = {gid}[{gid}Item]()']
+    body += [f'    h.put({gid}Item({k}))' for k in ks]
+    body.append(f'    var hh = {gid}[String]()')
+    body.append(f'    hh.put("s{n}")')
+    body.append(f'    println("{gid} {{h.size()}} {{hh.size()}}")')
+    pk.add(c, f'pub func {gid}_run() {{\n' + '\n'.join(body) + '\n}')
+    pk.main.append(f'{gid}_run()')
+    # put(x) pushes a copy of its parameter, which drops when put returns
+    pk.out += [f'drop {gid}Item {k}' for k in ks]
+    pk.out.append(f'{gid} {n} 1')
+    pk.out += [f'drop {gid}Item {k}' for k in ks]
+
+
+def f_rc_shared(pk):
+    """An rc object made in one file, shared by another, dropped once."""
+    rng = pk.rng
+    a, b = pk.pick(), pk.pick()
+    rid = pk.nid('Shared')
+    v = rng.randint(0, 99)
+    pk.add(a, f'pub object {rid} {{\n    pub val v: Int\n\n'
+              f'    drop {{\n        println("drop {rid} {{self.v}}")\n    }}\n}}')
+    pk.add(a, f'pub func {rid}_make(v: Int) -> rc {rid} {{\n    return rc {rid}(v)\n}}')
+    pk.add(b, f'pub func {rid}_sum(x: rc {rid}, y: rc {rid}) -> Int {{\n    return x.v + y.v\n}}')
+    pk.add(b, f'pub func {rid}_run() {{\n    val r = {rid}_make({v})\n    val r2 = r\n'
+              f'    println("{rid} {{{rid}_sum(r, r2)}}")\n}}')
+    pk.main.append(f'{rid}_run()')
+    pk.out += [f'{rid} {2 * v}', f'drop {rid} {v}']
+
+
+def f_copy_block(pk):
+    """An object with a copy block in one file, copied in another."""
+    rng = pk.rng
+    a, b = pk.pick(), pk.pick()
+    cid = pk.nid('Cp')
+    v = rng.randint(0, 50)
+    pk.add(a, f'pub object {cid} {{\n    pub var n: Int\n\n    pub init(n: Int) {{\n        self.n = n\n    }}\n\n'
+              f'    copy {{\n        self.n = self.n + 1000\n    }}\n}}')
+    pk.add(b, f'pub func {cid}_run() -> Int {{\n    val x = {cid}({v})\n    var y = x\n'
+              f'    y.n = y.n + 1\n    return x.n * 10000 + y.n\n}}')
+    pk.main.append(f'println("{cid} {{{cid}_run()}}")')
+    pk.out.append(f'{cid} {v * 10000 + v + 1001}')
+
+
+def f_generic_enum(pk):
+    rng = pk.rng
+    a, b = pk.pick(), pk.pick()
+    eid = pk.nid('Opt')
+    pk.add(a, f'pub enum {eid}[T] {{\n    Some(T),\n    None,\n}}')
+    pk.add(b, f'pub func {eid}_or[T](o: {eid}[T], d: T) -> T {{\n    match o {{\n'
+              f'        {eid}.Some(v) -> return v\n        {eid}.None -> return d\n    }}\n    return d\n}}')
+    v, d = rng.randint(0, 99), rng.randint(0, 99)
+    some = rng.random() < 0.5
+    if some:
+        pk.main.append(f'println("{eid} {{{eid}_or({eid}.Some({v}), {d})}}")')
+        pk.out.append(f'{eid} {v}')
+    else:
+        pk.main.append(f'val {eid}_n: {eid}[Int] = {eid}.None')
+        pk.main.append(f'println("{eid} {{{eid}_or({eid}_n, {d})}}")')
+        pk.out.append(f'{eid} {d}')
+    pk.main.append(f'println({eid}_or({eid}.Some("s{v}"), "none"))')
+    pk.out.append(f's{v}')
+
+
+def f_global_object(pk):
+    """A global object (fields read through pub functions) initialized
+    from a constructor of another file."""
+    rng = pk.rng
+    a, b = pk.pick(), pk.pick()
+    gid = pk.nid('GObj')
+    x, y = rng.randint(0, 50), rng.randint(0, 50)
+    pk.add(a, f'pub object {gid} {{\n    pub val x: Int\n    pub val label: String\n}}')
+    pk.add(a, f'pub func {gid}_new(x: Int) -> {gid} {{\n    return {gid}(x, "g{{x}}")\n}}')
+    pk.add(b, f'val {gid}_inst = {gid}_new({x} + {gid}_offset())')
+    pk.add(b, f'val {gid}_off = {y}')
+    pk.add(b, f'func {gid}_offset() -> Int {{\n    return {gid}_off\n}}')
+    pk.add(b, f'pub func {gid}_show() -> String {{\n    return "{{{gid}_inst.x}} {{{gid}_inst.label}}"\n}}')
+    pk.main.append(f'println("{gid} {{{gid}_show()}}")')
+    pk.out.append(f'{gid} {x + y} g{x + y}')
+
+
+def f_iface_generic_fn(pk):
+    """A generic function constrained by an interface of another file,
+    called with an implementor of a third."""
+    rng = pk.rng
+    a, b, c = pk.pick(), pk.pick(), pk.pick()
+    iid = pk.nid('Val')
+    pk.add(a, f'pub interface {iid} {{\n    readonly func value() -> Int\n}}')
+    pk.add(b, f'pub func {iid}_twice[T: {iid}](x: T) -> Int {{\n    return x.value() * 2\n}}')
+    k = rng.randint(0, 99)
+    pk.add(c, f'pub object {iid}Num impl {iid} {{\n    pub val n: Int\n\n'
+              f'    pub readonly func value() -> Int {{\n        return self.n\n    }}\n}}')
+    pk.main.append(f'println("{iid} {{{iid}_twice({iid}Num({k}))}}")')
+    pk.out.append(f'{iid} {2 * k}')
+
+
+def f_closure_global(pk):
+    """A closure stored in a global of one file, capturing nothing, and a
+    counter closure over a var global of another."""
+    rng = pk.rng
+    a, b = pk.pick(), pk.pick()
+    cid = pk.nid('cg')
+    k = rng.randint(1, 9)
+    pk.add(a, f'var {cid}_total = 0')
+    pk.add(a, f'pub func {cid}_add(x: Int) {{\n    {cid}_total += x\n}}')
+    pk.add(a, f'pub func {cid}_get() -> Int {{\n    return {cid}_total\n}}')
+    pk.add(b, f'pub func {cid}_run(n: Int) -> Int {{\n    val f = func(i: Int) {{ {cid}_add(i * {k}) }}\n'
+              f'    for i in range(n) {{\n        f(i)\n    }}\n    return {cid}_get()\n}}')
+    n = rng.randint(0, 6)
+    pk.main.append(f'println("{cid} {{{cid}_run({n})}}")')
+    pk.out.append(f'{cid} {sum(i * k for i in range(n))}')
+
+
+FEATURES = [f_generic_drop, f_rc_shared, f_copy_block, f_generic_enum, f_global_object,
+            f_iface_generic_fn, f_closure_global, f_func_chain, f_globals, f_init_side_effect, f_object_drop, f_generic,
             f_iface, f_enum, f_patch, f_comptime, f_closure, f_stdlib, f_string_const]
 
 
@@ -531,7 +658,7 @@ def neg_dup_private(pk):
 
 def neg_bad_import(pk):
     a = pk.rng.choice(sorted(pk.files))
-    pk.imp(a, pk.rng.choice(('nosuch', 'util.nosuch', 'vendor', 'mathh', 'a.b.c.d')))
+    pk.imp(a, pk.rng.choice(('nosuch', 'util.nosuch', 'mathh', 'a.b.c.d', 'main.nosuch')))
     return {'E0209'}
 
 
