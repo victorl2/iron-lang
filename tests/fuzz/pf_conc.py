@@ -354,7 +354,12 @@ class ConcGen(Gen):
         for n, (t, mu, u, idx) in self.entries().items():
             if t != typ:
                 continue
-            if any(idx < fi and kind == 'spawn' and mu for kind, fi in self.floors):
+            if any(idx < fi and kind in ('spawn', 'fire') and mu for kind, fi in self.floors):
+                continue
+            # a while counter is a `var` the loop writes: a spawn that is
+            # never awaited would read it while the loop goes on
+            if n[:1] == 'w' and n[1:].isdigit() and any(
+                    idx < fi and kind == 'fire' for kind, fi in self.floors):
                 continue
             if mut is True and not (mu and idx >= top):
                 continue
@@ -600,7 +605,7 @@ class ConcGen(Gen):
 
     def s_fire(self, ctx, depth):
         self.push()
-        self.floors.append(('spawn', len(self.scopes) - 1))
+        self.floors.append(('fire', len(self.scopes) - 1))
         bc = self.body_ctx()
         self.quiet += 1
         stmts = self.stmt(bc, 0) if self.r.random() < 0.5 else []
