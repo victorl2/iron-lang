@@ -1136,6 +1136,14 @@ static Iron_Node **iron_parse_generic_params(Iron_Parser *p, int *out_count,
         if (!iron_match(p, IRON_TOK_COMMA)) break;
         iron_skip_newlines(p);
     }
+    if (*out_count == 0 && iron_check(p, IRON_TOK_RBRACKET)) {
+        /* `func f[]()` was read as a function with no type parameters. */
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, iron_current(p)),
+                       "expected a type parameter name",
+                       "drop the empty '[]'");
+    }
     iron_expect(p, IRON_TOK_RBRACKET);
     return AST_ARR(arr);
 }
