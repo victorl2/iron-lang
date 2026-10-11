@@ -58,6 +58,10 @@ func main(args: [String]) {
     var db_cfg = mysql_cfg
     db_cfg.timeout = cfg.db_timeout_ms
     db_cfg.connect_timeout = min(cfg.db_timeout_ms, 5000)
+    -- Timestamps are written and read as UTC whatever the server's zone.
+    if db_cfg.init_command.len() == 0 {
+        db_cfg.init_command = "SET time_zone = '+00:00'"
+    }
     var pool_opts = MysqlPoolOptions(cfg.db_pool_min, cfg.db_pool_max)
     pool_opts.acquire_timeout = cfg.db_acquire_timeout_ms
     pool_opts.health_check = 5000
