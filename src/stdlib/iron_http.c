@@ -815,8 +815,10 @@ void Iron_httpserver_close(Iron_HttpServer server) {
 }
 
 void Iron_httpconnection_close(Iron_HttpConnection connection) {
-    Iron_TcpSocket s = { connection.fd };
-    Iron_tcpsocket_close(s);
+    /* A handler often closes right after answering a request it rejected
+     * (too large, malformed) with part of it still unread: a plain close
+     * would reset the connection and the client could lose the answer. */
+    iron_net_lingering_close(connection.fd);
 }
 
 Iron_HttpsServerResult Iron_http_listen_tls(Iron_String host, int64_t port,
