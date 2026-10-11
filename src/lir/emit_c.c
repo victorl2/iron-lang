@@ -7891,6 +7891,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 Iron_StrBuf obj_drops = iron_strbuf_create(64);
                 for (int ci = 0; ci < cap_count; ci++) {
                     if (cap_meta[ci].is_mutable) continue;
+                    if (cap_meta[ci].is_borrowed) continue;  /* the binding drops it (#512) */
                     Iron_Type *ct = cap_meta[ci].type;
                     if (!ct || !(ct->kind == IRON_TYPE_OBJECT || ct->kind == IRON_TYPE_INTERFACE ||
                                  ct->kind == IRON_TYPE_NULLABLE || ct->kind == IRON_TYPE_ENUM ||
@@ -8075,7 +8076,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
                 /* A captured val object (interface, vector, optional) is a
                  * copy the env owns: fix it up like any other copy (#257). */
-                if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                if (!cap_meta[ci].is_mutable && !cap_meta[ci].is_borrowed && cap_meta[ci].type &&
                     (cap_meta[ci].type->kind == IRON_TYPE_OBJECT ||
                      cap_meta[ci].type->kind == IRON_TYPE_INTERFACE ||
                      cap_meta[ci].type->kind == IRON_TYPE_NULLABLE ||
@@ -8209,6 +8210,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             Iron_StrBuf spawn_obj_drops = iron_strbuf_create(64);
             for (int ci = 0; cap_meta && ci < cap_count; ci++) {
                 if (cap_meta[ci].is_mutable) continue;
+                if (cap_meta[ci].is_borrowed) continue;  /* the binding drops it (#512) */
                 Iron_Type *ct = cap_meta[ci].type;
                 if (!ct || !(ct->kind == IRON_TYPE_OBJECT || ct->kind == IRON_TYPE_INTERFACE ||
                              ct->kind == IRON_TYPE_NULLABLE || ct->kind == IRON_TYPE_ENUM ||
@@ -8311,7 +8313,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                             instr->id, cap_c_name(cap_meta[ci].name));
                     }
                     /* A captured val object is the env's own copy (#262). */
-                    if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                    if (!cap_meta[ci].is_mutable && !cap_meta[ci].is_borrowed && cap_meta[ci].type &&
                         (cap_meta[ci].type->kind == IRON_TYPE_OBJECT ||
                          cap_meta[ci].type->kind == IRON_TYPE_INTERFACE ||
                          cap_meta[ci].type->kind == IRON_TYPE_NULLABLE ||
@@ -8386,7 +8388,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                             instr->id, cap_c_name(cap_meta[ci].name));
                     }
                     /* A captured val object is the env's own copy (#262). */
-                    if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                    if (!cap_meta[ci].is_mutable && !cap_meta[ci].is_borrowed && cap_meta[ci].type &&
                         (cap_meta[ci].type->kind == IRON_TYPE_OBJECT ||
                          cap_meta[ci].type->kind == IRON_TYPE_INTERFACE ||
                          cap_meta[ci].type->kind == IRON_TYPE_NULLABLE ||
@@ -8417,6 +8419,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_spawn_env_string_releases(&ff_drops, ctx, cap_meta, cap_count);
                     for (int ci = 0; ci < cap_count; ci++) {
                         if (cap_meta[ci].is_mutable) continue;
+                        if (cap_meta[ci].is_borrowed) continue;  /* the binding drops it (#512) */
                         Iron_Type *ct = cap_meta[ci].type;
                         if (!ct || !(ct->kind == IRON_TYPE_OBJECT || ct->kind == IRON_TYPE_INTERFACE ||
                                      ct->kind == IRON_TYPE_NULLABLE || ct->kind == IRON_TYPE_ENUM ||

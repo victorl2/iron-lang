@@ -134,7 +134,7 @@ static void test_table_sorted_asc_by_code(void) {
 static Iron_Diagnostic make_diag(int code, Iron_Span span,
                                     const char *message,
                                     const char *suggestion) {
-    Iron_Diagnostic d;
+    Iron_Diagnostic d = {0};
     d.level         = IRON_DIAG_ERROR;
     d.code          = code;
     d.span          = span;

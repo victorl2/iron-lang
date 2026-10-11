@@ -24,6 +24,15 @@ typedef struct {
     /* Set by hir_lower: the captured var lives in a counted cell (#210),
      * which the env retains and releases. */
     bool             is_boxed;
+    /* Set by capture.c: the capture borrows a nocopy value (or one holding
+     * a nocopy field) from its binding, which stays its only owner. The
+     * env holds the bytes for the closure's or task's reads and never runs
+     * copy glue or drop on them (#512). */
+    bool             is_borrowed;
+    /* Where the closure first names the binding, and the binding's symbol
+     * (diagnostics only; NULL symbol when unknown). */
+    Iron_Span        span;
+    struct Iron_Symbol *sym;
 } Iron_CaptureEntry;
 
 /* ── Node kinds ──────────────────────────────────────────────────────────── */

@@ -121,12 +121,22 @@ static void clone_diaglist(Iron_Arena *dst_arena,
             span.filename = iron_arena_strdup(dst_arena, span.filename,
                                                 strlen(span.filename));
         }
+        Iron_Span rspan = s->related_span;
+        if (rspan.filename) {
+            rspan.filename = iron_arena_strdup(dst_arena, rspan.filename,
+                                                 strlen(rspan.filename));
+        }
         Iron_Diagnostic cloned = {
             .level = s->level,
             .code  = s->code,
             .span  = span,
             .message    = msg,
             .suggestion = sug,
+            .label = s->label ? iron_arena_strdup(dst_arena, s->label, strlen(s->label)) : NULL,
+            .related_span = rspan,
+            .related_label = s->related_label
+                ? iron_arena_strdup(dst_arena, s->related_label, strlen(s->related_label)) : NULL,
+            .note = s->note ? iron_arena_strdup(dst_arena, s->note, strlen(s->note)) : NULL,
         };
         arrput(dst->items, cloned);
     }
@@ -256,8 +266,13 @@ static yyjson_mut_val *build_items_array_for_entry(
         snprintf(codebuf, sizeof(codebuf), "E%04d", dg->code);
         yyjson_mut_obj_add_strcpy(d, obj, "code", codebuf);
         yyjson_mut_obj_add_strcpy(d, obj, "source", "iron");
+        /* a labeled diagnostic carries its note and help in the text */
+        bool labeled = dg->label || dg->note || dg->related_label;
+        Iron_Arena tmp = iron_arena_create(1024);
         yyjson_mut_obj_add_strcpy(d, obj, "message",
-                                    dg->message ? dg->message : "");
+                                    labeled ? iron_diag_full_text(dg, &tmp)
+                                            : (dg->message ? dg->message : ""));
+        iron_arena_free(&tmp);
         yyjson_mut_arr_append(arr, obj);
     }
     return arr;
