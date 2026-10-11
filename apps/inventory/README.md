@@ -90,6 +90,8 @@ settings are reported one per log line and the process exits with status 2;
 | `breaker_threshold`, `breaker_cooldown_ms` | `5`, `10000` | consecutive failed refreshes that open the breaker, and for how long |
 | `request_timeout_ms`, `idle_timeout_ms` | `5000`, `30000` | reading one request; keep-alive idle time |
 | `max_header_bytes`, `max_body_bytes` | `16384`, `65536` | request limits (431, 413) |
+| `workers` | `0` | serving threads; 0 picks the CPU count plus `db_pool_max` |
+| `report_cache_ms` | `2000` | how long a category report is reused (0: never) |
 | `log_level`, `log_requests` | `info`, `false` | `debug`, `info`, `warn`, `error`; an access log line per request |
 | `shutdown_grace_ms` | `10000` | how long SIGTERM waits for requests in flight |
 

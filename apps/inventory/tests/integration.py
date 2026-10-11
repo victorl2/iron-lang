@@ -308,6 +308,7 @@ class Service:
             "INVENTORY_MAX_BODY_BYTES": "16384",
             "INVENTORY_SHUTDOWN_GRACE_MS": "8000",
             "INVENTORY_LOG_LEVEL": "info",
+            "INVENTORY_REPORT_CACHE_MS": "0",
         })
         env.update(extra_env or {})
         cmd = shlex.split(ARGS.wrap) if ARGS.wrap else []

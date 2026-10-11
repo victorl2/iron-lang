@@ -48,6 +48,9 @@ for t in $(seq 10 10 "$secs"); do
 done
 wait $wrk_pid
 grep -E "Requests/sec|Latency|requests in|Non-2xx" "$work/wrk.out"
+echo "requests by route and status:"
+curl -s http://127.0.0.1:18080/metrics | grep '^inventory_http_requests_total' | sed 's/inventory_http_requests_total//'
+grep -v '"level":"info"' "$work/svc.log" | cut -c1-200 | sort | uniq -c | sort -rn | head -5
 python3 - "${SOAK_GROWTH_MB:-8}" "${samples[@]}" <<'PY'
 import sys
 limit = float(sys.argv[1]); s = [float(x) for x in sys.argv[2:]]

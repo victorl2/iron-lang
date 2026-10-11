@@ -5,6 +5,7 @@
 -- pooled connection turns out to be dead); multi-statement work acquires a
 -- connection and runs in a transaction that is rolled back on any error.
 import mysql
+import time
 
 -- Ordered schema versions. A version's statements run once, in order, and
 -- the version is recorded in schema_migrations afterwards. Never edit a
@@ -488,6 +489,62 @@ pub func category_report(db: rc MysqlPool, window_s: Int) -> Report {
         row += 1
     }
     return Report(rows.take(), 200, ok_error())
+}
+
+-- The report aggregates every movement of the window, which grows with
+-- traffic: repeated and concurrent requests within report_cache_ms share
+-- one result, computed by one of them.
+pub object ReportCache {
+    val lock: Mutex[Int]
+    val ttl_ms: Int
+    var window: Int
+    var at: Int
+    var rows: [CategoryRow]
+    var computing: Bool
+
+    pub init(ttl_ms: Int) {
+        self.lock = Mutex(0)
+        self.ttl_ms = ttl_ms
+        self.window = 0
+        self.at = 0
+        self.rows = []
+        self.computing = false
+    }
+}
+
+pub func cached_report(cache: rc ReportCache, db: rc MysqlPool, window_s: Int) -> Report {
+    if cache.ttl_ms <= 0 {
+        return category_report(db, window_s)
+    }
+    var waited = 0
+    while true {
+        var compute = false
+        if true {
+            val g = cache.lock.lock()
+            val now = Time.now_ms()
+            if cache.at > 0 and cache.window == window_s and now - cache.at < cache.ttl_ms {
+                return Report(cache.rows.copy(), 200, ok_error())
+            }
+            if not cache.computing or waited >= 10000 {
+                cache.computing = true
+                compute = true
+            }
+        }
+        if compute {
+            val r = category_report(db, window_s)
+            val g = cache.lock.lock()
+            cache.computing = false
+            if r.status == 200 {
+                cache.rows = r.rows.copy()
+                cache.window = window_s
+                cache.at = Time.now_ms()
+            }
+            return r
+        }
+        Time.sleep(5)
+        waited += 5
+    }
+    return category_report(db, window_s)
 }
 
 -- ── Exchange rate snapshots ───────────────────────────────────────────────

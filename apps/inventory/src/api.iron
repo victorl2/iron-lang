@@ -575,7 +575,7 @@ func report_handler(app: rc App, wk: *Worker, q: Query) -> Reply {
     if not conv.ok {
         return conv.reply
     }
-    val report = category_report(app.db, window)
+    val report = cached_report(app.reports, app.db, window)
     if report.status != 200 {
         return db_reply(wk, route, report.status, report.error, "")
     }

@@ -50,6 +50,7 @@ pub object App {
     pub val metrics: rc Metrics
     pub val state: rc ServiceState
     pub val poller: HttpPoller
+    pub val reports: rc ReportCache
 }
 
 -- What one serving thread keeps at hand: its metrics shard and the

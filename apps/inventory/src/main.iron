@@ -92,7 +92,7 @@ func main(args: [String]) {
         OS.exit(2)
     }
     val state = rc ServiceState()
-    val app = rc App(cfg, db, rates, metrics_set, metrics, state, poller)
+    val app = rc App(cfg, db, rates, metrics_set, metrics, state, poller, rc ReportCache(cfg.report_cache_ms))
 
     logger_info("listening").str("host", cfg.host).int("port", HttpServer.port(server))
         .str("version", VERSION).str("config", cfg.source).int("pid", OS.pid()).emit()

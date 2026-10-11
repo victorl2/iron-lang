@@ -28,6 +28,7 @@ pub object Config {
     pub var max_header_bytes: Int
     pub var max_body_bytes: Int
     pub var workers: Int
+    pub var report_cache_ms: Int
     pub var log_level: String
     pub var log_requests: Bool
     pub var shutdown_grace_ms: Int
@@ -54,6 +55,7 @@ pub object Config {
         self.max_header_bytes = 16384
         self.max_body_bytes = 65536
         self.workers = 0
+        self.report_cache_ms = 2000
         self.log_level = "info"
         self.log_requests = false
         self.shutdown_grace_ms = 10000
@@ -208,6 +210,7 @@ pub func load_config(path: String) -> ConfigResult {
     c.max_header_bytes = int_setting(file, "max_header_bytes", c.max_header_bytes, 1024, 1048576, errors)
     c.max_body_bytes = int_setting(file, "max_body_bytes", c.max_body_bytes, 0, 67108864, errors)
     c.workers = int_setting(file, "workers", c.workers, 0, 4096, errors)
+    c.report_cache_ms = int_setting(file, "report_cache_ms", c.report_cache_ms, 0, 3600000, errors)
     c.log_level = str_setting(file, "log_level", c.log_level).lower()
     c.log_requests = bool_setting(file, "log_requests", c.log_requests, errors)
     c.shutdown_grace_ms = int_setting(file, "shutdown_grace_ms", c.shutdown_grace_ms, 0, 600000, errors)
