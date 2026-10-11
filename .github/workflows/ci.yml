@@ -145,6 +145,23 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build -R '^test_runtime_threads$' --output-on-failure
 
+      - name: Start a MySQL server (Linux)
+        if: needs.changes.outputs.ci == 'true' && runner.os == 'Linux'
+        # test_mysql_integration (tests/mysql/run.sh) runs against it; without
+        # IRON_MYSQL_URL it is reported as skipped. A docker step rather than
+        # a services: container, which the macOS leg of this matrix cannot run.
+        run: |
+          docker run -d --name iron-mysql -p 3306:3306 \
+            -e MYSQL_ROOT_PASSWORD=ironci -e MYSQL_DATABASE=iron_test \
+            mysql:8.4 --max-allowed-packet=67108864 --mysql-native-password=ON
+          for i in $(seq 1 90); do
+            docker exec iron-mysql mysql -uroot -pironci -e 'SELECT 1' >/dev/null 2>&1 && break
+            sleep 2
+          done
+          docker cp iron-mysql:/var/lib/mysql/ca.pem "$RUNNER_TEMP/mysql-ca.pem"
+          echo "IRON_MYSQL_URL=mysql://root:ironci@127.0.0.1:3306/iron_test" >> "$GITHUB_ENV"
+          echo "IRON_MYSQL_CA=$RUNNER_TEMP/mysql-ca.pem" >> "$GITHUB_ENV"
+
       - name: Run unit tests with ASan and UBSan
         if: needs.changes.outputs.ci == 'true'
         env:
