@@ -486,9 +486,10 @@ static int prepend_marked_file(char **source_io, const char *base_dir,
 /* iron_os.c: the platform behind the freestanding runtime header (#235);
  * passed to clang with the other runtime sources. */
 static char *s_rt_os = NULL;
-/* stdlib/iron_json.c, compiled into every program like the other stdlib
- * modules (kept here rather than threaded through the path lists). */
+/* stdlib/iron_json.c, compiled only into programs that `import json`
+ * (kept here rather than threaded through the path lists). */
 static char *s_sl_json = NULL;
+static bool s_imports_json = false;
 
 #ifdef _WIN32
 /* --debug on Windows (#312): Visual Studio views of Iron values. A natvis
@@ -747,7 +748,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_http_out;
     argv_buf[ai++] = *sl_tls_out;
     argv_buf[ai++] = *sl_websocket_out;
-    argv_buf[ai++] = s_sl_json;
+    if (s_imports_json) argv_buf[ai++] = s_sl_json;
     if (opts.use_tls) {
         argv_buf[ai++] = "/DIRON_HAVE_OPENSSL=1";
 #ifdef IRON_CLI_OPENSSL_INCLUDE_DIR
@@ -859,7 +860,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_http_out;
     argv_buf[ai++] = *sl_tls_out;
     argv_buf[ai++] = *sl_websocket_out;
-    argv_buf[ai++] = s_sl_json;
+    if (s_imports_json) argv_buf[ai++] = s_sl_json;
     if (opts.use_tls) {
         argv_buf[ai++] = "-DIRON_HAVE_OPENSSL=1";
 #ifdef IRON_CLI_OPENSSL_INCLUDE_DIR
@@ -1831,8 +1832,9 @@ int iron_build(const char *source_path, const char *output_path,
                                 line_markers);
     }
 
-    /* `import json` prepends json.iron (iron_json.c is always linked). */
-    if (iron_detect_import(source, source_path, "json", &detect_arena)) {
+    /* `import json` prepends json.iron and links iron_json.c. */
+    s_imports_json = iron_detect_import(source, source_path, "json", &detect_arena);
+    if (s_imports_json) {
         stdlib_prepended_lines +=
             prepend_marked_file(&source, base_dir, "stdlib/json.iron",
                                 line_markers);
