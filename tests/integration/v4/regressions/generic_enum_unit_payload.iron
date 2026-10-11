@@ -1,0 +1,36 @@
+-- A unit variant passed as a payload argument takes the type arguments
+-- the other payloads fix (manual 2.8): `Tree.Node(Tree.Leaf, 1,
+-- Tree.Leaf)` left the leaves a Tree[unknown] and the C did not compile.
+-- (#470)
+enum Tree[T] {
+    Leaf,
+    Node(Tree[T], T, Tree[T]),
+}
+
+enum Lst[T] {
+    Nil,
+    Cons(T, Lst[T]),
+}
+
+func size[T](t: Tree[T]) -> Int {
+    match t {
+        Tree.Leaf -> return 0
+        Tree.Node(l, x, r) -> return size(l) + 1 + size(r)
+    }
+    return 0
+}
+
+func llen[T](l: Lst[T]) -> Int {
+    match l {
+        Lst.Nil -> return 0
+        Lst.Cons(h, t) -> return 1 + llen(t)
+    }
+    return 0
+}
+
+func main() {
+    val t = Tree.Node(Tree.Node(Tree.Leaf, 1, Tree.Leaf), 2, Tree.Leaf)
+    val s = Tree.Node(Tree.Leaf, "x", Tree.Leaf)
+    val l = Lst.Cons(1.5, Lst.Cons(2.5, Lst.Nil))
+    println("{size(t)} {size(s)} {llen(l)}")
+}

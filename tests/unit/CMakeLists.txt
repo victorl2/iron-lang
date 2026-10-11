@@ -334,6 +334,25 @@ endif()
 add_test(NAME test_stdlib_http COMMAND test_stdlib_http)
 set_tests_properties(test_stdlib_http PROPERTIES LABELS "unit;networking")
 
+add_executable(test_stdlib_mysql test_stdlib_mysql.c)
+target_link_libraries(test_stdlib_mysql iron_stdlib iron_runtime unity)
+if(WIN32)
+    target_link_libraries(test_stdlib_mysql ws2_32 iphlpapi)
+endif()
+add_test(NAME test_stdlib_mysql COMMAND test_stdlib_mysql)
+set_tests_properties(test_stdlib_mysql PROPERTIES LABELS "unit;networking;mysql" TIMEOUT 120)
+
+# MySQL client against a live server: tests/mysql/run.sh skips (exit 77)
+# unless IRON_MYSQL_URL names one. scripts/ci/local_ci.sh and ci.yml start a
+# MySQL container and set it for the Linux legs.
+if(NOT WIN32)
+    add_test(NAME test_mysql_integration
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/mysql/run.sh ${CMAKE_BINARY_DIR}/ironc
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_mysql_integration PROPERTIES
+        LABELS "integration;networking;mysql" TIMEOUT 1800 SKIP_RETURN_CODE 77)
+endif()
+
 add_executable(test_stdlib_websocket test_stdlib_websocket.c)
 target_link_libraries(test_stdlib_websocket iron_stdlib iron_runtime unity)
 add_test(NAME test_stdlib_websocket COMMAND test_stdlib_websocket)

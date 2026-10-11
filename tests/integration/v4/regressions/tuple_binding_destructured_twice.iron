@@ -1,0 +1,14 @@
+-- @leaks-by-design: a tuple binding is never dropped (issue 450)
+-- Destructuring a tuple binding twice. Its elements are copied into the
+-- bindings, as the fields of any place are; moving them out (as for a
+-- call's tuple) freed each string twice.
+func trio(n: Int) -> (String, Int, String) {
+    return ("first heap string {n} zzzzzzzzzzzzzzzzzzzzzz", n, "third heap string {n} wwwwwwwwwwwwwwwwwwwwww")
+}
+
+func main() {
+    val tup = trio(4)
+    val (x, y, z) = tup
+    val (x2, y2, z2) = tup
+    println("{x.len()} {z.len()} {x2.len()} {z2.len()}")
+}

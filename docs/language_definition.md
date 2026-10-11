@@ -265,7 +265,12 @@ first is an error (`E0204`); compare with `null` first. `x != null`
 narrows `x` to `T` inside an `if` or `while` body (and after an early
 return in the other branch) until `x` is assigned a value that may be
 null: `while cur != null { total += cur.value; cur = cur.next }` walks a
-linked list. A binding assigned inside a loop or a closure is not
+linked list. The right operand of `and` is narrowed by a true left
+operand and the right operand of `or` by a false one, so
+`x != null and x > 0` and `s == null or s.len() == 0` need no `if`.
+Comparing a `T?` that was not checked with a value (`x == 3`, `s < "a"`)
+is an error (`E0204`): check it first, as in `x != null and x == 3`. A
+binding assigned inside a loop or a closure is not
 narrowed there by an outer check, since the assignment may already have
 run. Comparing a value whose type is not nullable with `null` warns
 (`W0616`): the answer is known before the program runs.
@@ -294,6 +299,7 @@ func main() {
     var s: String? = null
     s = "now"
     println("{s}")
+    println("{idx != null and idx > 1} {s != null and s == "now"} {missing == null or missing > 1}")
 }
 ```
 
@@ -301,6 +307,7 @@ func main() {
 found at 2
 missing
 now
+true true true
 ```
 
 A nullable type may also be the element type of a list, fixed array or
@@ -596,8 +603,10 @@ Calling a primitive type name like a function converts a value:
 `Int(x)`, `Float(x)`, `Int32(x)`, `UInt8(x)` and so on. The source must be
 a numeric type or `Bool` (`E0310`; `Bool` itself is not a conversion
 target); float to integer truncates toward zero, and `Int(true)` is 1. A
-conversion to a narrower integer type warns (`W0601`) and a constant that
-does not fit is an error (`E0311`). Numbers are converted to strings with
+float outside the target's range converts to the type's largest or
+smallest value and NaN converts to 0 (`Int8(x)` with `x = 300.5` is 127).
+A conversion to a narrower integer type warns (`W0601`) and a constant that
+does not fit, integer or float, is an error (`E0311`). Numbers are converted to strings with
 `n.to_string()` or by interpolation; strings are parsed with `s.to_int()`
 and `s.to_float()`. There is no `String(x)`.
 
@@ -1694,7 +1703,7 @@ declarations are used by their own names.
 
 The modules that require an import are `math`, `io`, `time`, `log`,
 `hint`, `os`, `net`, `http`, `websocket`, `url`, `json`, `crypto`,
-`encoding` and `raylib`; their functions are
+`encoding`, `mysql` and `raylib`; their functions are
 called on the capitalized module object (`import math`, then
 `Math.sqrt(x)`). Everything else in section 9 (strings, lists, `Box`,
 `Arena`, `Channel`, `Mutex`, `RWLock`, `FileHandle`, `Hashable`, `RawPtr`)
@@ -1916,7 +1925,10 @@ to a parameter of type `*T` takes its address automatically. A checked
 pointer carries the generation of the allocation it points to, and every
 dereference verifies it: reading through a pointer after the target was
 freed aborts with a "stale pointer dereference" message instead of reading
-garbage, even when the allocator has reused the address. Checked pointers
+garbage, even when the allocator has reused the address. A pointer to a
+local stays valid while the function that took it has not returned; read
+after that (kept in a closure or an object that outlived the call) it
+aborts with a "dangling stack pointer to frame" message. Checked pointers
 support no arithmetic (`E0268`, `E0295`); `&` cannot be applied to a
 temporary (`E0270`), a pointer to a local cannot be returned (`E0271`), `&`
 on an `rc` handle is rejected (`E0296`), and `&list[i]` on a growable list
@@ -2306,8 +2318,9 @@ construction). Method calls, field access, string concatenation,
 interpolation, bitwise operators and shifts, conversions such as
 `Float(n)`, reading a global, `break` and `continue`, lambdas, `match`,
 enum values, and `heap` or `rc` allocation are not available at compile
-time (`E0231`); an error while evaluating, such as a division by zero or
-an index out of range, is `E0232`. Evaluation is limited to one million
+time (`E0231`); an error while evaluating, such as an integer division by
+zero or an index out of range, is `E0232` (a float divided by zero is an
+infinity or NaN, as at run time). Evaluation is limited to one million
 steps and to calls nested 256 deep (`E0230`). The result is typically
 bound to a global `val`.
 
@@ -2802,6 +2815,28 @@ func main() {
 0 7 9.5 {"id":7,"tags":["a","b"],"price":9.5}
 {"name":"Ann","visits":3}
 ```
+
+### 9.11.2 `mysql` (import)
+
+`import mysql` is a MySQL and MariaDB client that speaks the client/server
+protocol itself (TLS, the `caching_sha2_password`,
+`mysql_native_password`, `sha256_password` and `mysql_clear_password`
+plugins, the text and binary protocols); it is documented in
+[docs/mysql.md](mysql.md). `Mysql.connect(MysqlConfig)` and
+`Mysql.connect_url(url)` return a `nocopy MysqlConn` with `query(sql)`,
+`exec(sql, params: [MysqlValue])` (a prepared statement, cached per
+connection), `run(sql)`, `prepare(sql)`, `begin`, `commit`, `rollback`,
+`ping`, `reset`, `select_db`, `escape`, `quote` and `close`. A query
+returns a `nocopy MysqlResult` holding every row: `row_count()`,
+`column_count()`, `column(i)`, `col(name)`, `affected_rows()`,
+`last_insert_id()`, `next_result()` and typed readers by row and column
+(`int`, `uint`, `float`, `text`, `bytes`, `bool`, `datetime`, `time`
+returning `T?`, `get_int` and the like returning `(T, MysqlError)`, and
+`value` returning a `MysqlValue`). `Mysql.open_pool(config,
+MysqlPoolOptions(min, max))` returns an `rc MysqlPool` that any number of
+tasks share (`query`, `exec`, `run`, `acquire`). Every operation reports a
+`MysqlError { code, sqlstate, message, server }` (code 0 on success) and
+none panics on a server or network failure.
 
 ### 9.12 `crypto` and `encoding` (import)
 

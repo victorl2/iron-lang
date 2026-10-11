@@ -1,0 +1,57 @@
+-- A stack pointer is valid while its frame is live (#471). The frame
+-- generation was one counter bumped on entry to and exit from every
+-- function that takes a local address, so a pointer to an outer frame
+-- looked dangling after any such call; a pointer into a heap value read in
+-- a callee was checked as a stack pointer; a pointer to a global looked
+-- dangling once the frame that took it returned.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object View {
+    val p: *P
+}
+
+var G = P(100)
+
+func own(p: *var P) -> Int {
+    var mine = P(1)
+    val q = &mine
+    p.hp += q.hp
+    return q.hp
+}
+
+func depth(p: *var P, k: Int) -> Int {
+    if k == 0 {
+        return p.hp
+    }
+    var local = P(k)
+    val q = &local
+    return depth(p, k - 1) + q.hp
+}
+
+func show(p: *Int) -> String {
+    return "{p}"
+}
+
+func global_view() -> View {
+    var tmp = P(1)
+    val t = &tmp
+    return View(&G)
+}
+
+func main() {
+    var a = P(2)
+    val p = &a
+    println("{own(p)} {p.hp} {depth(p, 4)} {p.hp}")
+    val h = heap P(3)
+    defer free h
+    println("{show(&h.hp)}")
+    val g = global_view()
+    println("{g.p.hp}")
+    val f = func() -> Int { return p.hp * 10 }
+    println("{f()} {own(p)} {f()}")
+}

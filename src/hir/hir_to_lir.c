@@ -98,7 +98,9 @@ static bool iface_lifecycle(Iron_Type *t, Iron_Program *program,
 
 /* A recursive enum keeps its recursive payloads in heap cells (#245 is the
  * fixed array story; this is the ADT one): dropping the value frees them
- * through the emitted <Enum>_free. Copies are not supported for them. */
+ * through the emitted <Enum>_free, and a copy (a payload bound by match and
+ * stored in a new value, a binding copied) gets cells of its own through
+ * <Enum>_copied; sharing them freed them twice. */
 static bool enum_has_boxed_payload(Iron_Type *t) {
     if (!t || t->kind != IRON_TYPE_ENUM || !t->enu.decl) return false;
     Iron_EnumDecl *ed = t->enu.decl;
@@ -149,7 +151,7 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
     if (t && t->kind == IRON_TYPE_INTERFACE)
         return iface_lifecycle(t, program, want_copy, depth);
     if (t && t->kind == IRON_TYPE_ENUM) {
-        if (!want_copy && enum_has_boxed_payload(t)) return true;
+        if (enum_has_boxed_payload(t)) return true;
         /* A payload that owns something (#258). */
         if (!t->enu.decl || !t->enu.variant_payload_types || depth > 16) return false;
         Iron_EnumDecl *ed = t->enu.decl;
@@ -280,6 +282,16 @@ static bool type_is_rc_like(Iron_Type *t) {
  * view; storing it into a binding requires its own retain. */
 static bool hir_expr_is_place(IronHIR_Expr *e);
 
+/* The temporary of `val (a, b) = f()` (hir_lower.c names it `__tuple_mv_`
+ * when the tuple came from a call, method call or await): nothing else owns
+ * it, so its elements move into the bindings. The temporary of
+ * `val (a, b) = t` is a copy of the binding t, whose elements stay owned
+ * by t and are copied. */
+static bool tuple_base_moves(const IronHIR_Expr *base) {
+    return base && base->kind == IRON_HIR_EXPR_IDENT && base->ident.name &&
+           strncmp(base->ident.name, "__tuple_mv_", 11) == 0;
+}
+
 static bool rc_expr_transfers_ownership(IronHIR_Expr *e) {
     if (!e) return false;
     /* A field or element read off an owned temporary (`make().handle`,
@@ -291,8 +303,9 @@ static bool rc_expr_transfers_ownership(IronHIR_Expr *e) {
         IronHIR_Expr *base = e->kind == IRON_HIR_EXPR_FIELD_ACCESS
                            ? e->field_access.object : e->index.array;
         if (!base || !base->type || base->kind == IRON_HIR_EXPR_STRING_LIT) return false;
-        /* Destructuring moves each element out of the tuple temporary. */
-        if (base->type->kind == IRON_TYPE_TUPLE) return true;
+        /* Destructuring a call's tuple moves each element out of the
+         * temporary; destructuring a tuple binding copies them. */
+        if (base->type->kind == IRON_TYPE_TUPLE) return tuple_base_moves(base);
         if (type_is_rc_like(base->type)) return rc_expr_transfers_ownership(base);
         return !hir_expr_is_place(base);
     }
@@ -644,12 +657,14 @@ static bool hir_expr_is_borrowed_elem(IronHIR_Expr *e) {
  * temporary (`make_probe().name`) is not a place: lowering copies the
  * field out and drops the temporary, so the read is an owned value. */
 static bool hir_expr_is_place(IronHIR_Expr *e) {
-    /* An element of a tuple is owned by whoever reads it: a tuple is only
-     * ever taken apart (`val (a, b) = f()`, every position bound, see
-     * hir_lower.c), and the temporary holding it is never dropped. */
+    /* An element of a call's tuple is owned by whoever reads it: the tuple
+     * is only taken apart (`val (a, b) = f()`, every position bound, see
+     * hir_lower.c), and the temporary holding it is never dropped. An
+     * element of a tuple binding is a place like any field. */
     if (e && e->kind == IRON_HIR_EXPR_FIELD_ACCESS && e->field_access.object &&
         e->field_access.object->type &&
-        e->field_access.object->type->kind == IRON_TYPE_TUPLE)
+        e->field_access.object->type->kind == IRON_TYPE_TUPLE &&
+        tuple_base_moves(e->field_access.object))
         return false;
     /* A cast (an interface view, an unwrap) of a place still names it. */
     while (e && (e->kind == IRON_HIR_EXPR_FIELD_ACCESS || e->kind == IRON_HIR_EXPR_INDEX ||
@@ -960,8 +975,28 @@ static IronLIR_ValueId take_from_owned_temp(HIR_to_LIR_Ctx *ctx, TempOwned **tem
              * out of; that outer list is left to leak rather than freed
              * under the element. */
             if (!field || !(*temps)[0].is_slot) {
-                arrfree(*temps);
-                return v;
+                /* An element list of a temporary list (`grid()[i]`) has no
+                 * slot to move out of: the reader takes a copy and the
+                 * temporary is released (it was left to leak). */
+                if (!t->array.elem || t->array.elem->kind == IRON_TYPE_INTERFACE) {
+                    arrfree(*temps);
+                    return v;
+                }
+                const char *suffix = list_elem_suffix(ctx, t->array.elem);
+                size_t clen = strlen(suffix) + 32;
+                char *cname = (char *)iron_arena_alloc(ctx->lir_arena, clen, 1);
+                if (!cname) iron_oom_abort("hir_to_lir.c:take_from_owned_temp clone");
+                snprintf(cname, clen, "Iron_List_%s_clone", suffix);
+                IronLIR_ValueId *cargs = NULL;
+                arrput(cargs, v);
+                IronLIR_Instr *cref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
+                                                        cname, NULL, span);
+                IronLIR_Instr *ccall = iron_lir_call(ctx->current_func, ctx->current_block,
+                                                     NULL, cref->id, cargs, 1, t, span);
+                ccall->call.self_by_addr = true;
+                arrfree(cargs);
+                release_owned_temps(ctx, temps, span);
+                return ccall->id;
             }
             IronLIR_ValueId empty = iron_lir_array_lit(ctx->current_func, ctx->current_block,
                                                        t->array.elem, NULL, 0, t, span)->id;
@@ -2650,10 +2685,27 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                  * fresh stack slot via ALLOCA + STORE so the helper receives
                  * a stable pointer (inline-constant trap workaround). */
                 IronLIR_ValueId arg_v = lower_expr(ctx, expr->method_call.args[0]);
-                IronLIR_Instr *slot = iron_lir_alloca(ctx->current_func,
-                    ctx->current_block, arg_t, "rawptr_of_tmp", span);
-                iron_lir_store(ctx->current_func, ctx->current_block,
-                    slot->id, arg_v, span);
+                /* A binding's own storage: the pointer sees later writes to
+                 * the binding (it pointed at a copy taken at the call). */
+                IronLIR_Instr *ld = (arg_v != IRON_LIR_VALUE_INVALID &&
+                                     (ptrdiff_t)arg_v < arrlen(ctx->current_func->value_table))
+                                    ? ctx->current_func->value_table[arg_v] : NULL;
+                IronLIR_Instr *bslot = NULL;
+                if (ld && ld->kind == IRON_LIR_LOAD &&
+                    ld->load.ptr != IRON_LIR_VALUE_INVALID &&
+                    (ptrdiff_t)ld->load.ptr < arrlen(ctx->current_func->value_table)) {
+                    IronLIR_Instr *a = ctx->current_func->value_table[ld->load.ptr];
+                    if (a && a->kind == IRON_LIR_ALLOCA && a->alloca.alloc_type &&
+                        iron_type_equals(a->alloca.alloc_type, arg_t))
+                        bslot = a;
+                }
+                IronLIR_Instr *slot = bslot;
+                if (!slot) {
+                    slot = iron_lir_alloca(ctx->current_func,
+                        ctx->current_block, arg_t, "rawptr_of_tmp", span);
+                    iron_lir_store(ctx->current_func, ctx->current_block,
+                        slot->id, arg_v, span);
+                }
 
                 IronLIR_ValueId *rargs = NULL;
                 arrput(rargs, slot->id);
@@ -2668,7 +2720,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                  * self_by_addr (taking the address of the alloca variable —
                  * which is a real stack lvalue, unlike the inline literal in
                  * the prior implementation). */
-                rcall->call.self_by_addr = true;
+                /* (A global's slot is already a pointer to it.) */
+                rcall->call.self_by_addr = !(slot->alloca.global_name);
                 arrfree(rargs);
                 return rcall->id;
             }
@@ -3966,8 +4019,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             : iron_lir_is_not_null(ctx->current_func, ctx->current_block, val, span)->id;
         /* `w.upgrade() != null` tested a handle nothing owned afterwards:
          * the reference upgrade() handed over was never released, so the
-         * object leaked and its drop never ran. */
-        if (v && v->type && type_is_rc_like(v->type) && rc_expr_transfers_ownership(v)) {
+         * object leaked and its drop never ran. Likewise an owned value
+         * built just to be tested (`find(k) == null` with a String? or
+         * object result) was never dropped. */
+        if (v && v->type &&
+            (type_is_rc_like(v->type) ? rc_expr_transfers_ownership(v)
+                                      : !hir_expr_is_place(v))) {
             TempOwned *temps = NULL;
             note_owned_temp(ctx, &temps, v, val, span);
             release_owned_temps(ctx, &temps, span);
@@ -4397,11 +4454,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
             }
             /* Phase 24 DROP-01 (Plan 24-02): push drop entry for mutable binding */
-            /* (A copy of a recursive enum shares its boxes, which only the
-             * original frees; other enums are copied like objects, #258.) */
+            /* (A pattern's payload of a recursive enum views the subject's
+             * cells; any other copy gets cells of its own, #483.) */
             bool var_enum_borrows = type && type->kind == IRON_TYPE_ENUM &&
-                                    enum_has_boxed_payload(type) &&
-                                    stmt->let.init && hir_expr_is_place(stmt->let.init);
+                                    enum_has_boxed_payload(type) && stmt->let.borrows;
             if (!boxed && !var_is_capture(ctx, vid) && !var_enum_borrows &&
                 type_needs_drop(type, ctx->program) && ctx->defer_depth > 0 &&
                 ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
@@ -4456,13 +4512,13 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 (stmt->let.init->kind == IRON_HIR_EXPR_HEAP ||
                  stmt->let.init->kind == IRON_HIR_EXPR_RC ||
                  stmt->let.init->kind == IRON_HIR_EXPR_ARENA_ALLOC);
-            /* An enum binding that copies a place (a pattern's payload, an
-             * alias of another binding) shares the boxes that place owns:
-             * only a fresh value (a construction, a call) owns and frees
-             * them. Other owned types get a copy fixup instead. */
+            /* A pattern's payload of a recursive enum views the cells the
+             * subject owns: it is neither copied nor dropped. Any other
+             * binding (an alias of another binding included) gets cells of
+             * its own through the copy glue and frees them (#483: the alias
+             * shared them and both freed them). */
             bool enum_borrows = type && type->kind == IRON_TYPE_ENUM &&
-                                enum_has_boxed_payload(type) &&
-                                stmt->let.init && hir_expr_is_place(stmt->let.init);
+                                enum_has_boxed_payload(type) && stmt->let.borrows;
             /* `Bag.Items(xs) -> ...`: xs views the subject's list, which
              * the subject frees. It was copied bytewise and freed at the
              * arm's end, so the next match on the subject, or its own drop,
@@ -4492,7 +4548,9 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             } else {
                 if (stmt->let.init) {
                     IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
-                    if (!init_is_heap_or_rc && !pattern_borrows)
+                    /* (A borrowing enum binding is not dropped: a copy of
+                     * its cells would leak.) */
+                    if (!init_is_heap_or_rc && !pattern_borrows && !enum_borrows)
                         init_val = copy_for_new_owner(ctx, stmt->let.init,
                                                       init_val, type, span);
                     hmput(ctx->val_binding_map, vid, init_val);

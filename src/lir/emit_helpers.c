@@ -1986,8 +1986,9 @@ bool optional_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
     }
 }
 
-/* An enum with payloads needs glue when a payload is boxed (drop only,
- * #231) or its type owns something (#258). */
+/* An enum with payloads needs glue when a payload is boxed (#231: the
+ * box is freed with the value and a copy gets boxes of its own) or its
+ * type owns something (#258). */
 bool enum_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
     if (!t || t->kind != IRON_TYPE_ENUM || !t->enu.decl) return false;
     Iron_EnumDecl *ed = t->enu.decl;
@@ -1996,7 +1997,7 @@ bool enum_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
         for (int k = 0; k < ev->payload_count; k++) {
             bool boxed = t->enu.payload_is_boxed && t->enu.payload_is_boxed[j] &&
                          t->enu.payload_is_boxed[j][k];
-            if (boxed) { if (!want_copy) return true; else continue; }
+            if (boxed) return true;
             Iron_Type *pt = (t->enu.variant_payload_types && t->enu.variant_payload_types[j])
                             ? t->enu.variant_payload_types[j][k] : NULL;
             if (!pt) continue;

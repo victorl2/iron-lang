@@ -2139,6 +2139,18 @@ static bool run_dead_alloca_elimination(IronLIR_Module *module) {
                 }
                 blk->instr_count = new_count;
             }
+            /* A check whose root was a removed slot keys to its own pointer
+             * (its root is only the elision hint; a pointer read out of a
+             * field of such a slot left an undefined operand). */
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *in = blk->instrs[ii];
+                    if (in->kind == IRON_LIR_GENCHECK &&
+                        hmgeti(dead_alloca, in->gencheck.root_alloc) >= 0)
+                        in->gencheck.root_alloc = in->gencheck.ptr;
+                }
+            }
         }
 
         hmfree(loaded);
@@ -4425,6 +4437,22 @@ static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
             *out_ptr = obj;
             *out_gen = IRON_LIR_GEN_STACK;
             return true;
+        }
+        /* Any other checked pointer whose producer does not say where it
+         * points (a parameter, a field, a call result): a pointer to a local
+         * that left its frame inside an object was read without a check and
+         * returned stale stack memory (#471). The stack check knows a stack
+         * generation by its tag and passes heap and arena ones (those are
+         * checked where their producer is known: at the call, #442). */
+        {
+            Iron_Type *ot = obj_instr ? obj_instr->type
+                          : (obj >= 1 && obj <= (IronLIR_ValueId)fn->param_count)
+                              ? fn->params[obj - 1].type : NULL;
+            if (ot && ot->kind == IRON_TYPE_PTR && !ot->ptr.is_unchecked) {
+                *out_ptr = obj;
+                *out_gen = IRON_LIR_GEN_STACK;
+                return true;
+            }
         }
         return false;
     }

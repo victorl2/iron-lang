@@ -14,7 +14,7 @@
 #   lib/clang_rt.builtins.lib  the compiler builtins
 #   lib/iron_tls.lib, libssl.lib, libcrypto.lib
 #                            the TLS module against a static OpenSSL, for
-#                            programs that import http, websocket or crypto
+#                            programs that import http, websocket, crypto or mysql
 #   lib/iron_tls_none.lib    the TLS module without OpenSSL, for the rest
 #   lib/raylib.lib           raylib (GLFW on Win32, OpenGL) and Iron's raylib
 #                            shim, for programs that import raylib
@@ -147,7 +147,12 @@ for m in tls crypto; do
         -c "$here/src/stdlib/iron_$m.c" -o "$work/tls/iron_$m.obj"
 done
 "$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls_none.lib")" "$work/tls/iron_tls_none.obj" "$work/tls/iron_crypto_none.obj"
-"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls.lib")" "$work/tls/iron_tls.obj" "$work/tls/iron_crypto.obj"
+# The MySQL client needs libcrypto (auth hashing, RSA) and TLS: it ships in
+# the OpenSSL flavour only, which build.c links for a program that imports
+# mysql.
+"$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
+    -c "$here/src/stdlib/iron_mysql.c" -o "$work/tls/iron_mysql.obj"
+"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls.lib")" "$work/tls/iron_tls.obj" "$work/tls/iron_crypto.obj" "$work/tls/iron_mysql.obj"
 cp "$ossl_prefix/lib/libssl.lib" "$ossl_prefix/lib/libcrypto.lib" "$dest/lib/"
 
 # raylib: each source is its own translation unit (rlgl.h and glad.h have
@@ -225,7 +230,7 @@ cat > "$work/smoke.c" <<'SMOKE'
 int main(int argc, char **argv) {
     /* A _Thread_local with an initializer: the TLS template from the entry
      * object's _tls_used must reach every thread. */
-    if (iron_stack_gen != 1) return 3;
+    if (iron_stack_gen != IRON_STACK_GEN_INIT) return 3;
     iron_runtime_init(argc, argv);
     Iron_println(iron_string_from_literal("bundle ok", 9));
     return 0;

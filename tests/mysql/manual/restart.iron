@@ -1,0 +1,112 @@
+-- Survive a server restart: tasks keep querying through a pool while the
+-- server is restarted underneath (tests/mysql/manual/restart_check.sh does
+-- the restart). Queries fail while the server is down and must succeed
+-- again once it is back, on fresh connections, without restarting the
+-- program. Prints a line per second: successes and failures.
+--
+--   IRON_MYSQL_URL   the server to query
+--   RESTART_SECONDS  how long to run (default 30)
+import mysql
+import os
+import time
+
+object Stats {
+    val ok: Mutex[Int]
+    val failed: Mutex[Int]
+}
+
+func is_int(v: Int?, want: Int) -> Bool {
+    return v != null and v == want
+}
+
+func is_uint(v: UInt?, want: UInt) -> Bool {
+    return v != null and v == want
+}
+
+func is_float(v: Float?, want: Float) -> Bool {
+    return v != null and v == want
+}
+
+func is_text(v: String?, want: String) -> Bool {
+    return v != null and v == want
+}
+
+func is_bool(v: Bool?, want: Bool) -> Bool {
+    return v != null and v == want
+}
+
+func hammer(db: rc MysqlPool, until_ms: Int, stats: rc Stats) -> Int {
+    while Time.now_ms() < until_ms {
+        val r = db.exec("SELECT ? + 1", [MysqlValue.Int(41)])
+        if r.ok() and is_int(r.int(0, 0), 42) {
+            val g = stats.ok.lock()
+            val v: Int = g.get()
+            g.set(v + 1)
+        } else {
+            val g = stats.failed.lock()
+            val v: Int = g.get()
+            g.set(v + 1)
+            Time.sleep(50)
+        }
+    }
+    return 0
+}
+
+func main() {
+    val url = OS.env_or("IRON_MYSQL_URL", "")
+    val seconds = OS.env_or("RESTART_SECONDS", "30").to_int()
+    val (cfg, _) = Mysql.parse_url(url)
+    var options = MysqlPoolOptions(2, 4)
+    options.acquire_timeout = 2000
+    val db = Mysql.open_pool(cfg, options)
+    if not db.ok() {
+        println("pool: {db.error.message}")
+        return
+    }
+    val stats = rc Stats(Mutex(0), Mutex(0))
+    val until_ms = Time.now_ms() + seconds * 1000
+    val t1 = spawn("h1") { return hammer(db, until_ms, stats) }
+    val t2 = spawn("h2") { return hammer(db, until_ms, stats) }
+    val t3 = spawn("h3") { return hammer(db, until_ms, stats) }
+    var last_ok = 0
+    var last_failed = 0
+    var recovered_after_failure = false
+    var saw_failure = false
+    var second = 0
+    while Time.now_ms() < until_ms {
+        Time.sleep(1000)
+        second += 1
+        var now_ok = 0
+        var now_failed = 0
+        {
+            val g1 = stats.ok.lock()
+            now_ok = g1.get()
+        }
+        {
+            val g2 = stats.failed.lock()
+            now_failed = g2.get()
+        }
+        val dok = now_ok - last_ok
+        val dfail = now_failed - last_failed
+        if dfail > 0 {
+            saw_failure = true
+        }
+        if saw_failure and dfail == 0 and dok > 0 {
+            recovered_after_failure = true
+        }
+        println("t={second}s ok={dok} failed={dfail} pool={db.size()}")
+        last_ok = now_ok
+        last_failed = now_failed
+    }
+    await t1
+    await t2
+    await t3
+    if saw_failure and recovered_after_failure {
+        println("PASS restart: failed while the server was down, recovered after")
+    } elif not saw_failure {
+        println("PASS restart (no failure seen: was the server restarted?)")
+    } else {
+        println("FAILED restart: never recovered")
+        assert(false, "no recovery")
+    }
+}

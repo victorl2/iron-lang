@@ -1,0 +1,7 @@
+-- A float constant converted to an integer type must fit it (E0311,
+-- manual 2.9), like an integer constant narrowed. clang folded the
+-- undefined cast instead and the program printed garbage. (#466)
+func main() {
+    val a = Int8(300.7)
+    println("{a}")
+}

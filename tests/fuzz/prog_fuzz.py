@@ -24,6 +24,18 @@ Areas:
               unchecked pointers; stale reads (panics) and rejected forms
     comptime  functions evaluated with comptime and called at run time; the
               constructs comptime leaves out (E0231)
+    numedge   NaN, infinities, signed zeros, huge and subnormal floats, float
+              to integer conversion, overflow, shift counts, division by zero
+    strcoll   String methods on empty, multi-byte and zero-byte strings, out of
+              range positions, parsing; list, Map and Set edge cases
+    genedge   constraints, generic copy / drop / nocopy, recursive generic
+              enums, lists and maps as type arguments, deep instances
+    ptredge   pointer fields, pointers across frames and closures, heap and
+              global pointers, RawPtr / Ptr; dangling and stale pointer panics
+    ctedge    comptime Float, String and list computation, read_file, comptime
+              results as constants, E0230 / E0231 / E0232
+    dropord   destruction order of objects, interfaces, lists, closures, rc;
+              reference cycles
 
     prog_fuzz.py AREA IRONC OUTDIR SEED [COUNT] [--valgrind | --helgrind |
                  --drd | --asan RTDIR | --tsan RTDIR] [--runs N]
@@ -67,7 +79,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from pf_lang import Bail, Expected  # noqa: E402
 
-AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime')
+AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime',
+         'numedge', 'genedge', 'ptredge', 'ctedge', 'strcoll', 'dropord')
 
 
 def generator(area):
@@ -98,6 +111,8 @@ def expected_of(g, cached=False):
                  panic=getattr(m, 'panic', None) or getattr(g, 'expect_panic', None))
     e.leaks_ok = bool(getattr(m, 'leaks_ok', False) or getattr(g, 'leaks_ok', False)
                       or e.panic)
+    # files the program reads (comptime read_file), written next to it
+    e.files = dict(getattr(g, 'files', None) or {})
     return e
 
 
@@ -172,6 +187,9 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
     exe = os.path.join(d, f'{name}.bin')
     with open(src, 'w', encoding='utf-8') as f:
         f.write(src_text)
+    for fname, content in (getattr(expected, 'files', None) or {}).items():
+        with open(os.path.join(d, fname), 'w', encoding='utf-8', newline='') as f:
+            f.write(content)
     errors = getattr(expected, 'errors', None)
     panic = getattr(expected, 'panic', None)
     with open(os.path.join(d, 'expected.txt'), 'w', encoding='utf-8') as f:
@@ -453,6 +471,8 @@ def run(ironc, outdir, area, seeds, mode='plain', rtlib=None, quiet=False, jobs=
                 p = os.path.join(outdir, k, fn)
                 if os.path.exists(p):
                     shutil.copy(p, os.path.join(d, out))
+            for p in glob.glob(os.path.join(outdir, k, 'data_*')):
+                shutil.copy(p, os.path.join(d, os.path.basename(p)))
             print(f'{area} seed {seed}: {st.upper()} {os.path.join(d, k + ".iron")}\n'
                   + '\n'.join('    ' + l for l in msg.splitlines()[:30]), flush=True)
         elif not quiet:
@@ -465,7 +485,11 @@ def run(ironc, outdir, area, seeds, mode='plain', rtlib=None, quiet=False, jobs=
 SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure': range(1, 9),
          'conc': range(1, 9), 'arena': range(1, 9),
          'num': range(1, 9), 'generic': range(1, 9), 'ptr': (1, 2, 3, 4, 5, 22, 26, 41),
-         'comptime': range(1, 9)}
+         'comptime': range(1, 9),
+         # the edge case areas: their first seeds found the bugs fixed with
+         # them (#466 .. #505); about a minute per ctest entry
+         'numedge': range(1, 49), 'strcoll': range(1, 49), 'genedge': range(1, 49),
+         'ptredge': range(1, 49), 'ctedge': range(1, 25), 'dropord': range(1, 25)}
 # `--suite IRONC OUTDIR` runs these; the other areas have ctest entries of
 # their own (`--suite IRONC OUTDIR conc`, `... num generic ptr comptime`).
 SUITE_DEFAULT = ('stmt', 'coll', 'obj', 'closure')
