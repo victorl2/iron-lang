@@ -224,6 +224,11 @@ typedef struct {
     bool        is_mutable;  /* var vs val */
     bool        has_init;    /* false for a bare `var g: T` declaration */
     Iron_Span   span;        /* declaration site */
+    /* A `val` whose initializer is constant data (a scalar literal, or a
+     * list / fixed array / bounded vector literal of them): the literal,
+     * emitted as the static's `const` initializer instead of an assignment
+     * in __iron_module_init. NULL otherwise. */
+    struct IronHIR_Expr *const_init;
 } IronHIR_Global;
 
 /* Match arm: pattern + guard + body block */
