@@ -483,6 +483,9 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
              * keep using n->name for the identifier. */
             if (n->is_pub)   iron_strbuf_appendf(ctx->sb, "pub ");
             if (n->is_patch) iron_strbuf_appendf(ctx->sb, "patch ");
+            /* (A generic object is instantiated by printing it and parsing
+             * it again: without the keyword its instances could be copied.) */
+            if (n->is_nocopy) iron_strbuf_appendf(ctx->sb, "nocopy ");
             iron_strbuf_appendf(ctx->sb, "object %s", n->name);
             print_generic_params(ctx, n->generic_params, n->generic_param_count);
             if (n->implements_count > 0) {
