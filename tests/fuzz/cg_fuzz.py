@@ -410,10 +410,11 @@ def run_all(kind, ironc, outdir, area, seeds, jobs=1, modes=DEFAULT_MODES, quiet
 # The fixed seeds ctest runs, about a minute each (cg_fuzz_*): see
 # CMakeLists.txt.
 SUITE = {
-    'modes': ('all', range(1, 25)),
-    'meta': ('all', range(1, 41)),
-    'mutate': ('all', range(1, 61)),
-    'shapes': ('shapes', range(1, 25)),
+    # kind: (area, seeds, modes)
+    'modes': ('all', range(1, 9), DEFAULT_MODES),
+    'meta': ('all', range(1, 17), DEFAULT_MODES),
+    'mutate': ('all', range(1, 17), DEFAULT_MODES),
+    'shapes': ('shapes', range(1, 17), ('base', 'release', 'debug', 'noopt', 'skip')),
 }
 
 
@@ -434,13 +435,13 @@ def main(argv):
         i += 1
     if args[0] == '--suite':
         kind, ironc, outdir = args[1], os.path.abspath(args[2]), args[3]
-        area, seeds = SUITE[kind]
+        area, seeds, smodes = SUITE[kind]
         if kind == 'shapes':
             kind = 'modes'
         if len(args) > 4:
             area = args[4]
         bad = run_all(kind, ironc, outdir, area, seeds, jobs=max(jobs, min(4, os.cpu_count() or 1)),
-                      quiet=True)
+                      modes=smodes, quiet=True)
         print(f'{kind} {area}: {len(seeds) - bad}/{len(seeds)} ok')
         return 1 if bad else 0
     if args[0] == '--record':

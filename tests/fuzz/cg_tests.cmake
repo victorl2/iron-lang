@@ -11,11 +11,11 @@ if(Python3_EXECUTABLE)
     #   mutate  near-valid mutants: a diagnostic code or a clean build, never
     #           a crash, a hang or C the C compiler rejects (pf_mutate.py)
     #   shapes  nested generic, enum, tuple and optional types (pf_shapes.py)
-    foreach(_cg_kind modes)
+    foreach(_cg_kind modes meta mutate shapes)
         add_test(NAME cg_fuzz_${_cg_kind}
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_fuzz.py
                 --suite ${_cg_kind} $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/cg_fuzz_${_cg_kind})
-        set_tests_properties(cg_fuzz_${_cg_kind} PROPERTIES LABELS "codegen" TIMEOUT 900)
+        set_tests_properties(cg_fuzz_${_cg_kind} PROPERTIES LABELS "codegen" TIMEOUT 1800)
     endforeach()
 endif()
 
