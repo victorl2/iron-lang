@@ -158,7 +158,14 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
             if (!t->enu.variant_payload_types[j]) continue;
             for (int k = 0; k < ev->payload_count; k++) {
                 Iron_Type *pt = t->enu.variant_payload_types[j][k];
-                if (!pt || pt == t || (pt->kind == IRON_TYPE_ENUM && pt->enu.decl == ed)) continue;
+                /* the same instance (a recursive payload); another instance
+                 * of a generic enum (`Opt[Opt[rc T]]`) has its own glue */
+                if (!pt || pt == t ||
+                    (pt->kind == IRON_TYPE_ENUM && pt->enu.decl == ed &&
+                     (pt->enu.mangled_name == t->enu.mangled_name ||
+                      (pt->enu.mangled_name && t->enu.mangled_name &&
+                       strcmp(pt->enu.mangled_name, t->enu.mangled_name) == 0))))
+                    continue;
                 if (type_is_rc_like(pt) || type_is_counted_string(pt) || pt->kind == IRON_TYPE_FUNC)
                     return true;
                 if (!want_copy && type_is_owned_list(pt)) return true;

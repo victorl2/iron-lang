@@ -1999,7 +1999,14 @@ bool enum_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
             if (pt->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, pt, want_copy)) return true;
             if (emit_type_is_bvec(pt) && bvec_needs_glue(ctx, pt, want_copy)) return true;
             if (pt->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, pt, want_copy)) return true;
-            if (pt->kind == IRON_TYPE_ENUM && pt->enu.decl != ed &&
+            /* Another enum, or another instance of this generic enum
+             * (`Opt[Opt[rc T]]`: the inner rc leaked); only the same
+             * instance (a recursive payload) is skipped. */
+            if (pt->kind == IRON_TYPE_ENUM &&
+                !(pt->enu.decl == ed &&
+                  (pt->enu.mangled_name == t->enu.mangled_name ||
+                   (pt->enu.mangled_name && t->enu.mangled_name &&
+                    strcmp(pt->enu.mangled_name, t->enu.mangled_name) == 0))) &&
                 enum_needs_glue(ctx, pt, want_copy)) return true;
         }
     }
