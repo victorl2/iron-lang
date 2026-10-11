@@ -52,7 +52,9 @@ class Shapes(ProbeGen):
         if k == 'opt':
             return ('Opt', self.rand_type(depth + 1, no_opt=True, no_tuple=True))
         if k == 'tup':
-            return ('Tup', self.rand_type(depth + 1), self.rand_type(depth + 1))
+            # (a tuple holding a list cannot be taken apart out of a binding
+            # or parameter, E0328: its show function could not read it)
+            return ('Tup', self.listless(depth + 1), self.listless(depth + 1))
         if k == 'gbox':
             return ('Gb', self.rand_type(depth + 1))
         if k == 'gpair':
@@ -78,6 +80,13 @@ class Shapes(ProbeGen):
             vs.append((f'V{i}', [self.rand_type(depth + 1) for _ in range(n)]))
         self.enums[name] = vs
         return ('Enum', name)
+
+    def listless(self, depth):
+        for _ in range(10):
+            t = self.rand_type(depth)
+            if not self.holds_list(t):
+                return t
+        return ('Int',)
 
     def syn(self, t):
         k = t[0]
@@ -314,10 +323,10 @@ class Shapes(ProbeGen):
             return False
         if k == 'Obj':
             return t[1] not in seen and any(self.holds_list(f, seen + (t[1],))
-                                            for f in self.objs[t[1]])
+                                            for f in (self.objs[t[1]] or []))
         if k == 'Enum':
             return t[1] not in seen and any(self.holds_list(p, seen + (t[1],))
-                                            for _, ps in self.enums[t[1]] for p in ps)
+                                            for _, ps in (self.enums[t[1]] or []) for p in ps)
         return any(self.holds_list(x, seen) for x in t[1:])
 
     def p_ident(self):
@@ -408,7 +417,7 @@ class Shapes(ProbeGen):
 
     def p_enum_payload(self):
         """A value of t inside a fresh enum variant and a tuple payload."""
-        t = self.fresh_t()
+        t = self.listless(0)
         v = self.rand_val(t)
         pre = []
         e = self.expr(t, v, pre)

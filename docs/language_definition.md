@@ -488,7 +488,11 @@ operations (there is no positional access). Where a tuple type is expected (a
 return, an argument, an annotated binding), each element of a tuple literal
 converts to its component as it would to a binding of that type: a plain
 `T` or `null` fills a `T?` component (`return (null, "none")` from a
-function returning `(Int?, String)`).
+function returning `(Int?, String)`). A tuple that holds a list, map or set
+(also inside an object or an optional component) is taken apart only where
+it is made, `val (a, b) = f()`: destructuring a binding, parameter, field or
+element holding one would give the list a second owner, and is an error
+like any implicit duplication (`E0328`, section 6.8).
 
 ```iron
 func divmod(a: Int, b: Int) -> (Int, Int) {

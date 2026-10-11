@@ -302,7 +302,9 @@ def check_mutant(ironc, d, name, text):
         return bad
     try:
         r = subprocess.run([exe], capture_output=True, timeout=10, cwd=d)
-        if -r.returncode in SIGNALS:
+        err = r.stderr.decode('utf-8', 'replace')
+        # (an Iron panic aborts too: only a crash the allocator caught counts)
+        if -r.returncode in SIGNALS and not (r.returncode == -signal.SIGABRT and 'iron:' in err):
             return 'signal', (f'the program died of signal {-r.returncode}\n'
                               + r.stderr.decode('utf-8', 'replace')[-2000:])
     except subprocess.TimeoutExpired:
