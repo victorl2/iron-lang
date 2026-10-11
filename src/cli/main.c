@@ -247,6 +247,8 @@ int main(int argc, char **argv) {
             fprintf(stderr, "error: unknown flag '%s' for command '%s'\n",
                     argv[i], cmd);
             return 1;
+        } else if (strcmp(cmd, "fmt") == 0 && strcmp(argv[i], "--check") == 0) {
+            /* fmt's own flag, read by the fmt branch below */
         } else if (strcmp(argv[i], "-") == 0) {
             fprintf(stderr, "error: %s %s does not read source from standard input; "
                             "pass a .iron file\n", IRON_BINARY_NAME, cmd);

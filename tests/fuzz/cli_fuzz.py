@@ -253,7 +253,7 @@ def help_check(iron, outdir):
                     cwd = os.path.join(work, 'badpkg') if in_pkg else work
                     r = subprocess.run([path] + a, cwd=cwd, capture_output=True, text=True,
                                        stdin=subprocess.DEVNULL, timeout=TIMEOUT)
-                    if 'unknown flag' in r.stderr:
+                    if 'unknown flag' in r.stderr or 'unexpected argument' in r.stderr:
                         print(f'HELP {tool} {" ".join(a)} ({"package" if in_pkg else "file"}): '
                               f'listed in --help but rejected: {r.stderr.strip()[:200]}')
                         bad += 1

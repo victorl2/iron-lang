@@ -27,6 +27,8 @@ expect_fail "after --" "${IRONC}" run ok.iron x
 expect_fail "is a directory" "${IRONC}" build adir
 expect_fail "is a directory" "${IRONC}" check adir
 expect_fail "standard input" "${IRONC}" build -
+"${IRONC}" fmt --check ok.iron >/dev/null 2>&1 || fail "ironc fmt --check ok.iron"
+"${IRONC}" fmt ok.iron --check >/dev/null 2>&1 || fail "ironc fmt ok.iron --check"
 out="$("${IRONC}" bogus 2>&1)"; grep -q "Subcommands" <<< "${out}" && fail "ironc bogus printed the whole help"
 out="$("${IRONC}" test t.iron 2>&1)"; grep -q "assertion failed: t.iron:2" <<< "${out}" || { echo "${out}"; fail "assert location"; }
 out="$("${IRONC}" test t.iron -- -dash 2>&1)"; grep -q "1 passed, 0 failed, 1 filtered out" <<< "${out}" || { echo "${out}"; fail "ironc test -- filter"; }
