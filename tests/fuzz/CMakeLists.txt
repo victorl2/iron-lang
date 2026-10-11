@@ -151,6 +151,7 @@ add_custom_command(TARGET iron_seed_blobs POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/parser"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/typecheck"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/hir_to_lir"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/check"
     COMMAND ${CMAKE_COMMAND} -E env "ASAN_OPTIONS=detect_leaks=0"
             $<TARGET_FILE:iron_seed_blobs>
             "${_FUZZ_INTEGRATION_DIR}"
