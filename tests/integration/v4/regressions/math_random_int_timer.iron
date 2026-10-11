@@ -1,0 +1,41 @@
+-- Math.random_int is inclusive at both ends (#573), also over the whole
+-- Int range, and gives min for an empty range; Time.Timer converts
+-- seconds like an Iron Float to Int conversion (saturating, NaN to 0) and
+-- update adds without wrapping (#574).
+import math
+import time
+
+func main() {
+    Math.seed(1)
+    var lo = false
+    var hi = false
+    var inside = true
+    for i in range(400) {
+        val x = Math.random_int(1, 2)
+        if x == 1 { lo = true }
+        if x == 2 { hi = true }
+        if x < 1 or x > 2 { inside = false }
+    }
+    println("{lo} {hi} {inside}")
+    var any_neg = false
+    var any_pos = false
+    for i in range(100) {
+        val y = Math.random_int(-9223372036854775807 - 1, 9223372036854775807)
+        if y < 0 { any_neg = true }
+        if y > 0 { any_pos = true }
+    }
+    println("{any_neg} {any_pos} {Math.random_int(7, 7)} {Math.random_int(9, 3)}")
+    val inf = 1.0 / 0.0
+    val t1 = Time.Timer(inf)
+    val t2 = Time.Timer(0.0 - inf)
+    val t3 = Time.Timer(0.0 / 0.0)
+    println("{t1.duration_ms} {t1.done()} {t2.duration_ms} {t3.duration_ms} {t3.done()}")
+    var t4 = Time.Timer(1.0)
+    t4.update(inf)
+    t4.update(inf)
+    println("{t4.elapsed_ms} {t4.done()}")
+    t4.reset()
+    t4.update(0.25)
+    t4.update(0.0 - inf)
+    println("{t4.elapsed_ms} {t4.done()}")
+}

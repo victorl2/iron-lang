@@ -96,13 +96,18 @@ func listing(p: String) -> String {
 }
 
 func blob(n: Int, seed: Int) -> String {
+    -- a 997-byte pseudo-random chunk repeated (an append per byte would
+    -- be quadratic, #597)
     var x = seed
-    var out = ""
-    for i in range(n) {
+    var chunk = ""
+    for i in range(min(n, 997)) {
         x = (x * 1103515245 + 12345) % 2147483648
-        out += String.from_byte(x / 65536 % 256)
+        chunk += String.from_byte(x / 65536 % 256)
     }
-    return out
+    if n <= 997 {
+        return chunk
+    }
+    return chunk.repeat(n / 997) + chunk.byte_slice(0, n % 997)
 }
 
 func digest(s: String) -> Int {
@@ -124,12 +129,16 @@ func sandbox() -> String {
 
 
 def blob(n, seed):
+    """The bytes the Iron blob(n, seed) helper makes."""
     x = seed
-    out = bytearray()
-    for _ in range(n):
+    chunk = bytearray()
+    for _ in range(min(n, 997)):
         x = (x * 1103515245 + 12345) % 2147483648
-        out.append(x // 65536 % 256)
-    return bytes(out)
+        chunk.append(x // 65536 % 256)
+    chunk = bytes(chunk)
+    if n <= 997:
+        return chunk
+    return chunk * (n // 997) + chunk[:n % 997]
 
 
 def digest(b):
