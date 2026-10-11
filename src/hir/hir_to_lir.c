@@ -284,6 +284,8 @@ static bool rc_expr_transfers_ownership(IronHIR_Expr *e) {
         IronHIR_Expr *base = e->kind == IRON_HIR_EXPR_FIELD_ACCESS
                            ? e->field_access.object : e->index.array;
         if (!base || !base->type || base->kind == IRON_HIR_EXPR_STRING_LIT) return false;
+        /* Destructuring moves each element out of the tuple temporary. */
+        if (base->type->kind == IRON_TYPE_TUPLE) return true;
         if (type_is_rc_like(base->type)) return rc_expr_transfers_ownership(base);
         return !hir_expr_is_place(base);
     }
@@ -635,6 +637,13 @@ static bool hir_expr_is_borrowed_elem(IronHIR_Expr *e) {
  * temporary (`make_probe().name`) is not a place: lowering copies the
  * field out and drops the temporary, so the read is an owned value. */
 static bool hir_expr_is_place(IronHIR_Expr *e) {
+    /* An element of a tuple is owned by whoever reads it: a tuple is only
+     * ever taken apart (`val (a, b) = f()`, every position bound, see
+     * hir_lower.c), and the temporary holding it is never dropped. */
+    if (e && e->kind == IRON_HIR_EXPR_FIELD_ACCESS && e->field_access.object &&
+        e->field_access.object->type &&
+        e->field_access.object->type->kind == IRON_TYPE_TUPLE)
+        return false;
     /* A cast (an interface view, an unwrap) of a place still names it. */
     while (e && (e->kind == IRON_HIR_EXPR_FIELD_ACCESS || e->kind == IRON_HIR_EXPR_INDEX ||
                  e->kind == IRON_HIR_EXPR_CAST))
@@ -708,6 +717,12 @@ static IronLIR_ValueId *lower_construct_fields(HIR_to_LIR_Ctx *ctx,
         IronLIR_ValueId fv = lower_expr(ctx, fe);
         Iron_Type *ft = (cod && i < cod->field_count)
                         ? field_stored_type((Iron_Field *)cod->fields[i]) : NULL;
+        /* A tuple owns its elements like an object its fields: `return
+         * (local_rc, n)` used to hand out a handle the local's scope exit
+         * then released. */
+        if (!ft && obj_type && obj_type->kind == IRON_TYPE_TUPLE &&
+            i < obj_type->tuple.elem_count)
+            ft = obj_type->tuple.elem_types[i];
         /* A `T?` field takes a T argument wrapped (#189): the bare value
          * would only fill the optional's first member. */
         if (ft && ft->kind == IRON_TYPE_NULLABLE) fv = coerce_to_optional(ctx, fv, ft, span);
