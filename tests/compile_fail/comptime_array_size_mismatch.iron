@@ -1,0 +1,13 @@
+-- Negative test: a fixed array sized by a comptime result (issue 504) has
+-- that size, so a literal of another length is rejected instead of the
+-- type silently becoming a growable list.
+val N = comptime size(3)
+
+func size(n: Int) -> Int {
+    return n * 2
+}
+
+func main() {
+    val arr: [Int; N] = [1, 2, 3]
+    println("{len(arr)}")
+}
