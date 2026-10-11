@@ -5801,8 +5801,12 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 const char *callee_name = (ce->callee && ce->callee->kind == IRON_NODE_IDENT)
                     ? ((Iron_Ident *)ce->callee)->name : "the function";
                 emit_error(ctx, IRON_ERR_ARG_COUNT, ce->span, msg,
+                           /* (the declaration's own list only when it is
+                            * the callee's: a duplicate declaration, E0201,
+                            * has another length and was read past, #550) */
                            params_signature(ctx, callee_name,
-                                            fd_for_parm ? fd_for_parm->params : NULL,
+                                            (fd_for_parm && fd_for_parm->param_count == expected_count)
+                                                ? fd_for_parm->params : NULL,
                                             expected_count, 0,
                                             callee_type->func.param_types));
                 for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
@@ -10146,8 +10150,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     }
                     if (mf && mf->is_pub) {
                         if (mf->is_var) {
-                            /* pub var: route through synthesized setter. */
-                            as->is_pub_setter = true;
+                            /* pub var: route through synthesized setter,
+                             * except in init: the field holds no value yet,
+                             * and the setter dropped the garbage there
+                             * first (a list field crashed, #616). */
+                            if (!ctx->in_init_method) as->is_pub_setter = true;
                         } else if (!ctx->in_init_method) {
                             /* pub val: read-only outside init — cannot be
                              * written.  Init bodies are the sole place where

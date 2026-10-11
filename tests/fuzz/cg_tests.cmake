@@ -105,3 +105,12 @@ if(NOT WIN32)
             ${CMAKE_BINARY_DIR}/cg_check/generic_nullable_param)
     set_tests_properties(cg_generic_nullable_param PROPERTIES LABELS "codegen" TIMEOUT 120)
 endif()
+
+if(NOT WIN32)
+    # #592: pub members of a generic object used from another file.
+    add_test(NAME cg_pkg_generic_pub
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_pkg_check.sh $<TARGET_FILE:iron>
+            ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_packages/generic_pub
+            ${CMAKE_BINARY_DIR}/cg_check/pkg_generic_pub)
+    set_tests_properties(cg_pkg_generic_pub PROPERTIES LABELS "codegen" TIMEOUT 120)
+endif()

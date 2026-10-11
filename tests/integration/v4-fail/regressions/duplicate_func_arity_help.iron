@@ -1,0 +1,14 @@
+-- A call with the wrong arity to a function declared twice with different
+-- parameter lists (E0201): the arity help read past the shorter list
+-- (undefined behavior, an UBSan abort in sanitizer builds, #550).
+func f(a: Int) -> Int {
+    return a
+}
+
+func f(a: Int, b: Int, c: Int) -> Int {
+    return a
+}
+
+func main() {
+    println("{f(1, 2)}")
+}

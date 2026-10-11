@@ -1,0 +1,13 @@
+-- A generic container with pub members, used from another file (#592).
+pub object Bag[T] {
+    pub var items: [T]
+    pub init() {
+        self.items = []
+    }
+    pub func add(x: T) {
+        self.items.push(x)
+    }
+    pub readonly func size() -> Int {
+        return len(self.items)
+    }
+}
