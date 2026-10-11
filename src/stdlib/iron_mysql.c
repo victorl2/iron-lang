@@ -32,6 +32,7 @@
 #include <limits.h>
 #include <math.h>
 #include <stdarg.h>
+#include <stddef.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -515,7 +516,7 @@ static int rsa_encrypt_password(const char *pem, size_t pem_len,
 /* ── Result storage ─────────────────────────────────────────────────────── */
 
 typedef struct MyCol {
-    uint32_t name, name_len;       /* offsets into MySet.meta */
+    uint32_t name, name_len;       /* offsets into MyMeta.strings */
     uint32_t org_name, org_name_len;
     uint32_t table, table_len;
     uint32_t org_table, org_table_len;
@@ -527,10 +528,39 @@ typedef struct MyCol {
     uint8_t decimals;
 } MyCol;
 
-typedef struct MySet {
+/* Column definitions of a result set. Immutable once built and shared by
+ * reference count: a prepared statement keeps the last one it saw and the
+ * next execution reuses it when the server sends the same definitions, so
+ * a repeated query does not parse or allocate them again. */
+typedef struct MyMeta {
+    atomic_int refs;
     uint32_t ncols;
     MyCol *cols;
-    MyBuf meta;
+    MyBuf strings;
+    MyBuf raw;                     /* the definition packets, length-prefixed */
+} MyMeta;
+
+static void meta_unref(MyMeta *m) {
+    if (!m || atomic_fetch_sub(&m->refs, 1) != 1) return;
+    free(m->cols);
+    buf_free(&m->strings);
+    buf_free(&m->raw);
+    free(m);
+}
+
+static MyMeta *meta_ref(MyMeta *m) {
+    if (m) atomic_fetch_add(&m->refs, 1);
+    return m;
+}
+
+/* Small results (a point lookup) live in the set itself. */
+#define SET_INLINE_DATA 192
+#define SET_INLINE_CELLS 32
+
+typedef struct MySet {
+    uint32_t ncols;
+    MyCol *cols;                   /* md->cols */
+    MyMeta *md;
     uint64_t nrows;
     uint64_t rows_cap;
     uint32_t *cells;               /* 2 * ncols per row: offset, length */
@@ -541,45 +571,86 @@ typedef struct MySet {
     uint16_t warnings;
     uint16_t status;
     char *info;
+    uint32_t cells_inline[SET_INLINE_CELLS];
+    uint8_t data_inline[SET_INLINE_DATA];
 } MySet;
 
+/* The first result set is part of the result; further ones (multi
+ * statements, procedures) are allocated one by one, so a set never moves. */
 typedef struct MyResult {
-    MySet *sets;
+    MySet first;
+    MySet **more;                  /* sets 1.. */
     uint32_t nsets;
-    uint32_t sets_cap;
+    uint32_t more_cap;
     uint32_t cur;
     MyErr err;
 } MyResult;
 
+static const uint8_t *set_strings(const MySet *s) {
+    return s->md ? s->md->strings.p : NULL;
+}
+
 static void set_free(MySet *s) {
-    free(s->cols);
-    buf_free(&s->meta);
-    free(s->cells);
-    buf_free(&s->data);
+    meta_unref(s->md);
+    if (s->cells != s->cells_inline) free(s->cells);
+    if (s->data.p != s->data_inline) buf_free(&s->data);
     free(s->info);
+}
+
+static MySet *res_set(MyResult *r, uint32_t i) {
+    return i == 0 ? &r->first : r->more[i - 1];
+}
+
+/* Free every set and keep the result itself (empty). */
+static void result_clear(MyResult *r) {
+    for (uint32_t i = 0; i < r->nsets; i++) {
+        MySet *s = res_set(r, i);
+        set_free(s);
+        if (i > 0) free(s);
+    }
+    free(r->more);
+    r->more = NULL;
+    r->more_cap = 0;
+    r->nsets = 0;
+    r->cur = 0;
 }
 
 static void result_destroy(MyResult *r) {
     if (!r) return;
-    for (uint32_t i = 0; i < r->nsets; i++) set_free(&r->sets[i]);
-    free(r->sets);
+    result_clear(r);
     free(r);
 }
 
 static MyResult *result_new(void) {
-    return (MyResult *)calloc(1, sizeof(MyResult));
+    MyResult *r = (MyResult *)malloc(sizeof(MyResult));
+    if (!r) return NULL;
+    memset(r, 0, offsetof(MyResult, err));
+    err_clear(&r->err);
+    return r;
+}
+
+static void set_init(MySet *s) {
+    memset(s, 0, offsetof(MySet, cells_inline));
 }
 
 static MySet *result_add_set(MyResult *r) {
-    if (r->nsets == r->sets_cap) {
-        uint32_t cap = r->sets_cap ? r->sets_cap * 2 : 1;
-        MySet *s = (MySet *)realloc(r->sets, cap * sizeof(MySet));
-        if (!s) return NULL;
-        r->sets = s;
-        r->sets_cap = cap;
+    if (r->nsets == 0) {
+        set_init(&r->first);
+        r->nsets = 1;
+        return &r->first;
     }
-    MySet *s = &r->sets[r->nsets++];
-    memset(s, 0, sizeof(*s));
+    if (r->nsets - 1 == r->more_cap) {
+        uint32_t cap = r->more_cap ? r->more_cap * 2 : 2;
+        MySet **m = (MySet **)realloc(r->more, cap * sizeof(MySet *));
+        if (!m) return NULL;
+        r->more = m;
+        r->more_cap = cap;
+    }
+    MySet *s = (MySet *)malloc(sizeof(MySet));
+    if (!s) return NULL;
+    set_init(s);
+    r->more[r->nsets - 1] = s;
+    r->nsets++;
     return s;
 }
 
@@ -594,6 +665,7 @@ typedef struct MyPrep {
     uint16_t ncols;
     uint8_t *types;                /* last parameter types sent (2 per param) */
     int types_sent;
+    MyMeta *rmeta;                 /* result columns of the last execution */
 } MyPrep;
 
 typedef struct MyCacheEnt {
@@ -627,14 +699,17 @@ typedef struct MyConn {
     size_t rpos;
     MyBuf big;                     /* reassembled multi-packet payload */
     MyBuf w;                       /* outgoing packets */
+    MyBuf colbuf;                  /* column definitions being read */
     uint64_t cmd_rx;               /* bytes received for the current command */
     int send_failed;               /* the current command's write failed */
     MyCacheEnt *cache;
     int ncache;
     uint64_t cache_clock;
+    int cache_mru;                 /* index of the statement used last, or -1 */
     iron_mutex_t pend_lock;
     uint32_t *pend;                /* statement ids waiting for COM_STMT_CLOSE */
     int npend, pend_cap;
+    atomic_int pend_count;         /* npend, readable without the lock */
     atomic_uint_fast64_t gen;      /* bumped when a pooled connection is released */
     MyPool *pool;
     uint64_t created_ms;
@@ -654,6 +729,8 @@ typedef struct MyStmt {
 static void prep_free(MyPrep *p) {
     free(p->types);
     p->types = NULL;
+    meta_unref(p->rmeta);
+    p->rmeta = NULL;
 }
 
 static void conn_destroy(MyConn *c) {
@@ -665,6 +742,7 @@ static void conn_destroy(MyConn *c) {
     buf_free(&c->r);
     buf_free(&c->big);
     buf_free(&c->w);
+    buf_free(&c->colbuf);
     for (int i = 0; i < c->ncache; i++) {
         free(c->cache[i].sql);
         prep_free(&c->cache[i].prep);
@@ -688,6 +766,7 @@ static MyConn *conn_new(void) {
     c->fd = -1;
     c->server_max_packet = -1;
     c->max_packet = 1073741824;
+    c->cache_mru = -1;
     iron_mutex_init(&c->pend_lock);
     c->created_ms = Iron_monotonic_now_ms();
     return c;
@@ -994,6 +1073,7 @@ static int cmd_begin(MyConn *c, MyErr *e, size_t *at) {
     }
     if (c->big.cap > (4u << 20)) buf_free(&c->big);
     c->w.len = 0;
+    if (atomic_load_explicit(&c->pend_count, memory_order_acquire) > 0) {
     iron_mutex_lock(&c->pend_lock);
     for (int i = 0; i < c->npend; i++) {
         uint8_t close_pkt[9] = { 5, 0, 0, 0, COM_STMT_CLOSE, 0, 0, 0, 0 };
@@ -1005,7 +1085,9 @@ static int cmd_begin(MyConn *c, MyErr *e, size_t *at) {
         buf_put(&c->w, close_pkt, 9);
     }
     c->npend = 0;
+    atomic_store_explicit(&c->pend_count, 0, memory_order_release);
     iron_mutex_unlock(&c->pend_lock);
+    }
     c->seq = 0;
     *at = pkt_begin(c);
     if (c->w.len < *at + 4) {
@@ -1559,28 +1641,28 @@ static MyConn *conn_open(const MyCfg *k) {
 
 /* ── Result sets ────────────────────────────────────────────────────────── */
 
-static int meta_put(MySet *s, const uint8_t *str, size_t n, uint32_t *off, uint32_t *len) {
-    if (s->meta.len > UINT32_MAX - n) return 0;
-    *off = (uint32_t)s->meta.len;
+static int meta_put(MyMeta *m, const uint8_t *str, size_t n, uint32_t *off, uint32_t *len) {
+    if (m->strings.len > UINT32_MAX - n) return 0;
+    *off = (uint32_t)m->strings.len;
     *len = (uint32_t)n;
-    return buf_put(&s->meta, str, n);
+    return buf_put(&m->strings, str, n);
 }
 
-static int parse_column(MySet *s, MyCol *col, const uint8_t *p, size_t n) {
+static int parse_column(MyMeta *m, MyCol *col, const uint8_t *p, size_t n) {
     Rd r = { p, n, 0, 0 };
     size_t len;
     const uint8_t *str;
     (void)rd_lenstr(&r, &len);                       /* catalog */
     str = rd_lenstr(&r, &len);
-    if (r.bad || !meta_put(s, str, len, &col->schema, &col->schema_len)) return 0;
+    if (r.bad || !meta_put(m, str, len, &col->schema, &col->schema_len)) return 0;
     str = rd_lenstr(&r, &len);
-    if (r.bad || !meta_put(s, str, len, &col->table, &col->table_len)) return 0;
+    if (r.bad || !meta_put(m, str, len, &col->table, &col->table_len)) return 0;
     str = rd_lenstr(&r, &len);
-    if (r.bad || !meta_put(s, str, len, &col->org_table, &col->org_table_len)) return 0;
+    if (r.bad || !meta_put(m, str, len, &col->org_table, &col->org_table_len)) return 0;
     str = rd_lenstr(&r, &len);
-    if (r.bad || !meta_put(s, str, len, &col->name, &col->name_len)) return 0;
+    if (r.bad || !meta_put(m, str, len, &col->name, &col->name_len)) return 0;
     str = rd_lenstr(&r, &len);
-    if (r.bad || !meta_put(s, str, len, &col->org_name, &col->org_name_len)) return 0;
+    if (r.bad || !meta_put(m, str, len, &col->org_name, &col->org_name_len)) return 0;
     (void)rd_lenenc(&r, NULL);                       /* length of fixed fields */
     col->charset = rd_u16(&r);
     col->length = rd_u32(&r);
@@ -1590,21 +1672,42 @@ static int parse_column(MySet *s, MyCol *col, const uint8_t *p, size_t n) {
     return !r.bad;
 }
 
-/* Read `count` column definitions (and the EOF after them when the server
- * still sends one). With cols == NULL they are skipped. */
-static int read_columns(MyConn *c, MySet *s, uint32_t count, int store, MyErr *e) {
-    if (store) {
-        s->ncols = count;
-        s->cols = (MyCol *)calloc(count ? count : 1, sizeof(MyCol));
-        if (!s->cols) return conn_fail(c, e, IRON_ERR_MYSQL_NO_MEMORY);
+/* Build column metadata from length-prefixed definition packets. */
+static MyMeta *meta_build(const uint8_t *raw, size_t raw_len, uint32_t count) {
+    MyMeta *m = (MyMeta *)calloc(1, sizeof(MyMeta));
+    if (!m) return NULL;
+    atomic_init(&m->refs, 1);
+    m->ncols = count;
+    m->cols = (MyCol *)calloc(count ? count : 1, sizeof(MyCol));
+    if (!m->cols || !buf_put(&m->raw, raw, raw_len)) { meta_unref(m); return NULL; }
+    size_t off = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        if (raw_len - off < 4) { meta_unref(m); return NULL; }
+        uint32_t n = rd32(raw + off);
+        off += 4;
+        if (n > raw_len - off || !parse_column(m, &m->cols[i], raw + off, n)) {
+            meta_unref(m);
+            return NULL;
+        }
+        off += n;
     }
+    return m;
+}
+
+/* Read `count` column definitions (and the EOF after them when the server
+ * still sends one) into s->md, or skip them when s is NULL. `cache` is a
+ * prepared statement's last metadata: reused when the server sent the same
+ * bytes again, replaced otherwise. */
+static int read_columns(MyConn *c, MySet *s, uint32_t count, MyMeta **cache, MyErr *e) {
+    MyBuf *raw = &c->colbuf;
+    raw->len = 0;
     for (uint32_t i = 0; i < count; i++) {
         const uint8_t *p;
         size_t n;
         int rc = conn_read_packet(c, &p, &n, e);
         if (rc) return rc;
-        if (store && !parse_column(s, &s->cols[i], p, n))
-            return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
+        if (s && (!buf_u32(raw, (uint32_t)n) || !buf_put(raw, p, n)))
+            return conn_fail(c, e, IRON_ERR_MYSQL_NO_MEMORY);
     }
     if (!(c->caps & CLIENT_DEPRECATE_EOF) && count > 0) {
         const uint8_t *p;
@@ -1613,19 +1716,66 @@ static int read_columns(MyConn *c, MySet *s, uint32_t count, int store, MyErr *e
         if (rc) return rc;
         if (!is_eof_packet(p, n)) return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
     }
+    if (!s) return 0;
+    MyMeta *m = NULL;
+    if (cache && *cache && (*cache)->ncols == count && (*cache)->raw.len == raw->len &&
+        memcmp((*cache)->raw.p, raw->p, raw->len) == 0) {
+        m = meta_ref(*cache);
+    } else {
+        m = meta_build(raw->p, raw->len, count);
+        if (!m) return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
+        if (cache) {
+            meta_unref(*cache);
+            *cache = meta_ref(m);
+        }
+    }
+    if (raw->cap > (64u << 10)) buf_free(raw);
+    s->md = m;
+    s->ncols = m->ncols;
+    s->cols = m->cols;
     return 0;
 }
 
 static int set_grow_rows(MySet *s) {
     if (s->nrows < s->rows_cap) return 1;
-    uint64_t cap = s->rows_cap ? s->rows_cap * 2 : 8;
     size_t per = (size_t)s->ncols * 2;
+    if (!s->cells && per && per <= SET_INLINE_CELLS) {
+        s->cells = s->cells_inline;
+        s->rows_cap = SET_INLINE_CELLS / per;
+        return 1;
+    }
+    uint64_t cap = s->rows_cap ? s->rows_cap * 2 : 8;
     if (per && cap > (SIZE_MAX / sizeof(uint32_t)) / per) return 0;
-    uint32_t *cells = (uint32_t *)realloc(s->cells, (size_t)cap * (per ? per : 1) * sizeof(uint32_t));
+    size_t bytes = (size_t)cap * (per ? per : 1) * sizeof(uint32_t);
+    uint32_t *cells;
+    if (s->cells == s->cells_inline) {
+        cells = (uint32_t *)malloc(bytes);
+        if (cells) memcpy(cells, s->cells_inline, (size_t)s->nrows * per * sizeof(uint32_t));
+    } else {
+        cells = (uint32_t *)realloc(s->cells, bytes);
+    }
     if (!cells) return 0;
     s->cells = cells;
     s->rows_cap = cap;
     return 1;
+}
+
+/* Append row bytes to the set's data, starting in the inline buffer. */
+static int set_data_put(MySet *s, const uint8_t *p, size_t n) {
+    if (!s->data.p && n <= SET_INLINE_DATA) {
+        s->data.p = s->data_inline;
+        s->data.cap = SET_INLINE_DATA;
+    }
+    if (s->data.p == s->data_inline && s->data.len + n > SET_INLINE_DATA) {
+        size_t cap = SET_INLINE_DATA * 4;
+        while (cap < s->data.len + n) cap *= 2;
+        uint8_t *heap = (uint8_t *)malloc(cap);
+        if (!heap) return 0;
+        memcpy(heap, s->data_inline, s->data.len);
+        s->data.p = heap;
+        s->data.cap = cap;
+    }
+    return buf_put(&s->data, p, n);
 }
 
 /* Length of a binary-protocol value of this type at p (n bytes left), or
@@ -1659,7 +1809,7 @@ static int store_row(MySet *s, const uint8_t *p, size_t n, int binary) {
     if (!set_grow_rows(s)) return IRON_ERR_MYSQL_NO_MEMORY;
     if (s->data.len > (size_t)UINT32_MAX - n) return IRON_ERR_MYSQL_RESULT_TOO_LARGE;
     size_t base = s->data.len;
-    if (!buf_put(&s->data, p, n)) return IRON_ERR_MYSQL_NO_MEMORY;
+    if (!set_data_put(s, p, n)) return IRON_ERR_MYSQL_NO_MEMORY;
     uint32_t *cell = s->cells + (size_t)s->nrows * s->ncols * 2;
     if (!binary) {
         Rd r = { p, n, 0, 0 };
@@ -1704,7 +1854,8 @@ static int store_row(MySet *s, const uint8_t *p, size_t n, int binary) {
 
 /* Read every result of a command into `res` (rows are skipped when
  * res->discard). Stops after an ERR packet, which ends the command. */
-static int read_results(MyConn *c, MyResult *res, int binary, int discard) {
+static int read_results(MyConn *c, MyResult *res, int binary, int discard,
+                        MyMeta **cache) {
     MyErr *e = &res->err;
     for (;;) {
         const uint8_t *p;
@@ -1713,7 +1864,7 @@ static int read_results(MyConn *c, MyResult *res, int binary, int discard) {
         if (rc) return rc;
         if (n == 0) return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
         if (p[0] == 0x00) {
-            MySet *s = discard && res->nsets ? &res->sets[0] : result_add_set(res);
+            MySet *s = discard && res->nsets ? res_set(res, 0) : result_add_set(res);
             if (!s) return conn_fail(c, e, IRON_ERR_MYSQL_NO_MEMORY);
             if (!parse_ok(c, p, n, s)) return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
         } else if (p[0] == 0xff) {
@@ -1738,11 +1889,12 @@ static int read_results(MyConn *c, MyResult *res, int binary, int discard) {
             uint64_t ncols = rd_lenenc(&r, NULL);
             if (r.bad || ncols == 0 || ncols > 4096) return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
             MySet scratch;
-            memset(&scratch, 0, sizeof(scratch));
+            set_init(&scratch);
             MySet *s = discard ? &scratch : result_add_set(res);
             if (!s) return conn_fail(c, e, IRON_ERR_MYSQL_NO_MEMORY);
             s->binary = binary;
-            rc = read_columns(c, s, (uint32_t)ncols, 1, e);
+            rc = read_columns(c, discard ? NULL : s, (uint32_t)ncols, discard ? NULL : cache, e);
+            cache = NULL;               /* only the first set is cached */
             if (rc) { if (discard) set_free(&scratch); return rc; }
             for (;;) {
                 rc = conn_read_packet(c, &p, &n, e);
@@ -1810,7 +1962,7 @@ static int send_query(MyConn *c, const char *sql, size_t len, MyErr *e) {
 static MyResult *do_query(MyConn *c, const char *sql, size_t len) {
     MyResult *res = result_new();
     if (!res) return NULL;
-    if (send_query(c, sql, len, &res->err) == 0) read_results(c, res, 0, 0);
+    if (send_query(c, sql, len, &res->err) == 0) read_results(c, res, 0, 0, NULL);
     if (res->nsets == 0) result_add_set(res);
     return res;
 }
@@ -1818,11 +1970,11 @@ static MyResult *do_query(MyConn *c, const char *sql, size_t len) {
 /* Run SQL and keep only the error. */
 static int run_simple(MyConn *c, const char *sql, size_t len, MyErr *e) {
     MyResult res;
-    memset(&res, 0, sizeof(res));
+    memset(&res, 0, offsetof(MyResult, err));
+    err_clear(&res.err);
     int rc = send_query(c, sql, len, &res.err);
-    if (!rc) read_results(c, &res, 0, 1);
-    for (uint32_t i = 0; i < res.nsets; i++) set_free(&res.sets[i]);
-    free(res.sets);
+    if (!rc) read_results(c, &res, 0, 1, NULL);
+    result_clear(&res);
     *e = res.err;
     return (int)res.err.code;
 }
@@ -1830,22 +1982,22 @@ static int run_simple(MyConn *c, const char *sql, size_t len, MyErr *e) {
 static int fetch_server_max_packet(MyConn *c, MyErr *e) {
     static const char sql[] = "SELECT @@max_allowed_packet";
     MyResult res;
-    memset(&res, 0, sizeof(res));
+    memset(&res, 0, offsetof(MyResult, err));
+    err_clear(&res.err);
     int rc = send_query(c, sql, sizeof(sql) - 1, &res.err);
-    if (!rc) read_results(c, &res, 0, 0);
+    if (!rc) read_results(c, &res, 0, 0, NULL);
     c->server_max_packet = 0;
-    if (!res.err.code && res.nsets && res.sets[0].nrows == 1 && res.sets[0].ncols == 1 &&
-        res.sets[0].cells[1] != CELL_NULL) {
+    if (!res.err.code && res.nsets && res.first.nrows == 1 && res.first.ncols == 1 &&
+        res.first.cells[1] != CELL_NULL) {
         char tmp[32];
-        uint32_t len = res.sets[0].cells[1];
+        uint32_t len = res.first.cells[1];
         if (len < sizeof(tmp)) {
-            memcpy(tmp, res.sets[0].data.p + res.sets[0].cells[0], len);
+            memcpy(tmp, res.first.data.p + res.first.cells[0], len);
             tmp[len] = '\0';
             c->server_max_packet = strtoll(tmp, NULL, 10);
         }
     }
-    for (uint32_t i = 0; i < res.nsets; i++) set_free(&res.sets[i]);
-    free(res.sets);
+    result_clear(&res);
     if (res.err.code) { *e = res.err; return (int)res.err.code; }
     return 0;
 }
@@ -1901,8 +2053,8 @@ static int prepare_stmt(MyConn *c, const char *sql, size_t len, MyPrep *out, MyE
     out->id = rd32(p + 1);
     out->ncols = rd16(p + 5);
     out->nparams = rd16(p + 7);
-    rc = read_columns(c, NULL, out->nparams, 0, e);
-    if (!rc) rc = read_columns(c, NULL, out->ncols, 0, e);
+    rc = read_columns(c, NULL, out->nparams, NULL, e);
+    if (!rc) rc = read_columns(c, NULL, out->ncols, NULL, e);
     if (rc) return rc;
     if (out->nparams) {
         out->types = (uint8_t *)calloc(out->nparams, 2);
@@ -1919,6 +2071,7 @@ static void queue_stmt_close(MyConn *c, uint32_t id) {
         if (p) { c->pend = p; c->pend_cap = cap; }
     }
     if (c->npend < c->pend_cap) c->pend[c->npend++] = id;
+    atomic_store_explicit(&c->pend_count, c->npend, memory_order_release);
     iron_mutex_unlock(&c->pend_lock);
 }
 
@@ -2068,7 +2221,7 @@ static int execute_stmt(MyConn *c, MyPrep *st, const Iron_MysqlValueList *params
     }
     rc = pkt_send(c, at, e);
     if (rc) return rc;
-    return read_results(c, res, 1, 0);
+    return read_results(c, res, 1, 0, &st->rmeta);
 }
 
 /* Statement cache: one LRU per connection, keyed by SQL text. */
@@ -2077,6 +2230,7 @@ static void cache_remove(MyConn *c, int i, int close_on_server) {
     free(c->cache[i].sql);
     prep_free(&c->cache[i].prep);
     c->cache[i] = c->cache[--c->ncache];
+    c->cache_mru = -1;
 }
 
 static void cache_clear(MyConn *c, int close_on_server) {
@@ -2084,11 +2238,20 @@ static void cache_clear(MyConn *c, int close_on_server) {
 }
 
 static MyPrep *cache_get(MyConn *c, const char *sql, size_t len, MyErr *e) {
+    /* The statement used last is the likeliest: compare it before hashing. */
+    if (c->cache_mru >= 0 && c->cache_mru < c->ncache) {
+        MyCacheEnt *ent = &c->cache[c->cache_mru];
+        if (ent->len == len && memcmp(ent->sql, sql, len) == 0) {
+            ent->used = ++c->cache_clock;
+            return &ent->prep;
+        }
+    }
     uint64_t h = hash_bytes(sql, len);
     for (int i = 0; i < c->ncache; i++) {
         MyCacheEnt *ent = &c->cache[i];
         if (ent->hash == h && ent->len == len && memcmp(ent->sql, sql, len) == 0) {
             ent->used = ++c->cache_clock;
+            c->cache_mru = i;
             return &ent->prep;
         }
     }
@@ -2121,6 +2284,7 @@ static MyPrep *cache_get(MyConn *c, const char *sql, size_t len, MyErr *e) {
     ent->hash = h;
     ent->used = ++c->cache_clock;
     ent->prep = prep;
+    c->cache_mru = c->ncache;
     c->ncache++;
     return &ent->prep;
 }
@@ -2152,8 +2316,7 @@ static MyResult *conn_exec(MyConn *c, const char *sql, size_t len,
             attempt == 0 && !c->broken) {
             int i = cache_index(c, st);
             if (i >= 0) cache_remove(c, i, res->err.code == 1615);
-            for (uint32_t k = 0; k < res->nsets; k++) set_free(&res->sets[k]);
-            res->nsets = 0;
+            result_clear(res);
             err_clear(&res->err);
             continue;
         }
@@ -2173,7 +2336,7 @@ typedef struct Cell {
 } Cell;
 
 static MySet *cur_set(MyResult *r) {
-    return (r && r->cur < r->nsets) ? &r->sets[r->cur] : NULL;
+    return (r && r->cur < r->nsets) ? res_set(r, r->cur) : NULL;
 }
 
 static int get_cell(MyResult *r, int64_t row, int64_t col, Cell *out) {
@@ -2872,6 +3035,9 @@ static MyConn *pool_take(MyPool *p, MyErr *e, int *reused) {
                            now - c->idle_since_ms >= (uint64_t)p->idle_timeout);
             p->in_use++;
             iron_mutex_unlock(&p->lock);
+            /* One non-blocking poll per hand-out: a connection the server
+             * closed while it sat idle (KILL, wait_timeout, a restart) is
+             * readable, and is replaced before the caller sees an error. */
             int ok = !expired && conn_alive(c);
             if (ok && p->health_check > 0 && now - c->idle_since_ms >= (uint64_t)p->health_check) {
                 MyErr pe;
@@ -3315,7 +3481,7 @@ Iron_MysqlColumn Iron_mysqlnative_res_column(int64_t h, int64_t index) {
         return out;
     }
     const MyCol *c = &s->cols[index];
-    const uint8_t *m = s->meta.p;
+    const uint8_t *m = set_strings(s);
     out.name = str_of(m + c->name, c->name_len);
     out.org_name = str_of(m + c->org_name, c->org_name_len);
     out.table = str_of(m + c->table, c->table_len);
@@ -3337,11 +3503,11 @@ int64_t Iron_mysqlnative_res_col(int64_t h, Iron_String name) {
     size_t nl = iron_string_byte_len(&name);
     for (uint32_t i = 0; i < s->ncols; i++) {
         const MyCol *c = &s->cols[i];
-        if (c->name_len == nl && memcmp(s->meta.p + c->name, n, nl) == 0) return i;
+        if (c->name_len == nl && memcmp(set_strings(s) + c->name, n, nl) == 0) return i;
     }
     for (uint32_t i = 0; i < s->ncols; i++) {
         const MyCol *c = &s->cols[i];
-        if (ascii_ieq((const char *)s->meta.p + c->name, c->name_len, n, nl)) return i;
+        if (ascii_ieq((const char *)set_strings(s) + c->name, c->name_len, n, nl)) return i;
     }
     return -1;
 }

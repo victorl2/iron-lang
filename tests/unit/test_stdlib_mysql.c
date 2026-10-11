@@ -428,9 +428,15 @@ static void serve_scenario(Fake *f, Iron_TcpSocket c) {
     int cl = column_def(col, "id", 8);
     if (f->scenario == SC_TRUNCATED_COLUMN) cl = 9;
     srv_send(c, s++, col, (size_t)cl);
-    if (f->scenario == SC_TRUNCATED_COLUMN || f->scenario == SC_BAD_SEQUENCE) { f->ok = 1; return; }
+    if (f->scenario == SC_BAD_SEQUENCE) { f->ok = 1; return; }
     cl = column_def(col, "name", 253);
     srv_send(c, s++, col, (size_t)cl);
+    if (f->scenario == SC_TRUNCATED_COLUMN) {
+        /* The client has every definition and must reject the first. */
+        n = srv_recv(c, &seq, buf, sizeof(buf));
+        f->ok = 1;
+        return;
+    }
     if (f->scenario == SC_LARGE_ROW) {
         /* One row: "1" and a 20 MB value, split into 0xFFFFFF chunks. */
         size_t big = 20u * 1024 * 1024;
