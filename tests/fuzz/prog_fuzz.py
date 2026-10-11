@@ -12,9 +12,20 @@ Areas:
     coll      lists, maps, sets and strings
     obj       objects, methods, copy and drop order, rc and weak rc, defer
     closure   lambdas capturing val and var, closures stored and called later
+    num       every integer width, Float and Float32: arithmetic, conversions,
+              shifts, compound assignments, float text; widths mixed (errors)
+    generic   generic objects, enums and functions, constraints, Map and Set
+              with generic keys, instances of instances, rc type arguments
+    ptr       checked pointers, `*var`, `?*T`, heap with defer free, Box and
+              unchecked pointers; stale reads (panics) and rejected forms
+    comptime  functions evaluated with comptime and called at run time; the
+              constructs comptime leaves out (E0231)
+
+A program may expect a compile error (one of a set of codes) or a panic
+after its output instead of a clean run.
 
     prog_fuzz.py AREA IRONC OUTDIR SEED [COUNT] [--valgrind] [--asan RTDIR]
-    prog_fuzz.py --suite IRONC OUTDIR          (the fixed seeds ctest runs)
+    prog_fuzz.py --suite IRONC OUTDIR [AREA...]  (the fixed seeds ctest runs)
     prog_fuzz.py --gen AREA SEED               (print one program and its output)
     prog_fuzz.py AREA IRONC OUTDIR SEED --reduce
         shrink a failing program by deleting and hoisting statements while
@@ -41,7 +52,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from pf_lang import Bail  # noqa: E402
 
-AREAS = ('stmt', 'coll', 'obj', 'closure')
+AREAS = ('stmt', 'coll', 'obj', 'closure', 'num', 'generic', 'ptr', 'comptime')
 
 
 def generator(area):
@@ -71,7 +82,7 @@ def make_program(area, seed):
 
 SAN = ['-g', '-O1', '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
        '-fno-sanitize-recover=undefined', '-std=gnu17', '-fwrapv',
-       '-fno-strict-aliasing', '-Wno-integer-overflow', '-w']
+       '-fno-strict-aliasing', '-ffp-contract=off', '-Wno-integer-overflow', '-w']
 
 
 def build_asan_rt(rtdir):
@@ -127,8 +138,14 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
     exe = os.path.join(d, f'{name}.bin')
     with open(src, 'w', encoding='utf-8') as f:
         f.write(src_text)
+    errors = getattr(expected, 'errors', None)
+    panic = getattr(expected, 'panic', None)
     with open(os.path.join(d, 'expected.txt'), 'w', encoding='utf-8') as f:
         f.write('\n'.join(expected) + ('\n' if expected else ''))
+        if errors:
+            f.write('-- compile error: ' + ' or '.join(sorted(errors)) + '\n')
+        if panic:
+            f.write('-- then panics: ' + panic + '\n')
     if os.path.exists(exe):
         os.remove(exe)
     if mode == 'asan':
@@ -136,17 +153,29 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
     else:
         b = subprocess.run([ironc, 'build', src, '-o', exe], capture_output=True, text=True,
                            encoding='utf-8', errors='replace')
+    out = b.stdout + b.stderr
+    if errors:
+        codes = set(re.findall(r'error\[(E\d{4})\]', out))
+        if b.returncode != 0 and codes & errors:
+            return 'ok', '', ('ok',)
+        if b.returncode == 0:
+            return ('wrong', 'built, but ' + ' or '.join(sorted(errors)) + ' was expected',
+                    ('wrong', 'built'))
+        first = next((l for l in out.splitlines() if 'error' in l), '')
+        return ('compile', ' or '.join(sorted(errors)) + ' expected, got:\n' + out[:4000],
+                ('compile', norm(first)))
     if b.returncode != 0:
-        out = b.stdout + b.stderr
         first = next((l for l in out.splitlines() if 'error' in l), '')
         return 'compile', out[:4000], ('compile', norm(first))
     cmd = [exe]
     env = dict(os.environ)
     if mode == 'valgrind':
-        cmd = ['valgrind', '--quiet', '--leak-check=full',
+        # a program that panics exits with its values still allocated
+        cmd = ['valgrind', '--quiet', '--leak-check=no' if panic else '--leak-check=full',
                '--errors-for-leak-kinds=definite,indirect', '--error-exitcode=99', exe]
     if mode == 'asan':
-        env['ASAN_OPTIONS'] = 'detect_leaks=1:abort_on_error=0:exitcode=99'
+        env['ASAN_OPTIONS'] = ('detect_leaks=%d:abort_on_error=0:exitcode=99:'
+                               'detect_stack_use_after_return=1' % (0 if panic else 1))
         env['UBSAN_OPTIONS'] = 'print_stacktrace=1:halt_on_error=1'
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env,
@@ -155,6 +184,8 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
     except subprocess.TimeoutExpired:
         return 'timeout', '', ('timeout', '')
     got = r.stdout.splitlines()
+    with open(os.path.join(d, 'got.txt'), 'w', encoding='utf-8') as f:
+        f.write(r.stdout + ('\n-- stderr:\n' + r.stderr[:4000] if r.stderr else ''))
     err1 = next((l for l in r.stderr.splitlines()
                  if l.strip() and not l.startswith('==')), '')
     if 'Sanitizer' in r.stderr or 'definitely lost' in r.stderr:
@@ -168,6 +199,13 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
                         f'{r.stderr[:1500]}', sig)
         return 'wrong', (f'{len(expected)} lines expected, {len(got)} produced '
                          f'(rc={r.returncode})\n{r.stderr[:1500]}'), sig
+    if panic:
+        if r.returncode == 99 or 'Sanitizer' in r.stderr:
+            return 'memory', f'rc={r.returncode}\n{r.stderr[:3000]}', sig
+        if r.returncode == 0 or panic not in r.stderr:
+            return ('wrong', f'expected a panic ({panic}), got rc={r.returncode}\n'
+                    f'{r.stderr[:1500]}', ('nopanic',) + sig)
+        return 'ok', '', ('ok',)
     if r.returncode != 0:
         return ('memory' if r.returncode == 99 else 'crash',
                 f'rc={r.returncode}\n{r.stderr[:3000]}', sig)
@@ -352,10 +390,11 @@ def run(ironc, outdir, area, seeds, mode='plain', rtlib=None, quiet=False, jobs=
             d = os.path.join(outdir, 'fail')
             os.makedirs(d, exist_ok=True)
             k = f'{area}_{seed}'
-            for fn in (f'{k}.iron', 'expected.txt'):
+            for fn, out in ((f'{k}.iron', f'{k}.iron'), ('expected.txt', f'{k}.expected'),
+                            ('got.txt', f'{k}.got')):
                 p = os.path.join(outdir, k, fn)
                 if os.path.exists(p):
-                    shutil.copy(p, os.path.join(d, fn if fn.endswith('.iron') else f'{k}.expected'))
+                    shutil.copy(p, os.path.join(d, out))
             print(f'{area} seed {seed}: {st.upper()} {os.path.join(d, k + ".iron")}\n'
                   + '\n'.join('    ' + l for l in msg.splitlines()[:30]), flush=True)
         elif not quiet:
@@ -365,7 +404,8 @@ def run(ironc, outdir, area, seeds, mode='plain', rtlib=None, quiet=False, jobs=
 
 # The fixed seeds ctest runs (prog_fuzz): each area's programs found bugs
 # when they were added, so they guard the fixes.
-SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure': range(1, 9)}
+SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure': range(1, 9),
+         'num': range(1, 9), 'generic': range(1, 9), 'ptr': range(1, 9), 'comptime': range(1, 9)}
 
 
 def main(argv):
@@ -377,10 +417,11 @@ def main(argv):
         return 0
     if argv[0] == '--suite':
         ironc, outdir = os.path.abspath(argv[1]), argv[2]
+        only = argv[3:]
         jobs = min(4, os.cpu_count() or 1)
         bad = 0
         for area, seeds in SUITE.items():
-            if area not in available():
+            if area not in available() or (only and area not in only):
                 continue
             n = run(ironc, outdir, area, seeds, quiet=True, jobs=jobs)
             print(f'{area}: {len(seeds) - n}/{len(seeds)} ok')

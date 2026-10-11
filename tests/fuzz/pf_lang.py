@@ -951,3 +951,23 @@ class FuncDef:
 
 def copy_param(v, p):
     return v
+
+
+class Expected(list):
+    """A program's expected output lines, plus what else it must do:
+    `errors`, a set of diagnostic codes one of which the compiler must
+    report (the program does not build), or `panic`, text the run must
+    print to stderr when it aborts after the lines."""
+
+    def __init__(self, lines=(), errors=None, panic=None):
+        super().__init__(lines)
+        self.errors = set(errors) if errors else None
+        self.panic = panic
+
+
+class PanicX(Exception):
+    """The modelled program aborts here (a panic the manual defines)."""
+
+    def __init__(self, msg):
+        super().__init__(msg)
+        self.msg = msg
