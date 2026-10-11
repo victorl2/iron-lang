@@ -3966,8 +3966,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             : iron_lir_is_not_null(ctx->current_func, ctx->current_block, val, span)->id;
         /* `w.upgrade() != null` tested a handle nothing owned afterwards:
          * the reference upgrade() handed over was never released, so the
-         * object leaked and its drop never ran. */
-        if (v && v->type && type_is_rc_like(v->type) && rc_expr_transfers_ownership(v)) {
+         * object leaked and its drop never ran. Likewise an owned value
+         * built just to be tested (`find(k) == null` with a String? or
+         * object result) was never dropped. */
+        if (v && v->type &&
+            (type_is_rc_like(v->type) ? rc_expr_transfers_ownership(v)
+                                      : !hir_expr_is_place(v))) {
             TempOwned *temps = NULL;
             note_owned_temp(ctx, &temps, v, val, span);
             release_owned_temps(ctx, &temps, span);
