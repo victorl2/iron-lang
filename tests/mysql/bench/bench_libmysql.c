@@ -8,6 +8,7 @@
  *
  *   cc -O2 bench_libmysql.c $(mysql_config --cflags --libs) -lpthread
  *   ./a.out host port user password database ops threads rows
+ *   (BENCH_TLS=1 in the environment: TLS, SSL_MODE_REQUIRED)
  */
 #include <mysql.h>
 #include <pthread.h>
@@ -28,7 +29,7 @@ static double now(void) {
 
 static MYSQL *connect_db(void) {
     MYSQL *m = mysql_init(NULL);
-    unsigned int ssl = SSL_MODE_DISABLED;
+    unsigned int ssl = getenv("BENCH_TLS") ? SSL_MODE_REQUIRED : SSL_MODE_DISABLED;
     mysql_options(m, MYSQL_OPT_SSL_MODE, &ssl);
     bool get_key = true;
     mysql_options(m, MYSQL_OPT_GET_SERVER_PUBLIC_KEY, &get_key);
