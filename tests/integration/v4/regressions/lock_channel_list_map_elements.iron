@@ -1,0 +1,63 @@
+-- Mutex, RWLock and Channel of a list, a Map or an object that owns one
+-- (#431). The element name of the glue was built in HIR to LIR for
+-- primitives and named types only, so these did not compile (undeclared
+-- Iron_Mutex_new). They follow the list ownership rules (manual 6.8, 9.10):
+-- set and send take a fresh value (a binding is E0328: copy() or take()),
+-- get hands out a copy the caller owns, recv moves the item out.
+object Store {
+    var m: Map[String, Int]
+    var n: Int
+    init(n: Int) {
+        self.m = Map[String, Int]()
+        self.n = n
+    }
+}
+
+func main() {
+    val ml = Mutex([1, 2])
+    for i in range(10) parallel {
+        val g = ml.lock()
+        var xs: [Int] = g.get()
+        xs.push(i)
+        g.set(xs.take())
+    }
+    {
+        val g = ml.lock()
+        val xs: [Int] = g.get()
+        println("list {xs.len()} {xs.sum()}")
+    }
+    val st = Mutex(Store(0))
+    for i in range(12) parallel {
+        val g = st.lock()
+        var c: Store = g.get()
+        c.m.put("k{i % 4}", c.m.get_or("k{i % 4}", 0) + i)
+        c.n += 1
+        g.set(c.copy())
+    }
+    {
+        val g = st.lock()
+        val c: Store = g.get()
+        println("store {c.n} {c.m.len()} {c.m.get("k1")}")
+    }
+    val rw = RWLock(Map[String, Int]())
+    for i in range(6) parallel {
+        val w = rw.write()
+        var m: Map[String, Int] = w.get()
+        m.put("a{i}", i)
+        w.set(m.take())
+    }
+    {
+        val r = rw.read()
+        val m: Map[String, Int] = r.get()
+        println("map {m.len()} {m.get("a5")}")
+    }
+    val ch = Channel[[String]](2)
+    var words = ["one", "two"]
+    ch.send(words.copy())
+    words.push("three")
+    ch.send(words.take())
+    val a: [String] = ch.recv()
+    val b: [String] = ch.recv()
+    println("channel {a.len()} {b.len()} {words.len()}")
+    ch.send(["left", "queued"])
+}

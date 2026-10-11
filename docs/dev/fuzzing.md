@@ -229,3 +229,36 @@ Node).
    original artifact, and run the full suite, including the ASan/UBSan build.
 5. Fuzz the affected targets again with new seeds before merging; fixes have
    uncovered the next bug behind them more than once.
+
+## Program fuzzers
+
+`tests/fuzz/prog_fuzz.py` generates whole Iron programs, computes their
+expected output with a Python model written from the manual, compiles them
+with `ironc` and compares (its docstring lists the areas and options). The
+statement-model areas (`stmt`, `coll`, `obj`, `closure`, `conc`, `arena`,
+`num`, `generic`, `ptr`, `comptime`) share `pf_lang.py`; the areas built on
+`pf_seg.py` assemble a program from independent segments whose output is
+computed while generating: `sync` (locks, channels and tasks with owning
+elements, panics in tasks), `arenax` (arenas with interfaces, generics,
+closures and threads), `jsonp`, `crypto` and `http` (the standard library
+modules, a server and its clients in one program).
+
+```sh
+python3 tests/fuzz/prog_fuzz.py sync build/ironc /tmp/pf 1 500 -j8 --runs 2
+python3 tests/fuzz/prog_fuzz.py jsonp build/ironc /tmp/pf 1 200 -j4 --valgrind
+python3 tests/fuzz/prog_fuzz.py sync build/ironc /tmp/pf 1 200 -j4 --tsan /tmp/rt_tsan
+python3 tests/fuzz/prog_fuzz.py conc build/ironc /tmp/pf 1 50 -j2 --helgrind /tmp/rt_vg
+python3 tests/fuzz/prog_fuzz.py http build/ironc /tmp/pf 7 --reduce
+```
+
+`--asan RTDIR` and `--tsan RTDIR` build a sanitizer runtime into RTDIR
+(OpenSSL included where its headers are installed). `--helgrind RTDIR` and
+`--drd RTDIR` build programs and runtime at `-O0` with the runtime's
+happens-before annotations (`IRON_VALGRIND_ANNOTATE`) and run with
+`tests/fuzz/valgrind_threads.supp`: neither tool models C11 atomics, and
+without these every report is a refcount, a string literal's one-time
+initialization or glibc's thread stack cache. A failing program is kept
+under `OUTDIR/fail/`; `--reduce` shrinks it (segment programs lose whole
+segments). The `crypto` area cross-checks AEAD ciphertexts with Python's
+`cryptography` package when it is installed (`pip install --target DIR
+cryptography` and `PYTHONPATH=DIR` work in the iron-dev container).

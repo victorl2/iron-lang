@@ -1,0 +1,49 @@
+-- A heap or arena value converted to an interface (a parameter, a binding,
+-- a list element, a list literal): the wrap sites passed the fat pointer
+-- to <Iface>_from_<Impl> instead of the object (C compile error). A heap
+-- value is used like a stack value (manual 6.2), so the object is copied
+-- out of its allocation. Found by the arenax program fuzzer (#480).
+interface Shape {
+    readonly func area() -> Int
+    readonly func label() -> String
+}
+
+object Sq impl Shape {
+    val s: Int
+    readonly func area() -> Int {
+        return self.s * self.s
+    }
+    readonly func label() -> String {
+        return "square"
+    }
+}
+
+object Named impl Shape {
+    val name: String
+    readonly func area() -> Int {
+        return self.name.len()
+    }
+    readonly func label() -> String {
+        return self.name
+    }
+}
+
+func area_of(s: Shape) -> Int {
+    return s.area()
+}
+
+func main() {
+    val a = Arena(4096)
+    val p = heap(in: a) Sq(3)
+    val v: Shape = p
+    println("{v.area()} {area_of(p)}")
+    val n = heap Named("a name long enough to live on the heap, not inline")
+    defer free n
+    var shapes: [Shape] = [p, n]
+    shapes.push(n)
+    var total = 0
+    for s in shapes {
+        total += s.area()
+    }
+    println("{total} {shapes[2].label().len()} {n.name.len()}")
+}
