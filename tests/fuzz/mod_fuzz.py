@@ -160,7 +160,10 @@ def check_pkg(iron, d, seed, mode):
         f.write('\n'.join(exp) + '\n')
         if pk.errors:
             f.write(f'-- compile error: {" or ".join(sorted(pk.errors))} ({pk.negative})\n')
-    b = run([iron, 'build'], root, env, 'iron build')
+    # a build profile picked per seed; every one must print the same
+    prof = random.Random(f'profile-{seed}').choice(
+        ([], [], ['--release'], ['--no-optimize'], ['--debug'], ['--release', '--no-optimize']))
+    b = run([iron, 'build'] + prof, root, env, 'iron build ' + ' '.join(prof))
     c = run([iron, 'check'], root, env, 'iron check')
     if pk.errors:
         check_build_failed(b, pk.errors, 'iron build')
