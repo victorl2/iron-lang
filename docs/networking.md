@@ -521,8 +521,12 @@ convert between text and the typed addresses the socket calls take.
 ## Concurrency
 
 A standalone `spawn` statement is detached: the handler runs to completion
-on its own. Bind it when the parent must await completion or collect a
-result:
+on its own, as a task on the runtime's worker pool (one thread per CPU core
+but one). A handler that keeps a connection open holds its worker for as
+long as the client does, so serve keep-alive clients through `Http.poller`
+(next section) rather than a handler loop per connection. Bind a spawn when
+the parent must await completion or collect a result; a bound spawn runs on
+a thread of its own:
 
 ```iron
 val url1 = "http://127.0.0.1:8080/api/status"
@@ -535,7 +539,64 @@ println("{a.status} {b.status}")
 ```
 
 Every accepted connection has an owner and must be closed on every handler
-path. A slow connection occupies its handler until its deadline expires, so
+path.
+
+### Many keep-alive clients: `Http.poller`
+
+`Http.poller(server, idle_timeout)` keeps idle connections away from the
+workers. It accepts from the listener itself (non-blocking sockets with
+`TCP_NODELAY`) and watches new and parked connections with epoll, kqueue
+or poll; `next(timeout)` returns a connection only once a request has
+started to arrive on it. The worker reads and answers that one request,
+then gives the connection back with `park` (keep-alive) or `discard`
+(close). Connections waiting for their first request or parked between
+requests are closed after `idle_timeout` milliseconds.
+
+```iron
+func serve_one(poller: HttpPoller, connection: HttpConnection) -> Int {
+    val request = HttpConnection.read_request(connection, 16384, 1048576, 5000)
+    if request.error != 0 {
+        poller.discard(connection)
+        return 0
+    }
+    val sent = HttpConnection.send_response_keep_alive(
+        connection, Http.json_response(200, "\{\"ok\":true}"), request.keep_alive, 5000)
+    if sent == 0 and request.keep_alive {
+        poller.park(connection)
+    } else {
+        poller.discard(connection)
+    }
+    return 0
+}
+
+func main() {
+    val listening = Http.listen("127.0.0.1", 8080)
+    if listening.error != 0 {
+        return
+    }
+    val poller = Http.poller(listening.server, 30000)
+    var served = 0
+    while served < 1000 {
+        val ready = poller.next(1000)
+        if ready.error == 0 {
+            val connection = ready.connection
+            spawn("request") {
+                return serve_one(poller, connection)
+            }
+            served += 1
+        }
+    }
+    poller.close()
+    HttpServer.close(listening.server)
+}
+```
+
+`next` returns error 1004 when its timeout passes and 1013 once the poller
+is closed. `close` closes every connection the poller holds and wakes
+`next`; a connection handed out by `next` stays its worker's, and parking
+it after `close` closes it. The poller does not own the listener.
+`parked()`, `waiting()`, `accepted()` and `expired()` report its counts.
+[apps/inventory](../apps/inventory/) is a complete service built this way. A slow connection occupies its handler until its deadline expires, so
 give every public endpoint bounded header and body sizes and finite
 timeouts. One task may receive from a WebSocket while several tasks send
 (complete frames are serialized); there must be only one receiver.
@@ -553,6 +614,7 @@ timeouts. One task may receive from a WebSocket while several tasks send
 | `Http.listen(host, port)`, `Http.listen_tls(host, port, chain, key)` | HTTP and HTTPS servers. |
 | `HttpServer.accept(server, timeout)` | Accept one connection. |
 | `HttpsServer.accept_tcp(server, timeout)`, `HttpsPendingConnection.handshake(pending, timeout)` | TCP admission separated from the TLS handshake. |
+| `Http.poller(server, idle_timeout)`, `poller.next(timeout)`, `poller.park(c)`, `poller.discard(c)` | Readiness-driven serving of many keep-alive connections. |
 | `HttpConnection.read_request(connection, max_header_bytes, max_body_bytes, timeout)` | Parse one bounded HTTP/1.1 request. |
 | `HttpConnection.send_response(connection, response, timeout)` | Send a complete response. |
 | `Http.json_response`, `Http.html_response`, `Http.text_response`, `Http.file_response`, `Http.response` | Response constructors. |

@@ -2157,12 +2157,18 @@ func main() {
 
 ### 7.1 `spawn` and `await`
 
-`spawn("name") { body }` runs the body on a new operating system thread and
-evaluates to a handle. The body is a block that must `return` a value, and
+`spawn("name") { body }` runs the body concurrently and evaluates to a
+handle. The body is a block that must `return` a value, and
 `await handle` blocks until the thread finishes and yields that value. A
 handle can be awaited once (`E0325`). A spawn expression may only appear as
 the initializer of a `val` or `var`, or as a statement (its result is then
-discarded and the thread is never awaited). The body may read `val` bindings of the enclosing
+discarded and the task is never awaited). A bound spawn (`val h = spawn`)
+runs on a new operating system thread. A spawn statement is a task for the
+runtime's worker pool, a fixed set of one thread per CPU core but one: a
+task that blocks (on a socket, a sleep or a database call) holds a worker
+until it returns, and tasks beyond the pool's size wait their turn. Run
+long-lived loops as bound spawns, and see `Http.poller` (networking guide)
+for servers that keep many idle connections. The body may read `val` bindings of the enclosing
 function and use `Mutex`, `Channel` and `rc` values; a list captured by a
 spawn must be awaited in the same block (`E0328`). Writing a captured
 `var` from a thread is a data race and warns (`W0604`). A thread keeps what
