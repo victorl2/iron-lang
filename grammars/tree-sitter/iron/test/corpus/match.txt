@@ -175,3 +175,96 @@ func f(n: Int) {
           body: (call_expression
             function: (identifier)
             (string_literal)))))))
+
+==========
+statement match arm bodies and assignments in defer
+==========
+
+func f(x: Int) {
+    var n = 0
+    val p = heap 1
+    defer n = 2
+    defer n += 1
+    match x {
+        1 -> defer println("one")
+        2 -> free p
+        3 -> leak p
+        4 -> while false { }
+        5 -> match n {
+            0 -> println("zero")
+            else -> println("other")
+        }
+        else -> println("else")
+    }
+}
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    body: (block
+      (var_declaration
+        binding: (identifier)
+        value: (integer_literal))
+      (val_declaration
+        binding: (identifier)
+        value: (heap_expression
+          (integer_literal)))
+      (defer_statement
+        (assignment_statement
+          target: (identifier)
+          value: (integer_literal)))
+      (defer_statement
+        (assignment_statement
+          target: (identifier)
+          value: (integer_literal)))
+      (match_statement
+        subject: (identifier)
+        (match_arm
+          pattern: (literal_pattern
+            (integer_literal))
+          body: (defer_statement
+            (call_expression
+              function: (identifier)
+              (string_literal))))
+        (match_arm
+          pattern: (literal_pattern
+            (integer_literal))
+          body: (free_statement
+            (identifier)))
+        (match_arm
+          pattern: (literal_pattern
+            (integer_literal))
+          body: (leak_statement
+            (identifier)))
+        (match_arm
+          pattern: (literal_pattern
+            (integer_literal))
+          body: (while_statement
+            condition: (boolean_literal)
+            body: (block)))
+        (match_arm
+          pattern: (literal_pattern
+            (integer_literal))
+          body: (match_statement
+            subject: (identifier)
+            (match_arm
+              pattern: (literal_pattern
+                (integer_literal))
+              body: (call_expression
+                function: (identifier)
+                (string_literal)))
+            (match_else_arm
+              body: (call_expression
+                function: (identifier)
+                (string_literal)))))
+        (match_else_arm
+          body: (call_expression
+            function: (identifier)
+            (string_literal)))))))

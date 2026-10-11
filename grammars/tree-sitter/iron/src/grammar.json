@@ -2466,6 +2466,26 @@
         },
         {
           "type": "SYMBOL",
+          "name": "defer_statement"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "free_statement"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "leak_statement"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "while_statement"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "match_statement"
+        },
+        {
+          "type": "SYMBOL",
           "name": "_expression"
         }
       ]
@@ -2524,6 +2544,14 @@
             {
               "type": "SYMBOL",
               "name": "free_statement"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "leak_statement"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "assignment_statement"
             },
             {
               "type": "SYMBOL",

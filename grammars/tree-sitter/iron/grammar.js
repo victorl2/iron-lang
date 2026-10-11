@@ -458,7 +458,8 @@ module.exports = grammar({
       field('body', $._match_arm_body),
     ),
     // A single statement after `->`, as the parser takes it: also a val or
-    // var declaration (`1 -> val q: Res[Pt, String] = Res.Ok(p)`).
+    // var declaration (`1 -> val q: Res[Pt, String] = Res.Ok(p)`), a
+    // defer, free or leak, a loop or a nested match.
     _match_arm_body: $ => choice(
       $.block,
       $.val_declaration,
@@ -467,6 +468,11 @@ module.exports = grammar({
       $.break_statement,
       $.continue_statement,
       $.assignment_statement,
+      $.defer_statement,
+      $.free_statement,
+      $.leak_statement,
+      $.while_statement,
+      $.match_statement,
       $._expression,
     ),
 
@@ -485,6 +491,8 @@ module.exports = grammar({
     defer_statement: $ => seq('defer', choice(
       $.block,
       $.free_statement,
+      $.leak_statement,
+      $.assignment_statement,
       $._expression,
     )),
 
