@@ -1,0 +1,12 @@
+-- #581: a string expression passed to a String? parameter: the
+-- temporary was released as the optional that wraps it (C did not compile).
+func show(a: String?, b: String) {
+    println("{a} {b}")
+}
+
+func main() {
+    val x = "q"
+    show(x + "b", "c")
+    show(x.upper(), x + x)
+    show(null, "n")
+}

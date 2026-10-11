@@ -1,0 +1,21 @@
+-- #580: lists of Int8, Int16, UInt16, UInt32 and UInt64 compiled to C
+-- that named a list type nobody declared.
+object Holder {
+    val xs: [Int16]
+}
+
+func main() {
+    val h = Holder([Int16(-3), Int16(4)])
+    var a: [UInt16] = [UInt16(5), UInt16(2)]
+    a.push(UInt16(9))
+    a.sort()
+    var b: [UInt64] = [UInt64(7)]
+    b.push(UInt64(1))
+    val c: [Int8] = [Int8(-1), Int8(2)]
+    var d: [UInt32] = [UInt32(4)]
+    val e = a.map(func(x: UInt16) -> UInt16 { return x * UInt16(2) })
+    println("{h.xs[0]} {h.xs.len()} {a[0]} {a.contains(UInt16(9))} {b[1]} {c[0]} {d.pop()} {e[2]}")
+    for x in c {
+        println("{x}")
+    }
+}

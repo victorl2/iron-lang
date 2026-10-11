@@ -471,6 +471,7 @@ class Gen:
             ps = [self.scalar_type() for _ in range(self.r.randint(0, 2))] if payload else []
             variants.append(("Va%d" % i, ps))
         t = T("enum", name=name)
+        t.variants = variants
         self.enums.append((t, variants))
         lines = ["enum %s {" % name]
         for v, ps in variants:
@@ -994,7 +995,7 @@ _ENUMS = {}
 
 
 def self_enum_variants(v):
-    return _ENUMS[v.t.name]
+    return v.t.variants
 
 
 # ── Whole programs ───────────────────────────────────────────────────────────
@@ -1301,8 +1302,6 @@ class ValueProgram(Gen):
 def value_program(rng, nexprs=0):
     g = ValueProgram(rng, nexprs)
     g.generate()
-    for et, vs in g.enums:
-        _ENUMS[et.name] = vs
     g.run_model()
     # An expression that fails at some hit cannot be printed (the program
     # would panic): evaluate checks its error instead.

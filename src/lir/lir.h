@@ -712,6 +712,11 @@ struct IronLIR_Func {
      * their names on the alloca / IronLIR_Param. `ironc build --debug`
      * names the C locals after them so a debugger shows Iron names. */
     struct { IronLIR_ValueId key; const char *value; } *value_names;
+    /* The Iron function's closing `}` (0 when unknown), from IronHIR_Func:
+     * --debug puts the C function's closing brace, where clang places the
+     * shared return, on it. */
+    const char        *end_file;
+    uint32_t           end_line;
 };
 
 /* ── Module-level global binding (2026-07 remediation) ────────────────────

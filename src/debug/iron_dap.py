@@ -126,7 +126,48 @@ def iron_name(c_name):
     return c_name, False
 
 
-def iron_function_name(c_name, test=None):
+_METHODS = {}
+
+
+def source_methods(path):
+    """{lowercased type name: (type name, {method names})} declared in the
+    Iron file `path` (objects, enums, patch blocks, receiver-form methods),
+    to name a method's frame Counter.add rather than counter_add."""
+    if path in _METHODS:
+        return _METHODS[path]
+    out = {}
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except (OSError, TypeError, ValueError):
+        _METHODS[path] = out
+        return out
+    current, depth = None, 0
+    for line in text.splitlines():
+        code = line.split("//")[0]
+        if current is None:
+            m = re.match(r"^\s*(?:pub\s+)?(?:patch\s+)?(?:object|enum|interface)\s+([A-Z]\w*)", code)
+            if m and "{" in code:
+                current, depth = m.group(1), 0
+                out.setdefault(current.lower(), (current, set()))
+            m2 = re.match(r"^\s*(?:pub\s+)?(?:\w+\s+)*func\s+([A-Z]\w*)\.(\w+)\s*\(", code)
+            if m2:
+                out.setdefault(m2.group(1).lower(), (m2.group(1), set()))[1].add(m2.group(2))
+        if current is not None:
+            if depth == 1:
+                m = re.match(r"^\s*(?:\w+\s+)*func\s+(\w+)\s*\(", code)
+                if m:
+                    out[current.lower()][1].add(m.group(1))
+                if re.match(r"^\s*(?:\w+\s+)*init\s*\(", code):
+                    out[current.lower()][1].add("init")
+            depth += code.count("{") - code.count("}")
+            if depth <= 0 and "}" in code:
+                current = None
+    _METHODS[path] = out
+    return out
+
+
+def iron_function_name(c_name, test=None, source=None):
     """The Iron name of a frame's C function. A `test "..."` block compiles
     to Iron_iron__test_<n>: it is shown as test "<name>" when the session
     debugs that one test (`test`), else as test."""
@@ -135,10 +176,26 @@ def iron_function_name(c_name, test=None):
         return ('test "%s"' % test if test else "test") + m.group(1)
     m = re.match(r"^Iron_(\w+)(.*)$", c_name)
     if m:
-        return m.group(1) + m.group(2)
+        base, rest = m.group(1), m.group(2)
+        # A method is Iron_<type, lowercased>_<method>: Counter.add
+        mm = re.match(r"^([a-z0-9]+)_(\w+)$", base)
+        types = source_methods(source) if source else {}
+        if mm and mm.group(1) in types and mm.group(2) in types[mm.group(1)][1]:
+            return "%s.%s%s" % (types[mm.group(1)][0], mm.group(2), rest)
+        # A generic instance: gid__Int is gid[Int]
+        parts = base.split("__")
+        if len(parts) > 1 and all(p and p[0].isalpha() and p.isalnum() for p in parts):
+            return "%s[%s]%s" % (parts[0], ", ".join(parts[1:]), rest)
+        return base + rest
     m = re.match(r"^__lambda_\d+(.*)$", c_name)
     if m:
         return "func" + m.group(1)
+    m = re.match(r"^__spawn_\d+(.*)$", c_name)
+    if m:
+        return "spawn" + m.group(1)
+    m = re.match(r"^__pfor_\d+(.*)$", c_name)
+    if m:
+        return "parallel for" + m.group(1)
     return c_name
 
 
@@ -1338,8 +1395,8 @@ class Proxy:
                 self.respond(msg, {"exceptionId": "panic", "breakMode": "always",
                                    "description": text})
                 return
-        if cmd == "stepIn" and self.configured:
-            threading.Thread(target=self.step_in, args=(msg,), daemon=True).start()
+        if cmd in ("stepIn", "next", "stepOut") and self.configured:
+            threading.Thread(target=self.step, args=(msg, cmd), daemon=True).start()
             return
         if cmd == "variables":
             ref = (msg.get("arguments") or {}).get("variablesReference")
@@ -1546,9 +1603,10 @@ class Proxy:
                     body["totalFrames"] = max(len(frames), body["totalFrames"] - skip)
             for f in body.get("stackFrames", []):
                 name = f.get("name")
-                if isinstance(name, str):
-                    f["name"] = iron_function_name(name, self.test)
                 src = f.get("source") or {}
+                if isinstance(name, str):
+                    path = src.get("path") if is_iron_source(src.get("path")) else None
+                    f["name"] = iron_function_name(name, self.test, path)
                 if not is_iron_source(src.get("path") or src.get("name")):
                     f["presentationHint"] = "subtle"
                     if src:
@@ -1781,10 +1839,20 @@ class Proxy:
         return (frames[0] if frames else {}), len(frames)
 
     def step_in(self, req):
-        """Step into Iron code only: a step that lands outside a .iron file
-        (the runtime's C, a generated helper) steps back out, and a step
-        that comes back to the line it started on steps in again, so
-        `println(...)` goes to the next line and `square(4)` into square."""
+        self.step(req, "stepIn")
+
+    def frames_of(self, tid):
+        r = self.request("stackTrace", {"threadId": tid, "startFrame": 0, "levels": 50})
+        return (r.get("body") or {}).get("stackFrames", []) if r.get("success") else []
+
+    def step(self, req, kind):
+        """Step In, Over and Out stay in Iron code. Step In: a step that
+        lands outside a .iron file (the runtime's C, a generated helper)
+        steps back out, and a step that comes back to the line it started
+        on steps in again, so `println(...)` goes to the next line and
+        `square(4)` into square. Any step that leaves the program's Iron
+        code altogether (out of main, into the C main that calls it) lets
+        the program run on to its end instead of stopping in the C."""
         tid = (req.get("arguments") or {}).get("threadId")
         start, start_depth = self.top_frame(tid)
         start_at = ((start.get("source") or {}).get("path"), start.get("line"))
@@ -1792,7 +1860,7 @@ class Proxy:
         self.step_waiter = queue.Queue()
         last = None
         try:
-            command = "stepIn"
+            command = kind
             for _ in range(60):
                 self.request(command, {"threadId": tid}, timeout=30)
                 try:
@@ -1802,18 +1870,30 @@ class Proxy:
                     break
                 if last["body"].get("reason") not in ("step", None):
                     break          # a breakpoint, a panic: show it
-                top, depth = self.top_frame(tid)
+                frames = self.frames_of(tid)
+                top, depth = (frames[0] if frames else {}), len(frames)
                 src = top.get("source") or {}
                 if not is_iron_source(src.get("path") or src.get("name")):
+                    if not any(is_iron_source((f.get("source") or {}).get("path") or
+                                              (f.get("source") or {}).get("name"))
+                               for f in frames):
+                        # Out of the program's Iron code: run on.
+                        self.step_waiter = None
+                        self.request("continue", {"threadId": tid}, timeout=30)
+                        last = None
+                        break
                     # An Iron function's prologue is the generated C's until
                     # its first statement: go on to that line. Anything else
                     # (the runtime, whose builtins are Iron_ too, a generated
                     # helper) is stepped out of.
-                    iron_fn = str(top.get("name", "")).startswith("Iron_") and \
+                    iron_fn = str(top.get("name", "")).startswith(
+                        ("Iron_", "__lambda_", "__spawn_", "__pfor_")) and \
                         not is_runtime_source(src.get("path") or src.get("name"))
-                    command = "next" if iron_fn and depth > start_depth else "stepOut"
+                    command = "next" if kind == "stepIn" and iron_fn and depth > start_depth \
+                        else "stepOut"
                     continue
-                if (src.get("path"), top.get("line")) == start_at and depth == start_depth:
+                if kind == "stepIn" and (src.get("path"), top.get("line")) == start_at and \
+                        depth == start_depth:
                     command = "stepIn"
                     continue
                 break

@@ -347,7 +347,259 @@ def run_values(area, seed, ironc, iron, outdir, adapter):
     return problems, work
 
 
-AREAS = {"values": run_values, "eval": run_values}
+# ── step ─────────────────────────────────────────────────────────────────────
+
+def iron_frames(s, tid):
+    """[(name, line)] of the stack's frames in Iron source, innermost first."""
+    frames = s.call("stackTrace", {"threadId": tid, "levels": 60})["stackFrames"]
+    out = []
+    for f in frames:
+        src = f.get("source") or {}
+        if str(src.get("path") or src.get("name") or "").endswith(".iron"):
+            out.append((str(f.get("name", "")), f.get("line")))
+    return out, frames
+
+
+def step_candidates(events, pos, cmd):
+    """(indexes the stop may land on, caller line allowed instead) for a
+    step command from pos: an index into events, or ("mid", depth, next)
+    when stopped in the middle of a caller's line after a return."""
+    n = len(events)
+    if isinstance(pos, tuple):
+        _, depth, nxt = pos
+        start, cur_depth = nxt, depth
+    else:
+        start, cur_depth = pos + 1, events[pos][2]
+    cands = []
+    if cmd == "stepIn":
+        i = start
+        while i < n:
+            cands.append(i)
+            if not events[i][3]:
+                break
+            i += 1
+    elif cmd == "next":
+        i = start
+        while i < n:
+            if events[i][2] <= cur_depth:
+                cands.append(i)
+                if not events[i][3]:
+                    break
+            i += 1
+    else:   # stepOut
+        i = start
+        while i < n:
+            if events[i][2] < cur_depth:
+                cands.append(i)
+                if not events[i][3]:
+                    break
+            i += 1
+    return cands, cur_depth
+
+
+def call_sites(events, pos, lo, hi):
+    """{(line, function): depth} of the callers' lines at depths lo..hi
+    before pos: a return lands in the middle of one of them (the call's
+    line still has work: the result's store, a temporary's release)."""
+    out = {}
+    i = pos if not isinstance(pos, tuple) else pos[2] - 1
+    want = set(range(lo, hi + 1))
+    while i >= 0 and want:
+        d = events[i][2]
+        if d in want and not events[i][3]:
+            out.setdefault((events[i][0], events[i][1]), d)   # the deepest
+            want.discard(d)
+        elif d < lo:
+            break
+        i -= 1
+    return out
+
+
+def after_return(events, pos, depth):
+    """The next event once the program is back in the middle of the
+    caller's line at `depth`: the first one outside the call it returned
+    from (the rest of that line may call again)."""
+    i = pos if not isinstance(pos, tuple) else pos[2] - 1
+    if i < 0:
+        return 0
+    ids = events[i][5]
+    left = ids[depth] if len(ids) > depth else None
+    j = i + 1
+    while j < len(events):
+        e_ids = events[j][5]
+        if len(e_ids) <= depth or e_ids[depth] != left:
+            return j
+        j += 1
+    return j
+
+
+def run_step(area, seed, ironc, iron, outdir, adapter):
+    import dbg_step
+    rng = random.Random("%s-%s" % (area, seed))
+    g, text, twin = dbg_step.step_program(rng)
+    work = os.path.join(outdir, "%s_%s" % (area, seed))
+    os.makedirs(work, exist_ok=True)
+    src = os.path.join(work, "prog.iron")
+    with open(src, "w") as f:
+        f.write(text)
+    tsrc = os.path.join(work, "twin.iron")
+    with open(tsrc, "w") as f:
+        f.write(twin)
+    tbin = os.path.join(work, "twin")
+    r = subprocess.run([ironc, "build", tsrc, "-o", tbin], capture_output=True, text=True,
+                       timeout=300)
+    if r.returncode != 0:
+        raise Fail("twin build failed:\n" + (r.stdout + r.stderr)[-3000:])
+    out = subprocess.run([tbin], capture_output=True, timeout=60).stdout.decode("utf-8", "replace")
+    events = dbg_step.parse_trace(out)
+    problems = []
+    cmds = [rng.choice(["stepIn"] * 5 + ["next"] * 4 + ["stepOut"]) for _ in range(rng.randint(15, 40))]
+    s = Session(iron, adapter, None)
+    log = []
+    try:
+        s.init()
+        first = dbg_step.first_line(g)
+        s.launch(src, [first])
+        stop = s.next_stop(90)
+        if stop is None:
+            raise Fail("the program ended before main's first line %d" % first)
+        tid = stop["body"].get("threadId")
+        fr, raw = iron_frames(s, tid)
+        pos = 0
+        if not events or fr[:1] != [(events[0][1], events[0][0])]:
+            problems.append("first stop %s, want %s" % (fr[:2], events[:1]))
+            return problems, work
+        for cmd in cmds:
+            cands, cur_depth = step_candidates(events, pos, cmd)
+            s.call(cmd, {"threadId": tid})
+            stop = s.next_stop(60)
+            if stop is None:
+                if cands and any(not events[c][3] for c in cands):
+                    problems.append("after %s the program ended; want line %s (steps: %s)" %
+                                    (cmd, [events[c][:2] for c in cands], log[-6:]))
+                break
+            tid = stop["body"].get("threadId")
+            reason = stop["body"].get("reason")
+            fr, raw = iron_frames(s, tid)
+            top = raw[0] if raw else {}
+            topsrc = str((top.get("source") or {}).get("path") or "")
+            log.append("%s->%s:%s" % (cmd, top.get("name"), top.get("line")))
+            if reason not in ("step", None):
+                problems.append("%s stopped with reason %r at %s" % (cmd, reason, fr[:1]))
+                break
+            if not topsrc.endswith(".iron"):
+                problems.append("%s stopped outside Iron code: %s at %s:%s (steps: %s)" %
+                                (cmd, top.get("name"), topsrc, top.get("line"), log[-6:]))
+                break
+            for name, _ in fr:
+                if name.startswith(("Iron_", "__lambda", "_")) or re.search(r"\w_\w*__", name):
+                    problems.append("frame %r is not an Iron name" % name)
+            got = (fr[0][1], fr[0][0]) if fr else None
+            # A return lands in the middle of a caller's line: when the
+            # current call ends before the next stop, that comes first.
+            cur_ev = events[pos] if not isinstance(pos, tuple) else \
+                (events[pos[2] - 1] if pos[2] > 0 else None)
+            ends = cands and cur_ev is not None and cur_depth > 1 and (
+                len(events[cands[-1]][5]) < cur_depth or
+                events[cands[-1]][5][cur_depth - 1] != cur_ev[5][cur_depth - 1])
+            sites = call_sites(events, pos, 1, cur_depth - 1) if (ends or not cands) else {}
+            if got in sites:
+                pos = ("mid", sites[got], after_return(events, pos, sites[got]))
+                continue
+            match = None
+            for c in cands:
+                if (events[c][0], events[c][1]) == got:
+                    match = c
+                    break
+            if match is not None:
+                want_stack = list(reversed(events[match][4]))
+                got_stack = [n for n, _ in fr]
+                if got_stack != want_stack:
+                    problems.append("after %s at line %s the stack is %s, want %s" %
+                                    (cmd, got[0], got_stack, want_stack))
+                    break
+                pos = match
+                continue
+            # A loop's header can take two stops (its start and its test).
+            if not isinstance(pos, tuple) and got == (events[pos][0], events[pos][1]) and \
+                    events[pos][0] in g.loop_lines and cmd != "stepOut":
+                continue
+            problems.append("%s from %s went to %s:%s, want %s%s (steps: %s)" % (
+                cmd, events[pos][:2] if not isinstance(pos, tuple) else pos,
+                got[1] if got else top.get("name"), got[0] if got else top.get("line"),
+                [events[c][:2] for c in cands],
+                " or a caller's line %s" % sorted(sites) if sites else "", log[-6:]))
+            break
+    finally:
+        s.close()
+    return problems, work
+
+
+# ── panic ────────────────────────────────────────────────────────────────────
+
+def run_panic(area, seed, ironc, iron, outdir, adapter):
+    import dbg_panic
+    rng = random.Random("%s-%s" % (area, seed))
+    g, text = dbg_panic.panic_program(rng)
+    work = os.path.join(outdir, "%s_%s" % (area, seed))
+    os.makedirs(work, exist_ok=True)
+    src = os.path.join(work, "prog.iron")
+    with open(src, "w") as f:
+        f.write(text)
+    binary = os.path.join(work, "prog")
+    build(ironc, src, binary)
+    func, line, msg = g.expect
+    problems = []
+    # The oracle: the program run alone prints the panic's message.
+    run = subprocess.run([binary], capture_output=True, timeout=60)
+    err = run.stderr.decode("utf-8", "replace")
+    if run.returncode == 0 or msg.split(" (")[0] not in err:
+        problems.append("MODEL: run alone the program exits %d with %r, want the panic %r" %
+                        (run.returncode, err[-300:], msg))
+        return problems, work
+    s = Session(iron, adapter, None)
+    try:
+        s.init()
+        s.launch(src, [])
+        stop = s.next_stop(90)
+        if stop is None:
+            problems.append("the program ended without stopping on the panic (%s)" % msg)
+            return problems, work
+        body = stop["body"]
+        tid = body.get("threadId")
+        if body.get("reason") != "exception" or msg not in str(body.get("text", "")):
+            problems.append("stopped as %s, want an exception with %r" %
+                            ({k: body.get(k) for k in ("reason", "text", "description")}, msg))
+        fr, raw = iron_frames(s, tid)
+        top = raw[0] if raw else {}
+        if (top.get("name"), top.get("line")) != (func, line):
+            problems.append("the stack starts at %s:%s, want %s:%d (%s; stack %s)" %
+                            (top.get("name"), top.get("line"), func, line, g.kind,
+                             [(f.get("name"), f.get("line")) for f in raw[:5]]))
+        for name, _ in fr:
+            if name.startswith(("Iron_", "__", "_")):
+                problems.append("frame %r is not an Iron name" % name)
+        r = s.request("exceptionInfo", {"threadId": tid})
+        desc = str((r.get("body") or {}).get("description", ""))
+        if msg not in desc:
+            problems.append("exceptionInfo says %r, want %r" % (desc, msg))
+        # The locals of the panicking frame are readable.
+        if raw:
+            sc = s.call("scopes", {"frameId": raw[0]["id"]})["scopes"]
+            for scope in sc:
+                if scope.get("name", "").lower() == "locals":
+                    s.call("variables", {"variablesReference": scope["variablesReference"]})
+        s.call("continue", {"threadId": tid})
+        end = s.c.wait(lambda m: m.get("type") == "event" and
+                       m.get("event") in ("stopped", "exited", "terminated"), 60, "end")
+        if end.get("event") == "stopped":
+            problems.append("continuing from the panic stopped again: %s" % end.get("body"))
+    finally:
+        s.close()
+    return problems, work
+
+
+AREAS = {"values": run_values, "eval": run_values, "step": run_step, "panic": run_panic}
 
 
 def run_one(area, seed, ironc, iron, outdir, adapter):

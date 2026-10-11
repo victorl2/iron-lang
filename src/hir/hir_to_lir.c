@@ -2524,6 +2524,10 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 }
             }
             IronLIR_ValueId av = lower_expr(ctx, expr->call.args[i]);
+            /* An owned temporary (a concatenation passed to a `String?`
+             * parameter) is released after the call as the value it is,
+             * not as the optional that wraps it (#581). */
+            IronLIR_ValueId av_raw = av;
             {
                 Iron_Type *ct = expr->call.callee ? expr->call.callee->type : NULL;
                 if (ct && ct->kind == IRON_TYPE_FUNC && i < ct->func.param_count &&
@@ -2541,7 +2545,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
              * call forms consistent. Sound single-threaded because the
              * caller's reference outlives the call; a callee that stores
              * the argument into a binding retains via the LET alias path. */
-            note_owned_temp(ctx, &temps, expr->call.args[i], av, span);
+            note_owned_temp(ctx, &temps, expr->call.args[i], av_raw, span);
             arrput(args, av);
         }
         /* For direct calls: callee is an IDENT or FUNC_REF → look up func_decl */
@@ -5643,6 +5647,9 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
         lir_func = iron_lir_func_create(ctx->lir_module, hir_func->name,
                                          lir_params, param_count, ret_type);
     }
+
+    lir_func->end_file = hir_func->end_file;
+    lir_func->end_line = hir_func->end_line;
 
     /* Propagate capture metadata from HIR func to LIR func (for lifted lambdas) */
     lir_func->capture_metadata = hir_func->captures;
