@@ -16,9 +16,11 @@
 #include "util/os.h"
 #ifdef _WIN32
   #include <process.h>
+  #include <io.h>
 #else
   #include <spawn.h>
   #include <sys/wait.h>
+  #include <dirent.h>
 #endif
 #ifdef __APPLE__
   #include <mach-o/dyld.h>
@@ -240,6 +242,75 @@ static char *derive_output_name(const char *source_path) {
 #endif
 
     return out;
+}
+
+/* ── Runtime C symbols (#524) ─────────────────────────────────────────────── */
+
+/* Every Iron_<name> identifier in the headers of dir (the generated C
+ * includes the runtime and standard library headers whether a module is
+ * imported or not): a free function of the program with that C name is
+ * emitted as Iron_u_<name> instead of colliding with it. */
+static void reserve_header_symbols_in(const char *dir) {
+    char **files = NULL;
+#ifdef _WIN32
+    char pat[4200];
+    snprintf(pat, sizeof(pat), "%s\\*.h", dir);
+    struct _finddata_t fd;
+    intptr_t h = _findfirst(pat, &fd);
+    if (h == -1) return;
+    do {
+        char *p = malloc(strlen(dir) + strlen(fd.name) + 2);
+        if (p) { sprintf(p, "%s/%s", dir, fd.name); arrput(files, p); }
+    } while (_findnext(h, &fd) == 0);
+    _findclose(h);
+#else
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        size_t n = strlen(e->d_name);
+        if (n < 3 || strcmp(e->d_name + n - 2, ".h") != 0) continue;
+        char *p = malloc(strlen(dir) + n + 2);
+        if (p) { sprintf(p, "%s/%s", dir, e->d_name); arrput(files, p); }
+    }
+    closedir(d);
+#endif
+    for (int i = 0; i < (int)arrlen(files); i++) {
+        FILE *f = fopen(files[i], "rb");
+        free(files[i]);
+        if (!f) continue;
+        char line[4096];
+        while (fgets(line, sizeof(line), f)) {
+            for (char *q = strstr(line, "Iron_"); q; q = strstr(q + 1, "Iron_")) {
+                if (q > line && (isalnum((unsigned char)q[-1]) || q[-1] == '_')) continue;
+                char id[256];
+                size_t k = 0;
+                while (k < sizeof(id) - 1 && (isalnum((unsigned char)q[k]) || q[k] == '_')) {
+                    id[k] = q[k];
+                    k++;
+                }
+                id[k] = '\0';
+                if (k > 5) iron_lir_emit_add_reserved_c_name(id);
+            }
+        }
+        fclose(f);
+    }
+    arrfree(files);
+}
+
+static void reserve_runtime_symbols(void) {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    char *lib = get_iron_lib_dir();
+    if (!lib) return;
+    static const char *const subdirs[] = { "runtime", "stdlib", NULL };
+    for (int i = 0; subdirs[i]; i++) {
+        char p[4200];
+        snprintf(p, sizeof(p), "%s/%s", lib, subdirs[i]);
+        reserve_header_symbols_in(p);
+    }
+    free(lib);
 }
 
 /* ── Helper: write C source to a temp file ───────────────────────────────── */
@@ -2273,6 +2344,7 @@ int iron_build(const char *source_path, const char *output_path,
                                 opts.report_compression);
     } else {
         iron_lir_emit_set_line_directives(opts.debug_info && !opts.release);
+        reserve_runtime_symbols();
         c_src = iron_lir_emit_c(ir_module, &arena, &diags, &optimize_info,
                                 &analysis.iface_registry,
                                 opts.warn_fusion_break,

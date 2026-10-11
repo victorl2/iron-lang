@@ -8,6 +8,10 @@
 /* Emit C source from IR module. Returns arena-allocated C string. NULL on error.
  * opt_info must be pre-populated by iron_lir_optimize().
  * iface_reg: interface implementor registry for tagged union generation. May be NULL. */
+/* #524: a C symbol of the runtime or standard library headers; a free
+ * function of the program with that C name gets the Iron_u_ prefix. */
+void iron_lir_emit_add_reserved_c_name(const char *name);
+
 const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                             Iron_DiagList *diags, IronLIR_OptimizeInfo *opt_info,
                             Iron_IfaceRegistry *iface_reg,

@@ -395,13 +395,14 @@ class Shapes(ProbeGen):
         v1, v2 = self.rand_val(t), self.rand_val(t)
         pre = []
         e1, e2 = self.expr(t, v1, pre), self.expr(t, v2, pre)
+        e2b = self.expr(t, v2, pre)   # its own copy (a map's take() empties it)
         h = f'H{self.mang(t)}'
         self.need('holder ' + h, f'object {h} impl Show {{\n    val v: {self.syn(t)}\n'
                                  f'    readonly func show() -> String {{\n'
                                  f'        return {self.show_fn(t)}(self.v)\n    }}\n}}')
         s, ss = self.fresh('s'), self.fresh('ss')
         code = pre + [f'val {s}: Show = {h}({e1})', f'println({s}.show())',
-                      f'val {ss}: [Show] = [GH[{self.syn(t)}]({e2}, "gh"), {h}({e2})]',
+                      f'val {ss}: [Show] = [GH[{self.syn(t)}]({e2}, "gh"), {h}({e2b})]',
                       f'for q in {ss} {{', '    println(q.show())', '}']
         return Probe(code, [self.show(t, v1), 'gh', self.show(t, v2)])
 

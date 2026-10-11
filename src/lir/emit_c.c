@@ -11796,6 +11796,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                             bool report_compression) {
     if (!module) return NULL;
     if (diags && diags->error_count > 0) return NULL;
+    emit_plan_func_renames(module);
 
     /* Initialize context */
     EmitCtx ctx;

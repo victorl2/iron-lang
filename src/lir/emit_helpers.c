@@ -59,8 +59,44 @@ const char *emit_object_type_name(const char *name, EmitCtx *ctx) {
  * - Built-in function names (println, print, len, etc.) map to Iron_XXX.
  * - All other user-defined functions map to Iron_XXX.
  * The returned string is arena-allocated or a static literal. */
+/* C symbols the runtime and standard library headers declare (Iron_log_info,
+ * Iron_time_now, ...), set by the build before emission, and the C names
+ * of the program's free functions that would collide with one (#524):
+ * those get an Iron_u_ prefix instead of Iron_. */
+static struct { char *key; bool value; } *g_reserved_c_names = NULL;
+static struct { char *key; char *value; } *g_func_renames = NULL;
+
+void iron_lir_emit_add_reserved_c_name(const char *name) {
+    if (!name || shgeti(g_reserved_c_names, name) >= 0) return;
+    char *k = strdup(name);
+    if (k) shput(g_reserved_c_names, k, true);
+}
+
+void emit_plan_func_renames(IronLIR_Module *module) {
+    for (ptrdiff_t i = 0; i < shlen(g_func_renames); i++) free(g_func_renames[i].value);
+    shfree(g_func_renames);
+    g_func_renames = NULL;
+    if (!module || shlen(g_reserved_c_names) == 0) return;
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *f = module->funcs[fi];
+        if (!f || !f->name || !f->is_user_func || f->is_extern) continue;
+        if (strcmp(f->name, "main") == 0) continue;
+        char cname[512];
+        snprintf(cname, sizeof(cname), "Iron_%s", f->name);
+        if (shgeti(g_reserved_c_names, cname) < 0) continue;
+        char *rn = (char *)malloc(strlen(f->name) + 8);
+        if (!rn) continue;
+        snprintf(rn, strlen(f->name) + 8, "Iron_u_%s", f->name);
+        shput(g_func_renames, (char *)f->name, rn);
+    }
+}
+
 const char *emit_mangle_func_name(const char *name, Iron_Arena *arena) {
     if (!name) return "NULL";
+    if (g_func_renames) {
+        ptrdiff_t ri = shgeti(g_func_renames, name);
+        if (ri >= 0) return g_func_renames[ri].value;
+    }
 
     /* Lifted functions are already internal C identifiers -- keep as-is.
      * Lifted names start with __ (e.g. __pfor_0, __spawn_task1_0, __lambda_0)
