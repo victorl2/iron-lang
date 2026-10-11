@@ -2460,6 +2460,19 @@ static size_t fmt_time(char *out, size_t cap, const DT *d, int digits) {
     return (size_t)n + fmt_fraction(out + n, cap - (size_t)n, d->micro, digits);
 }
 
+/* MySQL writes exponents without '+' or leading zeros ("1e29", "1e-7"). */
+static size_t tidy_exponent(char *out, size_t n) {
+    char *e = memchr(out, 'e', n);
+    if (!e) return n;
+    char *src = e + 1, *dst = e + 1;
+    if (*src == '+') src++;
+    else if (*src == '-') *dst++ = *src++;
+    while (*src == '0' && src[1]) src++;
+    while (*src) *dst++ = *src++;
+    *dst = '\0';
+    return (size_t)(dst - out);
+}
+
 /* Shortest decimal text that reads back as the same value. */
 static size_t fmt_double(char *out, size_t cap, double d, int is_float) {
     if (isnan(d)) return (size_t)snprintf(out, cap, "nan");
@@ -2467,11 +2480,13 @@ static size_t fmt_double(char *out, size_t cap, double d, int is_float) {
     int lo = is_float ? 6 : 15, hi = is_float ? 9 : 17;
     for (int prec = lo; prec <= hi; prec++) {
         int n = snprintf(out, cap, "%.*g", prec, d);
-        if (n <= 0) return 0;
+        if (n <= 0 || (size_t)n >= cap) return 0;
         double back = strtod(out, NULL);
-        if (is_float ? ((float)back == (float)d) : (back == d)) return (size_t)n;
+        if (is_float ? ((float)back == (float)d) : (back == d))
+            return tidy_exponent(out, (size_t)n);
     }
-    return (size_t)snprintf(out, cap, "%.17g", d);
+    int n = snprintf(out, cap, "%.17g", d);
+    return n > 0 && (size_t)n < cap ? tidy_exponent(out, (size_t)n) : 0;
 }
 
 /* The cell as text: raw bytes for the text protocol and for string,

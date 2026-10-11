@@ -1,0 +1,253 @@
+-- Every common column type round-trips through prepared statement
+-- parameters and comes back the same through the text protocol (query)
+-- and the binary protocol (exec), including the extremes, NULLs, binary
+-- data with zero bytes, UTF-8, and dates and times with fractions.
+import mysql
+import os
+
+var failures = 0
+
+func check(cond: Bool, what: String) {
+    if cond {
+        println("ok   {what}")
+    } else {
+        println("FAIL {what}")
+        failures += 1
+    }
+}
+
+func binary_bytes() -> String {
+    var s = ""
+    for b in [0, 1, 127, 128, 200, 255, 0, 39, 92, 34, 10, 13, 26] {
+        s = s + String.from_byte(b)
+    }
+    return s
+}
+
+val UMAX = UInt(9223372036854775807) * UInt(2) + UInt(1)
+val COLUMNS = "id, ti, tu, si, mi, i, iu, bi, bu, f, d, dc, b, bt, dt, dtm, ts, tm, yr, c, vc, tx, bl, vb, js, en, st"
+
+func main() {
+    val url = OS.env_or("IRON_MYSQL_URL", "")
+    if url == "" {
+        println("SKIP: IRON_MYSQL_URL is not set")
+        return
+    }
+    var conn = Mysql.connect_url(url)
+    check(conn.ok(), "connect: {conn.error.message}")
+    if conn.error.failed() {
+        return
+    }
+    val mariadb = conn.server_version().contains("MariaDB")
+    conn.run("DROP TABLE IF EXISTS iron_types")
+    val ddl = conn.run("CREATE TABLE iron_types (id INT PRIMARY KEY, ti TINYINT, tu TINYINT UNSIGNED, si SMALLINT, mi MEDIUMINT, i INT, iu INT UNSIGNED, bi BIGINT, bu BIGINT UNSIGNED, f FLOAT, d DOUBLE, dc DECIMAL(20,6), b BOOL, bt BIT(8), dt DATE, dtm DATETIME(6), ts TIMESTAMP(3) NULL, tm TIME(6), yr YEAR, c CHAR(10), vc VARCHAR(255), tx TEXT, bl BLOB, vb VARBINARY(32), js JSON, en ENUM('a','b','c'), st SET('x','y')) CHARACTER SET utf8mb4")
+    check(ddl.ok(), "create table: {ddl.message}")
+
+    val bin = binary_bytes()
+    val utf = "héllo wörld 🌍 ✓"
+    val long_text = "lorem ipsum ".repeat(5000)
+    val when = MysqlDateTime(2024, 2, 29, 13, 45, 30, 123456)
+    val ts = MysqlDateTime(2024, 1, 1, 0, 0, 0, 500000)
+    val dur = MysqlTime(true, 123, 45, 6, 789000)
+    val insert = "INSERT INTO iron_types ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    val r1 = conn.exec(insert, [MysqlValue.Int(1), MysqlValue.Int(-128), MysqlValue.Int(255), MysqlValue.Int(-32768), MysqlValue.Int(-8388608), MysqlValue.Int(-2147483648), MysqlValue.UInt(UInt(4294967295)), MysqlValue.Int(-9223372036854775807 - 1), MysqlValue.UInt(UMAX), MysqlValue.Float(1.5), MysqlValue.Float(3.141592653589793), MysqlValue.Decimal("12345678901234.123456"), MysqlValue.Bool(true), MysqlValue.Int(165), MysqlValue.Date(Mysql.date(2024, 2, 29)), MysqlValue.DateTime(when), MysqlValue.DateTime(ts), MysqlValue.Time(dur), MysqlValue.Int(2155), MysqlValue.Text("abc"), MysqlValue.Text(utf), MysqlValue.Text(long_text), MysqlValue.Bytes(bin), MysqlValue.Bytes(bin), MysqlValue.Text("\{\"k\": [1, 2, 3]\}"), MysqlValue.Text("b"), MysqlValue.Text("x,y")])
+    check(r1.ok(), "insert extremes: {r1.error.message}")
+    check(r1.affected_rows() == 1, "insert affected 1")
+    val r2 = conn.exec(insert, [MysqlValue.Int(2), MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null, MysqlValue.Null])
+    check(r2.ok(), "insert NULLs: {r2.error.message}")
+    val r3 = conn.exec(insert, [MysqlValue.Int(3), MysqlValue.Int(127), MysqlValue.Int(0), MysqlValue.Int(32767), MysqlValue.Int(8388607), MysqlValue.Int(2147483647), MysqlValue.UInt(UInt(0)), MysqlValue.Int(9223372036854775807), MysqlValue.UInt(UInt(0)), MysqlValue.Float(-0.25), MysqlValue.Float(100000000000000000000000000000.0), MysqlValue.Decimal("-0.000001"), MysqlValue.Bool(false), MysqlValue.Int(0), MysqlValue.Date(Mysql.date(1000, 1, 1)), MysqlValue.DateTime(Mysql.datetime(9999, 12, 31, 23, 59, 59)), MysqlValue.DateTime(Mysql.datetime(2038, 1, 19, 3, 14, 7)), MysqlValue.Time(MysqlTime(false, 0, 0, 0, 0)), MysqlValue.Int(1901), MysqlValue.Text(""), MysqlValue.Text("it's \"quoted\" \\ back"), MysqlValue.Text(""), MysqlValue.Bytes(""), MysqlValue.Bytes(String.from_byte(0)), MysqlValue.Text("null"), MysqlValue.Text("a"), MysqlValue.Text("")])
+    check(r3.ok(), "insert other extremes: {r3.error.message}")
+
+    val text = conn.query("SELECT {COLUMNS} FROM iron_types ORDER BY id")
+    val binr = conn.exec("SELECT {COLUMNS} FROM iron_types WHERE id >= ? ORDER BY id", [MysqlValue.Int(0)])
+    check(text.ok() and text.row_count() == 3, "text select: {text.error.message}")
+    check(binr.ok() and binr.row_count() == 3, "binary select: {binr.error.message}")
+    check(text.column_count() == 27 and binr.column_count() == 27, "27 columns")
+
+    -- The same value through both protocols, as text.
+    var col = 0
+    while col < 27 {
+        var row = 0
+        while row < 3 {
+            val (a, ea) = text.get_text(row, col)
+            val (b, eb) = binr.get_text(row, col)
+            if ea.code != eb.code or a != b {
+                check(false, "text/binary agree at row {row} column {text.column(col).name}: '{a}' vs '{b}' ({ea.code}/{eb.code})")
+            }
+            row += 1
+        }
+        col += 1
+    }
+    check(true, "text and binary protocols agree on every cell")
+
+    -- Typed reads, both protocols.
+    check(text.int(0, 1) == -128 and binr.int(0, 1) == -128, "TINYINT min")
+    check(text.int(0, 2) == 255 and binr.int(0, 2) == 255, "TINYINT UNSIGNED max")
+    check(text.int(0, 3) == -32768 and binr.int(0, 3) == -32768, "SMALLINT min")
+    check(text.int(0, 4) == -8388608 and binr.int(0, 4) == -8388608, "MEDIUMINT min")
+    check(text.int(0, 5) == -2147483648 and binr.int(0, 5) == -2147483648, "INT min")
+    check(text.int(0, 6) == 4294967295 and binr.int(0, 6) == 4294967295, "INT UNSIGNED max")
+    check(text.int(0, 7) == -9223372036854775807 - 1 and binr.int(0, 7) == -9223372036854775807 - 1, "BIGINT min")
+    check(text.uint(0, 8) == UMAX and binr.uint(0, 8) == UMAX, "BIGINT UNSIGNED max")
+    val (big_as_int, big_err) = binr.get_int(0, 8)
+    check(big_err.code == 7006, "BIGINT UNSIGNED max does not fit Int (7006, got {big_err.code})")
+    check(text.int(2, 7) == 9223372036854775807 and binr.int(2, 7) == 9223372036854775807, "BIGINT max")
+    check(text.float(0, 9) == 1.5 and binr.float(0, 9) == 1.5, "FLOAT")
+    check(text.float(0, 10) == 3.141592653589793 and binr.float(0, 10) == 3.141592653589793, "DOUBLE")
+    check(binr.float(2, 10) == 100000000000000000000000000000.0 and text.float(2, 10) == 100000000000000000000000000000.0, "DOUBLE 1e29")
+    check(text.text(0, 11) == "12345678901234.123456" and binr.text(0, 11) == "12345678901234.123456", "DECIMAL as text")
+    check(text.text(2, 11) == "-0.000001", "DECIMAL small negative")
+    check(text.float(0, 11) == 12345678901234.123456, "DECIMAL as Float")
+    check(text.bool(0, 12) == true and binr.bool(0, 12) == true and binr.bool(2, 12) == false, "BOOL")
+    check(text.uint(0, 13) == UInt(165) and binr.uint(0, 13) == UInt(165), "BIT(8)")
+    val d1 = binr.datetime(0, 14)
+    if d1 != null {
+        check(d1.year == 2024 and d1.month == 2 and d1.day == 29 and d1.hour == 0, "DATE binary")
+    } else {
+        check(false, "DATE binary")
+    }
+    check(text.text(0, 14) == "2024-02-29" and binr.text(0, 14) == "2024-02-29", "DATE text")
+    val t1 = text.datetime(0, 15)
+    val b1 = binr.datetime(0, 15)
+    if t1 != null {
+        check(t1.microsecond == 123456 and t1.second == 30, "DATETIME(6) text")
+    } else {
+        check(false, "DATETIME(6) text")
+    }
+    if b1 != null {
+        check(b1.year == 2024 and b1.hour == 13 and b1.minute == 45 and b1.second == 30 and b1.microsecond == 123456, "DATETIME(6) binary")
+    } else {
+        check(false, "DATETIME(6) binary")
+    }
+    check(binr.text(0, 15) == "2024-02-29 13:45:30.123456", "DATETIME(6) as text: {binr.text(0, 15)}")
+    check(binr.text(0, 16) == "2024-01-01 00:00:00.500", "TIMESTAMP(3) as text: {binr.text(0, 16)}")
+    val tm_t = text.time(0, 17)
+    val tm_b = binr.time(0, 17)
+    if tm_t != null {
+        check(tm_t.negative and tm_t.hours == 123 and tm_t.minutes == 45 and tm_t.seconds == 6 and tm_t.microsecond == 789000, "TIME text")
+    } else {
+        check(false, "TIME text")
+    }
+    if tm_b != null {
+        check(tm_b.negative and tm_b.hours == 123 and tm_b.minutes == 45 and tm_b.seconds == 6 and tm_b.microsecond == 789000, "TIME binary")
+    } else {
+        check(false, "TIME binary")
+    }
+    check(binr.text(0, 17) == "-123:45:06.789000", "TIME as text: {binr.text(0, 17)}")
+    check(text.int(0, 18) == 2155 and binr.int(0, 18) == 2155, "YEAR")
+    check(text.text(0, 19) == "abc" and binr.text(0, 19) == "abc", "CHAR")
+    check(text.text(0, 20) == utf and binr.text(0, 20) == utf, "VARCHAR UTF-8")
+    check(text.text(0, 21) == long_text and binr.text(0, 21) == long_text, "TEXT 60 KB")
+    check(text.bytes(0, 22) == bin and binr.bytes(0, 22) == bin, "BLOB with zero bytes")
+    check(text.bytes(0, 23) == bin and binr.bytes(0, 23) == bin, "VARBINARY with zero bytes")
+    check(binr.bytes(2, 23) == String.from_byte(0), "VARBINARY single zero byte")
+    val js = binr.text(0, 24)
+    if js != null {
+        check(js.contains("\"k\""), "JSON: {js}")
+    } else {
+        check(false, "JSON: {js}")
+    }
+    check(text.text(0, 25) == "b" and binr.text(0, 25) == "b", "ENUM")
+    check(text.text(0, 26) == "x,y" and binr.text(0, 26) == "x,y", "SET")
+    check(binr.text(2, 20) == "it's \"quoted\" \\ back", "quotes and backslash through a parameter")
+    check(binr.text(2, 19) == "" and not binr.is_null(2, 19), "empty string is not NULL")
+
+    -- NULL row.
+    var c2 = 1
+    var all_null = true
+    while c2 < 27 {
+        if not text.is_null(1, c2) or not binr.is_null(1, c2) {
+            all_null = false
+        }
+        c2 += 1
+    }
+    check(all_null, "row 2 is NULL in every column, both protocols")
+    check(text.int(1, 1) == null and binr.int(1, 7) == null and binr.text(1, 20) == null, "readers return null for NULL")
+    val (_, null_err) = binr.get_int(1, 5)
+    check(null_err.code == 7005, "get_int of NULL is 7005 (got {null_err.code})")
+    match binr.value(1, 5) {
+        MysqlValue.Null -> check(true, "value() of NULL is Null")
+        else -> check(false, "value() of NULL is Null")
+    }
+
+    -- value() picks the type from the column.
+    match binr.value(0, 7) {
+        MysqlValue.Int(v) -> check(v == -9223372036854775807 - 1, "value BIGINT is Int")
+        else -> check(false, "value BIGINT is Int")
+    }
+    match text.value(0, 8) {
+        MysqlValue.UInt(v) -> check(v == UMAX, "value BIGINT UNSIGNED is UInt")
+        else -> check(false, "value BIGINT UNSIGNED is UInt")
+    }
+    match binr.value(0, 10) {
+        MysqlValue.Float(v) -> check(v == 3.141592653589793, "value DOUBLE is Float")
+        else -> check(false, "value DOUBLE is Float")
+    }
+    match binr.value(0, 11) {
+        MysqlValue.Decimal(v) -> check(v == "12345678901234.123456", "value DECIMAL is Decimal")
+        else -> check(false, "value DECIMAL is Decimal")
+    }
+    match binr.value(0, 14) {
+        MysqlValue.Date(v) -> check(v.year == 2024 and v.day == 29, "value DATE is Date")
+        else -> check(false, "value DATE is Date")
+    }
+    match text.value(0, 15) {
+        MysqlValue.DateTime(v) -> check(v.microsecond == 123456, "value DATETIME is DateTime")
+        else -> check(false, "value DATETIME is DateTime")
+    }
+    match binr.value(0, 17) {
+        MysqlValue.Time(v) -> check(v.negative and v.hours == 123, "value TIME is Time")
+        else -> check(false, "value TIME is Time")
+    }
+    match binr.value(0, 20) {
+        MysqlValue.Text(v) -> check(v == utf, "value VARCHAR is Text")
+        else -> check(false, "value VARCHAR is Text")
+    }
+    match binr.value(0, 22) {
+        MysqlValue.Bytes(v) -> check(v == bin, "value BLOB is Bytes")
+        else -> check(false, "value BLOB is Bytes")
+    }
+
+    -- Conversions that must fail cleanly.
+    val (_, e1) = text.get_int(0, 20)
+    check(e1.code == 7006, "VARCHAR text to Int is 7006 (got {e1.code})")
+    val (_, e2) = binr.get_int(0, 9)
+    check(e2.code == 7006, "FLOAT 1.5 to Int is 7006 (got {e2.code})")
+    val (_, e3) = binr.get_datetime(0, 5)
+    check(e3.code == 7006, "INT to DateTime is 7006 (got {e3.code})")
+    val (_, e4) = binr.get_int(5, 0)
+    check(e4.code == 7007, "row out of range is 7007 (got {e4.code})")
+    val (_, e5) = binr.get_int(0, binr.col("nope"))
+    check(e5.code == 7007, "unknown column is 7007 (got {e5.code})")
+    check(binr.int(0, 9) == null, "int() of FLOAT 1.5 is null")
+    check(binr.float(0, 5) == -2147483648.0, "INT read as Float")
+    check(text.int(0, 11) == null, "DECIMAL with a fraction does not read as Int")
+
+    -- Column metadata.
+    val bu = binr.column(8)
+    check(bu.name == "bu" and bu.type == 8 and bu.is_unsigned() and bu.type_name == "BIGINT UNSIGNED", "BIGINT UNSIGNED column metadata ({bu.type_name})")
+    val idc = text.column(0)
+    check(idc.is_primary_key() and not idc.is_nullable() and idc.table == "iron_types", "id column flags")
+    check(binr.column(22).is_binary() and binr.column(22).type_name == "BLOB", "BLOB column is binary")
+    check(not binr.column(20).is_binary(), "VARCHAR column is not binary")
+    check(binr.col("VC") == 20 and binr.col("vc") == 20, "col() is case-insensitive")
+    val names = text.column_names()
+    check(len(names) == 27 and names[26] == "st", "column_names")
+
+    -- Aliases and expressions.
+    val e = conn.exec("SELECT ? + 1 AS n, CONCAT(?, '!') AS s, ? IS NULL AS isnull", [MysqlValue.Int(41), MysqlValue.Text("hi"), MysqlValue.Null])
+    check(e.ok() and e.int(0, e.col("n")) == 42 and e.text(0, e.col("s")) == "hi!" and e.bool(0, 2) == true, "expressions with parameters: {e.error.message}")
+
+    -- Out of range parameter values are rejected by the client.
+    val bad = conn.exec("SELECT ?", [MysqlValue.DateTime(MysqlDateTime(2024, 13, 1, 0, 0, 0, 0))])
+    check(bad.error.code == 7002, "month 13 is rejected (got {bad.error.code})")
+    check(conn.is_open(), "connection still usable after a client-side error")
+
+    conn.run("DROP TABLE iron_types")
+    if failures == 0 {
+        println("PASS types")
+    } else {
+        println("FAILED types: {failures}")
+        assert(false, "type checks failed")
+    }
+}

@@ -1,0 +1,215 @@
+-- MySQL authentication paths against a live server: mysql_native_password
+-- (reached through an auth switch), caching_sha2_password full auth over TLS
+-- and over plain TCP with the RSA key exchange (retrieved and from a file),
+-- the fast path, sha256_password, an empty password, a wrong password, and
+-- the TLS modes. IRON_MYSQL_URL names an account that can create users;
+-- IRON_MYSQL_CA (optional) is the server's CA certificate.
+import mysql
+import os
+import io
+
+var failures = 0
+
+func check(cond: Bool, what: String) {
+    if cond {
+        println("ok   {what}")
+    } else {
+        println("FAIL {what}")
+        failures += 1
+    }
+}
+
+func user_config(base: MysqlConfig, user: String, password: String) -> MysqlConfig {
+    var c = MysqlConfig(base.host, base.port, user, password, base.database)
+    c.connect_timeout = 10000
+    return c
+}
+
+func main() {
+    val url = OS.env_or("IRON_MYSQL_URL", "")
+    if url == "" {
+        println("SKIP: IRON_MYSQL_URL is not set")
+        return
+    }
+    val (base, perr) = Mysql.parse_url(url)
+    check(perr.ok(), "parse admin url")
+    var admin = Mysql.connect(base)
+    check(admin.ok(), "admin connect: {admin.error.message}")
+    if admin.error.failed() {
+        return
+    }
+    val mariadb = admin.server_version().contains("MariaDB")
+    val db = base.database
+
+    -- Users for each plugin.
+    val users = ["iron_native", "iron_sha2", "iron_sha256", "iron_empty"]
+    for u in users {
+        admin.run("DROP USER IF EXISTS '{u}'@'%'")
+    }
+    var e = admin.run("CREATE USER 'iron_native'@'%' IDENTIFIED WITH mysql_native_password BY 'native_pw'")
+    check(e.ok(), "create native user: {e.message}")
+    admin.run("GRANT ALL ON {db}.* TO 'iron_native'@'%'")
+    if not mariadb {
+        e = admin.run("CREATE USER 'iron_sha2'@'%' IDENTIFIED WITH caching_sha2_password BY 'sha2_pw'")
+        check(e.ok(), "create caching_sha2 user: {e.message}")
+        admin.run("GRANT ALL ON {db}.* TO 'iron_sha2'@'%'")
+        e = admin.run("CREATE USER 'iron_sha256'@'%' IDENTIFIED WITH sha256_password BY 'sha256_pw'")
+        check(e.ok(), "create sha256 user: {e.message}")
+        admin.run("GRANT ALL ON {db}.* TO 'iron_sha256'@'%'")
+        e = admin.run("CREATE USER 'iron_empty'@'%' IDENTIFIED WITH caching_sha2_password BY ''")
+        check(e.ok(), "create empty-password user: {e.message}")
+    } else {
+        e = admin.run("CREATE USER 'iron_empty'@'%' IDENTIFIED BY ''")
+        check(e.ok(), "create empty-password user: {e.message}")
+    }
+    admin.run("GRANT ALL ON {db}.* TO 'iron_empty'@'%'")
+
+    -- mysql_native_password. On MySQL 8 the handshake offers
+    -- caching_sha2_password, so this goes through an auth switch.
+    for mode in [MysqlTls.Disabled, MysqlTls.Required] {
+        var cfg = user_config(base, "iron_native", "native_pw")
+        cfg.tls = mode
+        var c = Mysql.connect(cfg)
+        check(c.ok(), "native password (tls={mode == MysqlTls.Required}): {c.error.message}")
+        if c.ok() {
+            check(c.auth_plugin() == "mysql_native_password", "native plugin negotiated: {c.auth_plugin()}")
+            check(c.is_tls() == (mode == MysqlTls.Required), "native tls state")
+            val r = c.query("SELECT CURRENT_USER()")
+            check(r.ok() and r.text(0, 0) == "iron_native@%", "native session user")
+        }
+    }
+
+    -- Wrong password: the server's error, as a value.
+    var bad_cfg = user_config(base, "iron_native", "wrong")
+    bad_cfg.tls = MysqlTls.Disabled
+    val bad = Mysql.connect(bad_cfg)
+    check(bad.error.code == 1045, "wrong password is error 1045 (got {bad.error.code})")
+    check(bad.error.server, "wrong password is a server error")
+    check(bad.error.sqlstate == "28000", "wrong password SQLSTATE 28000 (got {bad.error.sqlstate})")
+    check(not bad.is_open(), "failed connection is not open")
+    val bad_query = bad.error.message.contains("Access denied")
+    check(bad_query, "wrong password message: {bad.error.message}")
+
+    -- Empty password.
+    var empty_cfg = user_config(base, "iron_empty", "")
+    empty_cfg.tls = MysqlTls.Disabled
+    val empty = Mysql.connect(empty_cfg)
+    check(empty.ok(), "empty password: {empty.error.message}")
+
+    if not mariadb {
+        -- caching_sha2_password: clear the server's cache so the next login
+        -- needs full authentication.
+        admin.run("FLUSH PRIVILEGES")
+
+        -- Full auth without TLS and without a key: refused by the client
+        -- rather than sending the password in the clear.
+        var insecure_cfg = user_config(base, "iron_sha2", "sha2_pw")
+        insecure_cfg.tls = MysqlTls.Disabled
+        val insecure = Mysql.connect(insecure_cfg)
+        check(insecure.error.code == 7013, "full auth without TLS or key is refused (got {insecure.error.code} {insecure.error.message})")
+
+        -- Full auth without TLS, retrieving the server's RSA key.
+        var rsa_cfg = user_config(base, "iron_sha2", "sha2_pw")
+        rsa_cfg.tls = MysqlTls.Disabled
+        rsa_cfg.allow_public_key_retrieval = true
+        var rsa = Mysql.connect(rsa_cfg)
+        check(rsa.ok(), "caching_sha2 full auth via RSA key retrieval: {rsa.error.message}")
+        check(not rsa.is_tls(), "RSA path is plain TCP")
+        check(rsa.auth_plugin() == "caching_sha2_password", "caching_sha2 plugin")
+
+        -- Now cached on the server: the fast path works without TLS or key.
+        var fast_cfg = user_config(base, "iron_sha2", "sha2_pw")
+        fast_cfg.tls = MysqlTls.Disabled
+        val fast = Mysql.connect(fast_cfg)
+        check(fast.ok(), "caching_sha2 fast auth: {fast.error.message}")
+
+        -- Wrong password on the fast path.
+        var wrong_cfg = user_config(base, "iron_sha2", "nope")
+        wrong_cfg.tls = MysqlTls.Disabled
+        wrong_cfg.allow_public_key_retrieval = true
+        val wrong = Mysql.connect(wrong_cfg)
+        check(wrong.error.code == 1045, "caching_sha2 wrong password is 1045 (got {wrong.error.code})")
+
+        -- Full auth over TLS (password sent inside TLS).
+        admin.run("FLUSH PRIVILEGES")
+        var tls_cfg = user_config(base, "iron_sha2", "sha2_pw")
+        tls_cfg.tls = MysqlTls.Required
+        val tls = Mysql.connect(tls_cfg)
+        check(tls.ok(), "caching_sha2 full auth over TLS: {tls.error.message}")
+        check(tls.is_tls(), "TLS negotiated")
+
+        -- Full auth with the server key read from a file.
+        val key = admin.query("SHOW STATUS LIKE 'Caching_sha2_password_rsa_public_key'")
+        val pem = key.text(0, 1)
+        if pem != null {
+            val key_path = "/tmp/iron_mysql_test_pubkey.pem"
+            IO.write_file(key_path, pem)
+            admin.run("FLUSH PRIVILEGES")
+            var file_cfg = user_config(base, "iron_sha2", "sha2_pw")
+            file_cfg.tls = MysqlTls.Disabled
+            file_cfg.server_public_key = key_path
+            val from_file = Mysql.connect(file_cfg)
+            check(from_file.ok(), "caching_sha2 full auth with server_public_key file: {from_file.error.message}")
+            IO.delete_file(key_path)
+        } else {
+            check(false, "server reports its RSA public key")
+        }
+
+        -- sha256_password over TLS and over RSA.
+        var s256_cfg = user_config(base, "iron_sha256", "sha256_pw")
+        s256_cfg.tls = MysqlTls.Required
+        val s256 = Mysql.connect(s256_cfg)
+        check(s256.ok(), "sha256_password over TLS: {s256.error.message}")
+        var s256_rsa_cfg = user_config(base, "iron_sha256", "sha256_pw")
+        s256_rsa_cfg.tls = MysqlTls.Disabled
+        s256_rsa_cfg.allow_public_key_retrieval = true
+        val s256_rsa = Mysql.connect(s256_rsa_cfg)
+        check(s256_rsa.ok(), "sha256_password via RSA: {s256_rsa.error.message}")
+    }
+
+    -- TLS verification modes.
+    val ca = OS.env_or("IRON_MYSQL_CA", "")
+    if ca != "" {
+        var vca = user_config(base, "iron_native", "native_pw")
+        vca.tls = MysqlTls.VerifyCa
+        vca.ca_file = ca
+        val verified = Mysql.connect(vca)
+        check(verified.ok() and verified.is_tls(), "verify_ca with the server CA: {verified.error.message}")
+        -- The auto-generated server certificate names no host, so identity
+        -- verification must fail.
+        var vid = user_config(base, "iron_native", "native_pw")
+        vid.tls = MysqlTls.VerifyIdentity
+        vid.ca_file = ca
+        val identity = Mysql.connect(vid)
+        check(identity.error.code == 3004, "verify_identity rejects the auto-generated certificate (got {identity.error.code})")
+    } else {
+        println("skip TLS verification modes (IRON_MYSQL_CA not set)")
+    }
+    -- Verification against an unrelated root fails.
+    var wrong_ca = user_config(base, "iron_native", "native_pw")
+    wrong_ca.tls = MysqlTls.VerifyCa
+    val bogus_ca = Mysql.connect(wrong_ca)
+    check(bogus_ca.error.code == 3004, "verify_ca against the system roots fails (got {bogus_ca.error.code})")
+
+    -- URL options reach the connection.
+    val url_conn = Mysql.connect_url("mysql://iron_native:native_pw@{base.host}:{base.port}/{db}?tls=disabled&connect_timeout=5000")
+    check(url_conn.ok() and not url_conn.is_tls(), "connect_url with tls=disabled: {url_conn.error.message}")
+    val bad_url = Mysql.connect_url("postgres://x@y/z")
+    check(bad_url.error.code == 7012, "bad URL is 7012")
+
+    -- Unreachable server: an error value, not a panic.
+    var nowhere = MysqlConfig("127.0.0.1", 1, "u", "p", "")
+    nowhere.connect_timeout = 2000
+    val refused = Mysql.connect(nowhere)
+    check(refused.error.code == 1001 and refused.error.is_connection_error(), "refused connection is 1001 (got {refused.error.code})")
+
+    for u in users {
+        admin.run("DROP USER IF EXISTS '{u}'@'%'")
+    }
+    if failures == 0 {
+        println("PASS auth")
+    } else {
+        println("FAILED auth: {failures}")
+        assert(false, "auth checks failed")
+    }
+}

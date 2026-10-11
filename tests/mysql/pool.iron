@@ -1,0 +1,229 @@
+-- The connection pool under concurrency: many tasks sharing one rc
+-- MysqlPool, transactions on acquired connections (rolled back when a
+-- connection comes back mid-transaction), the acquire timeout, recovery
+-- from connections the server killed, reset_on_release, idle trimming and
+-- close.
+import mysql
+import os
+import time
+
+var failures = 0
+
+func check(cond: Bool, what: String) {
+    if cond {
+        println("ok   {what}")
+    } else {
+        println("FAIL {what}")
+        failures += 1
+    }
+}
+
+func worker(shared: rc MysqlPool, task: Int, rounds: Int) -> Int {
+    var ok = 0
+    var i = 0
+    while i < rounds {
+        val key = task * 100000 + i
+        val ins = shared.exec("INSERT INTO iron_pool (k, task) VALUES (?, ?)", [MysqlValue.Int(key), MysqlValue.Int(task)])
+        if ins.ok() {
+            val sel = shared.exec("SELECT task FROM iron_pool WHERE k = ?", [MysqlValue.Int(key)])
+            if sel.ok() and sel.int(0, 0) == task {
+                ok += 1
+            }
+        }
+        i += 1
+    }
+    return ok
+}
+
+func transfer(shared: rc MysqlPool, task: Int) -> Int {
+    var conn = shared.acquire()
+    if conn.error.failed() {
+        return 0
+    }
+    conn.begin()
+    conn.exec("UPDATE iron_acct SET balance = balance - 1 WHERE id = 1", [])
+    conn.exec("UPDATE iron_acct SET balance = balance + 1 WHERE id = 2", [])
+    if conn.commit().ok() {
+        return 1
+    }
+    return 0
+}
+
+func main() {
+    val url = OS.env_or("IRON_MYSQL_URL", "")
+    if url == "" {
+        println("SKIP: IRON_MYSQL_URL is not set")
+        return
+    }
+    val (base, _) = Mysql.parse_url(url)
+    var admin = Mysql.connect(base)
+    check(admin.ok(), "admin connect: {admin.error.message}")
+    if admin.error.failed() {
+        return
+    }
+    admin.run("DROP TABLE IF EXISTS iron_pool")
+    admin.run("CREATE TABLE iron_pool (k BIGINT PRIMARY KEY, task INT)")
+    admin.run("DROP TABLE IF EXISTS iron_acct")
+    admin.run("CREATE TABLE iron_acct (id INT PRIMARY KEY, balance INT) ENGINE=InnoDB")
+    admin.run("INSERT INTO iron_acct VALUES (1, 1000), (2, 0)")
+
+    var opts = MysqlPoolOptions(2, 8)
+    opts.acquire_timeout = 30000
+    val shared = Mysql.open_pool(base, opts)
+    check(shared.ok(), "open pool: {shared.error.message}")
+    if not shared.ok() {
+        return
+    }
+    check(shared.size() == 2 and shared.idle() == 2 and shared.in_use() == 0, "min connections opened up front ({shared.size()})")
+
+    -- 16 tasks, 8 connections.
+    val t1 = spawn("w1") { return worker(shared, 1, 150) }
+    val t2 = spawn("w2") { return worker(shared, 2, 150) }
+    val t3 = spawn("w3") { return worker(shared, 3, 150) }
+    val t4 = spawn("w4") { return worker(shared, 4, 150) }
+    val t5 = spawn("w5") { return worker(shared, 5, 150) }
+    val t6 = spawn("w6") { return worker(shared, 6, 150) }
+    val t7 = spawn("w7") { return worker(shared, 7, 150) }
+    val t8 = spawn("w8") { return worker(shared, 8, 150) }
+    val t9 = spawn("w9") { return worker(shared, 9, 150) }
+    val t10 = spawn("w10") { return worker(shared, 10, 150) }
+    val t11 = spawn("w11") { return worker(shared, 11, 150) }
+    val t12 = spawn("w12") { return worker(shared, 12, 150) }
+    val t13 = spawn("w13") { return worker(shared, 13, 150) }
+    val t14 = spawn("w14") { return worker(shared, 14, 150) }
+    val t15 = spawn("w15") { return worker(shared, 15, 150) }
+    val t16 = spawn("w16") { return worker(shared, 16, 150) }
+    val done = (await t1) + (await t2) + (await t3) + (await t4) + (await t5) + (await t6) + (await t7) + (await t8) + (await t9) + (await t10) + (await t11) + (await t12) + (await t13) + (await t14) + (await t15) + (await t16)
+    check(done == 16 * 150, "16 tasks x 150 insert+select on 8 connections ({done})")
+    val count = shared.query("SELECT COUNT(*) FROM iron_pool")
+    check(count.int(0, 0) == 2400, "2400 rows inserted")
+    check(shared.size() <= 8 and shared.in_use() == 0, "pool stayed within max ({shared.size()})")
+
+    -- Concurrent transactions keep the invariant.
+    val x1 = spawn("x1") { return transfer(shared, 1) }
+    val x2 = spawn("x2") { return transfer(shared, 2) }
+    val x3 = spawn("x3") { return transfer(shared, 3) }
+    val x4 = spawn("x4") { return transfer(shared, 4) }
+    val committed = (await x1) + (await x2) + (await x3) + (await x4)
+    val sum = shared.query("SELECT SUM(balance), MAX(CASE WHEN id = 2 THEN balance END) FROM iron_acct")
+    check(committed == 4 and sum.int(0, 0) == 1000 and sum.int(0, 1) == 4, "concurrent transactions ({committed} committed)")
+
+    -- A connection released mid-transaction is rolled back.
+    {
+        var conn = shared.acquire()
+        check(conn.ok(), "acquire")
+        conn.begin()
+        conn.exec("INSERT INTO iron_pool (k, task) VALUES (?, ?)", [MysqlValue.Int(-1), MysqlValue.Int(-1)])
+        check(conn.in_transaction(), "in a transaction")
+    }
+    val gone = shared.query("SELECT COUNT(*) FROM iron_pool WHERE k = -1")
+    check(gone.int(0, 0) == 0, "uncommitted work rolled back on release")
+
+    -- Acquire timeout.
+    var one = MysqlPoolOptions(0, 1)
+    one.acquire_timeout = 300
+    val tiny = Mysql.open_pool(base, one)
+    {
+        var held = tiny.acquire()
+        check(held.ok(), "hold the only connection")
+        val start = Time.now_ms()
+        val waited = tiny.query("SELECT 1")
+        val elapsed = Time.now_ms() - start
+        check(waited.error.code == 7009, "acquire timeout is 7009 (got {waited.error.code})")
+        check(elapsed >= 250 and elapsed < 10000, "waited about the timeout ({elapsed} ms)")
+    }
+    check(tiny.query("SELECT 1").ok(), "connection available again after release")
+
+    -- Connections killed by the server are replaced.
+    var four = MysqlPoolOptions(4, 4)
+    four.health_check = 0
+    val killp = Mysql.open_pool(base, four)
+    var ids: [Int] = []
+    {
+        var a = killp.acquire()
+        var b = killp.acquire()
+        var c = killp.acquire()
+        var d = killp.acquire()
+        ids.push(a.connection_id())
+        ids.push(b.connection_id())
+        ids.push(c.connection_id())
+        ids.push(d.connection_id())
+    }
+    for id in ids {
+        admin.run("KILL {id}")
+    }
+    Time.sleep(200)
+    var recovered = 0
+    var r = 0
+    while r < 8 {
+        val q = killp.query("SELECT CONNECTION_ID()")
+        if q.ok() {
+            recovered += 1
+        }
+        r += 1
+    }
+    check(recovered == 8, "every query succeeds after the server killed all pooled connections ({recovered}/8)")
+
+    -- A session the server timed out while idle (wait_timeout).
+    {
+        var c = killp.acquire()
+        c.run("SET SESSION wait_timeout = 1")
+    }
+    Time.sleep(2500)
+    val after_timeout = killp.query("SELECT 1")
+    check(after_timeout.ok(), "query after the server timed out an idle session: {after_timeout.error.message}")
+
+    -- reset_on_release.
+    var ropt = MysqlPoolOptions(1, 1)
+    ropt.reset_on_release = true
+    val rp = Mysql.open_pool(base, ropt)
+    {
+        var c = rp.acquire()
+        c.run("SET @iron_pool_var = 9")
+    }
+    {
+        var c = rp.acquire()
+        check(c.query("SELECT @iron_pool_var").is_null(0, 0), "reset_on_release clears session state")
+    }
+
+    -- Idle connections above min are trimmed.
+    var iopt = MysqlPoolOptions(0, 4)
+    iopt.idle_timeout = 200
+    val ip = Mysql.open_pool(base, iopt)
+    {
+        var a = ip.acquire()
+        var b = ip.acquire()
+        var c = ip.acquire()
+        var d = ip.acquire()
+    }
+    check(ip.size() == 4, "four connections opened")
+    Time.sleep(400)
+    ip.query("SELECT 1")
+    ip.query("SELECT 1")
+    ip.query("SELECT 1")
+    check(ip.size() < 4, "idle connections trimmed ({ip.size()} left)")
+
+    -- close.
+    shared.close()
+    check(shared.query("SELECT 1").error.code == 7010, "query after close is 7010")
+    val late = shared.acquire()
+    check(late.error.code == 7010, "acquire after close is 7010")
+    check(shared.size() == 0, "closed pool has no connections")
+
+    -- Bad configuration fails at open.
+    var bad = MysqlConfig(base.host, base.port, "nobody_xyz", "x", "")
+    bad.tls = MysqlTls.Required
+    val bp = Mysql.open_pool(bad, MysqlPoolOptions(1, 2))
+    check(bp.error.code == 1045, "pool with bad credentials fails at open (got {bp.error.code})")
+    val bad_opts = Mysql.open_pool(base, MysqlPoolOptions(3, 2))
+    check(bad_opts.error.code == 7002, "min > max is 7002")
+
+    admin.run("DROP TABLE iron_pool")
+    admin.run("DROP TABLE iron_acct")
+    if failures == 0 {
+        println("PASS pool")
+    } else {
+        println("FAILED pool: {failures}")
+        assert(false, "pool checks failed")
+    }
+}
