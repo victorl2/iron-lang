@@ -9,6 +9,7 @@ on:
       - 'docs/llms/**'
       - 'docs/language_definition.md'
       - 'docs/networking.md'
+      - 'docs/mysql.md'
       - 'docs/guide.md'
       - 'docs/raylib.md'
       - 'docs/examples/**'

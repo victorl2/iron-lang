@@ -1,0 +1,38 @@
+-- An enum variant shares its name with a type declared after the enum:
+-- the variant used to claim the global name and the type was rejected as
+-- a duplicate declaration (E0201).
+enum Value {
+    Text(String),
+    Clock(Int),
+    Nothing,
+}
+
+object Clock {
+    val ticks: Int
+}
+
+interface Text {
+    readonly func show() -> String
+}
+
+object Label impl Text {
+    val s: String
+    readonly func show() -> String {
+        return self.s
+    }
+}
+
+func describe(v: Value) -> String {
+    match v {
+        Value.Text(s) -> return "text {s}"
+        Value.Clock(n) -> return "clock {n}"
+        Value.Nothing -> return "nothing"
+    }
+    return ""
+}
+
+func main() {
+    val c = Clock(5)
+    val t: Text = Label("hi")
+    println("{describe(Value.Text("a"))} {describe(Value.Clock(c.ticks))} {describe(Value.Nothing)} {t.show()}")
+}

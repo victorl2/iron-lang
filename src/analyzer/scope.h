@@ -89,6 +89,12 @@ Iron_Symbol *iron_scope_lookup_local(Iron_Scope *s, const char *name);
  * this scope (duplicate detection). */
 bool iron_scope_define(Iron_Scope *s, Iron_Arena *a, Iron_Symbol *sym);
 
+/* Define a type, enum or interface name. An enum variant registered under
+ * the same name earlier gives way: variants are written `Enum.Variant`, so
+ * `enum V { Time(Int) }` must not claim the name of a later `object Time`.
+ * Returns false for any other duplicate. */
+bool iron_scope_define_type(Iron_Scope *s, Iron_Arena *a, Iron_Symbol *sym);
+
 /* Allocate and initialize an Iron_Symbol. */
 Iron_Symbol *iron_symbol_create(Iron_Arena *a,
                                  const char *name,

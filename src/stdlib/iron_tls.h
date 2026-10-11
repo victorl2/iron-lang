@@ -33,6 +33,19 @@ Iron_TlsStreamResult iron_tls_client_connect(Iron_TcpSocket socket,
                                               bool insecure,
                                               Iron_Deadline deadline);
 
+/* Verification modes for iron_tls_client_connect_mode. FULL checks the
+ * chain and the host name or IP address (what iron_tls_client_connect does
+ * unless insecure), CA checks the chain only, NONE checks nothing. */
+#define IRON_TLS_VERIFY_FULL 0
+#define IRON_TLS_VERIFY_CA   1
+#define IRON_TLS_VERIFY_NONE 2
+
+Iron_TlsStreamResult iron_tls_client_connect_mode(Iron_TcpSocket socket,
+                                                   Iron_String host,
+                                                   Iron_String ca_file,
+                                                   int mode,
+                                                   Iron_Deadline deadline);
+
 Iron_TlsContextResult iron_tls_server_context_new(Iron_String certificate_file,
                                                    Iron_String private_key_file);
 Iron_TlsStreamResult iron_tls_server_accept(Iron_TlsServerContext *context,
