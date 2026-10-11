@@ -263,6 +263,45 @@ func main() {
 }
 ```
 
+`static func` declares a function of the type, called as `Type.f(args)`, with
+no `self`. Calling a method through the type name (`Cat.describe()`) is an
+error: it needs a value. Interfaces may declare static functions and use
+`Self` (the implementing type) in signatures; a generic function calls them
+on a constrained type parameter, `T.parse(text)`. A static function, or a
+method taking `Self`, cannot be called through a value of interface type.
+
+```iron
+interface Parse {
+    static func parse(text: String) -> Self?
+}
+
+object Num impl Parse {
+    val n: Int
+    static func parse(text: String) -> Self? {
+        if text.len() == 0 {
+            return null
+        }
+        return Num(text.len())
+    }
+}
+
+func parse_or[T: Parse](text: String, fallback: T) -> T {
+    val v = T.parse(text)
+    if v != null {
+        return v
+    }
+    return fallback
+}
+
+func main() {
+    println("{parse_or("abc", Num(0)).n} {parse_or("", Num(7)).n}")
+}
+```
+
+```output
+3 7
+```
+
 
 ## Enums and generics
 
