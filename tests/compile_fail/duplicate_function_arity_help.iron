@@ -1,0 +1,14 @@
+-- The arity help of a call read the parameter list of the second
+-- declaration (E0201), which has fewer parameters than the type it was
+-- checked against: it ran past the list.
+func f(a: Int) -> Int {
+    return a
+}
+
+func f(a: Int, b: Int, c: Int) -> Int {
+    return a
+}
+
+func main() {
+    println("{f(1, 2)}")
+}
