@@ -1,0 +1,31 @@
+176 bytes
+{"name":"line\nbreak \"quoted\"","min":-9223372036854775808,"pi":3.141592653589793,"ok":true,"none":null,"list":[1,0.5,"x",{"pre":[1]},[7,8],[]],"nan":null,"tree":{"k":[true]}}
+5
+[
+    {
+        "a": 1,
+        "b": {}
+    },
+    "s"
+]
+[{"sku":"A-1","qty":2,"price":9.99},{"sku":"B-2","qty":5,"price":0.1}]
+{"sku":"B-2","qty":5,"price":0.1}
+true 2 A-1 0.1
+not an array: false
+total qty 7
+true 1 2.5 s true true
+{"a":1} 9 false false
+4000 1:4
+4000 1:1 empty input (expected a JSON value) at line 1, column 1
+4000 1:6 trailing comma before closing bracket at line 1, column 6
+4000 1:6 expected ':' after object key, found '1' at line 1, column 6
+4005 1:2 leading zeros are not allowed at line 1, column 2
+4004 1:2 invalid escape sequence at line 1, column 2
+4004 1:2 lone high surrogate (\uD800-\uDBFF must be followed by a low surrogate) at line 1, column 2
+4005 1:2 number is out of the range of a 64-bit float at line 1, column 2
+4000 1:1 invalid literal (expected true, false or null) at line 1, column 1
+4000 1:5 expected end of input after the top-level value, found '2' at line 1, column 5
+4000 3:6 expected ',' or ']', found '3' at line 3, column 6
+4001 nesting is deeper than the depth limit at line 1, column 4
+4002 input is larger than the size limit at line 1, column 1
+0 [[[1]]]

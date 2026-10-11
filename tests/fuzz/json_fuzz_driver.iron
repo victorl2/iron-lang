@@ -1,0 +1,42 @@
+-- json_fuzz_driver.iron -- the Iron side of tests/fuzz/json_fuzz.py.
+--
+-- Parses every file in the directory given as the first argument (in the
+-- order of the list file given as the second) and prints one line per
+-- file: "<name> accept <canonical JSON>" (compact, keys sorted, duplicate
+-- keys collapsed to the last) or "<name> reject <code> <line> <column>".
+-- Accepted documents must also survive a round trip through compact and
+-- pretty output; a failure prints "<name> roundtrip <what>".
+import io
+import json
+
+func main(args: [String]) {
+    val dir = args[0]
+    val names = IO.read_lines(args[1])
+    for name in names {
+        if name == "" {
+            continue
+        }
+        val file = IO.read_bytes(IO.join_path(dir, name), 268435456)
+        val res = Json.parse(file.data)
+        if res.error != 0 {
+            println("{name} reject {res.error} {res.line} {res.column}")
+            continue
+        }
+        val text = res.value.to_string()
+        val again = Json.parse(text)
+        if again.error != 0 or not again.value.equals(res.value) {
+            println("{name} roundtrip compact")
+            continue
+        }
+        if again.value.to_string() != text {
+            println("{name} roundtrip unstable")
+            continue
+        }
+        val pretty = Json.parse(res.value.pretty())
+        if pretty.error != 0 or not pretty.value.equals(res.value) {
+            println("{name} roundtrip pretty")
+            continue
+        }
+        println("{name} accept {res.value.format(0, true)}")
+    }
+}

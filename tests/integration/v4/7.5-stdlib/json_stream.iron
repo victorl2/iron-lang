@@ -1,0 +1,123 @@
+-- json module: JsonWriter, JsonReader, JsonEncodable, decode helpers and
+-- parse errors with limits.
+import json
+import math
+
+object Item impl JsonEncodable {
+    val sku: String
+    val qty: Int
+    val price: Float
+    readonly func write_json(w: JsonWriter) {
+        w.begin_object()
+        w.field_string("sku", self.sku)
+        w.field_int("qty", self.qty)
+        w.field_float("price", self.price)
+        w.end_object()
+    }
+}
+
+func item_from(j: Json) -> Item {
+    return Item(j.get("sku").string_or(""), j.get("qty").int_or(0), j.get("price").float_or(0.0))
+}
+
+func read_items(text: String) -> Int {
+    var r = JsonReader(text)
+    if r.error != 0 {
+        println("reader error: {r.error_message}")
+        return -1
+    }
+    var total = 0
+    if r.begin_array() {
+        while r.next_item() {
+            if r.begin_object() {
+                var key = r.next_key()
+                while key != null {
+                    if key == "qty" {
+                        total += r.int_or(0)
+                    } else {
+                        r.skip()
+                    }
+                    key = r.next_key()
+                }
+            }
+        }
+    }
+    return total
+}
+
+func main() {
+    -- streaming writer, compact and pretty, with reuse
+    val w = JsonWriter.compact()
+    w.begin_object()
+    w.field_string("name", "line\nbreak \"quoted\"")
+    w.field_int("min", -9223372036854775807 - 1)
+    w.field_float("pi", Math.PI)
+    w.field_bool("ok", true)
+    w.field_null("none")
+    w.key("list")
+    w.begin_array()
+    w.int(1)
+    w.float(0.5)
+    w.string("x")
+    w.raw("\{\"pre\":[1]}")
+    w.value(Json.ints([7, 8]))
+    w.begin_array()
+    w.end_array()
+    w.end_array()
+    w.key("nan")
+    w.float(Math.sqrt(-1.0))
+    w.field_value("tree", Json.parse("\{\"k\": [true]}").value)
+    w.end_object()
+    println("{w.len()} bytes")
+    println(w.finish())
+    w.int(5)
+    println(w.finish())
+
+    val p = JsonWriter.pretty(4)
+    p.begin_array()
+    p.begin_object()
+    p.field_int("a", 1)
+    p.key("b")
+    p.begin_object()
+    p.end_object()
+    p.end_object()
+    p.string("s")
+    p.end_array()
+    println(p.finish())
+
+    -- encodable types and the generic helpers
+    var items: [Item] = []
+    items.push(Item("A-1", 2, 9.99))
+    items.push(Item("B-2", 5, 0.1))
+    val text = json_encode_list(items)
+    println(text)
+    println(Json.encode(items[1]))
+    var back: [Item] = []
+    val ok = json_decode_list(Json.parse(text).value, item_from, back)
+    println("{ok} {back.len()} {back[0].sku} {back[1].price}")
+    println("not an array: {json_decode_list(Json.int(1), item_from, back)}")
+
+    -- pull reader
+    println("total qty {read_items(text)}")
+    var r = JsonReader("[1, 2.5, \"s\", true, null, [1, [2]], \{\"a\": 1}, 9]")
+    if r.begin_array() {
+        println("{r.peek() == JsonKind.Int} {r.int()} {r.float()} {r.string()} {r.bool()} {r.null()}")
+        r.skip()
+        println("{r.value()} {r.int()} {r.next_item()} {r.next_item()}")
+    }
+    val bad = JsonReader("[1,")
+    println("{bad.error} {bad.line}:{bad.column}")
+
+    -- errors and limits
+    val errs = ["", "[1, 2,]", "\{\"a\" 1}", "[01]", "\"\\x\"", "\"\\ud800\"", "[1e999]", "tru", "[1] 2", "\{\"k\":\n  [1,\n   2 3]}"]
+    for e in errs {
+        val res = Json.parse(e)
+        println("{res.error} {res.line}:{res.column} {res.error_message}")
+    }
+    val deep = Json.parse_with("[[[[1]]]]", JsonLimits(3, 1000))
+    println("{deep.error} {deep.error_message}")
+    val big = Json.parse_with("[1, 2, 3]", JsonLimits(10, 4))
+    println("{big.error} {big.error_message}")
+    val fine = Json.parse_with("[[[1]]]", JsonLimits(3, 7))
+    println("{fine.error} {fine.value}")
+}

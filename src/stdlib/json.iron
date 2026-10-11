@@ -232,23 +232,35 @@ func Json.parse_with(text: String, limits: JsonLimits) -> JsonResult {
 
 /// Builds the tree for a scanned tape (iron_json.h describes the opcodes).
 func Json.from_tape(t: JsonTape) -> Json {
-    var stack: [Json] = []
+    val (v, _, _, _) = Json.build_at(t, 0, 0, 0)
+    return v
+}
+
+/// Builds the one value that starts at tape position `start` (with string
+/// and float cursors `s0` and `f0`); returns it and the three cursors just
+/// past it. Children are collected in plain lists and each container is
+/// wrapped in its rc cell once, when it closes.
+func Json.build_at(t: JsonTape, start: Int, s0: Int, f0: Int) -> (Json, Int, Int, Int) {
+    var items: [[Json]] = []
+    var keys: [[String]] = []
+    var kinds: [Int] = []
     var root = Json.null()
-    var key = ""
-    var i = 0
-    var si = 0
-    var fi = 0
+    var i = start
+    var si = s0
+    var fi = f0
     val n = t.ops.len()
     while i < n {
         val op = t.ops[i]
         i += 1
         if op == 9 {
-            key = t.strs[si]
+            keys[keys.len() - 1].push(t.strs[si])
             si += 1
             continue
         }
-        if op == 8 {
-            stack.pop()
+        if op == 6 or op == 7 {
+            kinds.push(op)
+            items.push([])
+            keys.push([])
             continue
         }
         var v = Json.null()
@@ -265,22 +277,27 @@ func Json.from_tape(t: JsonTape) -> Json {
             v = Json(JsonNode.Bool(true))
         } elif op == 1 {
             v = Json(JsonNode.Bool(false))
-        } elif op == 6 {
-            v = Json.array()
-        } elif op == 7 {
-            v = Json.obj()
+        } elif op == 8 {
+            val kind = kinds.pop()
+            var xs = items.pop()
+            var ks = keys.pop()
+            if kind == 6 {
+                v = Json(JsonNode.Arr(rc xs.take()))
+            } else {
+                val obj = rc JsonObject()
+                obj.keys = ks.take()
+                obj.values = xs.take()
+                v = Json(JsonNode.Obj(obj))
+            }
         }
-        val depth = stack.len()
+        val depth = items.len()
         if depth == 0 {
             root = v
-        } else {
-            stack[depth - 1].attach(key, v)
+            return (root, i, si, fi)
         }
-        if op == 6 or op == 7 {
-            stack.push(v)
-        }
+        items[depth - 1].push(v)
     }
-    return root
+    return (root, i, si, fi)
 }
 
 /// `s` as a quoted JSON string literal.
@@ -1058,4 +1075,314 @@ patch object JsonResult {
     readonly func ok() -> Bool {
         return self.error == 0
     }
+}
+
+-- ── JsonReader: decoding without a tree ───────────────────────────────────
+
+/// A pull reader over a parsed document: walk it value by value and copy
+/// what you need into your own objects, without building a Json tree.
+/// Typed reads consume the next value; when it has another type they skip
+/// it and return null, so a decoder can ignore what it does not expect.
+///
+///     var r = JsonReader.from(text)
+///     if r.error != 0 { ... r.error_message ... }
+///     if r.begin_object() {
+///         var key = r.next_key()
+///         while key != null {
+///             if key == "id" { id = r.int_or(0) } else { r.skip() }
+///             key = r.next_key()
+///         }
+///     }
+object JsonReader {
+    var tape: JsonTape
+    var pos: Int
+    var si: Int
+    var fi: Int
+    val error: Int
+    val error_message: String
+    val line: Int
+    val column: Int
+
+    init(text: String) {
+        val limits = Json.default_limits()
+        self.tape = JsonNative.scan(text, limits.max_depth, limits.max_bytes)
+        self.pos = 0
+        self.si = 0
+        self.fi = 0
+        self.error = self.tape.error
+        self.error_message = self.tape.error_message
+        self.line = self.tape.line
+        self.column = self.tape.column
+    }
+
+    init with_limits(text: String, limits: JsonLimits) {
+        self.tape = JsonNative.scan(text, limits.max_depth, limits.max_bytes)
+        self.pos = 0
+        self.si = 0
+        self.fi = 0
+        self.error = self.tape.error
+        self.error_message = self.tape.error_message
+        self.line = self.tape.line
+        self.column = self.tape.column
+    }
+
+    readonly func op() -> Int {
+        if self.pos < self.tape.ops.len() {
+            return self.tape.ops[self.pos]
+        }
+        return 8
+    }
+
+    /// The type of the next value; Null also at the end of an array or
+    /// object (see `next_item` / `next_key`).
+    readonly func peek() -> JsonKind {
+        val op = self.op()
+        if op == 1 or op == 2 {
+            return JsonKind.Bool
+        }
+        if op == 3 {
+            return JsonKind.Int
+        }
+        if op == 4 {
+            return JsonKind.Float
+        }
+        if op == 5 {
+            return JsonKind.String
+        }
+        if op == 6 {
+            return JsonKind.Array
+        }
+        if op == 7 {
+            return JsonKind.Object
+        }
+        return JsonKind.Null
+    }
+
+    /// Enter an object; false (and the value is skipped) when the next
+    /// value is not an object.
+    func begin_object() -> Bool {
+        if self.op() == 7 {
+            self.pos += 1
+            return true
+        }
+        self.skip()
+        return false
+    }
+
+    /// The next key of the current object, or null at its end (which
+    /// leaves the object).
+    func next_key() -> String? {
+        val op = self.op()
+        if op == 9 {
+            val k = self.tape.strs[self.si]
+            self.si += 1
+            self.pos += 1
+            return k
+        }
+        if op == 8 {
+            self.pos += 1
+        }
+        return null
+    }
+
+    /// Enter an array; false (and the value is skipped) when the next
+    /// value is not an array.
+    func begin_array() -> Bool {
+        if self.op() == 6 {
+            self.pos += 1
+            return true
+        }
+        self.skip()
+        return false
+    }
+
+    /// Whether the current array has another element; false at its end
+    /// (which leaves the array).
+    func next_item() -> Bool {
+        val op = self.op()
+        if op == 8 {
+            self.pos += 1
+            return false
+        }
+        return self.pos < self.tape.ops.len()
+    }
+
+    func int() -> Int? {
+        if self.op() == 3 {
+            val v = self.tape.ops[self.pos + 1]
+            self.pos += 2
+            return v
+        }
+        self.skip()
+        return null
+    }
+
+    /// A Float, or an Int converted to Float.
+    func float() -> Float? {
+        val op = self.op()
+        if op == 4 {
+            val v = self.tape.floats[self.fi]
+            self.fi += 1
+            self.pos += 1
+            return v
+        }
+        if op == 3 {
+            val v = self.tape.ops[self.pos + 1]
+            self.pos += 2
+            return Float(v)
+        }
+        self.skip()
+        return null
+    }
+
+    func string() -> String? {
+        if self.op() == 5 {
+            val v = self.tape.strs[self.si]
+            self.si += 1
+            self.pos += 1
+            return v
+        }
+        self.skip()
+        return null
+    }
+
+    func bool() -> Bool? {
+        val op = self.op()
+        if op == 1 or op == 2 {
+            self.pos += 1
+            return op == 2
+        }
+        self.skip()
+        return null
+    }
+
+    func int_or(fallback: Int) -> Int {
+        val v = self.int()
+        if v != null {
+            return v
+        }
+        return fallback
+    }
+
+    func float_or(fallback: Float) -> Float {
+        val v = self.float()
+        if v != null {
+            return v
+        }
+        return fallback
+    }
+
+    func string_or(fallback: String) -> String {
+        val v = self.string()
+        if v != null {
+            return v
+        }
+        return fallback
+    }
+
+    func bool_or(fallback: Bool) -> Bool {
+        val v = self.bool()
+        if v != null {
+            return v
+        }
+        return fallback
+    }
+
+    /// The next value as a Json tree.
+    func value() -> Json {
+        if self.op() == 8 or self.pos >= self.tape.ops.len() {
+            return Json.null()
+        }
+        val (v, p, s, f) = Json.build_at(self.tape, self.pos, self.si, self.fi)
+        self.pos = p
+        self.si = s
+        self.fi = f
+        return v
+    }
+
+    /// Skip the next value, with everything nested in it. Does nothing at
+    /// the end of an array or object.
+    func skip() {
+        var depth = 0
+        while self.pos < self.tape.ops.len() {
+            val op = self.tape.ops[self.pos]
+            if op == 8 {
+                if depth == 0 {
+                    return
+                }
+                depth -= 1
+                self.pos += 1
+            } elif op == 6 or op == 7 {
+                depth += 1
+                self.pos += 1
+            } elif op == 3 {
+                self.pos += 2
+            } elif op == 4 {
+                self.fi += 1
+                self.pos += 1
+            } elif op == 5 or op == 9 {
+                self.si += 1
+                self.pos += 1
+            } else {
+                self.pos += 1
+            }
+            if depth == 0 and op != 9 {
+                return
+            }
+        }
+    }
+}
+
+patch object JsonReader {
+    /// Consume a null; false (consuming nothing) when the next value is
+    /// not null.
+    func null() -> Bool {
+        if self.op() == 0 {
+            self.pos += 1
+            return true
+        }
+        return false
+    }
+}
+
+-- ── Encoding and decoding user types ──────────────────────────────────────
+
+/// A type that writes itself as JSON. Implement it once and use
+/// `Json.encode` / `Json.encode_list`, or call `v.write_json(w)` from
+/// another type's `write_json`.
+interface JsonEncodable {
+    readonly func write_json(w: JsonWriter)
+}
+
+/// `v` as compact JSON text.
+func Json.encode(v: JsonEncodable) -> String {
+    val w = JsonWriter.compact()
+    v.write_json(w)
+    return w.finish()
+}
+
+-- Generic helpers are top-level functions: a module object's functions
+-- cannot take type parameters yet.
+
+/// A JSON array of every element of `xs`, as compact text.
+func json_encode_list[T: JsonEncodable](xs: [T]) -> String {
+    val w = JsonWriter.compact()
+    w.begin_array()
+    for x in xs {
+        x.write_json(w)
+    }
+    w.end_array()
+    return w.finish()
+}
+
+/// Decode every element of the array `v` with `f`, appending to `out`;
+/// false (appending nothing) when `v` is not an array.
+func json_decode_list[T](v: Json, f: func(Json) -> T, var out: [T]) -> Bool {
+    if not v.is_array() {
+        return false
+    }
+    for i in range(v.len()) {
+        out.push(f(v.at(i)))
+    }
+    return true
 }
