@@ -174,6 +174,24 @@ def check_pkg(iron, d, seed, mode):
     if r.returncode != 0 or r.stdout.splitlines() != exp:
         raise Fail('wrong', f'iron run differs from iron build (rc={r.returncode}):\n'
                             f'{r.stdout[-2000:]}\n{r.stderr[-2000:]}')
+    # iron fmt on every file keeps the program, and a second pass changes
+    # nothing (--check)
+    if random.Random(f'fmt-{seed}').random() < 0.5:
+        froot = os.path.join(d, 'fmtpkg')
+        write_tree(froot, pk.tree('pkg'))
+        srcs = [p for p in pk.tree() if p.endswith('.iron')]
+        for p in srcs:
+            f = run([iron, 'fmt', p], froot, env, f'iron fmt {p}')
+            if f.returncode != 0:
+                raise Fail('fmt', f'iron fmt {p} failed:\n{(f.stdout + f.stderr)[-2000:]}')
+        for p in srcs:
+            f = run([iron, 'fmt', '--check', p], froot, env, f'iron fmt --check {p}')
+            if f.returncode != 0:
+                raise Fail('fmt', f'iron fmt is not idempotent on {p}:\n{(f.stdout + f.stderr)[-2000:]}')
+        fb = run([iron, 'build'], froot, env, 'iron build after fmt')
+        check_built(fb, 'iron build after iron fmt')
+        run_binary(os.path.join(froot, 'target', exe_name('pkg')), froot, exp, 'plain',
+                   'target/pkg after iron fmt')
     # the same program as one file
     flat = os.path.join(d, 'flat.iron')
     with open(flat, 'w', encoding='utf-8', newline='\n') as f:

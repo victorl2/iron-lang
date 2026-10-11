@@ -2917,7 +2917,12 @@ every `.iron` file under `src/` and `vendor/` into `target/`, `iron run`
 builds and runs it, `iron check` type-checks the same sources, `iron test`
 runs the package's `test "name" { ... }` blocks (section 10.2.1) and every
 `tests/test_*.iron` program, and `iron fmt file.iron` reformats a file
-(`--check` only reports). All files of a package share one namespace: a
+(`--check` only reports). In a package, `iron build`, `iron run` and `iron
+check` take no file argument (program arguments follow `--` in `iron
+run`), and `iron test` takes one, a name filter (`iron test -- -name` for
+a filter that starts with `-`); any other argument is an error, as is a
+second file given to `ironc`. Builds and checks of the same package may run
+at the same time. All files of a package share one namespace: a
 `pub` declaration in one file is visible in every other file, and a
 private one only in its own (`E0320`). `import` of a package file is
 optional and documents the dependency. The files are compiled in this
@@ -2933,6 +2938,13 @@ type = "bin"            # or "lib"
 description = "optional"
 iron = ">= 4.4.0"       # optional compiler version constraint
 ```
+
+Values are TOML basic strings (the escapes `\"`, `\\`, `\t`, `\n` and
+`\r`); a malformed string stops the build with its line. The `name` is the
+name of the output file (`target/<name>`, `target/lib<name>.a`), so it may
+not be empty, `.` or `..`, or contain `/ \ : " < > | ? *` or control
+characters; `iron init` without a name derives it from the directory, with
+such characters replaced by `_`. `type` is `"bin"` or `"lib"`.
 
 The `iron` constraint uses full `X.Y.Z` versions with the operators `>=`,
 `>`, `<=`, `<`, `=` (or no operator for an exact version), `^` (same
@@ -2950,7 +2962,13 @@ file.iron`) and left out of every other build. `test` is a keyword only in
 this position. The tests of a package are compiled with its sources, so a
 test in `src/` can call that file's private functions; each runs in its own
 process, and a failed `assert`, `assert_eq`, `assert_ne` or a panic fails
-it.
+it. The name is a string literal without interpolation (escapes allowed).
+Each selected test prints `test <name> ... ok` or `test <name> ... FAILED`
+followed by its output, indented; a failed `assert(cond)` reports its
+`file:line` (the path as the build names the file, `src/a/b.iron` in a
+package), `assert_eq` also the expected and actual values. The run ends
+with `P passed, F failed` (and `, K filtered out` when a filter, a
+substring of the names, left tests out) and fails when a test failed.
 
 <!-- doctest-test -->
 ```iron
