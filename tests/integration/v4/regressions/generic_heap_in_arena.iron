@@ -1,0 +1,40 @@
+-- `heap(in: a)` inside a generic function: generic instances are printed
+-- and parsed again, and the printer dropped the `in:` option, so the
+-- instance allocated on the heap (W0606, a leak, used() stayed 0). Found
+-- by the arenax program fuzzer (#482).
+object Cell[T] {
+    var v: T
+    init(v: T) {
+        self.v = v
+    }
+}
+
+object Named {
+    val name: String
+}
+
+func cell_val[T](a: Arena, v: T) -> T {
+    val p = heap(in: a) Cell[T](v)
+    return p.v
+}
+
+func make_cells[T](a: Arena, v: T, n: Int) -> Int {
+    var c = 0
+    for i in range(n) {
+        val p = heap(in: a) Cell[T](v)
+        c += 1
+    }
+    return c
+}
+
+func name_len[T](a: Arena, v: T) -> Int {
+    val p = heap(in: a, allow_drop_skip: true) Named("arena name")
+    return p.name.len()
+}
+
+func main() {
+    val a = Arena(4096)
+    println("{cell_val[Int](a, 3)} {a.used()}")
+    println("{make_cells[Int](a, 7, 4)} {a.used()}")
+    println("{name_len[Int](a, 0)} {a.used() > 160}")
+}

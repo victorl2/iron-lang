@@ -1,0 +1,23 @@
+-- A spawn that is never awaited and is still running when main returns is
+-- stopped with the program (manual 7.1). The runtime joined the worker at
+-- shutdown, so a detached task blocked on a channel nobody feeds kept the
+-- program from exiting. Found by the sync program fuzzer (#477).
+func listen() {
+    val ch = Channel[String](1)
+    spawn("idle") {
+        val s: String = ch.recv()
+        return s.len()
+    }
+}
+
+func main() {
+    listen()
+    val m = Mutex(0)
+    spawn("busy") {
+        val g = m.lock()
+        val ch = Channel[Int](1)
+        val v: Int = ch.recv()
+        return v
+    }
+    println("done")
+}

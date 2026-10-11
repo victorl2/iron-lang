@@ -98,6 +98,7 @@ void iron_lir_compute_inline_eligible(IronLIR_Func *fn, IronLIR_OptimizeInfo *in
 
 /* Returns true if the instruction kind has no observable side effects. */
 bool iron_lir_instr_is_pure(IronLIR_InstrKind kind);
+bool iron_lir_instr_may_trap(IronLIR_Func *fn, IronLIR_Instr *in);
 
 /* ── Phase 29 OPT-01: atomic refcount elision ──────────────────────────────── */
 
