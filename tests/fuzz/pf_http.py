@@ -138,8 +138,8 @@ class HttpGen(SegProgram):
         self.reqs = 0           # requests the server reads successfully
         for _ in range(r.randint(2, 8)):
             kind = r.choices(['request', 'get', 'post', 'session', 'parallel', 'raw', 'broken',
-                              'silent', 'limit', 'forbidden', 'timeout'],
-                             [5, 1, 1, 2, 2, 2, 3, 1, 1, 1, 1])[0]
+                              'silent', 'limit', 'forbidden', 'timeout', 'rawserver'],
+                             [5, 1, 1, 2, 2, 2, 3, 1, 1, 1, 1, 3])[0]
             l2, o2 = getattr(self, 'c_' + kind)()
             lines += l2
             out += o2
@@ -393,6 +393,86 @@ class HttpGen(SegProgram):
         v = self.fresh('r')
         return ([f'val {v} = Http.request("POST", base + "/f", "{h}", "body", 1024, 5000)',
                  f'println("{{{v}.error != 0}} {{{v}.status}}")'], ['true 0'])
+
+    def c_rawserver(self):
+        """The client parses a response written byte by byte by a server
+        task: chunked (random splits, extensions, trailers), close
+        delimited, Content-Length, HTTP/1.0, and the framings the guide
+        says the client rejects."""
+        r = self.r
+        body = self.body()
+        if len(body) > 60000:
+            body = body[:6000]
+        bb = body.encode()
+        st = r.choice([200, 201, 404, 500])
+        reason = {200: 'OK', 201: 'Created', 404: 'Not Found', 500: 'Internal Server Error'}[st]
+        kind = r.choice(['cl', 'chunked', 'chunked', 'close', 'http10', 'bad_chunk', 'two_cl',
+                         'cl_te', 'fold', 'ctl', 'bad_name', 'bad_status', 'short_cl', 'te_other'])
+        head = f'HTTP/1.1 {st} {reason}\r\nX-Reply: raw\r\n'
+        valid = True
+        if kind == 'cl':
+            resp = head.encode() + f'Content-Length: {len(bb)}\r\n\r\n'.encode() + bb
+        elif kind in ('chunked', 'bad_chunk'):
+            pieces, i = [], 0
+            while i < len(bb):
+                n = r.randint(1, max(1, min(len(bb) - i, r.choice([1, 9, 100, 4000]))))
+                ext = r.choice([b'', b'', b';x=1', b';y'])
+                size = f'{n:x}'.encode() if r.random() < 0.7 else f'{n:X}'.encode()
+                pieces.append(size + ext + b'\r\n' + bb[i:i + n] + b'\r\n')
+                i += n
+            trailer = r.choice([b'', b'X-Trailer: t\r\n'])
+            chunks = b''.join(pieces)
+            if kind == 'bad_chunk':
+                chunks = b'zz\r\nabc\r\n' + chunks
+                valid = False
+            resp = head.encode() + b'Transfer-Encoding: chunked\r\n\r\n' + chunks + b'0\r\n' + trailer + b'\r\n'
+        elif kind == 'close':
+            resp = head.encode() + b'Connection: close\r\n\r\n' + bb
+        elif kind == 'http10':
+            resp = f'HTTP/1.0 {st} {reason}\r\n\r\n'.encode() + bb
+        elif kind == 'two_cl':
+            resp = head.encode() + f'Content-Length: {len(bb)}\r\nContent-Length: {len(bb) + 1}\r\n\r\n'.encode() + bb
+            valid = False
+        elif kind == 'cl_te':
+            resp = head.encode() + f'Content-Length: {len(bb)}\r\nTransfer-Encoding: chunked\r\n\r\n'.encode() + bb
+            valid = False
+        elif kind == 'fold':
+            resp = head.encode() + b'X-A: one\r\n two\r\n' + f'Content-Length: {len(bb)}\r\n\r\n'.encode() + bb
+            valid = False
+        elif kind == 'ctl':
+            resp = head.encode() + b'X-A: a\x01b\r\n' + f'Content-Length: {len(bb)}\r\n\r\n'.encode() + bb
+            valid = False
+        elif kind == 'bad_name':
+            resp = head.encode() + b'Bad Name: x\r\n' + f'Content-Length: {len(bb)}\r\n\r\n'.encode() + bb
+            valid = False
+        elif kind == 'bad_status':
+            resp = f'HTTP/1.1 {r.choice(["2x0", "99", "1000", ""])} OK\r\nContent-Length: 0\r\n\r\n'.encode()
+            valid = False
+        elif kind == 'te_other':
+            resp = head.encode() + b'Transfer-Encoding: gzip\r\n\r\n' + bb
+            valid = False
+        else:   # short_cl: the body ends before Content-Length says
+            resp = head.encode() + f'Content-Length: {len(bb) + 5}\r\n\r\n'.encode() + bb
+            valid = False
+        ls, srv2, h, v = self.fresh('ls'), self.fresh('srv'), self.fresh('h'), self.fresh('r')
+        lines = [f'val {ls} = Http.listen("127.0.0.1", 0)', f'val {srv2} = {ls}.server',
+                 f'val {h} = spawn("rawsrv") {{',
+                 f'    val acc = HttpServer.accept({srv2}, 10000)',
+                 '    if acc.error != 0 {', '        return acc.error', '    }',
+                 '    val req = HttpConnection.read_request(acc.connection, 8192, 8192, 5000)',
+                 f'    val (n, we) = TcpSocket.write(TcpSocket(acc.connection.fd), {self.raw_lit(resp)}, 5000)',
+                 '    HttpConnection.close(acc.connection)', '    return we.code', '}',
+                 f'val {v} = Http.request("GET", "http://127.0.0.1:{{HttpServer.port({srv2})}}/raw", "", "", 1048576, 5000)']
+        if valid:
+            lines.append(f'println("rawserver {{{v}.error}} {{{v}.status}} {{Http.header({v}.headers, "x-reply")}} {{{v}.body == {self.body_expr(body)}}} {{{v}.body.byte_len()}}")')
+            xr = '' if kind == 'http10' else 'raw'
+            out = [f'rawserver 0 {st} {xr} true {len(bb)}']
+        else:
+            # (status means nothing when error != 0)
+            lines.append(f'println("rawserver {{{v}.error != 0}}")')
+            out = ['rawserver true']
+        lines += [f'val {self.fresh("z")} = await {h}', f'HttpServer.close({srv2})']
+        return lines, out
 
     def c_timeout(self):
         """The client gives up before a slow handler answers."""
