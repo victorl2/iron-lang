@@ -5,6 +5,19 @@ $OutputEncoding = [Text.Encoding]::UTF8
 $pass = 0; $fail = 0; $skip = 0
 $work = Join-Path $env:TEMP "iron-v4"
 New-Item -ItemType Directory -Force -Path $work | Out-Null
+# The crypto module needs OpenSSL: from the runtime bundle, or found by
+# CMake when ironc was built. Without either, crypto programs stop with
+# "built without OpenSSL"; skip those fixtures then, and say so.
+$probeSrc = Join-Path $work "crypto_probe.iron"
+$probeExe = Join-Path $work "crypto_probe.exe"
+Set-Content -Path $probeSrc -Value "import crypto`nfunc main() {`n    println(`"{Crypto.random_bytes(4).byte_len()}`")`n}"
+$noCrypto = $true
+& $Ironc build -o $probeExe $probeSrc 2>&1 | Out-Null
+if ($LASTEXITCODE -eq 0 -and (Test-Path $probeExe)) {
+    $probeOut = & $probeExe 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 0 -and $probeOut.Trim() -eq "4") { $noCrypto = $false }
+}
+if ($noCrypto) { Write-Output "note: this ironc has no OpenSSL (no runtime bundle, none found by CMake); skipping fixtures that import crypto" }
 Get-ChildItem -Path $Corpus -Recurse -Filter *.iron | Sort-Object FullName | ForEach-Object {
     $src = $_.FullName
     $exp = [IO.Path]::ChangeExtension($src, ".expected")
@@ -14,6 +27,7 @@ Get-ChildItem -Path $Corpus -Recurse -Filter *.iron | Sort-Object FullName | For
     # non-zero with the substring on stderr, and @expected-pass-after
     # fixtures run like any other (every parked phase is in the past).
     if ($head -match '@posix-only') { $skip++; return }
+    if ($noCrypto -and ((Get-Content $src -Raw) -match '(?m)^import crypto')) { $skip++; return }
     $compileOnly = $head -match '@compile-only'
     $panic = $null
     if ($head -match '@expect-panic:\s*(.+)') { $panic = $Matches[1].Trim() }
