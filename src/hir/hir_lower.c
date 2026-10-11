@@ -2953,6 +2953,10 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                                                      ret_ty);
             f->is_extern    = fd->is_extern;
             f->extern_c_name = fd->extern_c_name;
+            if (fd->body && fd->body->kind == IRON_NODE_BLOCK) {
+                f->end_span = fd->body->span;
+                f->end_span.line = fd->body->span.end_line;
+            }
             f->is_runtime_stub =
                 fd->body && fd->body->kind == IRON_NODE_BLOCK &&
                 ((Iron_Block *)fd->body)->stmt_count == 0 &&
@@ -3235,6 +3239,10 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             IronHIR_Func *f = iron_hir_func_create(mod, mname, params,
                                                      total_params, ret_ty);
             f->is_runtime_stub = is_stub;
+            if (md->body && md->body->kind == IRON_NODE_BLOCK) {
+                f->end_span = md->body->span;
+                f->end_span.line = md->body->span.end_line;
+            }
             /* Phase 80 MUT-07: propagate receiver mut-ness to the HIR func so
              * HIR→LIR can fire self_by_addr at call sites. Gated on
              * is_receiver_form + params[0]->is_mut_receiver so non-receiver-form

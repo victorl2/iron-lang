@@ -5802,7 +5802,15 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
     /* Emit implicit void return if function doesn't end with a terminator.
      * Route through defer cleanup chain if defers are pending. */
     if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
+        /* The closing brace's line (#595): without one the return and the
+         * cleanup before it took the last statement's line, and clang gave
+         * it to stray instructions of earlier statements too. */
         Iron_Span zero_span = {0};
+        if (hir_func->end_span.filename && hir_func->end_span.line > 0) {
+            zero_span.filename = hir_func->end_span.filename;
+            zero_span.line = hir_func->end_span.line;
+            zero_span.end_line = hir_func->end_span.line;
+        }
         if (ctx->defer_stacks && ctx->defer_depth > 0) {
             /* Create exit block for the actual RETURN */
             IronLIR_Block *exit_block = new_block(ctx, make_label(ctx, "return_exit"));

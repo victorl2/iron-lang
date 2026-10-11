@@ -1,0 +1,24 @@
+object Obj {
+    val label: String
+    val n: Int
+}
+
+func fn0(a1: Int) {
+    var n = a1
+    for i in range(3) {
+        n = n * 27
+    }
+    println("{(not ((n < n) and (n / n >= n)))} {n}")
+}
+
+func tail(k: Int) {
+    val o = rc Obj("an object with a label long enough to live on the heap", k)
+    var seen = o.n + 1
+    seen = seen * 2
+    println("done {seen}")
+}
+
+func main() {
+    fn0(2)
+    tail(20)
+}
