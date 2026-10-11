@@ -989,7 +989,17 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_HEAP: {
             Iron_HeapExpr *n = (Iron_HeapExpr *)node;
-            iron_strbuf_appendf(ctx->sb, "heap ");
+            /* The options too: generic instances are printed and parsed
+             * again, and an instance without `in:` allocated on the heap. */
+            if (n->arena_expr) {
+                iron_strbuf_appendf(ctx->sb, "heap(in: ");
+                print_node(ctx, n->arena_expr);
+                iron_strbuf_appendf(ctx->sb, "%s) ", n->allow_drop_skip ? ", allow_drop_skip: true" : "");
+            } else if (n->allow_drop_skip) {
+                iron_strbuf_appendf(ctx->sb, "heap(allow_drop_skip: true) ");
+            } else {
+                iron_strbuf_appendf(ctx->sb, "heap ");
+            }
             print_node(ctx, n->inner);
             break;
         }
