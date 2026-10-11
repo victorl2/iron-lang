@@ -238,14 +238,14 @@ func Url.percent_encode(s: String, reserved_ok: Bool) -> String {
         val b = s.byte_at(i)
         if Url.is_unreserved(b) {
             val ch = String.from_byte(b)
-            out = "{out}{ch}"
+            out += ch
         } else {
             if reserved_ok and Url.is_sub_delim(b) {
                 val ch2 = String.from_byte(b)
-                out = "{out}{ch2}"
+                out += ch2
             } else {
                 val hex = Url.byte_to_hex(b)
-                out = "{out}%{hex}"
+                out += "%{hex}"
             }
         }
         i = i + 1
@@ -275,11 +275,11 @@ func Url.percent_decode(s: String) -> (String, UrlError) {
                 return ("", UrlError(2007))
             }
             val decoded = String.from_byte(hi * 16 + lo)
-            out = "{out}{decoded}"
+            out += decoded
             i = i + 3
         } else {
             val ch = String.from_byte(b)
-            out = "{out}{ch}"
+            out += ch
             i = i + 1
         }
     }
@@ -450,7 +450,7 @@ func Url.build(u: Url) -> String {
     var out = ""
     if u.scheme != "" {
         val sch = u.scheme
-        out = "{out}{sch}:"
+        out += "{sch}:"
     }
     -- The result must parse back to the same fields (RFC 3986 section 5.3):
     -- the authority is written whenever it holds anything, a host that is
@@ -459,39 +459,39 @@ func Url.build(u: Url) -> String {
     -- authority gets an empty one so it is not read as a host.
     val has_authority = u.host != "" or u.userinfo != "" or u.port >= 0
     if has_authority {
-        out = "{out}//"
+        out += "//"
         if u.userinfo != "" {
             val ui = u.userinfo
-            out = "{out}{ui}@"
+            out += "{ui}@"
         }
         val h = u.host
         val bracketed = h.byte_len() >= 2 and h.starts_with("[") and h.ends_with("]")
         if not bracketed and (h.contains(":") or h.contains("[") or h.contains("]")) {
-            out = "{out}[{h}]"
+            out += "[{h}]"
         } else {
-            out = "{out}{h}"
+            out += h
         }
         if u.port >= 0 {
             val pstr = Url.int_to_string(u.port)
-            out = "{out}:{pstr}"
+            out += ":{pstr}"
         }
         if u.path != "" and not u.path.starts_with("/") {
-            out = "{out}/"
+            out += "/"
         }
     } else {
         if u.path.starts_with("//") {
-            out = "{out}//"
+            out += "//"
         }
     }
     val p = u.path
-    out = "{out}{p}"
+    out += p
     if u.query != "" {
         val q = u.query
-        out = "{out}?{q}"
+        out += "?{q}"
     }
     if u.fragment != "" {
         val f = u.fragment
-        out = "{out}#{f}"
+        out += "#{f}"
     }
     return out
 }
@@ -592,7 +592,7 @@ func Url.remove_dot_segments(input: String) -> String {
                                         val next_slash = rest.substring(1, rest.len()).index_of("/")
                                         if next_slash >= 0 { seg_end = next_slash + 1 }
                                         val seg = rest.substring(0, seg_end)
-                                        out = "{out}{seg}"
+                                        out += seg
                                         rest = rest.substring(seg_end, rest.len())
                                     }
                                 }

@@ -231,6 +231,9 @@ Iron_String iron_string_concat(const Iron_String *a, const Iron_String *b) {
         return s;
     }
 
+    /* The length is 32 bits: a longer result would be cut silently. */
+    if (total >= (size_t)UINT32_MAX)
+        iron_oom_abort("iron_string_concat: string longer than 4 GiB");
     /* FIX-02: replace Phase 65 silent empty-string fallback with iron_oom_abort. */
     char *buf = iron__str_alloc(total, "iron_string.c:iron_string_concat");
     memcpy(buf,      iron_string_cstr(a), la);
@@ -242,6 +245,97 @@ Iron_String iron_string_concat(const Iron_String *a, const Iron_String *b) {
     s.heap.data            = buf;
     s.heap.byte_length     = (uint32_t)total;
     s.heap.codepoint_count = (uint32_t)count_codepoints(buf, total);
+    s.heap.flags           = 0x01; /* is_heap */
+    return s;
+}
+
+/* ── Appending ───────────────────────────────────────────────────────────
+ * `s += t` (#597). iron_string_concat allocates exactly and copies both
+ * sides, so building a string piece by piece was quadratic. The appended
+ * result here is allocated with room to grow (the capacity is kept in the
+ * header's spare word), and when the left side is the only reference to
+ * its buffer and the new bytes fit, they are written in place: the result
+ * shares the buffer (one more reference), and the caller's release of the
+ * old value then leaves the result as the buffer's only owner. The old
+ * value's view is unchanged (its length did not change); nothing else can
+ * see the buffer.
+ *
+ * The character count stays exact and incremental: count_codepoints steps
+ * over a whole sequence from each lead byte, so a string whose last
+ * sequence is cut short makes the walk end past its last byte. The heap
+ * string's spare byte _padding[0] records that overshoot (0x80 | bytes)
+ * for strings made here; for any other string it is computed once. */
+static void walk_codepoints(const char *d, size_t n, size_t start,
+                            size_t *count, size_t *over) {
+    size_t c = 0, i = start;
+    while (i < n) {
+        unsigned char ch = (unsigned char)d[i];
+        if      ((ch & 0x80) == 0x00) i += 1;
+        else if ((ch & 0xE0) == 0xC0) i += 2;
+        else if ((ch & 0xF0) == 0xE0) i += 3;
+        else                          i += 4;
+        c++;
+    }
+    *count = c;
+    *over = i > n ? i - n : 0;
+}
+
+Iron_String iron_string_concat_append(const Iron_String *a, const Iron_String *b) {
+    static const Iron_String empty_const;
+    if (!a) a = &empty_const;
+    if (!b) b = &empty_const;
+    size_t la = iron_string_byte_len(a), lb = iron_string_byte_len(b);
+    size_t total = la + lb;
+    if (total <= IRON_STRING_SSO_MAX) return iron_string_concat(a, b);
+    if (total >= (size_t)UINT32_MAX)
+        iron_oom_abort("iron_string_concat_append: string longer than 4 GiB");
+    const char *ad = iron_string_cstr(a);
+    const char *bd = iron_string_cstr(b);
+
+    /* characters of the result: those of a, then b walked from where a's
+     * last step ended */
+    size_t ca, over;
+    bool a_heap = (a->heap.flags & 0x01) != 0;
+    if (a_heap && a->heap.codepoint_count != IRON_STRING_COUNT_UNKNOWN &&
+        (a->heap._padding[0] & 0x80)) {
+        ca = a->heap.codepoint_count;
+        over = a->heap._padding[0] & 0x7f;
+    } else {
+        walk_codepoints(ad, la, 0, &ca, &over);
+    }
+    size_t cb, over2;
+    if (over >= lb) { cb = 0; over2 = over - lb; }
+    else walk_codepoints(bd, lb, over, &cb, &over2);
+    size_t count = ca + cb;
+
+    Iron_String s;
+    if (iron__str_counted(a)) {
+        IronStrHdr *h = iron__str_hdr(a);
+        size_t cap = h->_pad ? (size_t)h->_pad : la;
+        if (atomic_load_explicit(&h->rc, memory_order_acquire) == 1 && cap >= total) {
+            memcpy(a->heap.data + la, bd, lb);
+            a->heap.data[total] = '\0';
+            atomic_fetch_add_explicit(&h->rc, 1, memory_order_relaxed);
+            s = *a;
+            s.heap.byte_length     = (uint32_t)total;
+            s.heap.codepoint_count = (uint32_t)count;
+            s.heap._padding[0]     = (uint8_t)(0x80 | over2);
+            return s;
+        }
+    }
+    size_t cap = total < 2 * la ? 2 * la : total;
+    if (cap < 64) cap = 64;
+    if (cap >= (size_t)UINT32_MAX) cap = total;
+    char *buf = iron__str_alloc(cap, "iron_string.c:iron_string_concat_append");
+    (((IronStrHdr *)buf) - 1)->_pad = cap;
+    memcpy(buf, ad, la);
+    memcpy(buf + la, bd, lb);
+    buf[total] = '\0';
+    memset(&s, 0, sizeof(s));
+    s.heap.data            = buf;
+    s.heap.byte_length     = (uint32_t)total;
+    s.heap.codepoint_count = (uint32_t)count;
+    s.heap._padding[0]     = (uint8_t)(0x80 | over2);
     s.heap.flags           = 0x01; /* is_heap */
     return s;
 }

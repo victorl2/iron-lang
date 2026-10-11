@@ -1192,8 +1192,10 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 IronHIR_Expr **cargs = NULL;
                 arrput(cargs, target_read);
                 arrput(cargs, value);
+                /* (the appending form grows the buffer geometrically:
+                 * repeated += is linear, not quadratic, #597) */
                 binop = iron_hir_expr_call(
-                    mod, iron_hir_expr_func_ref(mod, "iron_string_concat", ty, span),
+                    mod, iron_hir_expr_func_ref(mod, "iron_string_concat_append", ty, span),
                     cargs, 2, ty, span);
             } else {
                 binop = iron_hir_expr_binop(mod, hop, target_read, value, ty, span);
