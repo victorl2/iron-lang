@@ -467,11 +467,12 @@ Iron_Result_TcpSocket_Error Iron_tcplistener_accept(Iron_TcpListener l, int64_t 
             out.v1 = iron_net_err_timeout();
             return out;
         }
-        int rc = iron_net_poll(l.fd, POLLIN, rem);
-        if (rc == 0) {
-            out.v1 = iron_net_err_timeout();
-            return out;
-        }
+        /* Wait in slices: a listener closed by another task (the shutdown
+         * pattern of the guide) is noticed within one slice even where
+         * closing it does not wake the poll (macOS); the next accept then
+         * fails on the closed descriptor. */
+        int rc = iron_net_poll(l.fd, POLLIN, rem > 100 ? 100 : rem);
+        if (rc == 0) continue;
         if (rc < 0) {
             out.v1 = iron_net_err_from_last();
             return out;
@@ -630,6 +631,15 @@ void Iron_tcpsocket_close(Iron_TcpSocket s) {
 
 void Iron_tcplistener_close(Iron_TcpListener l) {
     if (l.fd < 0) return;
+    /* Wake a task blocked in accept on this listener (the guide's
+     * shutdown pattern: close the server to wake the accept loop). close
+     * alone leaves a poll() in another thread waiting for its timeout on
+     * Linux; shutdown makes the socket readable and accept fail. */
+#ifdef _WIN32
+    shutdown((SOCKET)l.fd, SD_BOTH);
+#else
+    shutdown((int)l.fd, SHUT_RDWR);
+#endif
     IRON_NET_CLOSE(l.fd);
 }
 
