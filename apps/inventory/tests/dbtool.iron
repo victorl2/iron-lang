@@ -1,0 +1,48 @@
+-- dbtool: create, drop or query a database for the integration suite.
+--
+--   dbtool create URL NAME      CREATE DATABASE IF NOT EXISTS NAME
+--   dbtool drop URL NAME        DROP DATABASE IF EXISTS NAME
+--   dbtool scalar URL SQL       print the first column of the first row
+--
+-- URL is a mysql:// URL for an account allowed to do it.
+import io
+import mysql
+import os
+
+func main(args: [String]) {
+    if args.len() != 3 {
+        IO.write_stderr("usage: dbtool create|drop|scalar URL ARG\n")
+        OS.exit(2)
+    }
+    var conn = Mysql.connect_url(args[1])
+    if conn.error.failed() {
+        IO.write_stderr("dbtool: connect: {conn.error.message}\n")
+        OS.exit(1)
+    }
+    val what = args[0]
+    if what == "create" or what == "drop" {
+        var sql = "CREATE DATABASE IF NOT EXISTS " + Mysql.quote_identifier(args[2])
+        if what == "drop" {
+            sql = "DROP DATABASE IF EXISTS " + Mysql.quote_identifier(args[2])
+        }
+        val err = conn.run(sql)
+        if err.failed() {
+            IO.write_stderr("dbtool: {what}: {err.message}\n")
+            OS.exit(1)
+        }
+        return
+    }
+    if what == "scalar" {
+        val res = conn.query(args[2])
+        if res.failed() {
+            IO.write_stderr("dbtool: query: {res.error.message}\n")
+            OS.exit(1)
+        }
+        if res.row_count() > 0 {
+            IO.write_stdout(res.text_or(0, 0, "NULL") + "\n")
+        }
+        return
+    }
+    IO.write_stderr("dbtool: unknown command {what}\n")
+    OS.exit(2)
+}

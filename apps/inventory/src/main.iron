@@ -101,7 +101,7 @@ func main(args: [String]) {
     }
 
     while OS.shutdown_signal() == 0 {
-        val ready = poller.next(250)
+        val ready = poller.next(100)
         if ready.error == 0 {
             val connection = ready.connection
             state.task_started()
