@@ -3377,6 +3377,32 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             IronHIR_Func *f = iron_hir_func_create(mod, mname, params,
                                                      total_params, ret_ty);
             f->is_runtime_stub = is_stub;
+            /* PARM-02 for methods and inits (#433): a `var` parameter takes
+             * its argument by reference and writes back, as a free
+             * function's does; passed by value, a list parameter was an
+             * alias the callee could move out (`xs.take()`) while the
+             * caller still owned it. The receiver of the receiver form is
+             * not one of them; stubs keep the C runtime's ABI. */
+            if (!is_stub) {
+                int off = md->is_receiver_form ? 0 : 1;
+                int first = md->is_receiver_form ? 1 : 0;
+                bool any_var = false;
+                for (int p = first; p < md->param_count; p++) {
+                    Iron_Param *ap = (Iron_Param *)md->params[p];
+                    if (ap && ap->kind == IRON_NODE_PARAM && ap->is_var) any_var = true;
+                }
+                if (any_var && total_params > 0) {
+                    bool *pv = (bool *)iron_arena_alloc(
+                        mod->arena, (size_t)total_params * sizeof(bool), _Alignof(bool));
+                    if (!pv) iron_oom_abort("hir_lower.c:method param_is_var");
+                    memset(pv, 0, (size_t)total_params * sizeof(bool));
+                    for (int p = first; p < md->param_count && p + off < total_params; p++) {
+                        Iron_Param *ap = (Iron_Param *)md->params[p];
+                        pv[p + off] = ap && ap->kind == IRON_NODE_PARAM && ap->is_var;
+                    }
+                    f->param_is_var = pv;
+                }
+            }
             /* Phase 80 MUT-07: propagate receiver mut-ness to the HIR func so
              * HIR→LIR can fire self_by_addr at call sites. Gated on
              * is_receiver_form + params[0]->is_mut_receiver so non-receiver-form

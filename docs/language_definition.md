@@ -1311,7 +1311,8 @@ Parameters are `val` by default: a parameter cannot be reassigned or
 mutated (`E0266`, `E0234`). A parameter declared `var` is a copy that the
 body may assign to and mutate; when the function returns, the final value
 is written back to the caller's `var` binding, so `var` parameters behave
-like in-out arguments. A list parameter is lent (never copied); a `var`
+like in-out arguments; the same holds for a `var` parameter of a method or
+an `init`, and the argument must be a mutable binding (`E0267`). A list parameter is lent (never copied); a `var`
 list parameter lets the body grow or shrink the caller's list. Objects are
 passed by value. The result type follows `->`; omit it for a function that
 returns nothing. Argument count and types must match exactly (`E0216`,
