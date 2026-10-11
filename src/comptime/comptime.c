@@ -1778,6 +1778,54 @@ static void *comptime_thread(void *p) {
     return NULL;
 }
 
+typedef struct {
+    Iron_ComptimeCtx *ctx;
+    Iron_Node        *expr;
+    Iron_ComptimeVal *val;
+} ComptimeConstRun;
+
+static void *comptime_const_thread(void *p) {
+    ComptimeConstRun *r = (ComptimeConstRun *)p;
+    r->val = iron_comptime_eval_expr(r->ctx, r->expr);
+    return NULL;
+}
+
+bool iron_comptime_eval_int_const(Iron_Program *program, Iron_Scope *global_scope,
+                                  Iron_Arena *arena, Iron_Node *expr, int64_t *out) {
+    if (!expr || !out) return false;
+    Iron_DiagList scratch = iron_diaglist_create();
+    Iron_ComptimeCtx c;
+    memset(&c, 0, sizeof(c));
+    c.arena        = arena;
+    c.diags        = &scratch;
+    c.global_scope = global_scope;
+    c.step_limit   = 1000000;
+    c.mode         = IRON_ANALYSIS_MODE_LSP;   /* no file system access */
+    c.program      = program;
+    ComptimeConstRun run = { &c, expr, NULL };
+    /* The same large stack the comptime pass uses for nested calls. */
+    pthread_attr_t attr;
+    pthread_t th;
+    bool threaded = false;
+    if (pthread_attr_init(&attr) == 0) {
+        if (pthread_attr_setstacksize(&attr, (size_t)IRON_COMPTIME_STACK) == 0 &&
+            pthread_create(&th, &attr, comptime_const_thread, &run) == 0) {
+            pthread_join(th, NULL);
+            threaded = true;
+        }
+        pthread_attr_destroy(&attr);
+    }
+    if (!threaded) run.val = iron_comptime_eval_expr(&c, expr);
+    bool ok = !c.had_error && run.val && run.val->kind == IRON_CVAL_INT;
+    if (ok) *out = run.val->as_int;
+    while (c.frame_depth > 0) pop_frame(&c);
+    arrfree(c.call_stack);
+    arrfree(c.call_spans);
+    arrfree(c.local_frames);
+    iron_diaglist_free(&scratch);
+    return ok;
+}
+
 void iron_comptime_apply(Iron_Program *program, Iron_Scope *global_scope,
                           Iron_Arena *arena, Iron_DiagList *diags,
                           const char *source_file_dir, bool force_comptime,

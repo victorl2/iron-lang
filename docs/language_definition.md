@@ -492,7 +492,10 @@ reference `weak rc T?` (section 6.3).
 ### 2.3 Lists, fixed arrays and bounded vectors
 
 `[T]` is a growable list of `T`. `[T; N]` is a fixed-size array of exactly
-`N` elements, where `N` is an integer constant. `[T; <=N]` is a bounded
+`N` elements, where `N` is an integer constant: a literal or constant
+expression (`[Int; 2 * 8]`), a `comptime` expression (section 8), or the
+name of a global `val` holding one of these (`val N = comptime size(3)`,
+then `[Int; N]`); anything else is an error (`E0202`). `[T; <=N]` is a bounded
 vector: a list that can hold at most `N` elements and whose storage is
 inline. All three are indexed with `xs[i]` from 0, checked at run time
 (an out-of-range index panics; a constant out-of-range index on a fixed
@@ -2929,7 +2932,11 @@ infinity or NaN, as at run time, and `%` on floats is the exact remainder
 `fmod` with the sign of the dividend: `5.5 % 2.0` is `1.5`, `-5.5 % 2.0`
 is `-1.5`, and a zero divisor gives NaN). Evaluation is limited to one million
 steps and to calls nested 256 deep (`E0230`). The result is typically
-bound to a global `val`.
+bound to a global `val`. A `comptime` expression that sizes a fixed array
+or bounded vector (`[Int; N]` with `val N = comptime f(3)`, or `[Int;
+comptime f(3)]`) is evaluated while that type is checked, before the other
+compile-time evaluations; it must produce an `Int`, and does not read
+files.
 
 ```iron
 val TABLE_SIZE = comptime (64 * 4)

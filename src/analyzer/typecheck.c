@@ -32,6 +32,7 @@
 #include "util/strbuf.h"
 #include "analyzer/typo_candidate.h"
 #include "analyzer/intrinsics.h"
+#include "comptime/comptime.h"
 #include "vendor/stb_ds.h"
 
 #include <stdarg.h>
@@ -2384,24 +2385,41 @@ static bool type_is_equatable(const Iron_Type *t, int depth) {
  * global `val` whose initializer is one (a `comptime` result has been
  * folded to a literal by then). Anything else was taken for "no size" and
  * the annotation silently became a growable list; it is now an error. */
-static int array_size_value(TypeCtx *ctx, Iron_Node *n) {
-    if (n->kind == IRON_NODE_INT_LIT) {
-        Iron_IntLit *il = (Iron_IntLit *)n;
-        return il->value ? (int)strtol(il->value, NULL, 10) : -1;
+/* The value of an integer constant written as a size: a literal or
+ * constant expression, or a `comptime` expression evaluated now, before
+ * the comptime pass (#504). */
+static bool size_constant(TypeCtx *ctx, Iron_Node *n, long long *out) {
+    if (!n) return false;
+    if (try_get_constant_int(n, out)) return true;
+    if (n->kind == IRON_NODE_COMPTIME) {
+        int64_t v;
+        if (iron_comptime_eval_int_const(ctx->program, ctx->global_scope, ctx->arena,
+                                         ((Iron_ComptimeExpr *)n)->inner, &v)) {
+            *out = (long long)v;
+            return true;
+        }
     }
-    if (n->kind == IRON_NODE_IDENT) {
+    return false;
+}
+
+static int array_size_value(TypeCtx *ctx, Iron_Node *n) {
+    long long v = -1;
+    bool found = size_constant(ctx, n, &v);
+    if (!found && n->kind == IRON_NODE_IDENT) {
+        /* The name of a global val holding one (a comptime result too). */
         Iron_Ident *id = (Iron_Ident *)n;
         Iron_Symbol *sym = id->name ? iron_scope_lookup(ctx->global_scope, id->name) : NULL;
         if (sym && sym->decl_node && sym->decl_node->kind == IRON_NODE_VAL_DECL) {
             Iron_ValDecl *vd = (Iron_ValDecl *)sym->decl_node;
-            if (vd->init && vd->init->kind == IRON_NODE_INT_LIT) {
-                Iron_IntLit *il = (Iron_IntLit *)vd->init;
-                if (il->value) {
-                    long v = strtol(il->value, NULL, 10);
-                    if (v >= 0 && v <= 0x7fffffff) return (int)v;
-                }
-            }
+            found = size_constant(ctx, vd->init, &v);
         }
+    }
+    if (found) {
+        if (v >= 0 && v <= 0x7fffffff) return (int)v;
+        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, n->span,
+                   "the size of a fixed array or bounded vector must be between 0 and 2147483647",
+                   NULL);
+        return -1;
     }
     emit_error(ctx, IRON_ERR_TYPE_MISMATCH, n->span,
                "the size of a fixed array or bounded vector must be an integer constant",

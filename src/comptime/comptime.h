@@ -101,6 +101,14 @@ const char *iron_comptime_package_root(void);   /* NULL outside a package */
  * integer operations only: the compiler does not link libm. */
 double iron_comptime_fmod(double x, double y);
 
+/* Evaluate `expr` (the operand of a `comptime`) while type checking, where
+ * an integer constant is needed before the comptime pass runs: the size of
+ * a fixed array or bounded vector (#504). Diagnostics are discarded (the
+ * comptime pass reports them); returns false unless the result is an Int.
+ * The file system is not read. */
+bool iron_comptime_eval_int_const(Iron_Program *program, Iron_Scope *global_scope,
+                                  Iron_Arena *arena, Iron_Node *expr, int64_t *out);
+
 /* Convert a comptime value back to a literal AST node suitable for codegen.
  * The resolved_type is copied from the original COMPTIME node so codegen
  * type mapping works correctly. */
