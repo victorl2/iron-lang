@@ -1,0 +1,12 @@
+-- println, print and interpolation wrote a String with printf("%s"), so a
+-- zero byte ended it: binary data (crypto, encoding, file and socket
+-- reads) was cut when printed or interpolated. Every byte is written now
+-- (#485). Found by the jsonp program fuzzer.
+func main() {
+    val z = String.from_byte(0)
+    val s = "a" + z + "b"
+    val t = "[{s}] {s.byte_len()} [{z}{z}]"
+    println("{t.byte_len()} {"x{z}".byte_len()} {"{s}{s}".byte_len()}")
+    println(t.replace(z, "0"))
+    println(s)
+}

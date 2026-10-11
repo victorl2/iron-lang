@@ -94,14 +94,15 @@ bounded general form:
 val response = Http.request(
     "PUT",
     "http://127.0.0.1:8080/api/items/42",
-    "Authorization: Bearer dev-token\r\nContent-Type: application/json",
+    "Authorization: Bearer dev-token\u{d}\nContent-Type: application/json",
     "\{\"name\":\"hammer\"\}",
     1048576,  -- maximum decoded response body
     5000,     -- complete request budget
 )
 ```
 
-User headers are raw `Name: value` lines separated by CRLF. `Host`,
+User headers are raw `Name: value` lines separated by CRLF, written
+`\u{d}\n` in an Iron string (Iron has no `\r` escape). `Host`,
 `Connection`, `Content-Length`, and `Transfer-Encoding` are owned by the
 client and rejected in the user block to avoid ambiguous message framing.
 
@@ -446,7 +447,9 @@ client/session handles. See
 
 ## Framing and limits
 
-- Server requests require HTTP/1.1 and exactly one `Host` header.
+- Server requests are HTTP/1.1 with exactly one `Host` header, or HTTP/1.0
+  with at most one (an HTTP/1.0 request keeps the connection open only when
+  it asks for `Connection: keep-alive`).
 - Server request bodies accept one unambiguous `Content-Length` or bounded
   chunked transfer encoding, including validated bounded trailers.
 - Client responses accept HTTP/1.0 and HTTP/1.1, `Content-Length`, chunked

@@ -1,0 +1,12 @@
+-- @expect-panic: index out of bounds
+-- An out of bounds index whose value is never used must still panic: DCE
+-- treated a list index (and an integer division) as pure and dropped it
+-- with its bounds check, so this loop ran to the end. Found by the sync
+-- program fuzzer (#476).
+func main() {
+    val xs = [1, 2, 3]
+    for i in range(4) {
+        val v = xs[i]
+    }
+    println("not reached")
+}

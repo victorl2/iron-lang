@@ -412,6 +412,9 @@ const char *emit_ensure_hash(EmitCtx *ctx, const Iron_Type *t);
 /* Resolve the symbolic `__hash.<method>` callee names hir_to_lir emits for
  * Map/Set calls into `<typedef>_<method>` for the whole module. */
 void emit_resolve_hash_calls(EmitCtx *ctx);
+/* Fill in the element C name of the Mutex / RWLock / Channel glue callees
+ * hir_to_lir emits as formats (func_ref.res_elem). */
+void emit_resolve_resource_calls(EmitCtx *ctx);
 void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et);
 
 /* Lifecycle statements for any type (emit_c.c): the copy fixup that runs

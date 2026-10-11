@@ -1049,6 +1049,31 @@ const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem) {
     return result;
 }
 
+/* The statement that drops (drop) the element value at lvalue `lv` of a
+ * Mutex, RWLock or Channel, or fixes up a fresh bitwise copy of it (!drop),
+ * or "" when the element type owns nothing. A lock and a channel own their
+ * values the way a list owns its elements (manual 6.8, 9.10): the value
+ * handed to Mutex(v), set(v) or send(v) is owned from then on (hir_to_lir
+ * copies one taken out of a place), get() hands out a copy the caller
+ * owns, set drops the value it replaces, recv moves the item out, and
+ * destroying the lock or channel drops what it still holds. */
+static const char *res_elem_stmt(EmitCtx *ctx, const Iron_Type *et, const char *lv,
+                                 bool drop) {
+    Iron_StrBuf sb = iron_strbuf_create(64);
+    if (et && et->kind == IRON_TYPE_OBJECT && et->object.decl && et->object.decl->name &&
+        strcmp(et->object.decl->name, "FileHandle") == 0) {
+        /* nocopy: only dropped (closes the fd) */
+        emit_ensure_filehandle(ctx);
+        if (drop) iron_strbuf_appendf(&sb, "        Iron_FileHandle_drop(&%s);\n", lv);
+    } else {
+        emit_elem_lifecycle_stmt(ctx, &sb, et, lv, drop);
+    }
+    const char *r = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    if (!r) iron_oom_abort("emit_helpers.c:res_elem_stmt");
+    return r;
+}
+
 void emit_ensure_mutex(EmitCtx *ctx, const Iron_Type *elem_type) {
     if (!elem_type) return;
     const char *elem_c = emit_type_to_c(elem_type, ctx);
@@ -1077,46 +1102,33 @@ void emit_ensure_mutex(EmitCtx *ctx, const Iron_Type *elem_type) {
         "typedef struct { Iron_Mutex *owner; %s *valptr; } %s;\n",
         elem_c, elem_c, guard_name);
 
-    /* Phase 37 M5: element-drop-aware destroy. When T has drop-need,
-     * synthesize a void* trampoline over the element destructor and thread
-     * it through Iron_mutex_destroy_with so the parked value's resource is
-     * released at Mutex destroy (previously leaked). Trivially-destructible
-     * T keeps the historical Iron_mutex_destroy glue byte-identical. */
-    bool m_elem_drop = emit_container_elem_drop_need(ctx, elem_type);
-    if (m_elem_drop) {
-        emit_container_elem_ensure_dtor(ctx, elem_type, elem_c);
-        iron_strbuf_appendf(&ctx->lifted_funcs,
-            "/* Phase 37 M5: Mutex[%s] element drop trampoline */\n"
-            "static void Iron_Mutex_%s_elem_drop(void *p) {\n",
-            elem_c, esc);
-        if (elem_type->kind == IRON_TYPE_RC) {
-            iron_strbuf_appendf(&ctx->lifted_funcs,
-                "    iron_rc_release(*(void **)p);\n");
-        } else {
-            iron_strbuf_appendf(&ctx->lifted_funcs,
-                "    %s_drop((%s *)p);\n", elem_c, elem_c);
-        }
-        iron_strbuf_appendf(&ctx->lifted_funcs, "}\n");
-    }
+    /* The element glue comes first: it may synthesize the element type's
+     * drop / copy functions, which must precede their callers. */
+    const char *drop_v = res_elem_stmt(ctx, elem_type, "(*v)", true);
+    const char *drop_slot = res_elem_stmt(ctx, elem_type, "(*g->valptr)", true);
+    const char *copy_out = res_elem_stmt(ctx, elem_type, "out", false);
 
-    /* Helpers into lifted_funcs. */
     iron_strbuf_appendf(&ctx->lifted_funcs,
         "static Iron_Mutex *Iron_Mutex_%s_new(%s value) {\n"
         "    return Iron_mutex_create(&value, sizeof(%s));\n"
         "}\n",
-        /* _new */    esc, elem_c, elem_c);
-    if (m_elem_drop) {
+        esc, elem_c, elem_c);
+    if (*drop_v) {
         iron_strbuf_appendf(&ctx->lifted_funcs,
+            "static void Iron_Mutex_%s_elem_drop(void *p) {\n"
+            "    %s *v = (%s *)p;\n"
+            "%s"
+            "}\n"
             "static void Iron_Mutex_%s_destroy(Iron_Mutex **m) {\n"
             "    if (m && *m) { Iron_mutex_destroy_with(*m, Iron_Mutex_%s_elem_drop); *m = NULL; }\n"
             "}\n",
-            esc, esc);
+            esc, elem_c, elem_c, drop_v, esc, esc);
     } else {
         iron_strbuf_appendf(&ctx->lifted_funcs,
             "static void Iron_Mutex_%s_destroy(Iron_Mutex **m) {\n"
             "    if (m && *m) { Iron_mutex_destroy(*m); *m = NULL; }\n"
             "}\n",
-            /* _destroy */ esc);
+            esc);
     }
     iron_strbuf_appendf(&ctx->lifted_funcs,
         "static %s Iron_MutexGuard_%s_lock(Iron_Mutex **m) {\n"
@@ -1125,17 +1137,20 @@ void emit_ensure_mutex(EmitCtx *ctx, const Iron_Type *elem_type) {
         "    return guard;\n"
         "}\n"
         "static %s Iron_MutexGuard_%s_get(%s *g) {\n"
-        "    return *g->valptr;\n"
+        "    %s out = *g->valptr;\n"
+        "%s"
+        "    return out;\n"
         "}\n"
         "static void Iron_MutexGuard_%s_set(%s *g, %s value) {\n"
+        "%s"
         "    *g->valptr = value;\n"
         "}\n"
         "static void Iron_MutexGuard_%s_unlock(%s *g) {\n"
         "    if (g && g->owner) { Iron_mutex_unlock(g->owner); g->owner = NULL; }\n"
         "}\n\n",
         /* _lock */   guard_name, esc, guard_name, elem_c,
-        /* _get */    elem_c, esc, guard_name,
-        /* _set */    esc, guard_name, elem_c,
+        /* _get */    elem_c, esc, guard_name, elem_c, copy_out,
+        /* _set */    esc, guard_name, elem_c, drop_slot,
         /* _unlock */ esc, guard_name);
 }
 
@@ -1155,36 +1170,25 @@ void emit_ensure_channel(EmitCtx *ctx, const Iron_Type *elem_type) {
     arrput(ctx->emitted_channels, esc_copy);
 
     /* send heap-boxes the value (the runtime ring stores void*); recv unboxes
-     * and frees the box. The element-agnostic int64->int capacity wrapper is
-     * emitted once via the emitted_channels guard (first instantiation wins). */
+     * and frees the box, moving the item out. The element-agnostic
+     * int64->int capacity wrapper is emitted once via the emitted_channels
+     * guard (first instantiation wins). */
     if (arrlen(ctx->emitted_channels) == 1) {
         iron_strbuf_appendf(&ctx->lifted_funcs,
             "static Iron_Channel *Iron_channel_create_i64(int64_t capacity) {\n"
             "    return Iron_channel_create((int)capacity);\n"
             "}\n");
     }
-    /* Phase 37 M5: element-drop-aware destroy. When T has drop-need,
-     * synthesize a void* trampoline over the element destructor and thread
-     * it through Iron_channel_destroy_with so still-queued (undelivered)
-     * elements release their resources at Channel destroy (previously the
-     * boxes were freed without running T's drop). recv keeps move-out
-     * semantics: the receiver owns the value, no drop there. Trivially-
-     * destructible T keeps the historical glue byte-identical. */
-    bool ch_elem_drop = emit_container_elem_drop_need(ctx, elem_type);
-    if (ch_elem_drop) {
-        emit_container_elem_ensure_dtor(ctx, elem_type, elem_c);
+    /* Items still queued when the channel goes away are dropped. */
+    const char *drop_v = res_elem_stmt(ctx, elem_type, "(*v)", true);
+    if (*drop_v) {
         iron_strbuf_appendf(&ctx->lifted_funcs,
-            "/* Phase 37 M5: Channel[%s] element drop trampoline */\n"
-            "static void Iron_Channel_%s_elem_drop(void *p) {\n",
-            elem_c, esc);
-        if (elem_type->kind == IRON_TYPE_RC) {
-            iron_strbuf_appendf(&ctx->lifted_funcs,
-                "    iron_rc_release(*(void **)p);\n");
-        } else {
-            iron_strbuf_appendf(&ctx->lifted_funcs,
-                "    %s_drop((%s *)p);\n", elem_c, elem_c);
-        }
-        iron_strbuf_appendf(&ctx->lifted_funcs, "}\n");
+            "/* Channel[%s] element drop trampoline */\n"
+            "static void Iron_Channel_%s_elem_drop(void *p) {\n"
+            "    %s *v = (%s *)p;\n"
+            "%s"
+            "}\n",
+            elem_c, esc, elem_c, elem_c, drop_v);
     }
 
     iron_strbuf_appendf(&ctx->lifted_funcs,
@@ -1204,7 +1208,7 @@ void emit_ensure_channel(EmitCtx *ctx, const Iron_Type *elem_type) {
         /* comment */ elem_c,
         /* _send */   esc, elem_c, elem_c, elem_c, elem_c,
         /* _recv */   elem_c, esc, elem_c, elem_c, elem_c);
-    if (ch_elem_drop) {
+    if (*drop_v) {
         iron_strbuf_appendf(&ctx->lifted_funcs,
             "static void Iron_Channel_%s_destroy(Iron_Channel **ch) {\n"
             "    if (ch && *ch) { Iron_channel_destroy_with(*ch, Iron_Channel_%s_elem_drop); *ch = NULL; }\n"
@@ -1250,12 +1254,11 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type) {
         lock_name, esc,
         lock_name, esc);
 
-    /* Phase 37 M5: element-drop-aware destroy. RWLock is glue-only (the
-     * value is embedded in the per-T lock struct, no runtime destroy fn),
-     * so the destroy glue itself runs T's drop on the value before free.
-     * Trivially-destructible T keeps the historical glue byte-identical. */
-    bool rw_elem_drop = emit_container_elem_drop_need(ctx, elem_type);
-    if (rw_elem_drop) emit_container_elem_ensure_dtor(ctx, elem_type, elem_c);
+    /* The value is embedded in the lock (no runtime destroy function), so
+     * the glue itself drops it, and get / set copy and drop as Mutex does. */
+    const char *drop_parked = res_elem_stmt(ctx, elem_type, "(*l)->value", true);
+    const char *drop_slot = res_elem_stmt(ctx, elem_type, "g->owner->value", true);
+    const char *copy_out = res_elem_stmt(ctx, elem_type, "out", false);
 
     iron_strbuf_appendf(&ctx->lifted_funcs,
         "static %s *Iron_RWLock_%s_new(%s value) {\n"
@@ -1267,39 +1270,17 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type) {
         /* a spawned task's reference (manual 7.1); destroy drops one */
         "static void Iron_RWLock_%s_retain(%s *l) {\n"
         "    if (l) (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(l->refs, 1);\n"
+        "}\n"
+        "static void Iron_RWLock_%s_destroy(%s **l) {\n"
+        "    if (l && *l && !iron_shared_release(&(*l)->refs)) { *l = NULL; return; }\n"
+        "    if (l && *l) {\n"
+        "%s"
+        "        IRON_RWLOCK_DESTROY((*l)->lk); iron_mem_free(*l); *l = NULL;\n"
+        "    }\n"
         "}\n",
         /* _new */      lock_name, esc, elem_c, lock_name, lock_name, lock_name,
-        /* _retain */   esc, lock_name);
-    if (rw_elem_drop && elem_type->kind == IRON_TYPE_RC) {
-        iron_strbuf_appendf(&ctx->lifted_funcs,
-            "static void Iron_RWLock_%s_destroy(%s **l) {\n"
-            "    /* Phase 37 M5: release the parked rc element before free */\n"
-            "    if (l && *l && !iron_shared_release(&(*l)->refs)) { *l = NULL; return; }\n"
-            "    if (l && *l) {\n"
-            "        iron_rc_release((void *)(*l)->value);\n"
-            "        IRON_RWLOCK_DESTROY((*l)->lk); iron_mem_free(*l); *l = NULL;\n"
-            "    }\n"
-            "}\n",
-            esc, lock_name);
-    } else if (rw_elem_drop) {
-        iron_strbuf_appendf(&ctx->lifted_funcs,
-            "static void Iron_RWLock_%s_destroy(%s **l) {\n"
-            "    /* Phase 37 M5: run the element drop on the parked value before free */\n"
-            "    if (l && *l && !iron_shared_release(&(*l)->refs)) { *l = NULL; return; }\n"
-            "    if (l && *l) {\n"
-            "        %s_drop(&(*l)->value);\n"
-            "        IRON_RWLOCK_DESTROY((*l)->lk); iron_mem_free(*l); *l = NULL;\n"
-            "    }\n"
-            "}\n",
-            esc, lock_name, elem_c);
-    } else {
-        iron_strbuf_appendf(&ctx->lifted_funcs,
-            "static void Iron_RWLock_%s_destroy(%s **l) {\n"
-            "    if (l && *l && !iron_shared_release(&(*l)->refs)) { *l = NULL; return; }\n"
-            "    if (l && *l) { IRON_RWLOCK_DESTROY((*l)->lk); iron_mem_free(*l); *l = NULL; }\n"
-            "}\n",
-            /* _destroy */  esc, lock_name);
-    }
+        /* _retain */   esc, lock_name,
+        /* _destroy */  esc, lock_name, drop_parked);
     iron_strbuf_appendf(&ctx->lifted_funcs,
         "static Iron_RWReadGuard_%s Iron_RWReadGuard_%s_read(%s **l) {\n"
         "    Iron_RWReadGuard_%s g; g.owner = *l;\n"
@@ -1310,12 +1291,17 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type) {
         "    IRON_RWLOCK_WRLOCK((*l)->lk); return g;\n"
         "}\n"
         "static %s Iron_RWReadGuard_%s_get(Iron_RWReadGuard_%s *g) {\n"
-        "    return g->owner->value;\n"
+        "    %s out = g->owner->value;\n"
+        "%s"
+        "    return out;\n"
         "}\n"
         "static %s Iron_RWWriteGuard_%s_get(Iron_RWWriteGuard_%s *g) {\n"
-        "    return g->owner->value;\n"
+        "    %s out = g->owner->value;\n"
+        "%s"
+        "    return out;\n"
         "}\n"
         "static void Iron_RWWriteGuard_%s_set(Iron_RWWriteGuard_%s *g, %s value) {\n"
+        "%s"
         "    g->owner->value = value;\n"
         "}\n"
         "static void Iron_RWReadGuard_%s_rdunlock(Iron_RWReadGuard_%s *g) {\n"
@@ -1326,11 +1312,41 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type) {
         "}\n\n",
         /* _read */     esc, esc, lock_name, esc,
         /* _write */    esc, esc, lock_name, esc,
-        /* read_get */  elem_c, esc, esc,
-        /* write_get */ elem_c, esc, esc,
-        /* write_set */ esc, esc, elem_c,
+        /* read_get */  elem_c, esc, esc, elem_c, copy_out,
+        /* write_get */ elem_c, esc, esc, elem_c, copy_out,
+        /* write_set */ esc, esc, elem_c, drop_slot,
         /* rdunlock */  esc, esc,
         /* wrunlock */  esc, esc);
+}
+
+/* hir_to_lir names the Mutex / RWLock / Channel glue it calls with a
+ * format and the element type (func_ref.res_elem): only here are the C
+ * names of every element type known (a list, a Map, a generic object). */
+void emit_resolve_resource_calls(EmitCtx *ctx) {
+    if (!ctx || !ctx->module) return;
+    for (int fi = 0; fi < ctx->module->func_count; fi++) {
+        IronLIR_Func *fn = ctx->module->funcs[fi];
+        if (!fn) continue;
+        for (int vi = 0; vi < (int)arrlen(fn->value_table); vi++) {
+            IronLIR_Instr *ref = fn->value_table[vi];
+            if (!ref || ref->kind != IRON_LIR_FUNC_REF || !ref->func_ref.res_elem ||
+                !ref->func_ref.func_name)
+                continue;
+            const Iron_Type *et = ref->func_ref.res_elem;
+            const char *fmt = ref->func_ref.func_name;
+            if (strncmp(fmt, "Iron_Mutex", 10) == 0) emit_ensure_mutex(ctx, et);
+            else if (strncmp(fmt, "Iron_Channel", 12) == 0) emit_ensure_channel(ctx, et);
+            else emit_ensure_rwlock(ctx, et);
+            const char *esc = emit_elem_c_escaped(ctx, et);
+            if (!esc) continue;
+            size_t n = strlen(fmt) + strlen(esc) + 1;
+            char *out = (char *)iron_arena_alloc(ctx->arena, n, 1);
+            if (!out) iron_oom_abort("emit_helpers.c:emit_resolve_resource_calls");
+            snprintf(out, n, fmt, esc);
+            ref->func_ref.func_name = out;
+            ref->func_ref.res_elem = NULL;
+        }
+    }
 }
 
 void emit_ensure_filehandle(EmitCtx *ctx) {

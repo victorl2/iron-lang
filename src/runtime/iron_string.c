@@ -438,9 +438,11 @@ void iron_string_retain(const Iron_String *s) {
 void iron_string_release(Iron_String *s) {
     if (!s) return;
     if (iron__str_counted(s)) {
+        IRON_HB_BEFORE(&iron__str_hdr(s)->rc);
         uint64_t prev = IRON_ATOMIC_U64_FETCH_SUB_RELEASE(iron__str_hdr(s)->rc, 1);
         if (prev == 1) {
             IRON_ATOMIC_FENCE_ACQUIRE();
+            IRON_HB_AFTER(&iron__str_hdr(s)->rc);
             iron__str_free(s);
         }
     }

@@ -170,8 +170,10 @@ void iron_arena_rt_retain(Iron_Arena_RT *a) {
 
 void iron_arena_rt_destroy(Iron_Arena_RT *a) {
     if (!a) return;
+    IRON_HB_BEFORE(&a->refs);
     if (IRON_ATOMIC_U64_FETCH_SUB_RELEASE(a->refs, 1) != 1) return;
     IRON_ATOMIC_FENCE_ACQUIRE();
+    IRON_HB_AFTER(&a->refs);
     (void)IRON_ATOMIC_U64_LOAD_ACQUIRE(a->refs);
     free(a->base);
     free(a);
