@@ -11,15 +11,7 @@ func show(label: String, r: JsonResult) {
 }
 
 func main() {
-    val text = """\{
-  "user": \{"id": 42, "name": "Ann \\u00e9\\ud83d\\ude00", "admin": false, "score": 9.75},
-  "tags": ["a", "b", "c"],
-  "nothing": null,
-  "big": 9223372036854775807,
-  "huge": 92233720368547758070,
-  "neg": -0.0,
-  "a/b": \{"~k": 1}
-}"""
+    val text = "\{\n  \"user\": \{\"id\": 42, \"name\": \"Ann \\u00e9\\ud83d\\ude00\", \"admin\": false, \"score\": 9.75},\n  \"tags\": [\"a\", \"b\", \"c\"],\n  \"nothing\": null,\n  \"big\": 9223372036854775807,\n  \"huge\": 92233720368547758070,\n  \"neg\": -0.0,\n  \"a/b\": \{\"~k\": 1}\n}"
     val r = Json.parse(text)
     println("ok {r.ok()} kind {r.value.type_name()} len {r.value.len()}")
     val doc = r.value
