@@ -11,6 +11,7 @@
  *   4. Query: select smallest safe C type from proven range
  */
 
+#include "lir/emit_c.h"
 #include "lir/value_range.h"
 #include "vendor/stb_ds.h"
 
@@ -1409,6 +1410,10 @@ const char *iron_vr_get_local_narrowed_type(ValueRangeAnalysis *vra,
                                              IronLIR_Func *fn,
                                              IronLIR_ValueId value_id) {
     if (!vra || !fn || value_id == IRON_LIR_VALUE_INVALID) return NULL;
+    /* --debug: a local keeps its Iron type's width, which the debugger
+     * reads as the binding's type (an Int stored as int8_t made the
+     * evaluator wrap Int arithmetic to 8 bits). */
+    if (iron_lir_emit_debug_build()) return NULL;
     for (ptrdiff_t i = 0; i < arrlen(vra->local_functions); i++) {
         struct IronVR_LocalFuncAnalysis *lf = &vra->local_functions[i];
         if (lf->fn != fn || value_id >= lf->value_count) continue;

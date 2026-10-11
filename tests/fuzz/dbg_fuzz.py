@@ -599,7 +599,249 @@ def run_panic(area, seed, ironc, iron, outdir, adapter):
     return problems, work
 
 
-AREAS = {"values": run_values, "eval": run_values, "step": run_step, "panic": run_panic}
+# ── proto ────────────────────────────────────────────────────────────────────
+
+COMMANDS = ["initialize", "launch", "attach", "setBreakpoints", "setFunctionBreakpoints",
+            "setExceptionBreakpoints", "configurationDone", "threads", "stackTrace", "scopes",
+            "variables", "evaluate", "continue", "next", "stepIn", "stepOut", "pause",
+            "exceptionInfo", "disconnect", "terminate", "source", "setVariable", "completions",
+            "loadedSources", "modules", "restart", "goto", "readMemory", "bogus", ""]
+
+
+def rand_json(r, depth=0):
+    c = r.random()
+    if depth > 3 or c < 0.25:
+        return r.choice([None, True, False, 0, -1, 2 ** 63, 1.5, "", "x" * r.randint(0, 50),
+                         "é\u0000\\\"", -(2 ** 40), "../../etc/passwd", "`frame variable"])
+    if c < 0.6:
+        return {r.choice(["seq", "type", "command", "arguments", "threadId", "frameId",
+                          "variablesReference", "expression", "source", "breakpoints", "line",
+                          "program", "x"]): rand_json(r, depth + 1) for _ in range(r.randint(0, 4))}
+    return [rand_json(r, depth + 1) for _ in range(r.randint(0, 4))]
+
+
+def rand_request(r, seq):
+    cmd = r.choice(COMMANDS)
+    args = rand_json(r)
+    if r.random() < 0.3:
+        args = {"threadId": r.choice([0, 1, -1, 99999]), "frameId": r.choice([0, 1, -5, 2 ** 31]),
+                "variablesReference": r.choice([0, 1, 1500000001, -1, 2 ** 40]),
+                "expression": r.choice(["1 / 0", "x.", "\"", "((((", "a" * 5000, "-" * 500,
+                                        "not not not", "xs[99999999999999999999]", "`bt",
+                                        "\"\\u{110000}\"", "\"{\"", "s[-1]", "1 << 99"]),
+                "source": {"path": r.choice(["/nonexistent.iron", "", 5])},
+                "breakpoints": [{"line": r.choice([0, -1, 10 ** 9, "x"])}],
+                "program": r.choice(["/nonexistent.iron", "", 5, None])}
+    msg = {"seq": seq, "type": "request", "command": cmd, "arguments": args}
+    return msg
+
+
+def frame_bytes(body):
+    return b"Content-Length: %d\r\n\r\n" % len(body) + body
+
+
+SESSION_PROGRAMS = {
+    "exit": ("extern func exit(code: Int)\n\nfunc main() {\n    var x = 1\n"
+             "    for i in range(3) {\n        x = x + i\n    }\n    println(\"x {x}\")\n"
+             "    exit(3)\n}\n", 6),
+    "output": ("func main() {\n    var x = 0\n    for i in range(200000) {\n"
+               "        println(\"line {i} with some text to make it longer\")\n"
+               "        x = x + 1\n    }\n    println(\"done {x}\")\n}\n", 5),
+    "fork": ("extern func fork() -> Int\n\nfunc main() {\n    var x = 2\n"
+             "    val p = fork()\n    x = x + 1\n    println(\"forked {p >= 0} {x}\")\n}\n", 6),
+    "crash": ("func main() {\n    val xs = [1, 2]\n    var i = 1\n    i = i + 4\n"
+              "    println(\"{xs[i]}\")\n}\n", 4),
+    "normal": ("object P {\n    val x: Int\n}\n\nfunc f(n: Int) -> Int {\n    val p = P(n)\n"
+               "    return p.x * 2\n}\n\nfunc main() {\n    var t = 0\n    for i in range(4) {\n"
+               "        t = t + f(i)\n    }\n    println(\"t {t}\")\n}\n", 7),
+}
+
+
+def proto_session(rng, iron, adapter, work):
+    """A real session with random and malformed requests sent while the
+    program is stopped: the stop's answers still come, and the program
+    still runs to its end (an exit status, a fork, a panic with
+    stopOnPanic off, 200000 lines of output)."""
+    import json as _json
+    kind = os.environ.get("DBG_PROTO_KIND") or rng.choice(sorted(SESSION_PROGRAMS))
+    text, line = SESSION_PROGRAMS[kind]
+    src = os.path.join(work, "session_%s.iron" % kind)
+    with open(src, "w") as f:
+        f.write(text)
+    problems = []
+    s = Session(iron, adapter, None)
+    try:
+        s.init()
+        extra = {"stopOnPanic": False} if kind == "crash" else None
+        s.launch(src, [line], extra)
+        stop = s.next_stop(120)
+        if stop is None:
+            return ["%s: the program ended before the breakpoint at line %d" % (kind, line)]
+        tid = stop["body"].get("threadId")
+        for _ in range(rng.randint(5, 30)):
+            s.c.seq += 1
+            msg = rand_request(rng, s.c.seq)
+            if msg["command"] in ("disconnect", "terminate", "restart", "launch", "attach",
+                                  "continue", "next", "stepIn", "stepOut", "goto", "pause"):
+                continue
+            body = _json.dumps(msg).encode()
+            s.c.p.stdin.write(frame_bytes(body))
+            s.c.p.stdin.flush()
+            try:
+                s.c.response(msg["seq"], msg["command"], 130)
+            except Exception as e:
+                problems.append("%s: no answer to %s while stopped: %s" % (kind, body[:200], e))
+                return problems
+        # The stop still reads.
+        fr = s.call("stackTrace", {"threadId": tid})["stackFrames"]
+        if not fr or fr[0].get("line") != line:
+            problems.append("%s: after the junk the stack is %s" % (kind, fr[:2]))
+        s.call("continue", {"threadId": tid})
+        end = s.c.wait(lambda m: m.get("type") == "event" and
+                       m.get("event") in ("stopped", "exited", "terminated"), 240, "end")
+        if end.get("event") == "stopped":
+            # the breakpoint inside a loop: run on without it
+            s.call("setBreakpoints", {"source": {"path": src}, "breakpoints": []})
+            s.call("continue", {"threadId": end["body"].get("threadId")})
+            end = s.c.wait(lambda m: m.get("type") == "event" and
+                           m.get("event") in ("stopped", "exited", "terminated"), 240, "end")
+            if end.get("event") == "stopped":
+                problems.append("%s: stopped again with no breakpoint: %s" % (kind, end.get("body")))
+        if kind == "exit" and end.get("event") == "exited" and \
+                end["body"].get("exitCode") not in (3, None):
+            problems.append("exit: the exit code is %s, want 3" % end["body"].get("exitCode"))
+    except Skip:
+        raise
+    except Exception as e:
+        problems.append("%s session: %s: %s" % (kind, type(e).__name__, e))
+    finally:
+        s.close()
+    return problems
+
+
+def run_proto(area, seed, ironc, iron, outdir, adapter):
+    """Malformed and random DAP traffic: every well-formed request gets
+    an answer, the adapter never exits or hangs, and a real session still
+    works afterwards."""
+    import json as _json
+    rng = random.Random("%s-%s" % (area, seed))
+    work = os.path.join(outdir, "%s_%s" % (area, seed))
+    os.makedirs(work, exist_ok=True)
+    problems = []
+    env = dict(os.environ)
+    if adapter == "gdb":
+        env["IRON_DAP_ADAPTER"] = "gdb"
+    p = subprocess.Popen([iron, "dap"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, env=env, start_new_session=(os.name == "posix"))
+    import queue as _q
+    q = _q.Queue()
+    errs = []
+
+    def reader():
+        from dap_client import reader as dap_reader
+        try:
+            dap_reader(p.stdout, q)
+        except Exception as e:      # the adapter wrote something that is not DAP
+            q.put(("bad", repr(e)))
+
+    def err_reader():
+        for l in p.stderr:
+            errs.append(l.decode("utf-8", "replace"))
+    threading.Thread(target=reader, daemon=True).start()
+    threading.Thread(target=err_reader, daemon=True).start()
+    sent = []
+    log = []
+
+    def send_raw(b):
+        try:
+            p.stdin.write(b)
+            p.stdin.flush()
+        except (BrokenPipeError, OSError):
+            pass
+
+    def await_seq(seq, timeout=30):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                m = q.get(timeout=max(0.1, deadline - time.time()))
+            except _q.Empty:
+                break
+            if m is None:
+                return "exit"
+            if isinstance(m, tuple):
+                return "bad output %s" % m[1]
+            if m.get("type") == "response" and m.get("request_seq") == seq:
+                return m
+        return None
+
+    seq = 0
+    try:
+        for step in range(rng.randint(20, 60)):
+            seq += 1
+            c = rng.random()
+            if c < 0.12:
+                body = bytes(rng.randint(0, 255) for _ in range(rng.randint(0, 40)))
+                send_raw(frame_bytes(body))
+                log.append("garbage body %r" % body[:20])
+            elif c < 0.2:
+                body = _json.dumps(rand_json(rng)).encode()
+                send_raw(frame_bytes(body))
+                log.append("json %r" % body[:60])
+            elif c < 0.27:
+                send_raw(rng.choice([b"Content-Length: abc\r\n\r\n", b"\r\n\r\n",
+                                     b"X-Other: 1\r\n\r\n", b"Content-Length: 0\r\n\r\n",
+                                     b"Content-Length: 2\r\n\r\n{}",
+                                     b"Content-Length: 4\r\n\r\nnull",
+                                     b"Content-Length: 2\r\n\r\n[]"]))
+                log.append("bad framing")
+            else:
+                msg = rand_request(rng, seq)
+                if rng.random() < 0.1:
+                    msg.pop(rng.choice(["seq", "type", "command", "arguments"]))
+                body = _json.dumps(msg).encode()
+                send_raw(frame_bytes(body))
+                log.append("request %s" % body[:120])
+                if "seq" in msg and msg.get("type") == "request" and \
+                        isinstance(msg.get("command"), str) and msg["command"] not in ("disconnect", "terminate"):
+                    r = await_seq(seq)
+                    if r is None:
+                        problems.append("no answer to %s within 30s (last: %s)" % (body[:200], log[-4:]))
+                        break
+                    if r == "exit" or isinstance(r, str):
+                        problems.append("the adapter %s after %s (log %s) (stderr: %s)" %
+                                        (r, body[:200], log[-4:-1], "".join(errs)[-800:]))
+                        break
+                elif msg.get("command") in ("disconnect", "terminate") and "seq" in msg:
+                    await_seq(seq, 10)
+                    break
+            if p.poll() is not None:
+                problems.append("the adapter exited (%s) after %s; stderr: %s" %
+                                (p.returncode, log[-3:], "".join(errs)[-800:]))
+                break
+        if not problems:
+            problems += proto_session(rng, iron, adapter, work)
+        # A Python traceback in the adapter's stderr is a crash it survived.
+        tb = "".join(errs)
+        if "Traceback" in tb:
+            problems.append("the adapter raised: %s" % tb[-1500:])
+    finally:
+        try:
+            p.stdin.close()
+        except OSError:
+            pass
+        try:
+            p.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            problems.append("the adapter did not exit within 10s of its input closing")
+            try:
+                os.killpg(p.pid, 9)
+            except OSError:
+                p.kill()
+    return problems, work
+
+
+AREAS = {"values": run_values, "eval": run_values, "step": run_step, "panic": run_panic,
+         "proto": run_proto}
 
 
 def run_one(area, seed, ironc, iron, outdir, adapter):

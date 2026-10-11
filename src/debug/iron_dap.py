@@ -56,6 +56,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OWN_SEQ_BASE = 1000000000
@@ -107,12 +108,65 @@ def read_message(stream):
         if not chunk:
             return None
         body += chunk
-    return json.loads(body.decode("utf-8"))
+    msg = json.loads(body.decode("utf-8"))
+    # (A body that is JSON null is a message, not the end of the input.)
+    return msg if msg is not None else NOT_A_MESSAGE
+
+
+NOT_A_MESSAGE = []      # read_message's value for a `null` body
 
 
 def frame(msg):
     body = json.dumps(msg, separators=(",", ":")).encode("utf-8")
     return b"Content-Length: %d\r\n\r\n" % len(body) + body
+
+
+# The requests of the Debug Adapter Protocol: anything else is answered
+# with an error here (lldb-dap leaves an unknown request unanswered).
+DAP_REQUESTS = {
+    "initialize", "launch", "attach", "restart", "disconnect", "terminate", "breakpointLocations",
+    "setBreakpoints", "setFunctionBreakpoints", "setExceptionBreakpoints", "dataBreakpointInfo",
+    "setDataBreakpoints", "setInstructionBreakpoints", "configurationDone", "continue", "next",
+    "stepIn", "stepOut", "stepBack", "reverseContinue", "restartFrame", "goto", "pause",
+    "stackTrace", "scopes", "variables", "setVariable", "source", "threads", "terminateThreads",
+    "modules", "loadedSources", "evaluate", "setExpression", "stepInTargets", "gotoTargets",
+    "completions", "exceptionInfo", "readMemory", "writeMemory", "disassemble", "locations",
+    "cancel", "runInTerminal", "startDebugging",
+}
+INT_ARGS = ("threadId", "frameId", "variablesReference", "startFrame", "levels", "line",
+            "column", "start", "count", "targetId", "offset", "instructionCount",
+            "instructionOffset", "sourceReference")
+
+
+def bad_arguments(a):
+    """Why a request's arguments cannot be what the protocol says (an id
+    that is not an integer, a source that is not an object...), or None.
+    Debuggers handle such requests badly (lldb-dap stops answering)."""
+    for k in INT_ARGS:
+        if k in a and a[k] is not None and (not isinstance(a[k], int) or isinstance(a[k], bool)
+                                            or not -(1 << 62) < a[k] < (1 << 62)):
+            return "%s must be an integer" % k
+    for k in ("expression", "program", "context", "cwd", "name", "value", "text"):
+        if k in a and a[k] is not None and not isinstance(a[k], str):
+            return "%s must be a string" % k
+    if "source" in a and a["source"] is not None:
+        src = a["source"]
+        if not isinstance(src, dict):
+            return "source must be an object"
+        if "path" in src and src["path"] is not None and not isinstance(src["path"], str):
+            return "source.path must be a string"
+    for k in ("breakpoints", "filters", "args"):
+        if k in a and a[k] is not None and not isinstance(a[k], list):
+            return "%s must be a list" % k
+    for bp in a.get("breakpoints") or []:
+        if not isinstance(bp, dict):
+            return "each breakpoint must be an object"
+        bad = bad_arguments(bp)
+        if bad:
+            return "a breakpoint's " + bad
+    if "env" in a and a["env"] is not None and not isinstance(a["env"], dict):
+        return "env must be an object"
+    return None
 
 
 # ── Naming rules shared with iron_lldb.py / iron_gdb.py ──────────────────────
@@ -1288,6 +1342,9 @@ class Proxy:
         self.adapter_path = None
         self.warned_no_scripting = False
         self.build_dir = None    # this session's --debug builds (see build_plan)
+        self.launched = False    # a launch or attach went to the debugger
+        self.pending_since = {}  # client request seq -> when it went to the debugger
+        threading.Thread(target=self.watchdog, daemon=True).start()
 
     # Output to the client.
     def send(self, msg):
@@ -1373,17 +1430,110 @@ class Proxy:
 
     # Client -> debugger.
     def from_client(self, msg):
+        """One message from the client. A message that is not a request
+        the adapter can answer is ignored (and said so on stderr); a
+        request it cannot handle gets an error response: nothing a client
+        sends ends the session."""
+        if not isinstance(msg, dict):
+            sys.stderr.write("iron dap: ignored a message that is not a JSON object\n")
+            return
         if msg.get("type") != "request":
-            self.to_child(msg)
+            if msg.get("type") == "response":     # to a reverse request (runInTerminal)
+                self.to_child(msg)
+            else:
+                sys.stderr.write("iron dap: ignored a message of type %r\n" % (msg.get("type"),))
+            return
+        seq = msg.get("seq")
+        if not isinstance(seq, int) or isinstance(seq, bool):
+            sys.stderr.write("iron dap: ignored a request without a numeric seq\n")
             return
         cmd = msg.get("command")
+        if not isinstance(cmd, str) or not cmd:
+            self.respond_error(msg, "a request needs a command")
+            return
+        if "arguments" in msg and msg["arguments"] is not None and \
+                not isinstance(msg["arguments"], dict):
+            self.respond_error(msg, "%s: the arguments must be an object" % cmd)
+            return
+        if self.child is None and cmd != "initialize":
+            if cmd in ("disconnect", "terminate"):
+                self.respond(msg, {})
+            else:
+                self.respond_error(msg, "%s: the session is not initialized (send initialize "
+                                        "first)" % cmd)
+            return
+        if self.child is not None and self.child.poll() is not None and \
+                cmd not in ("disconnect", "terminate"):
+            self.respond_error(msg, "%s: the debugger has exited" % cmd)
+            return
+        if cmd not in DAP_REQUESTS:
+            self.respond_error(msg, "%s: not a request iron dap supports" % cmd)
+            return
+        bad = bad_arguments(msg.get("arguments") or {})
+        if bad:
+            self.respond_error(msg, "%s: %s" % (cmd, bad))
+            return
+        if cmd == "configurationDone" and self.configured:
+            # lldb-dap resumes the program on a second one.
+            self.respond(msg, {})
+            return
+        if self.child is not None and cmd == "initialize":
+            self.respond_error(msg, "initialize: the session is already initialized")
+            return
+        if self.child is not None and not self.launched and \
+                cmd not in ("initialize", "launch", "attach", "disconnect", "terminate"):
+            # lldb-dap leaves such requests unanswered until there is a target.
+            self.respond_error(msg, "%s: no program is being debugged yet (send launch first)"
+                               % cmd)
+            return
+        if cmd == "initialize":
+            a = dict(msg.get("arguments") or {})
+            for k, v in (("adapterID", "iron"), ("pathFormat", "path"), ("linesStartAt1", True),
+                         ("columnsStartAt1", True)):
+                a.setdefault(k, v)
+            msg = dict(msg, arguments=a)
+        try:
+            self.dispatch(msg, cmd)
+        except Exception as e:    # never drop the session over one request
+            sys.stderr.write("iron dap: %s failed: %r\n" % (cmd, e))
+            self.respond_error(msg, "%s failed in iron dap: %s" % (cmd, e))
+
+    def watchdog(self):
+        """A request the debugger never answers gets an error after a
+        while, so a client never waits forever."""
+        while True:
+            time.sleep(5)
+            now = time.monotonic()
+            for seq, t in list(self.pending_since.items()):
+                req = self.pending.get(seq)
+                if req is None:
+                    self.pending_since.pop(seq, None)
+                    continue
+                limit = 900 if req.get("command") in ("launch", "attach") else 120
+                if now - t > limit:
+                    self.pending.pop(seq, None)
+                    self.pending_since.pop(seq, None)
+                    self.respond_error(req, "%s: %s did not answer within %ds"
+                                       % (req.get("command"), self.kind or "the debugger", limit))
+
+    def guarded(self, fn, msg, *args):
+        """Run a request's handler on its own thread: a failure is an
+        error response, not a lost answer."""
+        try:
+            fn(msg, *args)
+        except Exception as e:
+            sys.stderr.write("iron dap: %s failed: %r\n" % (msg.get("command"), e))
+            self.respond_error(msg, "%s failed in iron dap: %s" % (msg.get("command"), e))
+
+    def dispatch(self, msg, cmd):
         if cmd == "initialize" and self.child is None:
             err = self.start_child()
             if err:
                 self.respond_error(msg, err)
                 return
         if cmd == "evaluate":
-            threading.Thread(target=self.handle_evaluate, args=(msg,), daemon=True).start()
+            threading.Thread(target=self.guarded, args=(self.handle_evaluate, msg),
+                             daemon=True).start()
             return
         if cmd == "exceptionInfo":
             tid = (msg.get("arguments") or {}).get("threadId")
@@ -1396,7 +1546,8 @@ class Proxy:
                                    "description": text})
                 return
         if cmd in ("stepIn", "next", "stepOut") and self.configured:
-            threading.Thread(target=self.step, args=(msg, cmd), daemon=True).start()
+            threading.Thread(target=self.guarded, args=(self.step, msg, cmd),
+                             daemon=True).start()
             return
         if cmd == "variables":
             ref = (msg.get("arguments") or {}).get("variablesReference")
@@ -1416,19 +1567,24 @@ class Proxy:
             msg = self.rewrite_launch(msg)
             if msg is None:
                 return
+            self.launched = True
             if self.kind == "gdb" and not self.configured:
                 # gdb starts the program on `launch`; clients send their
                 # breakpoints after it, so the program would run past
                 # them. Launch once the configuration is done.
                 self.held_launch = msg
                 return
+        if cmd in ("launch", "attach"):
+            self.launched = True
         self.pending[msg["seq"]] = msg
+        self.pending_since[msg["seq"]] = time.monotonic()
         self.to_child(msg)
         if cmd == "configurationDone":
             self.configured = True
             if self.held_launch is not None:
                 held, self.held_launch = self.held_launch, None
                 self.pending[held["seq"]] = held
+                self.pending_since[held["seq"]] = time.monotonic()
                 self.to_child(held)
 
     def rewrite_launch(self, req):
@@ -1534,6 +1690,7 @@ class Proxy:
                 return
             self.send(msg)
             return
+        self.pending_since.pop(msg.get("request_seq"), None)
         req = self.pending.pop(msg.get("request_seq"), None)
         if not req or not msg.get("success"):
             self.send(msg)
@@ -2000,7 +2157,12 @@ class Proxy:
 
     def run(self):
         while True:
-            msg = read_message(sys.stdin.buffer)
+            try:
+                msg = read_message(sys.stdin.buffer)
+            except (ValueError, UnicodeError, RecursionError) as e:
+                # A body that is not JSON (ValueError covers JSONDecodeError).
+                sys.stderr.write("iron dap: ignored a message that is not JSON: %s\n" % e)
+                continue
             if msg is None:
                 break
             self.from_client(msg)
