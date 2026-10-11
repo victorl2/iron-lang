@@ -357,6 +357,7 @@ capitalized module object: `import io` then `IO.read_file(path)`,
 | `http` | | HTTP/HTTPS clients and servers |
 | `websocket` | | WS/WSS clients and server upgrades |
 | `url` | | URL parsing and encoding |
+| `mysql` | `Mysql` | MySQL/MariaDB client: connections, prepared statements, typed results, a thread-safe pool ([guide](../mysql.md)) |
 | `raylib` | | graphics, input, audio (ships with the compiler) |
 
 Strings have methods such as `upper`, `lower`, `trim`, `split`, `contains`,
@@ -400,6 +401,42 @@ func main() {
     println(IO.read_file("/tmp/iron_llms_demo.txt"))
 }
 ```
+
+### Databases
+
+`import mysql` talks to MySQL and MariaDB. Connections, statements and
+results are `nocopy` and released when their binding ends; bind them with
+`var` to call the methods that talk to the server, and pass a connection to
+a function as `*var MysqlConn`. Use `exec` with `?` placeholders and
+`MysqlValue` parameters for anything from outside the program. Every
+operation returns a `MysqlError` (in the `error` field of a connection or
+result), so a failure is a value to check:
+
+```iron
+import mysql
+
+func main() {
+    var cfg = MysqlConfig("127.0.0.1", 1, "app", "secret", "shop")
+    cfg.connect_timeout = 2000
+    var conn = Mysql.connect(cfg)
+    if conn.error.failed() {
+        println("connect failed: {conn.error.code} {conn.error.is_connection_error()}")
+        return
+    }
+    val res = conn.exec("SELECT name FROM users WHERE id = ?", [MysqlValue.Int(7)])
+    if res.ok() and res.row_count() == 1 {
+        println("name: {res.text(0, 0)}")
+    }
+}
+```
+
+```output
+connect failed: 1001 true
+```
+
+Share a pool, not a connection, between tasks: `val db =
+Mysql.open_pool(cfg, MysqlPoolOptions(2, 16))` returns an `rc MysqlPool`
+that spawned tasks capture and call `db.exec(...)` on.
 
 ## Tests
 

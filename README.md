@@ -53,6 +53,9 @@ language: syntax, types, memory model, standard library and grammar.
 
 For TCP, UDP, DNS, HTTP/HTTPS, REST servers, webpages, WebSocket/WSS, and
 binary-safe file examples, see the [networking guide](docs/networking.md).
+For MySQL and MariaDB (`import mysql`: TLS, prepared statements, typed
+results and a connection pool, with no client library to install), see the
+[MySQL guide](docs/mysql.md).
 
 For graphics, interactive applications, and games, explore the
 [Raylib guide](https://ironlang.dev/raylib/) and [Pong example](examples/pong/README.md).

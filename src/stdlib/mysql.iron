@@ -242,6 +242,10 @@ nocopy object MysqlResult {
         return self.error.code == 0
     }
 
+    readonly func failed() -> Bool {
+        return self.error.code != 0
+    }
+
     readonly func row_count() -> Int {
         return MysqlNative.res_info(self.handle, 0)
     }
@@ -425,6 +429,10 @@ nocopy object MysqlStmt {
         return self.error.code == 0
     }
 
+    readonly func failed() -> Bool {
+        return self.error.code != 0
+    }
+
     func exec(params: [MysqlValue]) -> MysqlResult {
         val h = MysqlNative.stmt_exec(self.handle, params)
         return MysqlResult(h, MysqlNative.res_error(h))
@@ -461,6 +469,10 @@ nocopy object MysqlConn {
 
     readonly func ok() -> Bool {
         return self.error.code == 0
+    }
+
+    readonly func failed() -> Bool {
+        return self.error.code != 0
     }
 
     -- Run SQL with the text protocol. Use exec for anything that includes
@@ -605,6 +617,10 @@ object MysqlPool {
 
     readonly func ok() -> Bool {
         return self.error.code == 0
+    }
+
+    readonly func failed() -> Bool {
+        return self.error.code != 0
     }
 
     func acquire() -> MysqlConn {

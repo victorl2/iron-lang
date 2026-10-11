@@ -2,7 +2,7 @@
 """Render the repository's guides as ironlang.dev pages.
 
 Writes <site>/docs/index.html from the reference manual and the other
-guide pages (networking, projects, raylib) from their markdown files in
+guide pages (networking, mysql, projects, raylib) from their markdown files in
 docs/, through the page template in scripts/templates/reference.html, so
 the website can never drift from the documentation: the markdown is the
 single source, and every ```iron block in it is compiled by the Doc Test
@@ -56,6 +56,12 @@ PAGES = [
         "title": "Networking",
         "description": "TCP, UDP, DNS, HTTP and HTTPS clients and servers, REST, webpages, WebSocket and WSS, and binary-safe files in Iron, with the ownership and limits that keep them safe.",
         "llms": "/llms/networking.md",
+    },
+    {
+        "source": "mysql.md", "path": "mysql",
+        "title": "MySQL",
+        "description": "The MySQL and MariaDB client in Iron's standard library: connecting with TLS, the authentication plugins, prepared statements, typed results, transactions, connection pools and errors as values.",
+        "llms": "/llms/mysql.md",
     },
     {
         "source": "guide.md", "path": "guide",

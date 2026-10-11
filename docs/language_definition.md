@@ -1698,7 +1698,7 @@ an unknown module is an error (`E0209`); an unused import warns (`W0611`).
 declarations are used by their own names.
 
 The modules that require an import are `math`, `io`, `time`, `log`,
-`hint`, `net`, `http`, `websocket`, `url` and `raylib`; their functions are
+`hint`, `os`, `net`, `http`, `websocket`, `url`, `mysql` and `raylib`; their functions are
 called on the capitalized module object (`import math`, then
 `Math.sqrt(x)`). Everything else in section 9 (strings, lists, `Box`,
 `Arena`, `Channel`, `Mutex`, `RWLock`, `FileHandle`, `Hashable`, `RawPtr`)
@@ -2755,6 +2755,28 @@ fields. `websocket` provides `WebSocket.connect` (and the `_with_ca`,
 (Url, UrlError)`, `Url.build(u)`, `Url.resolve(base, ref)`,
 `Url.percent_encode`, `Url.percent_decode` and a `Url.builder()`.
 All timeouts are integer milliseconds.
+
+### 9.11.1 `mysql` (import)
+
+`import mysql` is a MySQL and MariaDB client that speaks the client/server
+protocol itself (TLS, the `caching_sha2_password`,
+`mysql_native_password`, `sha256_password` and `mysql_clear_password`
+plugins, the text and binary protocols); it is documented in
+[docs/mysql.md](mysql.md). `Mysql.connect(MysqlConfig)` and
+`Mysql.connect_url(url)` return a `nocopy MysqlConn` with `query(sql)`,
+`exec(sql, params: [MysqlValue])` (a prepared statement, cached per
+connection), `run(sql)`, `prepare(sql)`, `begin`, `commit`, `rollback`,
+`ping`, `reset`, `select_db`, `escape`, `quote` and `close`. A query
+returns a `nocopy MysqlResult` holding every row: `row_count()`,
+`column_count()`, `column(i)`, `col(name)`, `affected_rows()`,
+`last_insert_id()`, `next_result()` and typed readers by row and column
+(`int`, `uint`, `float`, `text`, `bytes`, `bool`, `datetime`, `time`
+returning `T?`, `get_int` and the like returning `(T, MysqlError)`, and
+`value` returning a `MysqlValue`). `Mysql.open_pool(config,
+MysqlPoolOptions(min, max))` returns an `rc MysqlPool` that any number of
+tasks share (`query`, `exec`, `run`, `acquire`). Every operation reports a
+`MysqlError { code, sqlstate, message, server }` (code 0 on success) and
+none panics on a server or network failure.
 
 ### 9.12 `raylib` (import)
 
