@@ -2774,6 +2774,8 @@ static bool instr_mutates_memory(IronLIR_InstrKind kind) {
     case IRON_LIR_ARENA_ALLOC:
     case IRON_LIR_ARENA_PUSH:
     case IRON_LIR_ARENA_POP:
+    case IRON_LIR_SCOPE_ENTER:
+    case IRON_LIR_SCOPE_LEAVE:
     case IRON_LIR_FREE:
     /* PTR_STORE writes through a (fat) pointer — omitting it let the
      * expression inliner move a pure LOAD/GET_FIELD past a store to the
@@ -3992,6 +3994,8 @@ static bool rcpe_instr_is_barrier(IronLIR_Func *fn, IronLIR_Instr *in,
         case IRON_LIR_ARENA_ALLOC:
         case IRON_LIR_ARENA_PUSH:
         case IRON_LIR_ARENA_POP:
+    case IRON_LIR_SCOPE_ENTER:
+    case IRON_LIR_SCOPE_LEAVE:
             return true;
 
         case IRON_LIR_CALL: {
@@ -4254,12 +4258,20 @@ static IronLIR_ValueId canonicalize_root(IronLIR_Func *fn,
             cur = prod->addr_of.target;
             break;
         case IRON_LIR_GET_FIELD:
-            /* field access keys to the parent object's root */
-            cur = prod->field.object;
-            break;
         case IRON_LIR_GET_INDEX:
-            cur = prod->index.array;
-            break;
+            /* A checked pointer read out of a field or a list element is a
+             * value of its own, not an address derived from the container:
+             * `v.p` and `v.q` (or `ps[0]` and `ps[1]`) point at unrelated
+             * storage, and a callee writing through `&v` can repoint `v.p`
+             * between two reads (#539). Only the address of a field or
+             * element (`&w.terrain`, reached through ADDR_OF) keys to the
+             * container's root. */
+            if (!prod->type || prod->type->kind != IRON_TYPE_PTR) {
+                cur = (prod->kind == IRON_LIR_GET_FIELD) ? prod->field.object
+                                                         : prod->index.array;
+                break;
+            }
+            return cur;
         case IRON_LIR_LOAD:
             cur = prod->load.ptr;
             break;
@@ -4357,6 +4369,36 @@ static bool gencheck_is_arena_handle(IronLIR_Func *fn, IronLIR_ValueId v) {
     return any;
 }
 
+/* The type of value `v` in fn: its producer's type, or a parameter's. */
+static Iron_Type *gencheck_value_type(IronLIR_Func *fn, IronLIR_ValueId v) {
+    if (v == IRON_LIR_VALUE_INVALID) return NULL;
+    IronLIR_Instr *d = (v < (IronLIR_ValueId)arrlen(fn->value_table)) ? fn->value_table[v] : NULL;
+    if (d) return d->type;
+    if (v >= 1 && v <= (IronLIR_ValueId)fn->param_count) return fn->params[v - 1].type;
+    return NULL;
+}
+
+static bool gencheck_is_checked_ptr(Iron_Type *t) {
+    return t && t->kind == IRON_TYPE_PTR && !t->ptr.is_unchecked;
+}
+
+/* The regime of checked pointer `v` as far as its producer tells: an `&x`
+ * says where x lives (its ADDR_OF tag); anything else (a field, a list
+ * element, a parameter, a call result, a capture, a phi) is GEN_ANY and
+ * the check reads the regime off the generation (#539). */
+static IronLIR_GenSource gencheck_source_of(IronLIR_Func *fn, IronLIR_ValueId v) {
+    IronLIR_Instr *d = (v != IRON_LIR_VALUE_INVALID &&
+                        v < (IronLIR_ValueId)arrlen(fn->value_table)) ? fn->value_table[v] : NULL;
+    if (d && d->kind == IRON_LIR_ADDR_OF) return d->addr_of.gen_source;
+    return IRON_LIR_GEN_ANY;
+}
+
+/* Does instruction `in` dereference a checked pointer? Every such
+ * dereference is checked, whatever produced the pointer (manual 6.4: every
+ * dereference verifies the generation). Fills the pointer and its regime.
+ *   - a field read or write through a heap or arena handle
+ *   - a field read or write through a checked pointer
+ *   - a load or store through a checked pointer */
 static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
                                        IronLIR_ValueId *out_ptr,
                                        IronLIR_GenSource *out_gen) {
@@ -4378,87 +4420,48 @@ static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
         return true;
     }
     switch ((int)(in->kind)) {
-    case IRON_LIR_PTR_LOAD: {
-        /* emit_c.c:5142-5183 — is_unchecked branch emits NO check (unchanged). */
-        IronLIR_Instr *fp_instr =
-            (in->ptr_load.fp < (IronLIR_ValueId)arrlen(fn->value_table))
-                ? fn->value_table[in->ptr_load.fp] : NULL;
-        Iron_Type *fp_type = (fp_instr) ? fp_instr->type : NULL;
-        bool is_unchecked = (fp_type && fp_type->kind == IRON_TYPE_PTR &&
-                             fp_type->ptr.is_unchecked);
-        if (is_unchecked) return false;
+    case IRON_LIR_PTR_LOAD:
+        if (!gencheck_is_checked_ptr(gencheck_value_type(fn, in->ptr_load.fp))) return false;
         *out_ptr = in->ptr_load.fp;
-        *out_gen = in->ptr_load.gen_source;
+        *out_gen = gencheck_source_of(fn, in->ptr_load.fp);
         return true;
-    }
-    case IRON_LIR_PTR_STORE: {
-        /* emit_c.c:5191-5239 — is_unchecked branch emits NO check (unchanged). */
-        IronLIR_Instr *fp_instr =
-            (in->ptr_store.fp < (IronLIR_ValueId)arrlen(fn->value_table))
-                ? fn->value_table[in->ptr_store.fp] : NULL;
-        Iron_Type *fp_type = (fp_instr) ? fp_instr->type : NULL;
-        bool is_unchecked = (fp_type && fp_type->kind == IRON_TYPE_PTR &&
-                             fp_type->ptr.is_unchecked);
-        if (is_unchecked) return false;
+    case IRON_LIR_PTR_STORE:
+        if (!gencheck_is_checked_ptr(gencheck_value_type(fn, in->ptr_store.fp))) return false;
         *out_ptr = in->ptr_store.fp;
-        *out_gen = in->ptr_store.gen_source;
+        *out_gen = gencheck_source_of(fn, in->ptr_store.fp);
         return true;
-    }
-    case IRON_LIR_GET_FIELD: {
-        /* emit_c.c:1499-1521 — check fires only when the object is a fat ptr
-         * whose producer is an ADDR_OF (gen_source from that ADDR_OF). */
-        IronLIR_ValueId obj = in->field.object;
-        IronLIR_Instr *obj_instr =
-            (obj != IRON_LIR_VALUE_INVALID &&
-             obj < (IronLIR_ValueId)arrlen(fn->value_table))
-                ? fn->value_table[obj] : NULL;
-        if (obj_instr && obj_instr->kind == IRON_LIR_ADDR_OF) {
-            *out_ptr = obj;
-            *out_gen = obj_instr->addr_of.gen_source;
-            return true;
-        }
-        /* 2026-07 remediation (§13 OQ-02, 4.2 closure_pointer_capture /
-         * closure_var_pointer_capture): a CHECKED-ptr capture dereferenced
-         * inside a lifted lambda body. The object producer is a LOAD from
-         * the capture-alias alloca (`Iron_FatPtr _vN = _e->p;`) — wave-4
-         * made the deref itself well-formed but emitted no check, so a
-         * dangling capture read stale frame memory instead of panicking.
-         * The OQ-02 CONTEXT lock those fixtures pin is capture-of-&local
-         * lifetime-extension: the capture's gen is an iron_stack_gen
-         * snapshot, so the STACK checker is the sound source here.
-         * (A capture of a HEAP-rooted *T remains an open provenance gap —
-         * same caller-dependence as the parameter case in the emit_c.c
-         * Phase 37 note — and no fixture exercises it.) */
-        if (obj_instr && obj_instr->kind == IRON_LIR_LOAD &&
-            fn->capture_count > 0 && fn->capture_metadata &&
-            alloca_is_capture_alias(fn, obj_instr->load.ptr) &&
-            obj_instr->type && obj_instr->type->kind == IRON_TYPE_PTR &&
-            !obj_instr->type->ptr.is_unchecked) {
-            *out_ptr = obj;
-            *out_gen = IRON_LIR_GEN_STACK;
-            return true;
-        }
-        /* Any other checked pointer whose producer does not say where it
-         * points (a parameter, a field, a call result): a pointer to a local
-         * that left its frame inside an object was read without a check and
-         * returned stale stack memory (#471). The stack check knows a stack
-         * generation by its tag and passes heap and arena ones (those are
-         * checked where their producer is known: at the call, #442). */
-        {
-            Iron_Type *ot = obj_instr ? obj_instr->type
-                          : (obj >= 1 && obj <= (IronLIR_ValueId)fn->param_count)
-                              ? fn->params[obj - 1].type : NULL;
-            if (ot && ot->kind == IRON_TYPE_PTR && !ot->ptr.is_unchecked) {
-                *out_ptr = obj;
-                *out_gen = IRON_LIR_GEN_STACK;
-                return true;
-            }
-        }
-        return false;
-    }
+    case IRON_LIR_GET_FIELD:
+    case IRON_LIR_SET_FIELD:
+        if (!gencheck_is_checked_ptr(gencheck_value_type(fn, in->field.object))) return false;
+        *out_ptr = in->field.object;
+        *out_gen = gencheck_source_of(fn, in->field.object);
+        return true;
     default:
         return false;
     }
+}
+
+static IronLIR_Instr *gencheck_new(IronLIR_Func *fn, IronLIR_Instr *at,
+                                   IronLIR_ValueId ptr, IronLIR_GenSource gen) {
+    IronLIR_Instr *gc = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!gc) iron_oom_abort("lir_optimize.c:lower_genchecks");
+    memset(gc, 0, sizeof(*gc));
+    gc->kind                = IRON_LIR_GENCHECK;
+    gc->type                = NULL;
+    gc->id                  = IRON_LIR_VALUE_INVALID;
+    gc->span                = at->span;
+    gc->gencheck.ptr        = ptr;
+    gc->gencheck.root_alloc = canonicalize_root(fn, ptr);
+    gc->gencheck.gen_source = gen;
+    return gc;
+}
+
+static IronLIR_Func *gencheck_find_func(IronLIR_Module *module, const char *name) {
+    if (!name) return NULL;
+    for (int i = 0; i < module->func_count; i++)
+        if (module->funcs[i]->name && strcmp(module->funcs[i]->name, name) == 0)
+            return module->funcs[i];
+    return NULL;
 }
 
 void lower_genchecks(IronLIR_Module *module) {
@@ -4482,34 +4485,33 @@ void lower_genchecks(IronLIR_Module *module) {
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *in = blk->instrs[ii];
 
-                /* A pointer into a heap or arena allocation passed to a
-                 * function: the callee reads it through a parameter, whose
-                 * regime it cannot know, so it checks nothing; `rd(p)` after
-                 * `free h` read freed memory. Check at the call, where the
-                 * pointer's producer says what it points into (the callee
-                 * cannot free the caller's allocation while it runs). */
+                /* A checked pointer handed to a parameter that is not a
+                 * pointer is dereferenced at the call: a method called
+                 * through it (`v.p.get()`, `v.p.bump()`) or a by-value
+                 * receiver reached through it (#539). A pointer passed to a
+                 * pointer parameter is the callee's to check where it
+                 * dereferences it (the callee can free or reset the target
+                 * during the call, so a check here would prove nothing). */
                 if (in->kind == IRON_LIR_CALL) {
-                    for (int ai = 0; ai < in->call.arg_count; ai++) {
+                    const char *cname = NULL;
+                    if (in->call.func_decl) {
+                        cname = in->call.func_decl->name;
+                    } else {
+                        IronLIR_ValueId fptr = in->call.func_ptr;
+                        if (fptr != IRON_LIR_VALUE_INVALID &&
+                            fptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                            fn->value_table[fptr] &&
+                            fn->value_table[fptr]->kind == IRON_LIR_FUNC_REF)
+                            cname = fn->value_table[fptr]->func_ref.func_name;
+                    }
+                    IronLIR_Func *callee = gencheck_find_func(module, cname);
+                    for (int ai = 0; callee && ai < in->call.arg_count &&
+                                     ai < callee->param_count; ai++) {
                         IronLIR_ValueId av = in->call.args[ai];
-                        IronLIR_Instr *ad = (av != IRON_LIR_VALUE_INVALID &&
-                                             (ptrdiff_t)av < arrlen(fn->value_table))
-                                            ? fn->value_table[av] : NULL;
-                        if (!ad || ad->kind != IRON_LIR_ADDR_OF ||
-                            (ad->addr_of.gen_source != IRON_LIR_GEN_HEAP &&
-                             ad->addr_of.gen_source != IRON_LIR_GEN_ARENA) ||
-                            !ad->type || ad->type->kind != IRON_TYPE_PTR ||
-                            ad->type->ptr.is_unchecked)
-                            continue;
-                        IronLIR_Instr *gc = ARENA_ALLOC(fn->arena, IronLIR_Instr);
-                        if (!gc) iron_oom_abort("lir_optimize.c:lower_genchecks");
-                        memset(gc, 0, sizeof(*gc));
-                        gc->kind                = IRON_LIR_GENCHECK;
-                        gc->id                  = IRON_LIR_VALUE_INVALID;
-                        gc->span                = in->span;
-                        gc->gencheck.ptr        = av;
-                        gc->gencheck.root_alloc = canonicalize_root(fn, av);
-                        gc->gencheck.gen_source = ad->addr_of.gen_source;
-                        arrput(rebuilt, gc);
+                        if (!gencheck_is_checked_ptr(gencheck_value_type(fn, av))) continue;
+                        Iron_Type *pt = callee->params[ai].type;
+                        if (!pt || pt->kind == IRON_TYPE_PTR) continue;
+                        arrput(rebuilt, gencheck_new(fn, in, av, gencheck_source_of(fn, av)));
                         inserted_any = true;
                     }
                 }
@@ -4517,22 +4519,7 @@ void lower_genchecks(IronLIR_Module *module) {
                 IronLIR_ValueId ptr = IRON_LIR_VALUE_INVALID;
                 IronLIR_GenSource gen = IRON_LIR_GEN_HEAP;
                 if (gencheck_deref_needs_check(fn, in, &ptr, &gen)) {
-                    /* Build a void-result GENCHECK without appending to the
-                     * block (alloc_instr would push to the tail). Mirrors
-                     * alloc_instr's void-result path: zeroed, INVALID id, span
-                     * copied from the deref so the late expansion reproduces the
-                     * exact filename + line. */
-                    IronLIR_Instr *gc = ARENA_ALLOC(fn->arena, IronLIR_Instr);
-                    if (!gc) iron_oom_abort("lir_optimize.c:lower_genchecks");
-                    memset(gc, 0, sizeof(*gc));
-                    gc->kind               = IRON_LIR_GENCHECK;
-                    gc->type               = NULL;
-                    gc->id                 = IRON_LIR_VALUE_INVALID;
-                    gc->span               = in->span;
-                    gc->gencheck.ptr        = ptr;
-                    gc->gencheck.root_alloc = canonicalize_root(fn, ptr);
-                    gc->gencheck.gen_source = gen;
-                    arrput(rebuilt, gc);
+                    arrput(rebuilt, gencheck_new(fn, in, ptr, gen));
                     inserted_any = true;
                 }
 
@@ -4702,6 +4689,8 @@ static bool gencheck_instr_is_may_free(IronLIR_Func *fn, IronLIR_Instr *in,
         case IRON_LIR_ARENA_ALLOC:
         case IRON_LIR_ARENA_PUSH:
         case IRON_LIR_ARENA_POP:
+    case IRON_LIR_SCOPE_ENTER:
+    case IRON_LIR_SCOPE_LEAVE:
             return true;
 
         /* Drop-on-assignment: writing an owning slot drops the prior occupant.
@@ -4892,79 +4881,6 @@ static bool gencheck_region_has_may_free(IronLIR_Func *fn,
     return barrier;
 }
 
-/* Tier 2 escape analysis: build a per-function map root_alloc -> escaped.
- *
- * A STACK-sourced local root (an ALLOCA) is non-escaping when its address never
- * leaves the frame. We over-approximate escape conservatively: a value escapes
- * if it (or any ADDR_OF taken on it) flows into a heap STORE value, a SET_FIELD
- * /SET_INDEX value, a non-void RETURN, a MAKE_CLOSURE capture, or any CALL arg
- * (v1 coarse — any arg may escape). Marking ANY of these escapes the underlying
- * ALLOCA (canonicalize_root maps the derived pointer back to it). Anything not
- * marked is provably non-escaping → its frame storage cannot be freed while the
- * frame is live, so the gen-check is dead. Only ever PREVENTS elision when
- * uncertain (sound). */
-/* Mark the root of `value` as escaped IFF `value` is a fat POINTER to a local
- * (its producer is ADDR_OF or a PTR_OFFSET thereof) — i.e. the *address* of the
- * local leaves the frame. Flowing the local's loaded scalar VALUE out (e.g.
- * returning an Int slot) is NOT a pointer escape and does not enable a stale
- * deref. canonicalize_root maps the fat ptr back to its ALLOCA. */
-static void gencheck_mark_ptr_escape(IronLIR_Func *fn, IronLIR_ValueId value,
-                                     IronLIR_EscapeEntry **escaped) {
-    if (value == IRON_LIR_VALUE_INVALID ||
-        value >= (IronLIR_ValueId)arrlen(fn->value_table) ||
-        !fn->value_table[value]) {
-        return;
-    }
-    IronLIR_InstrKind k = fn->value_table[value]->kind;
-    if (k == IRON_LIR_ADDR_OF || k == IRON_LIR_PTR_OFFSET ||
-        k == IRON_LIR_GET_FIELD || k == IRON_LIR_GET_INDEX) {
-        hmput(*escaped, canonicalize_root(fn, value), true);
-    }
-}
-
-static IronLIR_EscapeEntry *gencheck_build_escape_map(IronLIR_Func *fn) {
-    IronLIR_EscapeEntry *escaped = NULL;
-    for (int bi = 0; bi < fn->block_count; bi++) {
-        IronLIR_Block *blk = fn->blocks[bi];
-        for (int ii = 0; ii < blk->instr_count; ii++) {
-            IronLIR_Instr *in = blk->instrs[ii];
-            /* if/else-if chain (not a switch) so -Werror=switch-enum does not
-             * require listing every opcode; only the escape-inducing opcodes
-             * matter — everything else is a non-escape no-op. A local escapes
-             * only when a POINTER to it flows out (gencheck_mark_ptr_escape). */
-            if (in->kind == IRON_LIR_STORE) {
-                gencheck_mark_ptr_escape(fn, in->store.value, &escaped);
-            } else if (in->kind == IRON_LIR_SET_FIELD) {
-                gencheck_mark_ptr_escape(fn, in->field.value, &escaped);
-            } else if (in->kind == IRON_LIR_SET_INDEX) {
-                gencheck_mark_ptr_escape(fn, in->index.value, &escaped);
-            } else if (in->kind == IRON_LIR_RETURN) {
-                if (!in->ret.is_void) {
-                    gencheck_mark_ptr_escape(fn, in->ret.value, &escaped);
-                }
-            } else if (in->kind == IRON_LIR_MAKE_CLOSURE) {
-                for (int ci = 0; ci < in->make_closure.capture_count; ci++) {
-                    gencheck_mark_ptr_escape(fn, in->make_closure.captures[ci], &escaped);
-                }
-            } else if (in->kind == IRON_LIR_CALL) {
-                /* Any CALL arg may escape (v1 coarse) — mark pointer args. */
-                for (int ai = 0; ai < in->call.arg_count; ai++) {
-                    gencheck_mark_ptr_escape(fn, in->call.args[ai], &escaped);
-                }
-            } else if (in->kind == IRON_LIR_SPAWN) {
-                for (int ci = 0; ci < in->spawn.capture_count; ci++) {
-                    gencheck_mark_ptr_escape(fn, in->spawn.captures[ci], &escaped);
-                }
-            } else if (in->kind == IRON_LIR_PARALLEL_FOR) {
-                for (int ci = 0; ci < in->parallel_for.capture_count; ci++) {
-                    gencheck_mark_ptr_escape(fn, in->parallel_for.captures[ci], &escaped);
-                }
-            }
-        }
-    }
-    return escaped;
-}
-
 /* Does block `bid` lie in loop `L`'s body? */
 static bool gencheck_block_in_loop(IronLIR_LoopInfo *L, IronLIR_BlockId bid) {
     return hmgeti(L->body_blocks, bid) >= 0;
@@ -5120,6 +5036,52 @@ static void t3_move_instr_to_preheader(IronLIR_Func *fn, IronLIR_Block *pre,
     pre->instr_count = (int)arrlen(spliced);
 }
 
+/* Whether place `v` is storage of this function's own frame scope or a
+ * global: a local binding's slot (not one holding a pointer or handle, not
+ * a capture alias reaching another frame's storage, not a local of an
+ * inner block with a scope of its own), a field of such a value, or an
+ * element of such a fixed-size array. */
+static bool gencheck_place_is_frame_local(IronLIR_Func *fn, IronLIR_ValueId v, int depth) {
+    if (depth > 32 || v == IRON_LIR_VALUE_INVALID ||
+        v >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *d = fn->value_table[v];
+    if (!d) return false;
+    switch ((int)d->kind) {
+    case IRON_LIR_ALLOCA: {
+        if (d->alloca.global_name) return true;
+        Iron_Type *at = d->alloca.alloc_type;
+        if (!at || at->kind == IRON_TYPE_PTR || at->kind == IRON_TYPE_RC ||
+            at->kind == IRON_TYPE_WEAK_RC) return false;
+        if (fn->capture_count > 0 && alloca_is_capture_alias(fn, v)) return false;
+        if (d->alloca.scope_id != 0) return false;   /* an inner block's local */
+        return true;
+    }
+    case IRON_LIR_LOAD:
+        return gencheck_place_is_frame_local(fn, d->load.ptr, depth + 1);
+    case IRON_LIR_GET_FIELD: {
+        Iron_Type *ot = gencheck_value_type(fn, d->field.object);
+        if (!ot || ot->kind == IRON_TYPE_PTR || ot->kind == IRON_TYPE_RC) return false;
+        return gencheck_place_is_frame_local(fn, d->field.object, depth + 1);
+    }
+    case IRON_LIR_GET_INDEX: {
+        Iron_Type *at = gencheck_value_type(fn, d->index.array);
+        if (!at || at->kind != IRON_TYPE_ARRAY || at->array.size < 0) return false;
+        return gencheck_place_is_frame_local(fn, d->index.array, depth + 1);
+    }
+    default:
+        return false;
+    }
+}
+
+static bool gencheck_ptr_is_own_local(IronLIR_Func *fn, IronLIR_ValueId v) {
+    if (v == IRON_LIR_VALUE_INVALID || v >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *d = fn->value_table[v];
+    if (!d || d->kind != IRON_LIR_ADDR_OF) return false;
+    if (d->addr_of.gen_source == IRON_LIR_GEN_HEAP || d->addr_of.gen_source == IRON_LIR_GEN_ARENA)
+        return false;
+    return gencheck_place_is_frame_local(fn, d->addr_of.target, 0);
+}
+
 bool run_pointer_check_elimination(IronLIR_Module *module,
                                    IronLIR_GenCheckElisionStat *stat) {
     if (stat) memset(stat, 0, sizeof(*stat));
@@ -5154,34 +5116,26 @@ bool run_pointer_check_elimination(IronLIR_Module *module,
         /* GENCHECKs selected for deletion (by pointer identity). */
         struct { IronLIR_Instr *key; bool value; } *deleted = NULL;
 
-        /* ── Tier 2: escape elision (runs first — never breaks Tier 1) ──────
-         * A GENCHECK whose root is a non-escaping STACK-sourced local is dead:
-         * frame storage cannot be freed while the frame is live. Per Deferred,
-         * we only elide the check (the generation slot stays). */
-        IronLIR_EscapeEntry *escaped = gencheck_build_escape_map(fn);
+        /* ── Tier 2: own-frame address ──────────────────────────────────────
+         * A check of `&x` (or of an address inside x) computed in this very
+         * function, where x is a local of the function's own scope or a
+         * global, cannot fail: the scope outlives every instruction of the
+         * function. Escapes do not matter here; wherever the pointer goes,
+         * it is checked where it is dereferenced. A pointer read back from
+         * a binding, a field or a list is not covered (it may hold any
+         * pointer), nor is a local of an inner block (#537). */
         for (int bi = 0; bi < fn->block_count; bi++) {
             IronLIR_Block *blk = fn->blocks[bi];
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *g = blk->instrs[ii];
                 if (g->kind != IRON_LIR_GENCHECK) continue;
                 if (hmgeti(deleted, g) >= 0) continue;
-                if (g->gencheck.gen_source != IRON_LIR_GEN_STACK) continue;
-                IronLIR_ValueId root = g->gencheck.root_alloc;
-                /* Root must be a real ALLOCA in this frame and provably
-                 * non-escaping. */
-                if (root == IRON_LIR_VALUE_INVALID ||
-                    root >= (IronLIR_ValueId)arrlen(fn->value_table) ||
-                    !fn->value_table[root] ||
-                    fn->value_table[root]->kind != IRON_LIR_ALLOCA) {
-                    continue;
-                }
-                if (hmgeti(escaped, root) >= 0) continue; /* escapes → keep */
+                if (!gencheck_ptr_is_own_local(fn, g->gencheck.ptr)) continue;
                 hmput(deleted, g, true);
                 if (stat) { stat->by_tier[1]++; stat->checks_elided++; }
                 any_changed = true;
             }
         }
-        hmfree(escaped);
 
         /* ── Tier 1: dominator redundant-check ─────────────────────────────── */
         for (int g2bi = 0; g2bi < fn->block_count; g2bi++) {
@@ -5515,6 +5469,8 @@ static bool bce_instr_is_barrier(IronLIR_Instr *in,
     case IRON_LIR_ARENA_ALLOC:
     case IRON_LIR_ARENA_PUSH:
     case IRON_LIR_ARENA_POP:
+    case IRON_LIR_SCOPE_ENTER:
+    case IRON_LIR_SCOPE_LEAVE:
     case IRON_LIR_SET_FIELD:
     case IRON_LIR_POISON:
         return true;
@@ -6620,6 +6576,134 @@ static int optimize_verify_error_count(IronLIR_Module *module, Iron_Arena *arena
     return n;
 }
 
+/* ── Stack scopes (#537) ──────────────────────────────────────────────────
+ * hir_to_lir gives every inner block a scope (SCOPE_ENTER at entry,
+ * SCOPE_LEAVE on every exit edge) and tags each slot with the scope that
+ * owns it. Only blocks one of whose locals has its address taken need a
+ * runtime scope; the others lose their markers here, before anything moves
+ * or copies instructions. A function with any `&` gets its own scope
+ * (takes_local_addr). */
+
+/* The local slot place `v` lives in, or INVALID when the place is not a
+ * local's storage (a global, a heap/arena/rc allocation, memory reached
+ * through a pointer, a list element, the receiver of a pointer method). */
+static IronLIR_ValueId scope_place_root(IronLIR_Func *fn, IronLIR_ValueId v, int depth) {
+    if (depth > 32 || v == IRON_LIR_VALUE_INVALID ||
+        v >= (IronLIR_ValueId)arrlen(fn->value_table)) return IRON_LIR_VALUE_INVALID;
+    IronLIR_Instr *d = fn->value_table[v];
+    if (!d) return IRON_LIR_VALUE_INVALID;
+    switch ((int)d->kind) {
+    case IRON_LIR_ALLOCA:
+        return d->alloca.global_name ? IRON_LIR_VALUE_INVALID : v;
+    case IRON_LIR_LOAD: {
+        IronLIR_Instr *a = (d->load.ptr < (IronLIR_ValueId)arrlen(fn->value_table))
+                           ? fn->value_table[d->load.ptr] : NULL;
+        if (!a || a->kind != IRON_LIR_ALLOCA) return IRON_LIR_VALUE_INVALID;
+        Iron_Type *at = a->alloca.alloc_type;
+        /* A heap or arena binding's slot holds the handle; the place is
+         * the allocation. */
+        if (at && at->kind == IRON_TYPE_PTR && d->type && d->type->kind != IRON_TYPE_PTR)
+            return IRON_LIR_VALUE_INVALID;
+        return scope_place_root(fn, d->load.ptr, depth + 1);
+    }
+    case IRON_LIR_GET_FIELD: {
+        if (fn->is_mut_receiver_method && d->field.object == 1) return IRON_LIR_VALUE_INVALID;
+        Iron_Type *ot = gencheck_value_type(fn, d->field.object);
+        if (!ot || ot->kind == IRON_TYPE_PTR || ot->kind == IRON_TYPE_RC) return IRON_LIR_VALUE_INVALID;
+        IronLIR_Instr *od = (d->field.object < (IronLIR_ValueId)arrlen(fn->value_table))
+                            ? fn->value_table[d->field.object] : NULL;
+        if (od && (od->kind == IRON_LIR_HEAP_ALLOC || od->kind == IRON_LIR_ARENA_ALLOC))
+            return IRON_LIR_VALUE_INVALID;
+        return scope_place_root(fn, d->field.object, depth + 1);
+    }
+    case IRON_LIR_GET_INDEX: {
+        Iron_Type *at = gencheck_value_type(fn, d->index.array);
+        if (!at || at->kind != IRON_TYPE_ARRAY || (at->array.size < 0 && !at->array.is_bounded))
+            return IRON_LIR_VALUE_INVALID;
+        return scope_place_root(fn, d->index.array, depth + 1);
+    }
+    case IRON_LIR_CAST: {
+        Iron_Type *st = gencheck_value_type(fn, d->cast.value);
+        if (st && (st->kind == IRON_TYPE_NULLABLE || st->kind == IRON_TYPE_INTERFACE))
+            return scope_place_root(fn, d->cast.value, depth + 1);
+        return IRON_LIR_VALUE_INVALID;
+    }
+    default:
+        return IRON_LIR_VALUE_INVALID;
+    }
+}
+
+/* The scope of the local a place belongs to: its slot's, or for a `val`
+ * (no slot) the scope that declared it; 0 when the place is no local's. */
+static int scope_of_place(IronLIR_Func *fn, IronLIR_ValueId v) {
+    IronLIR_ValueId root = scope_place_root(fn, v, 0);
+    if (root != IRON_LIR_VALUE_INVALID) return fn->value_table[root]->alloca.scope_id;
+    /* Walk value projections down to the base value. */
+    for (int depth = 0; depth < 32 && v != IRON_LIR_VALUE_INVALID &&
+                        v < (IronLIR_ValueId)arrlen(fn->value_table); depth++) {
+        ptrdiff_t si = hmgeti(fn->val_scopes, v);
+        if (si >= 0) return fn->val_scopes[si].value;
+        IronLIR_Instr *d = fn->value_table[v];
+        if (!d) return 0;
+        if (d->kind == IRON_LIR_GET_FIELD) {
+            Iron_Type *ot = gencheck_value_type(fn, d->field.object);
+            if (!ot || ot->kind == IRON_TYPE_PTR || ot->kind == IRON_TYPE_RC) return 0;
+            v = d->field.object;
+        } else if (d->kind == IRON_LIR_GET_INDEX) {
+            Iron_Type *at = gencheck_value_type(fn, d->index.array);
+            if (!at || at->kind != IRON_TYPE_ARRAY || (at->array.size < 0 && !at->array.is_bounded))
+                return 0;
+            v = d->index.array;
+        } else if (d->kind == IRON_LIR_CAST) {
+            v = d->cast.value;
+        } else {
+            return 0;
+        }
+    }
+    return 0;
+}
+
+void iron_lir_prune_stack_scopes(IronLIR_Module *module) {
+    if (!module) return;
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+        struct { int key; bool value; } *used = NULL;
+        bool any_addr = false, any_scope = false;
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind == IRON_LIR_SCOPE_ENTER) any_scope = true;
+                if (in->kind != IRON_LIR_ADDR_OF) continue;
+                any_addr = true;
+                int sid = scope_of_place(fn, in->addr_of.target);
+                in->addr_of.scope_id = sid;
+                if (sid > 0) hmput(used, sid, true);
+            }
+        }
+        if (any_addr) fn->takes_local_addr = true;
+        if (any_scope) {
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                int n = 0;
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *in = blk->instrs[ii];
+                    if ((in->kind == IRON_LIR_SCOPE_ENTER || in->kind == IRON_LIR_SCOPE_LEAVE) &&
+                        hmgeti(used, in->scope.id) < 0)
+                        continue;
+                    blk->instrs[n++] = in;
+                }
+                if (n != blk->instr_count) {
+                    arrsetlen(blk->instrs, n);
+                    blk->instr_count = n;
+                }
+            }
+        }
+        hmfree(used);
+    }
+}
+
 bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
                       Iron_Arena *arena, bool dump_passes, bool skip_new_passes,
                       bool elision_enabled) {
@@ -6629,6 +6713,7 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
     memset(info, 0, sizeof(*info));
 
     /* Phase 0: Structural passes (always run, not skippable) */
+    iron_lir_prune_stack_scopes(module);
     phi_eliminate(module);
     if (dump_passes) {
         char *ir_text = iron_lir_print(module, true);

@@ -1,0 +1,20 @@
+-- @expect-panic: stale pointer dereference (arena)
+-- After a.restore(m), a value allocated after the save point is stale and
+-- must stay stale: new allocations after the restore reused the old
+-- generation snapshots, so the old pointer became valid again and read the
+-- new value (printed 7). (#432)
+object Pt {
+    val x: Int
+    val y: Int
+}
+
+func main() {
+    val a = Arena(4096)
+    val m = a.save()
+    val p = heap(in: a) Pt(1, 2)
+    val ptr: *Pt = &p
+    a.restore(m)
+    val q = heap(in: a) Pt(7, 8)
+    println("{q.x}")
+    println("{ptr.x}")
+}

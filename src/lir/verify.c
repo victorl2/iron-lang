@@ -159,6 +159,11 @@ static void collect_operands(const IronLIR_Instr *instr,
         /* No operands — pops the TLS active-arena top. */
         break;
 
+    case IRON_LIR_SCOPE_ENTER:
+    case IRON_LIR_SCOPE_LEAVE:
+        /* No value operands: the scope id is a constant. */
+        break;
+
     case IRON_LIR_RC_RETAIN:
         PUSH(instr->rc_retain.target);
         break;

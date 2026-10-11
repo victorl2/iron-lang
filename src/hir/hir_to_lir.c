@@ -345,6 +345,11 @@ typedef struct IronLIR_DropEntry_s {
     /* The slot is a mutable capture cell (#210): scope exit releases the
      * frame's share instead of dropping the value. */
     bool            is_cell;
+    /* Stack scopes (#537): when > 0 this entry is the exit marker of the
+     * block scope with this id (IRON_LIR_SCOPE_LEAVE), registered first at
+     * the block's depth so it runs after the block's defers and drops on
+     * every exit edge. */
+    int             scope_leave;
 } IronLIR_DropEntry;
 
 /* An owned temporary passed as a call argument, released / dropped after
@@ -395,6 +400,14 @@ typedef struct {
     IronHIR_Block ***defer_stacks;   /* stb_ds array of stb_ds arrays */
     int              defer_depth;
     int              function_scope_depth;
+
+    /* Stack scopes (#537): the scope id of each defer depth (0 for the
+     * function's own scope), the last id given out in this function, and
+     * the scope that declared each `val` binding (whose `&` gets a slot of
+     * its own where it is taken). */
+    int             *scope_ids;
+    int              next_scope_id;
+    struct { IronHIR_VarId key; int value; } *var_scope_map;
 
     /* Phase 24 DROP-01 (Plan 24-02): per-scope drop-call entries (LIFO).
      * Parallel to defer_stacks — one stb_ds IronLIR_DropEntry array per
@@ -469,6 +482,8 @@ static void switch_block(HIR_to_LIR_Ctx *ctx, IronLIR_Block *block) {
 /* Emit alloca into entry block (not current block).
  * If the entry block already has a terminator, insert the alloca BEFORE it
  * (terminator must be the last instruction for correctness). */
+static int cur_scope_id(HIR_to_LIR_Ctx *ctx);
+
 static IronLIR_ValueId emit_alloca_in_entry(HIR_to_LIR_Ctx *ctx,
                                              Iron_Type *type,
                                              const char *name_hint,
@@ -476,6 +491,7 @@ static IronLIR_ValueId emit_alloca_in_entry(HIR_to_LIR_Ctx *ctx,
     IronLIR_Block *entry = ctx->entry_block;
     IronLIR_Instr *instr = iron_lir_alloca(ctx->current_func, entry,
                                             type, name_hint, span);
+    instr->alloca.scope_id = cur_scope_id(ctx);   /* the scope that owns it (#537) */
     /* If entry block already has a terminator, move it to the end:
      * alloca was appended after terminator — swap alloca and terminator. */
     int n = entry->instr_count;
@@ -556,8 +572,30 @@ static void insert_in_entry_before_terminator(HIR_to_LIR_Ctx *ctx,
 
 /* ── Defer scope management ──────────────────────────────────────────────── */
 
+static int cur_scope_id(HIR_to_LIR_Ctx *ctx) {
+    if (ctx->defer_depth <= 0 || ctx->defer_depth > (int)arrlen(ctx->scope_ids)) return 0;
+    return ctx->scope_ids[ctx->defer_depth - 1];
+}
+
+static bool block_is_terminated(IronLIR_Block *block);
+
 static void push_defer_scope(HIR_to_LIR_Ctx *ctx) {
     ctx->defer_depth++;
+    /* Stack scopes (#537): every lexical block below the function's own
+     * scope gets an id, an entry marker here and an exit marker on every
+     * exit edge. Blocks none of whose locals have their address taken lose
+     * both again (iron_lir_prune_stack_scopes). */
+    while ((int)arrlen(ctx->scope_ids) < ctx->defer_depth) arrput(ctx->scope_ids, 0);
+    int scope_id = ctx->defer_depth > 1 ? ctx->scope_ids[ctx->defer_depth - 2] : 0;
+    bool entered = false;
+    if (ctx->defer_depth > 1 && ctx->current_func && ctx->current_block &&
+        !block_is_terminated(ctx->current_block)) {
+        scope_id = ++ctx->next_scope_id;
+        iron_lir_scope_enter(ctx->current_func, ctx->current_block, scope_id,
+                             (Iron_Span){0});
+        entered = true;
+    }
+    ctx->scope_ids[ctx->defer_depth - 1] = scope_id;
     while ((int)arrlen(ctx->defer_stacks) < ctx->defer_depth) {
         arrput(ctx->defer_stacks, (IronHIR_Block **)NULL);
     }
@@ -567,6 +605,12 @@ static void push_defer_scope(HIR_to_LIR_Ctx *ctx) {
         arrput(ctx->drop_stacks, (IronLIR_DropEntry *)NULL);
     }
     ctx->drop_stacks[ctx->defer_depth - 1] = NULL;
+    if (entered) {
+        IronLIR_DropEntry leave = {0};
+        leave.alloca_id = IRON_LIR_VALUE_INVALID;
+        leave.scope_leave = scope_id;
+        arrput(ctx->drop_stacks[ctx->defer_depth - 1], leave);
+    }
 }
 
 static void pop_defer_scope(HIR_to_LIR_Ctx *ctx) {
@@ -1033,6 +1077,11 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
         if (entry->is_arena_pop) {
             if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
             iron_lir_arena_pop(ctx->current_func, ctx->current_block, span);
+            continue;
+        }
+        if (entry->scope_leave > 0) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            iron_lir_scope_leave(ctx->current_func, ctx->current_block, entry->scope_leave, span);
             continue;
         }
         /* Phase 37 rc-balance (M3): capturing-closure env teardown. Emit
@@ -4147,6 +4196,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             Iron_Type *vt = expr->addr_of.target->type;
             if (vt && vt->kind != IRON_TYPE_RC && vt->kind != IRON_TYPE_PTR) {
                 IronLIR_ValueId slot = emit_alloca_in_entry(ctx, vt, "__val_view", span);
+                /* The view lives as long as the val: its declaring scope. */
+                {
+                    ptrdiff_t si = hmgeti(ctx->var_scope_map, expr->addr_of.target->ident.var_id);
+                    IronLIR_Instr *sa = ctx->current_func->value_table[slot];
+                    if (sa) sa->alloca.scope_id = si >= 0 ? ctx->var_scope_map[si].value : 0;
+                }
                 iron_lir_store(ctx->current_func, ctx->current_block, slot, target, span);
                 target = iron_lir_load(ctx->current_func, ctx->current_block, slot, vt, span)->id;
             }
@@ -4419,7 +4474,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                     ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
                     /* (The type tells the pump whether the cell holds a
                      * closure, #246.) */
-                    IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, true };
+                    IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, true, 0 };
                     arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
                 }
             }
@@ -4449,7 +4504,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 if (!boxed && type_is_rc_like(type) && ctx->defer_depth > 0 &&
                     ctx->drop_stacks &&
                     ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
-                    IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false };
+                    IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false, 0 };
                     arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
                 }
             }
@@ -4461,7 +4516,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             if (!boxed && !var_is_capture(ctx, vid) && !var_enum_borrows &&
                 type_needs_drop(type, ctx->program) && ctx->defer_depth > 0 &&
                 ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
-                IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false };
+                IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false, 0 };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
             }
         } else if (type && type->kind == IRON_TYPE_INTERFACE) {
@@ -4488,7 +4543,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             if (!var_is_capture(ctx, vid) &&
                 type_needs_drop(type, ctx->program) && ctx->defer_depth > 0 &&
                 ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
-                IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false };
+                IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false, 0 };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
             }
         } else {
@@ -4543,7 +4598,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
                 emit_copy_fixup_at(ctx, stmt->let.init, type, alloca_id, span);
                 /* Push drop entry using alloca_id (is_direct_value=false → &alloca) */
-                IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false };
+                IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false, 0 };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
             } else {
                 if (stmt->let.init) {
@@ -4554,6 +4609,8 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                         init_val = copy_for_new_owner(ctx, stmt->let.init,
                                                       init_val, type, span);
                     hmput(ctx->val_binding_map, vid, init_val);
+                    hmput(ctx->var_scope_map, vid, cur_scope_id(ctx));
+                    hmput(ctx->current_func->val_scopes, init_val, cur_scope_id(ctx));
                     if (hmgeti(ctx->current_func->value_names, init_val) < 0) {
                         hmput(ctx->current_func->value_names, init_val,
                               iron_hir_var_name(ctx->hir, vid));
@@ -4585,7 +4642,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                         if (!rc_expr_transfers_ownership(stmt->let.init)) {
                             emit_rc_retain_for_type(ctx, type, init_val, span);
                         }
-                        IronLIR_DropEntry de = { init_val, type, true, false, NULL, false };
+                        IronLIR_DropEntry de = { init_val, type, true, false, NULL, false, 0 };
                         arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
                     }
                 }
@@ -5420,7 +5477,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         int arena_base_depth = ctx->defer_depth;
         /* Register the arena-pop marker so every exit edge runs the pop. */
         if (ctx->drop_stacks && arena_base_depth <= (int)arrlen(ctx->drop_stacks)) {
-            IronLIR_DropEntry pop_entry = { IRON_LIR_VALUE_INVALID, NULL, false, true, NULL, false };
+            IronLIR_DropEntry pop_entry = { IRON_LIR_VALUE_INVALID, NULL, false, true, NULL, false, 0 };
             arrput(ctx->drop_stacks[arena_base_depth - 1], pop_entry);
         }
         lower_block_stmts(ctx, stmt->in_arena.body);
@@ -5704,6 +5761,11 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
     }
     ctx->defer_depth = 0;
     ctx->function_scope_depth = 0;
+    arrfree(ctx->scope_ids);
+    ctx->scope_ids = NULL;
+    ctx->next_scope_id = 0;
+    hmfree(ctx->var_scope_map);
+    ctx->var_scope_map = NULL;
 
     /* Register parameters in two phases:
      * Phase A: allocate ALL synthetic param ValueIds first (IDs 1..param_count).
@@ -6414,7 +6476,7 @@ static void synthesize_module_deinit(HIR_to_LIR_Ctx *ctx) {
         IronHIR_Global *g = &hir->globals[i];
         if (!global_needs_cleanup(ctx, g->type)) continue;
         IronLIR_ValueId slot = get_global_slot(ctx, g);
-        IronLIR_DropEntry de = { slot, g->type, false, false, NULL, false };
+        IronLIR_DropEntry de = { slot, g->type, false, false, NULL, false, 0 };
         arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
         span0 = g->span;
     }

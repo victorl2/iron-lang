@@ -1,0 +1,29 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A pointer to a local of one loop iteration read in the next iteration:
+-- each iteration's locals are new (#537).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object V {
+    var p: ?*P
+    init() {
+        self.p = null
+    }
+}
+
+func main() {
+    var v = V()
+    for i in range(3) {
+        val x = P(i)
+        val q = v.p
+        if q != null {
+            println("prev {q.hp}")
+        }
+        v.p = &x
+        println("set {i}")
+    }
+}

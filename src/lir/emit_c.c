@@ -1306,22 +1306,130 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
 /* True when `vid` names storage emit_receiver_addr can address without
  * falling back to `&<expr>`: a LOAD from a value-typed alloca, or a
  * GET_FIELD chain rooted in one (or in a pointer). */
-/* Whether vid is (a field or inline element of) a global binding: a
- * pointer to it never dangles, so `&` gives it the generation of no frame
- * (IRON_STACK_GEN_INIT) instead of the current frame's, which made it
- * look dangling once that frame returned (#471). */
-static bool emit_vid_roots_at_global(IronLIR_Func *fn, IronLIR_ValueId vid, int depth) {
-    IronLIR_Instr *in = emit_def_instr(fn, vid);
-    if (!in || depth > 32) return false;
-    if (in->kind == IRON_LIR_ALLOCA) return in->alloca.global_name != NULL;
-    if (in->kind == IRON_LIR_LOAD) return emit_vid_roots_at_global(fn, in->load.ptr, depth + 1);
-    if (in->kind == IRON_LIR_GET_FIELD) return emit_vid_roots_at_global(fn, in->field.object, depth + 1);
-    if (in->kind == IRON_LIR_GET_INDEX) {
-        Iron_Type *at = emit_get_value_type(fn, in->index.array);
-        return at && at->kind == IRON_TYPE_ARRAY && at->array.size >= 0 &&
-               emit_vid_roots_at_global(fn, in->index.array, depth + 1);
+/* ── Pointer provenance (#540, #542, #537) ─────────────────────────────
+ * The generation a pointer to a place carries says what the place lives in:
+ *   - a local: the scope that owns it (emit_scope_gen)
+ *   - a global: static storage (IRON_STACK_GEN_INIT, never dangles)
+ *   - a field or inline element of a value: the value's own place
+ *   - a field reached through a checked pointer, a heap or arena handle:
+ *     that pointer's generation, so `&h.field` dies with h and `&p.f`
+ *     with whatever p points into
+ *   - a field of an rc object: the object's generation (iron_rc_ptr_gen),
+ *     which dies with the last strong handle
+ *   - a field of the receiver of a pointer-receiver method: the receiver's
+ *     generation (emit_self_gen) */
+static const char *emit_scope_gen(IronLIR_Func *fn, int scope_id) {
+    /* A slot of an inner block whose markers were pruned (no `&` of its
+     * locals made it need one) belongs to the nearest live scope; such a
+     * slot is never addressed, so the function's own scope is right. */
+    static char buf[4][32];
+    static int k;
+    bool live = false;
+    if (scope_id > 0) {
+        for (int bi = 0; bi < fn->block_count && !live; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind == IRON_LIR_SCOPE_ENTER && in->scope.id == scope_id) { live = true; break; }
+            }
+        }
     }
-    return false;
+    k = (k + 1) % 4;
+    snprintf(buf[k], sizeof(buf[k]), "_iron_sg%d", live ? scope_id : 0);
+    return buf[k];
+}
+
+static const char *emit_self_gen(IronLIR_Func *fn) {
+    (void)fn;
+    return "_iron_sg0";
+}
+
+static void emit_place_gen(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
+                           IronLIR_ValueId vid, int depth);
+/* The scope stamped on the ADDR_OF being emitted (addr_of.scope_id). */
+static int g_addr_scope;
+
+/* The generation of the storage behind `obj` when a field or inline element
+ * of obj is addressed. */
+static void emit_container_gen(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
+                               IronLIR_ValueId obj, int depth) {
+    if (fn->is_mut_receiver_method && obj == 1) {
+        iron_strbuf_appendf(sb, "%s", emit_self_gen(fn));
+        return;
+    }
+    Iron_Type *ot = emit_get_value_type(fn, obj);
+    if (emit_val_is_any_fat_ptr(fn, obj) ||
+        (ot && ot->kind == IRON_TYPE_PTR && !ot->ptr.is_unchecked)) {
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, obj, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ").gen");
+        return;
+    }
+    if (ot && ot->kind == IRON_TYPE_RC) {
+        iron_strbuf_appendf(sb, "iron_rc_ptr_gen((void *)(");
+        emit_expr_to_buf(sb, obj, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, "))");
+        return;
+    }
+    emit_place_gen(sb, fn, ctx, obj, depth + 1);
+}
+
+static void emit_place_gen(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
+                           IronLIR_ValueId vid, int depth) {
+    IronLIR_Instr *in = emit_def_instr(fn, vid);
+    if (depth > 32) {
+        iron_strbuf_appendf(sb, "%s", emit_scope_gen(fn, g_addr_scope));
+        return;
+    }
+    if (!in) {
+        /* A parameter: a by-value parameter is a local copy of this frame;
+         * a pointer-receiver method's self is the caller's storage. */
+        if (fn->is_mut_receiver_method && vid == 1)
+            iron_strbuf_appendf(sb, "%s", emit_self_gen(fn));
+        else
+            iron_strbuf_appendf(sb, "%s", emit_scope_gen(fn, g_addr_scope));
+        return;
+    }
+    if (emit_val_is_heap_fat_ptr(fn, vid)) {
+        /* A heap or arena binding (its loads are typed as the value): the
+         * place is the allocation. */
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, vid, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ").gen");
+        return;
+    }
+    if (emit_is_optional_unwrap(fn, in) || emit_is_iface_object_view(fn, in, NULL, NULL, NULL)) {
+        emit_place_gen(sb, fn, ctx, in->cast.value, depth + 1);
+        return;
+    }
+    switch ((int)in->kind) {
+    case IRON_LIR_ALLOCA:
+        iron_strbuf_appendf(sb, "%s", in->alloca.global_name ? "IRON_STACK_GEN_INIT"
+                                                             : emit_scope_gen(fn, g_addr_scope));
+        return;
+    case IRON_LIR_LOAD: {
+        IronLIR_Instr *slot = emit_def_instr(fn, in->load.ptr);
+        if (slot && slot->kind == IRON_LIR_ALLOCA) {
+            emit_place_gen(sb, fn, ctx, in->load.ptr, depth + 1);
+            return;
+        }
+        break;
+    }
+    case IRON_LIR_GET_FIELD:
+        emit_container_gen(sb, fn, ctx, in->field.object, depth);
+        return;
+    case IRON_LIR_GET_INDEX: {
+        Iron_Type *at = emit_get_value_type(fn, in->index.array);
+        if (at && at->kind == IRON_TYPE_ARRAY && (at->array.size >= 0 || at->array.is_bounded)) {
+            emit_container_gen(sb, fn, ctx, in->index.array, depth);
+            return;
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    iron_strbuf_appendf(sb, "%s", emit_scope_gen(fn, g_addr_scope));
 }
 
 static bool emit_vid_is_storage_path(IronLIR_Func *fn, IronLIR_ValueId vid) {
@@ -6860,6 +6968,22 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         break;
     }
 
+    /* Stack scopes (#537): the block's scope gets an id of its own; its
+     * saved and current gens live in function-level locals declared by the
+     * prologue (emit_func_body_into). */
+    case IRON_LIR_SCOPE_ENTER: {
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "_iron_ss%d = iron_stack_enter(); _iron_sg%d = iron_stack_gen;\n",
+                            instr->scope.id, instr->scope.id);
+        break;
+    }
+
+    case IRON_LIR_SCOPE_LEAVE: {
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "iron_stack_leave(_iron_ss%d);\n", instr->scope.id);
+        break;
+    }
+
     case IRON_LIR_RC_RETAIN: {
         /* Phase 26 POL-06 (Plan 26-02): atomic relaxed-increment of the
          * refcount header on the rc payload pointer. The runtime helper
@@ -8711,6 +8835,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
      * indirection. Today's emit produces a syntactically-correct fat-ptr
      * literal: gen comes from the source tag; addr is `&_vT`. */
     case IRON_LIR_ADDR_OF: {
+        g_addr_scope = instr->addr_of.scope_id;
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_FatPtr ");
         emit_val(sb, instr->id);
@@ -8762,18 +8887,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     iron_strbuf_appendf(sb, ".%s", tgt_def->field.field);
                 }
                 iron_strbuf_appendf(sb, "), .gen = ");
-                if (obj_fat) {
-                    /* Any fat-ptr-shaped parent (HEAP/ARENA alloc, ADDR_OF
-                     * result, checked-ptr-typed param/load) is an
-                     * Iron_FatPtr C local — key to ITS generation. */
-                    iron_strbuf_appendf(sb, "(");
-                    emit_expr_to_buf(sb, obj, fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, ").gen };\n");
-                } else {
-                    iron_strbuf_appendf(sb, "%s };\n",
-                        emit_vid_roots_at_global(fn, obj, 0) ? "IRON_STACK_GEN_INIT"
-                                                             : "iron_stack_gen");
-                }
+                emit_container_gen(sb, fn, ctx, obj, 0);
+                iron_strbuf_appendf(sb, " };\n");
                 break;
             }
         }
@@ -8804,9 +8919,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 iron_strbuf_appendf(sb, "&");
                 emit_val(sb, instr->addr_of.target);
             }
-            iron_strbuf_appendf(sb, ", .gen = %s };\n",
-                emit_vid_roots_at_global(fn, instr->addr_of.target, 0) ? "IRON_STACK_GEN_INIT"
-                                                                       : "iron_stack_gen");
+            iron_strbuf_appendf(sb, ", .gen = ");
+            emit_place_gen(sb, fn, ctx, instr->addr_of.target, 0);
+            iron_strbuf_appendf(sb, " };\n");
         } else {
             iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)&");
             emit_val(sb, instr->addr_of.target);
@@ -8964,6 +9079,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 ? "iron_check_stack_pointer_gen"
             : (instr->gencheck.gen_source == IRON_LIR_GEN_ARENA)
                 ? "iron_check_arena_pointer_gen"
+            : (instr->gencheck.gen_source == IRON_LIR_GEN_ANY)
+                ? "iron_check_ptr"
                 : "iron_check_pointer_gen";
         const char *df = instr->span.filename ? instr->span.filename : "<unknown>";
         emit_indent(sb, ind);
@@ -10902,6 +11019,26 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
     if (fn->takes_local_addr) {
         emit_indent(sb, 1);
         iron_strbuf_appendf(sb, "uint64_t _iron_stack_saved = iron_stack_enter();\n");
+        emit_indent(sb, 1);
+        iron_strbuf_appendf(sb, "uint64_t _iron_sg0 = iron_stack_gen;\n");
+        emit_indent(sb, 1);
+        iron_strbuf_appendf(sb, "(void)_iron_sg0;\n");
+    }
+    /* Inner block scopes (#537): their saved and current gens. */
+    {
+        struct { int key; bool value; } *seen = NULL;
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind != IRON_LIR_SCOPE_ENTER || hmgeti(seen, in->scope.id) >= 0) continue;
+                hmput(seen, in->scope.id, true);
+                emit_indent(sb, 1);
+                iron_strbuf_appendf(sb, "uint64_t _iron_ss%d = 0, _iron_sg%d = 0; (void)_iron_sg%d;\n",
+                                    in->scope.id, in->scope.id, in->scope.id);
+            }
+        }
+        hmfree(seen);
     }
 
     /* ── Capture alias setup for lifted lambda functions ─────────────────────

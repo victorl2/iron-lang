@@ -1,0 +1,25 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A field write through a *var pointer field whose target frame returned
+-- went into the dead frame unchecked (#539).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object V {
+    val p: *var P
+}
+
+func mk() -> V {
+    var x = P(1)
+    return V(&x)
+}
+
+func main() {
+    val v = mk()
+    println("made")
+    v.p.hp = 99
+    println("stored")
+}

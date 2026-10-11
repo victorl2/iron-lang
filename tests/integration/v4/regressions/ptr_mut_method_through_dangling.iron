@@ -1,0 +1,35 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A mutating method called through a *var pointer whose target frame
+-- returned wrote into the dead frame; it panics at the call (#539).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Q {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+    func bump() {
+        self.hp += 1
+    }
+}
+
+object V {
+    val p: *var Q
+}
+
+func mk() -> V {
+    var x = Q(5)
+    return V(&x)
+}
+
+func main() {
+    val v = mk()
+    println("made")
+    v.p.bump()
+    println("bumped")
+}

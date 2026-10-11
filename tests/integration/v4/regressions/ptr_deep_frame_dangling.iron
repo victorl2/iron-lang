@@ -1,0 +1,39 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A pointer to a local of a frame deeper than 1024 calls, read from
+-- another frame at the same depth after the first returned: deep frames
+-- were checked by depth only, so it read the second frame's local (#541).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object V {
+    var p: ?*P
+    init() {
+        self.p = null
+    }
+}
+
+func down(n: Int, v: *var V, set: Bool) -> Int {
+    val x = P(n + 100)
+    if n == 0 {
+        if set {
+            v.p = &x
+        } else {
+            val q = v.p
+            if q != null {
+                println("{q.hp}")
+            }
+        }
+        return 0
+    }
+    return down(n - 1, v, set) + 1
+}
+
+func main() {
+    var v = V()
+    println("{down(1500, &v, true)}")
+    down(1500, &v, false)
+}

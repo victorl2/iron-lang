@@ -1,0 +1,22 @@
+-- @expect-panic: stale pointer dereference (arena)
+-- An arena pointer passed to a function was checked once at the call;
+-- the callee resetting the arena (through a lambda) and then reading it
+-- went unnoticed. The callee checks where it dereferences (#539).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+func rd(p: *P, f: func()) -> Int {
+    val before = p.hp
+    f()
+    return before + p.hp
+}
+
+func main() {
+    val a = Arena(4096)
+    val h = heap(in: a) P(3)
+    println("{rd(&h, func() { a.reset() })}")
+}

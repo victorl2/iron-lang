@@ -1,0 +1,130 @@
+-- Pointers that are valid must never panic (manual 6.4): a pointer to a
+-- local of an enclosing block or frame read from an inner one, after
+-- unrelated calls and inner blocks come and go; interior pointers into
+-- live heap, rc and arena values; arena values allocated before a save
+-- point that a restore keeps; the address of a global read in any frame;
+-- pointers kept in fields, lists and closures while their target lives.
+-- (#537, #539, #540, #432)
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object V {
+    var p: ?*P
+    init() {
+        self.p = null
+    }
+}
+
+object Holder {
+    val p: *P
+}
+
+object R {
+    var r: rc P
+    init(r: rc P) {
+        self.r = r
+    }
+}
+
+var g = P(42)
+
+func noise(n: Int) -> Int {
+    val a = P(n)
+    val pa = &a
+    if n > 0 {
+        return noise(n - 1) + pa.hp
+    }
+    return pa.hp
+}
+
+func read_through(h: Holder) -> Int {
+    return h.p.hp
+}
+
+func depth(n: Int, p: *P) -> Int {
+    val x = P(n)
+    val px = &x
+    if n == 0 {
+        return p.hp + px.hp
+    }
+    return depth(n - 1, p) + px.hp - px.hp
+}
+
+func global_ptr() -> *var P {
+    return &g
+}
+
+func main() {
+    -- an enclosing block's local, read after inner blocks end
+    var v = V()
+    val outer = P(7)
+    {
+        val y = P(1)
+        v.p = &outer
+        println("inner {y.hp}")
+    }
+    {
+        val z = P(2)
+        println("inner2 {z.hp} {noise(3)}")
+    }
+    val q = v.p
+    if q != null {
+        println("outer {q.hp}")
+    }
+
+    -- a val's address taken in an inner block
+    val b = P(3)
+    {
+        v.p = &b
+    }
+    val qb = v.p
+    if qb != null {
+        println("val {qb.hp}")
+    }
+
+    -- a pointer to the caller's local, read 1200 frames deeper
+    println("deep {depth(1200, &outer)}")
+
+    -- heap: interior pointer and field pointer while live
+    var h = heap P(11)
+    val hp = &h.hp
+    val hv = Holder(&h)
+    println("heap {hp} {read_through(hv)}")
+    free h
+
+    -- rc: a field pointer while a handle lives
+    val r = R(rc P(13))
+    val rp = &r.r.hp
+    println("rc {rp}")
+
+    -- arena: values before a save point survive a restore
+    val a = Arena(4096)
+    val keep = heap(in: a) P(17)
+    val kp = &keep
+    val mark = a.save()
+    for i in range(3) {
+        val t = heap(in: a) P(i)
+        val tp = &t
+        println("temp {tp.hp}")
+        a.restore(mark)
+    }
+    println("kept {kp.hp}")
+
+    -- a global's address read from anywhere
+    val gp = global_ptr()
+    println("global {gp.hp} {noise(2)}")
+
+    -- a pointer in a closure called while its target lives
+    val f = func() -> Int { return outer.hp + gp.hp }
+    println("closure {f()}")
+
+    -- pointers in a list while their targets live
+    var ps: [*P] = []
+    ps.push(&outer)
+    ps.push(&b)
+    println("list {ps[0].hp} {ps[1].hp}")
+}

@@ -1,0 +1,29 @@
+-- @expect-panic: stale pointer dereference
+-- A pointer to a field of an rc object read after the last strong handle
+-- went away (here by replacing the field that held it) panics; it read
+-- freed memory (#540).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object V {
+    val p: *Int
+}
+
+object H {
+    var r: rc P
+    init(r: rc P) {
+        self.r = r
+    }
+}
+
+func main() {
+    var h = H(rc P(3))
+    val v = V(&h.r.hp)
+    println("live {v.p}")
+    h.r = rc P(9)
+    println("{v.p}")
+}

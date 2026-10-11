@@ -49,13 +49,15 @@ object Arena {
 
 -- ArenaSave: opaque value struct returned by save() and consumed by restore().
 -- Maps to the runtime's Iron_ArenaSave (src/runtime/iron_arena_rt.h) — the
--- field names below MUST match that C layout (offset@0, gen_snapshot@8) so a
--- surface field access emits a valid C member name.
--- offset is the captured bump offset; gen_snapshot is the generation snapshot
--- (ARENA-07).
+-- field names below MUST match that C layout (offset@0, gen_snapshot@8,
+-- seg@16) so a surface field access emits a valid C member name.
+-- offset is the captured bump offset; seg the first segment of allocations
+-- made after the save and gen_snapshot the generation of the segment before
+-- it, which restore() checks (ARENA-07).
 object ArenaSave {
     val offset: Int
     val gen_snapshot: Int
+    val seg: Int
 }
 
 -- All methods are `readonly`: the Arena surface value is an opaque HANDLE

@@ -401,6 +401,14 @@ static void print_instr(Iron_StrBuf *sb, const IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, "  arena_pop\n");
         break;
 
+    case IRON_LIR_SCOPE_ENTER:
+        iron_strbuf_appendf(sb, "  scope_enter #%d\n", instr->scope.id);
+        break;
+
+    case IRON_LIR_SCOPE_LEAVE:
+        iron_strbuf_appendf(sb, "  scope_leave #%d\n", instr->scope.id);
+        break;
+
     case IRON_LIR_RC_RETAIN:
         iron_strbuf_appendf(sb, "  rc_retain %%%u\n", instr->rc_retain.target);
         break;
@@ -655,7 +663,9 @@ static void print_instr(Iron_StrBuf *sb, const IronLIR_Instr *instr,
                             instr->gencheck.gen_source == IRON_LIR_GEN_HEAP
                                 ? "heap"
                             : instr->gencheck.gen_source == IRON_LIR_GEN_ARENA
-                                ? "arena" : "stack");
+                                ? "arena"
+                            : instr->gencheck.gen_source == IRON_LIR_GEN_ANY
+                                ? "any" : "stack");
         break;
 
     case IRON_LIR_INSTR_COUNT:

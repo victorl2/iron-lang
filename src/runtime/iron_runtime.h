@@ -371,21 +371,83 @@ extern iron_atomic_u64 iron_gencheck_arena_count;
 void iron_gencheck_counts(uint64_t *heap, uint64_t *stack, uint64_t *arena);
 void iron_gencheck_counts_reset(void);
 
-/* Static-inline so Phase 30 optimizer can elide redundant checks at the
- * call site. Iron's release codegen will inline this trivially.
- * CONTEXT-locked: do not change to out-of-line without coordinating with
- * Phase 30 (POINTER-LAYOUT.md API surface). */
+/* ── Generations: what a checked pointer's `gen` says (#539, #540) ─────────
+ *
+ * Every checked pointer is an Iron_FatPtr {addr, gen}, and gen alone decides
+ * whether a dereference is valid, wherever the pointer came from (a local
+ * `&`, a field, a list element, a parameter, a call result). Two forms:
+ *
+ *   stack form (bit 63 set): the scope that owns the target, see the stack
+ *       section below. Depth 0 is static storage (a global): never dangles.
+ *   slot form (bit 63 clear, bit 62 set):
+ *       bit 61      set for an arena segment, clear for a heap or rc block
+ *       bits 31-60  the slot: an index into the generation table
+ *       bits 0-30   the slot's sequence number
+ *     The pointer is valid while the table entry for its slot still holds
+ *     exactly its gen. A heap block and an rc object (once a pointer into it
+ *     is taken) own a slot each; an arena owns one slot per segment (the
+ *     allocations between two save points). Freeing the block, the last rc
+ *     handle going away, and an arena reset, restore or end change the
+ *     entry, so every pointer into the storage, interior ones included,
+ *     goes stale at once.
+ *
+ * The table is never freed and its entries are never reused with an old
+ * value: a slot whose sequence would wrap is retired. A check therefore
+ * never reads memory that was given back to the allocator (#413), and a
+ * generation never comes back to life (#432). gen 0 (a null ?*T) never
+ * matches: slot 0 is reserved and holds a dead entry. */
+#define IRON_GEN_SLOT_TAG    (1ULL << 62)
+#define IRON_GEN_ARENA_BIT   (1ULL << 61)
+#define IRON_GEN_SLOT_SHIFT  31
+#define IRON_GEN_SLOT_BITS   30
+#define IRON_GEN_SEQ_MASK    ((1ULL << 31) - 1)
+#define IRON_GEN_SLOT_OF(g)  ((uint32_t)(((g) >> IRON_GEN_SLOT_SHIFT) & ((1u << IRON_GEN_SLOT_BITS) - 1)))
+#define IRON_GEN_CHUNK_BITS  16
+#define IRON_GEN_CHUNKS      (1u << (IRON_GEN_SLOT_BITS - IRON_GEN_CHUNK_BITS))
+extern _Atomic(iron_atomic_u64 *) iron_gen_chunks[IRON_GEN_CHUNKS];
+/* A fresh live generation (a new slot, or a recycled one with the next
+ * sequence number). arena: the arena bit of the result. */
+uint64_t iron_gen_new(bool arena);
+/* End a generation: every pointer carrying it goes stale. Returns false
+ * when gen was not live (already ended: a double free). */
+bool     iron_gen_end(uint64_t gen);
+/* Give a thread's cached free slots back (thread exit). */
+void     iron_gen_thread_exit(void);
+
+IRON_CHECK_FN bool iron_gen_live(uint64_t gen) {
+    uint32_t s = IRON_GEN_SLOT_OF(gen);
+    iron_atomic_u64 *c = atomic_load_explicit(&iron_gen_chunks[s >> IRON_GEN_CHUNK_BITS],
+                                              memory_order_relaxed);
+    return c && atomic_load_explicit(&c[s & ((1u << IRON_GEN_CHUNK_BITS) - 1)],
+                                     memory_order_relaxed) == gen;
+}
+
+/* Panic for a slot-form generation that is no longer live: "stale pointer
+ * dereference", with "(arena)" for an arena segment. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_stale_gen(const char *deref_file, int deref_line, uint64_t gen);
+#ifdef IRON_DEBUG_TRAPS_ON
+IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_stale_gen(const char *f, int l, uint64_t g) {
+    if (iron_debug_panic_stop(f, l, (g & IRON_GEN_ARENA_BIT) ? "stale pointer dereference (arena)"
+                                                             : "stale pointer dereference"))
+        IRON_DEBUG_BREAK();
+    iron_panic_stale_gen(f, l, g);
+}
+#define iron_panic_stale_gen(...) iron_dbg_panic_stale_gen(__VA_ARGS__)
+#endif
+
+/* The heap check: a pointer into a heap block (or an rc object). The gen is
+ * looked up in the generation table, never in the block's header, so an
+ * interior pointer (`&h.field`) is checked like any other and a freed block
+ * is never read. */
 IRON_CHECK_FN void iron_check_pointer_gen(Iron_FatPtr fp,
                                           const char *deref_file,
                                           int deref_line) {
     IRON_GENCHECK_COUNT_BUMP_HEAP();  /* Phase 30 OPT-08: no-op unless IRON_GENCHECK_COUNT */
-    if (!fp.addr) {
-        iron_panic_stale_pointer(deref_file, deref_line, NULL);
-    }
-    IronAllocHdr *hdr = ((IronAllocHdr *)fp.addr) - 1;
-    uint64_t cur = IRON_ATOMIC_U64_LOAD_ACQUIRE(hdr->gen);
-    if (cur != fp.gen) {
-        iron_panic_stale_pointer(deref_file, deref_line, hdr);
+    if (!iron_gen_live(fp.gen)) {
+        iron_panic_stale_gen(deref_file, deref_line, fp.gen);
     }
 }
 
@@ -393,87 +455,97 @@ IRON_CHECK_FN void iron_check_pointer_gen(Iron_FatPtr fp,
  * Initialized in iron_runtime_init via IRON_ATOMIC_U64_INIT.
  * Definition lives in src/runtime/iron_heap_track.c. */
 extern iron_atomic_u64 iron_alloc_id_counter;
-/* Process-wide monotonic generation source for heap and rc headers. */
-extern iron_atomic_u64 iron_heap_gen_counter;
+/* Kept for the runtime ABI; generations now come from iron_gen_new. */
 uint64_t iron_heap_next_gen(void);
 
-/* ── Phase 20 PTR-10: per-thread stack-frame generation counter ───────────
- * Bumped on entry/exit of each function whose body takes the address of a
- * stack-local (Iron_FuncDecl.takes_local_addr=true; mark_takes_local_addr_pass
- * flag set in Plan 20-02a). Captured by-value into Iron_FatPtr.gen at every
- * &local site; checked at deref via iron_check_stack_pointer_gen.
+/* ── Stack scopes (#471, #537, #538, #541) ───────────────────────────────
  *
- * Initial value 1 (defined in src/runtime/iron_heap_track.c) — gen=0 stays
- * reserved as the freed-sentinel value per Phase 19 ABI lock; uint64_t TLS
- * default-init is 0, so we set 1 explicitly to keep the first &local's gen
- * out of the freed-sentinel range.
- *
- * OQ-B Option C lock (Plan 20-02b CONTEXT.md): a SEPARATE static-inline
- * (iron_check_stack_pointer_gen, below) compares fp.gen against this TLS
- * counter directly — no IronAllocHdr recovery (stack pointers have no
- * header). iron_check_pointer_gen and Phase 19's substrate stay UNTOUCHED.
- * Pitfall 7: both check helpers are static-inline and isomorphic so Phase 30
- * elision works on each path with the same template. */
-extern _Thread_local uint64_t iron_stack_gen;
-
-/* Frame identity (#471). The counter above used to be bumped on entry to
- * and exit from every function that takes a local address, and a stack
- * pointer was valid only while it still equalled the value captured at
- * `&`: any such call in between made a live pointer to an outer frame look
- * dangling. Now each such frame gets a fresh id, recorded per depth, and
- * iron_stack_gen is the current frame's tag:
- *     bit 63      set (a stack pointer; heap and arena generations never
- *                 reach it)
- *     bits 47-62  the frame's depth (saturated at 0xFFFF)
- *     bits 35-46  the thread's number (1-4095; 0 for no frame)
- *     bits 0-34   the frame's id
- * A pointer is live while its frame is: its depth is at most the current
- * depth and the id recorded there is still its id. Depth 0 (no frame,
- * globals) is always live; frames deeper than IRON_STACK_FRAMES_MAX are
- * not recorded and are only checked by depth. A pointer into another
- * thread's stack (a spawn body reading its parent's local) cannot be
- * checked against this thread's frames and passes. */
+ * A scope is a function body or a block whose locals have their address
+ * taken. Entering one gives it a fresh id, recorded at its depth in the
+ * thread's scope table; leaving it (on every path) pops it. A stack
+ * pointer's gen names the scope that owns its target:
+ *     bit 63      set (heap and arena generations never have it)
+ *     bits 47-62  the scope's depth (saturated at 0xFFFF)
+ *     bits 35-46  the thread's number (1-4095; 0 for static storage)
+ *     bits 0-34   the scope's id
+ * The pointer is live while its scope is: the table of its thread still
+ * records its id at its depth, and that depth is not deeper than the
+ * thread's current depth. Ids grow monotonically per thread number and
+ * keep growing when a number is reused by a later thread, so an id is
+ * never found again at a depth after its scope ended (up to the 2^35 wrap
+ * of the id counter). The tables are published in a registry and never
+ * freed, so a pointer read on another thread is checked against its
+ * owner's table (a spawned task reading a pointer to a local of a frame
+ * that has returned panics). Depths up to IRON_STACK_DEPTH_MAX are
+ * recorded; a scope deeper than 0xFFFF is found by its id. */
 #define IRON_STACK_TAG        (1ULL << 63)
 #define IRON_STACK_ID_MASK    ((1ULL << 35) - 1)
-#define IRON_STACK_THREAD(g)  (((g) >> 35) & 0xFFF)
-#define IRON_STACK_FRAMES_MAX 1024
+#define IRON_STACK_THREAD(g)  ((uint32_t)(((g) >> 35) & 0xFFF))
+#define IRON_STACK_DEPTH(g)   ((uint32_t)(((g) >> 47) & 0xFFFF))
 #define IRON_STACK_GEN_INIT   IRON_STACK_TAG
-extern _Thread_local uint32_t iron_stack_depth;
-extern _Thread_local uint64_t iron_stack_next_id;
-extern _Thread_local uint64_t iron_stack_ids[IRON_STACK_FRAMES_MAX];
-extern _Thread_local uint32_t iron_stack_thread;
-uint32_t iron_stack_thread_number(void);
+#define IRON_STACK_CHUNK      1024u
+#define IRON_STACK_CHUNKS     1024u
+#define IRON_STACK_DEPTH_MAX  (IRON_STACK_CHUNK * IRON_STACK_CHUNKS - 1)
+#define IRON_STACK_THREADS    4096u
+typedef struct IronStackState {
+    _Atomic uint32_t depth;               /* current depth (owner writes) */
+    uint32_t         number;              /* registry index, 1..4095 */
+    uint64_t         next_id;             /* last id given out */
+    iron_atomic_u64  ids0[IRON_STACK_CHUNK];          /* depths 0..1023 */
+    _Atomic(iron_atomic_u64 *) more[IRON_STACK_CHUNKS]; /* deeper chunks */
+} IronStackState;
+extern _Thread_local uint64_t iron_stack_gen;          /* innermost scope's gen */
+extern _Thread_local IronStackState *iron_stack_st;    /* this thread's table */
+extern _Atomic(IronStackState *) iron_stack_registry[IRON_STACK_THREADS];
+IronStackState *iron_stack_attach(void);               /* first scope of a thread */
+iron_atomic_u64 *iron_stack_slot_deep(IronStackState *st, uint32_t d); /* d >= 1024 */
+bool iron_stack_live_slow(IronStackState *st, uint64_t gen);
+void iron_stack_thread_exit(void);
+/* Thread number of the calling thread (0 before its first scope). */
+IRON_CHECK_FN uint32_t iron_stack_thread_no(void) {
+    return iron_stack_st ? iron_stack_st->number : 0;
+}
 
-/* Entry to a frame that takes a local address: returns the tag to restore
- * on every exit (iron_stack_leave). */
+/* Entry to a scope: returns the gen to restore on every exit
+ * (iron_stack_leave). iron_stack_gen is the new scope's gen afterwards. */
 IRON_CHECK_FN uint64_t iron_stack_enter(void) {
     uint64_t saved = iron_stack_gen;
-    uint32_t d = ++iron_stack_depth;
-    uint64_t id = (++iron_stack_next_id) & IRON_STACK_ID_MASK;
-    if (!iron_stack_thread) iron_stack_thread = iron_stack_thread_number();
-    if (d < IRON_STACK_FRAMES_MAX) iron_stack_ids[d] = id;
+    IronStackState *st = iron_stack_st;
+    if (!st) st = iron_stack_attach();
+    uint32_t d = atomic_load_explicit(&st->depth, memory_order_relaxed) + 1;
+    uint64_t id = (++st->next_id) & IRON_STACK_ID_MASK;
+    iron_atomic_u64 *slot = d < IRON_STACK_CHUNK ? &st->ids0[d] : iron_stack_slot_deep(st, d);
+    atomic_store_explicit(slot, id, memory_order_relaxed);
+    atomic_store_explicit(&st->depth, d, memory_order_release);
     iron_stack_gen = IRON_STACK_TAG | ((uint64_t)(d < 0xFFFF ? d : 0xFFFF) << 47) |
-                     ((uint64_t)iron_stack_thread << 35) | id;
+                     ((uint64_t)st->number << 35) | id;
     return saved;
 }
 
 IRON_CHECK_FN void iron_stack_leave(uint64_t saved) {
-    iron_stack_depth--;
+    IronStackState *st = iron_stack_st;
+    uint32_t d = atomic_load_explicit(&st->depth, memory_order_relaxed);
+    /* Clear the id so a foreign reader cannot match it while the depth is
+     * still being lowered. */
+    iron_atomic_u64 *slot = d < IRON_STACK_CHUNK ? &st->ids0[d] : iron_stack_slot_deep(st, d);
+    atomic_store_explicit(slot, 0, memory_order_relaxed);
+    atomic_store_explicit(&st->depth, d - 1, memory_order_release);
     iron_stack_gen = saved;
 }
 
-/* Whether the frame a stack pointer's generation names is still live. A
- * generation without the stack tag is a heap or arena one (a pointer that
- * came through a parameter or a field): not a stack pointer, true. */
+/* Whether the scope a stack-form gen names is still live. A gen without the
+ * stack tag is not a stack pointer: true (iron_check_ptr routes those). */
 IRON_CHECK_FN bool iron_stack_gen_live(uint64_t gen) {
     if (!(gen & IRON_STACK_TAG)) return true;
-    if (IRON_STACK_THREAD(gen) != iron_stack_thread) return true;
-    uint64_t d = (gen >> 47) & 0xFFFF;
-    if (d > iron_stack_depth) return false;
-    if (d < IRON_STACK_FRAMES_MAX && iron_stack_ids[d] != (gen & IRON_STACK_ID_MASK)) return false;
-    return true;
+    uint32_t d = IRON_STACK_DEPTH(gen);
+    if (d == 0) return true;                       /* static storage */
+    IronStackState *st = iron_stack_st;
+    if (!st || IRON_STACK_THREAD(gen) != st->number || d >= 0xFFFF)
+        return iron_stack_live_slow(st, gen);      /* another thread, or very deep */
+    if (d > atomic_load_explicit(&st->depth, memory_order_relaxed)) return false;
+    iron_atomic_u64 *slot = d < IRON_STACK_CHUNK ? &st->ids0[d] : iron_stack_slot_deep(st, d);
+    return atomic_load_explicit(slot, memory_order_relaxed) == (gen & IRON_STACK_ID_MASK);
 }
-
 /* Phase 20 PTR-10: stack-pointer panic variant (NEW Plan 20-02b).
  * Same emission channels as iron_panic_stale_pointer (text + JSON);
  * different header text "dangling stack pointer to frame" and JSON
@@ -810,11 +882,13 @@ IRON_CHECK_FN void iron_check_stack_pointer_gen(Iron_FatPtr fp,
                                                 const char *deref_file,
                                                 int deref_line) {
     IRON_GENCHECK_COUNT_BUMP_STACK();  /* Phase 30 OPT-08: no-op unless IRON_GENCHECK_COUNT */
-    if (!fp.addr) {
-        iron_panic_stale_pointer(deref_file, deref_line, NULL);
-    }
     if (!iron_stack_gen_live(fp.gen)) {
         iron_panic_stale_stack_pointer(deref_file, deref_line, fp.gen);
+    }
+    /* A pointer the producer said was a stack pointer but whose gen is a
+     * slot one (a parameter that received a heap pointer): check it as one. */
+    if (!(fp.gen & IRON_STACK_TAG) && !iron_gen_live(fp.gen)) {
+        iron_panic_stale_gen(deref_file, deref_line, fp.gen);
     }
 }
 
@@ -864,25 +938,24 @@ IRON_CHECK_FN void iron_check_arena_pointer_gen(Iron_FatPtr fp,
                                                 const char *deref_file,
                                                 int deref_line) {
     IRON_GENCHECK_COUNT_BUMP_ARENA();  /* Phase 30 OPT-08: no-op unless IRON_GENCHECK_COUNT */
-    if (!fp.addr) {
-        iron_panic_stale_pointer(deref_file, deref_line, NULL);
+    /* The pointer's gen is its arena segment's slot generation: a reset, a
+     * restore to a save point taken before the segment, or the arena's end
+     * changes the table entry (#432, #540). Nothing is read from the arena
+     * itself, which may be gone. */
+    if (!iron_gen_live(fp.gen)) {
+        iron_panic_stale_gen(deref_file, deref_line, fp.gen);
     }
-    /* Recover the header: it sits 16B (sizeof IronArenaAllocHdr) before the
-     * payload. Its first field (offset 0) is the iron_atomic_u64* back-ref to
-     * the arena's live generation counter. */
-    iron_atomic_u64 *arena_gen = ((iron_atomic_u64 **)fp.addr)[-2];
-    uint64_t cur = IRON_ATOMIC_U64_LOAD_ACQUIRE(*arena_gen);
-    /* Arena allocations carry a MONOTONIC per-allocation snapshot (the live
-     * counter's value at alloc time). The pointer is valid iff its snapshot is
-     * still below the live counter: snapshot < cur. reset()/restore() lower the
-     * live counter (to the floor 1, or to the save's gen_snapshot), so every
-     * pointer whose snapshot is now >= cur was reclaimed and must panic. This
-     * lets restore() selectively invalidate post-save allocations while pre-save
-     * pointers (snapshot < gen_snapshot == cur) survive. */
-    if (fp.gen >= cur) {
-        iron_panic_arena_stale(deref_file, deref_line,
-                               (const struct IronArenaAllocHdr *)
-                               ((const char *)fp.addr - 16));
+}
+
+/* The check for a pointer whose producer does not say where it points (a
+ * field, a list element, a parameter, a call result, a capture): the gen
+ * itself says which check applies (#539). */
+IRON_CHECK_FN void iron_check_ptr(Iron_FatPtr fp, const char *deref_file, int deref_line) {
+    uint64_t g = fp.gen;
+    if (g & IRON_STACK_TAG) {
+        if (!iron_stack_gen_live(g)) iron_panic_stale_stack_pointer(deref_file, deref_line, g);
+    } else if (!iron_gen_live(g)) {
+        iron_panic_stale_gen(deref_file, deref_line, g);
     }
 }
 
@@ -1032,6 +1105,8 @@ void          *iron_rc_alloc(size_t size, void (*drop_fn)(void *));
 void           iron_rc_retain(void *user_ptr);
 void           iron_rc_release(void *user_ptr);
 Iron_RcHeader *iron_rc_header_of(void *user_ptr);
+/* Generation of a checked pointer into an rc object (`&r.field`, #540). */
+uint64_t       iron_rc_ptr_gen(void *user_ptr);
 
 /* ── Phase 27 weak rc API ────────────────────────────────────────────────────
  *

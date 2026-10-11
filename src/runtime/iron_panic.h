@@ -132,6 +132,13 @@ void iron_panic_arena_oom(const char *arena_name,
                           uint64_t requested_size,
                           uint64_t capacity);
 
+/* restore() to a save point that a reset or a restore to an earlier save
+ * point invalidated. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_arena_stale_save(const char *arena_name);
+
 /* Phase 24 DROP-05 (Plan 24-03): partial-init cleanup machinery.
  * HIR-lower instrumentation registers each self.field assignment in an init
  * body via iron_init_cleanup_register so that a panic mid-init unwinds

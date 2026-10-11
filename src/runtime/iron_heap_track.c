@@ -31,52 +31,231 @@
 /* Process-global allocation-id counter; declaration in iron_runtime.h. */
 iron_atomic_u64 iron_alloc_id_counter;
 
-/* Process-global generation source. Every allocation takes a generation no
- * earlier allocation ever had, so a pointer into a freed block stays stale
- * when the allocator hands the same address out again. gen=0 stays the
- * null / freed sentinel.
+/* ── Generation table (iron_runtime.h, #539 #540 #413 #432) ───────────────
  *
- * The generations start far from 0: once a block is freed its header is the
- * allocator's, and macOS writes small integers there (free list bookkeeping,
- * 6 or 7 for a 32 byte block), so with generations counted from 1 a stale
- * read through a pointer whose generation happened to be that number passed
- * the check and read zeroed memory. A value with high bits set is neither a
- * small integer nor a user space address. Bit 63 stays clear: it marks a
- * stack frame's generation (IRON_STACK_TAG, #471). */
-iron_atomic_u64 iron_heap_gen_counter = 0x711C000000000001ULL;
+ * Two levels: IRON_GEN_CHUNKS pointers to chunks of 2^16 entries, each chunk
+ * allocated on first use and never freed, so a check reads only memory the
+ * runtime owns for the life of the process. An entry holds the live gen of
+ * its slot, or that gen with bit 63 set once it ended (bit 63 never appears
+ * in a slot-form pointer gen, so a dead entry matches nothing).
+ *
+ * Free slots are cached per thread (up to IRON_GEN_TCACHE) and otherwise
+ * kept on a global stack under a spin lock; fresh slots come from a
+ * counter. A slot whose sequence number is exhausted is retired. */
+_Atomic(iron_atomic_u64 *) iron_gen_chunks[IRON_GEN_CHUNKS];
 
-uint64_t iron_heap_next_gen(void) {
-    uint64_t g = IRON_ATOMIC_U64_FETCH_ADD_RELAXED(iron_heap_gen_counter, 1);
-    if (g == 0) iron_oom_abort("iron_heap_alloc: generation counter overflow");
-    return g;
+#define IRON_GEN_TCACHE 64
+static _Thread_local uint32_t t_gen_free[IRON_GEN_TCACHE];
+static _Thread_local int      t_gen_nfree;
+static atomic_flag            s_gen_lock = ATOMIC_FLAG_INIT;
+static uint32_t              *s_gen_free;        /* global free stack */
+static size_t                 s_gen_nfree, s_gen_cap;
+static _Atomic uint32_t       s_gen_fresh = 1;   /* slot 0 is reserved */
+
+static void gen_lock(void)   { while (atomic_flag_test_and_set_explicit(&s_gen_lock, memory_order_acquire)) { } }
+static void gen_unlock(void) { atomic_flag_clear_explicit(&s_gen_lock, memory_order_release); }
+
+static iron_atomic_u64 *gen_entry(uint32_t slot) {
+    _Atomic(iron_atomic_u64 *) *cp = &iron_gen_chunks[slot >> IRON_GEN_CHUNK_BITS];
+    iron_atomic_u64 *c = atomic_load_explicit(cp, memory_order_acquire);
+    if (!c) {
+        iron_atomic_u64 *nc = (iron_atomic_u64 *)calloc((size_t)1 << IRON_GEN_CHUNK_BITS,
+                                                        sizeof(iron_atomic_u64));
+        if (!nc) iron_oom_abort("generation table");
+        iron_atomic_u64 *expect = NULL;
+        if (atomic_compare_exchange_strong_explicit(cp, &expect, nc, memory_order_acq_rel,
+                                                    memory_order_acquire)) {
+            c = nc;
+            /* Slot 0 never holds a live gen: a null pointer (gen 0) and a
+             * zeroed entry must not match. */
+            if ((slot >> IRON_GEN_CHUNK_BITS) == 0)
+                atomic_store_explicit(&c[0], IRON_STACK_TAG, memory_order_relaxed);
+        } else {
+            free(nc);
+            c = expect;
+        }
+    }
+    return &c[slot & ((1u << IRON_GEN_CHUNK_BITS) - 1)];
 }
 
-/* Phase 20 PTR-10: per-thread stack-frame generation counter.
- *
- * Initial value 1 keeps gen=0 reserved as the freed-sentinel value per
- * Phase 19 ABI lock; each thread starts with iron_stack_gen=1 (TLS
- * default-init is 0, but the explicit `= 1` covers every thread because
- * the C language initializes TLS variables from the explicit initializer
- * at thread start, not from the parent thread's value). Bumped per
- * takes_local_addr-marked function entry and once again per return path
- * (per-call semantics; OQ-E lock per CONTEXT.md). Codegen: emit_c.c
- * injects `iron_stack_gen += 1;` in the function prologue and before
- * every IRON_LIR_RETURN when fn->takes_local_addr.
- *
- * Declaration in iron_runtime.h. */
-_Thread_local uint64_t iron_stack_gen = IRON_STACK_GEN_INIT;
-/* Frame identity, see iron_runtime.h (#471). */
-_Thread_local uint32_t iron_stack_depth = 0;
-_Thread_local uint64_t iron_stack_next_id = 0;
-_Thread_local uint64_t iron_stack_ids[IRON_STACK_FRAMES_MAX];
-_Thread_local uint32_t iron_stack_thread = 0;
-static iron_atomic_u64 iron_stack_thread_counter;
+static uint32_t gen_take_slot(void) {
+    if (t_gen_nfree > 0) return t_gen_free[--t_gen_nfree];
+    gen_lock();
+    while (s_gen_nfree > 0 && t_gen_nfree < IRON_GEN_TCACHE / 2)
+        t_gen_free[t_gen_nfree++] = s_gen_free[--s_gen_nfree];
+    gen_unlock();
+    if (t_gen_nfree > 0) return t_gen_free[--t_gen_nfree];
+    uint32_t s = atomic_fetch_add_explicit(&s_gen_fresh, 1, memory_order_relaxed);
+    if (s >= (1u << IRON_GEN_SLOT_BITS))
+        iron_oom_abort("generation table: too many live allocations");
+    return s;
+}
 
-/* The thread's number in its stack generations: 1..4095, given out on its
- * first frame that takes a local address. */
-uint32_t iron_stack_thread_number(void) {
-    uint64_t n = IRON_ATOMIC_U64_FETCH_ADD_RELAXED(iron_stack_thread_counter, 1);
-    return (uint32_t)(n % 4095) + 1;
+static void gen_give_slot(uint32_t s) {
+    if (t_gen_nfree == IRON_GEN_TCACHE) {
+        gen_lock();
+        if (s_gen_nfree + IRON_GEN_TCACHE / 2 > s_gen_cap) {
+            size_t cap = s_gen_cap ? s_gen_cap * 2 : 1024;
+            uint32_t *n = (uint32_t *)realloc(s_gen_free, cap * sizeof(uint32_t));
+            if (!n) { gen_unlock(); iron_oom_abort("generation table"); }
+            s_gen_free = n;
+            s_gen_cap = cap;
+        }
+        while (t_gen_nfree > IRON_GEN_TCACHE / 2)
+            s_gen_free[s_gen_nfree++] = t_gen_free[--t_gen_nfree];
+        gen_unlock();
+    }
+    t_gen_free[t_gen_nfree++] = s;
+}
+
+uint64_t iron_gen_new(bool arena) {
+    for (;;) {
+        uint32_t s = gen_take_slot();
+        iron_atomic_u64 *e = gen_entry(s);
+        uint64_t old = atomic_load_explicit(e, memory_order_relaxed);
+        uint64_t seq = (old & IRON_GEN_SEQ_MASK) + 1;
+        if (seq > IRON_GEN_SEQ_MASK) continue;          /* exhausted: retire */
+        uint64_t g = IRON_GEN_SLOT_TAG | (arena ? IRON_GEN_ARENA_BIT : 0) |
+                     ((uint64_t)s << IRON_GEN_SLOT_SHIFT) | seq;
+        atomic_store_explicit(e, g, memory_order_release);
+        return g;
+    }
+}
+
+bool iron_gen_end(uint64_t gen) {
+    if (!(gen & IRON_GEN_SLOT_TAG) || (gen & IRON_STACK_TAG)) return false;
+    uint32_t s = IRON_GEN_SLOT_OF(gen);
+    if (s == 0) return false;
+    iron_atomic_u64 *c = atomic_load_explicit(&iron_gen_chunks[s >> IRON_GEN_CHUNK_BITS],
+                                              memory_order_acquire);
+    if (!c) return false;
+    iron_atomic_u64 *e = &c[s & ((1u << IRON_GEN_CHUNK_BITS) - 1)];
+    uint64_t expect = gen;
+    if (!atomic_compare_exchange_strong_explicit(e, &expect, gen | IRON_STACK_TAG,
+                                                 memory_order_release, memory_order_relaxed))
+        return false;
+    if ((gen & IRON_GEN_SEQ_MASK) < IRON_GEN_SEQ_MASK) gen_give_slot(s);
+    return true;
+}
+
+void iron_gen_thread_exit(void) {
+    if (t_gen_nfree == 0) return;
+    gen_lock();
+    if (s_gen_nfree + (size_t)t_gen_nfree > s_gen_cap) {
+        size_t cap = s_gen_cap ? s_gen_cap * 2 : 1024;
+        while (cap < s_gen_nfree + (size_t)t_gen_nfree) cap *= 2;
+        uint32_t *n = (uint32_t *)realloc(s_gen_free, cap * sizeof(uint32_t));
+        if (!n) { gen_unlock(); return; }   /* the slots are only lost */
+        s_gen_free = n;
+        s_gen_cap = cap;
+    }
+    while (t_gen_nfree > 0) s_gen_free[s_gen_nfree++] = t_gen_free[--t_gen_nfree];
+    gen_unlock();
+}
+
+/* Generations used to come from one counter; heap blocks now take a table
+ * slot. Kept for callers outside the runtime. */
+uint64_t iron_heap_next_gen(void) {
+    return iron_gen_new(false);
+}
+
+/* ── Stack scopes (iron_runtime.h, #471 #537 #538 #541) ──────────────────
+ *
+ * Each thread that enters a scope takes a number (1..4095) and the scope
+ * table registered under it. Tables are never freed: a number freed at
+ * thread exit is given, with its table, to a later thread, which continues
+ * the table's id sequence, so a pointer into a dead thread's scope never
+ * matches a scope of the thread that reuses the number. */
+_Thread_local uint64_t iron_stack_gen = IRON_STACK_GEN_INIT;
+_Thread_local IronStackState *iron_stack_st = NULL;
+_Atomic(IronStackState *) iron_stack_registry[IRON_STACK_THREADS];
+static atomic_flag s_stack_lock = ATOMIC_FLAG_INIT;
+static IronStackState *s_stack_free[IRON_STACK_THREADS];   /* released tables */
+static uint32_t        s_stack_nfree;
+static uint32_t        s_stack_next = 1;
+
+IronStackState *iron_stack_attach(void) {
+    IronStackState *st = NULL;
+    while (atomic_flag_test_and_set_explicit(&s_stack_lock, memory_order_acquire)) { }
+    if (s_stack_nfree > 0) {
+        st = s_stack_free[--s_stack_nfree];
+    } else if (s_stack_next < IRON_STACK_THREADS) {
+        st = (IronStackState *)calloc(1, sizeof(IronStackState));
+        if (st) {
+            st->number = s_stack_next++;
+            atomic_store_explicit(&iron_stack_registry[st->number], st, memory_order_release);
+        }
+    }
+    atomic_flag_clear_explicit(&s_stack_lock, memory_order_release);
+    if (!st) iron_oom_abort("stack scopes: more than 4095 threads take addresses of locals");
+    iron_stack_st = st;
+    return st;
+}
+
+void iron_stack_thread_exit(void) {
+    IronStackState *st = iron_stack_st;
+    iron_gen_thread_exit();
+    if (!st) return;
+    /* Scopes still open (a thread ended by a panic in another thread is
+     * never here) are closed so no pointer into them stays live. */
+    uint32_t d = atomic_load_explicit(&st->depth, memory_order_relaxed);
+    while (d > 0) {
+        iron_atomic_u64 *slot = d < IRON_STACK_CHUNK ? &st->ids0[d] : iron_stack_slot_deep(st, d);
+        atomic_store_explicit(slot, 0, memory_order_relaxed);
+        d--;
+    }
+    atomic_store_explicit(&st->depth, 0, memory_order_release);
+    iron_stack_st = NULL;
+    iron_stack_gen = IRON_STACK_GEN_INIT;
+    while (atomic_flag_test_and_set_explicit(&s_stack_lock, memory_order_acquire)) { }
+    s_stack_free[s_stack_nfree++] = st;
+    atomic_flag_clear_explicit(&s_stack_lock, memory_order_release);
+}
+
+iron_atomic_u64 *iron_stack_slot_deep(IronStackState *st, uint32_t d) {
+    if (d > IRON_STACK_DEPTH_MAX) iron_oom_abort("stack scopes: nesting deeper than 1048575");
+    uint32_t k = d / IRON_STACK_CHUNK;
+    iron_atomic_u64 *c = atomic_load_explicit(&st->more[k], memory_order_acquire);
+    if (!c) {
+        c = (iron_atomic_u64 *)calloc(IRON_STACK_CHUNK, sizeof(iron_atomic_u64));
+        if (!c) iron_oom_abort("stack scopes");
+        atomic_store_explicit(&st->more[k], c, memory_order_release);  /* owner only */
+    }
+    return &c[d % IRON_STACK_CHUNK];
+}
+
+/* Recorded id at depth d of st, 0 when that depth was never reached. Safe
+ * from any thread: chunks are published before they are used. */
+static uint64_t stack_id_at(IronStackState *st, uint32_t d) {
+    if (d < IRON_STACK_CHUNK) return atomic_load_explicit(&st->ids0[d], memory_order_relaxed);
+    if (d > IRON_STACK_DEPTH_MAX) return 0;
+    iron_atomic_u64 *c = atomic_load_explicit(&st->more[d / IRON_STACK_CHUNK], memory_order_acquire);
+    return c ? atomic_load_explicit(&c[d % IRON_STACK_CHUNK], memory_order_relaxed) : 0;
+}
+
+/* A stack-form gen of another thread, or one deeper than the 16 bit depth
+ * field: look it up in its owner's table. */
+bool iron_stack_live_slow(IronStackState *self, uint64_t gen) {
+    (void)self;
+    uint32_t t = IRON_STACK_THREAD(gen);
+    if (t == 0 || t >= IRON_STACK_THREADS) return false;
+    IronStackState *st = atomic_load_explicit(&iron_stack_registry[t], memory_order_acquire);
+    if (!st) return false;
+    uint64_t id = gen & IRON_STACK_ID_MASK;
+    uint32_t cur = atomic_load_explicit(&st->depth, memory_order_acquire);
+    uint32_t d = IRON_STACK_DEPTH(gen);
+    if (d < 0xFFFF) return d <= cur && stack_id_at(st, d) == id;
+    /* Saturated depth: ids increase with depth along the open scopes, so
+     * binary search depths 0xFFFF..cur. */
+    if (cur < 0xFFFF) return false;
+    uint32_t lo = 0xFFFF, hi = cur;
+    while (lo <= hi) {
+        uint32_t mid = lo + (hi - lo) / 2;
+        uint64_t v = stack_id_at(st, mid);
+        if (v == id) return true;
+        if (v == 0 || v > id) { if (mid == 0) break; hi = mid - 1; } else lo = mid + 1;
+    }
+    return false;
 }
 
 /* iron_panic_stale_pointer body lives in src/runtime/iron_panic.c (Plan
@@ -184,6 +363,17 @@ static void iron_debug_quarantine_push(IronAllocHdr *hdr) {
     free(evicted);  /* free(NULL) is a no-op */
 }
 
+/* Whether hdr is still held by the quarantine (so its header is ours). */
+static bool iron_debug_quarantine_holds(const IronAllocHdr *hdr) {
+    if (!s_reg_inited) return false;
+    bool held = false;
+    IRON_MUTEX_LOCK(s_reg_lock);
+    for (int i = 0; i < IRON_DBG_QUARANTINE_MAX; i++)
+        if (s_quarantine[i] == hdr) { held = true; break; }
+    IRON_MUTEX_UNLOCK(s_reg_lock);
+    return held;
+}
+
 /* Release everything still quarantined. Called from iron_runtime_shutdown so a
  * leak checker does not see the retained blocks as still-reachable garbage. */
 void iron_debug_quarantine_drain(void) {
@@ -231,37 +421,10 @@ void iron_leak_dump(void) {
 }
 #endif /* IRON_DEBUG_ALLOCATOR */
 
-/* The last few freed headers (#260). A second free of the same handle is
- * caught here, by address, before the header's memory is read: once the
- * block is back in the allocator, what its generation word holds depends
- * on the allocator, so the generation check alone was best effort (and the
- * double free that slipped through tripped the system allocator instead
- * of the Iron panic). A block the allocator hands out again is taken off
- * the ring first. Lock free: the ring is only ever a hint that makes the
- * common case deterministic. The debug allocator quarantines freed blocks
- * instead of returning them, so it has no use for the ring. */
-#ifndef IRON_DEBUG_ALLOCATOR
-#define IRON_FREED_RING 64
-static _Atomic(uintptr_t) s_freed_ring[IRON_FREED_RING];
-static _Atomic(unsigned)  s_freed_ring_next;
-
-static bool freed_ring_has(const void *p) {
-    for (int i = 0; i < IRON_FREED_RING; i++)
-        if (atomic_load_explicit(&s_freed_ring[i], memory_order_relaxed) == (uintptr_t)p) return true;
-    return false;
-}
-static void freed_ring_put(const void *p) {
-    unsigned i = atomic_fetch_add_explicit(&s_freed_ring_next, 1u, memory_order_relaxed) % IRON_FREED_RING;
-    atomic_store_explicit(&s_freed_ring[i], (uintptr_t)p, memory_order_relaxed);
-}
-static void freed_ring_forget(const void *p) {
-    for (int i = 0; i < IRON_FREED_RING; i++) {
-        uintptr_t v = (uintptr_t)p;
-        atomic_compare_exchange_strong_explicit(&s_freed_ring[i], &v, (uintptr_t)0,
-                                                memory_order_relaxed, memory_order_relaxed);
-    }
-}
-#endif /* !IRON_DEBUG_ALLOCATOR */
+/* A double free used to be caught by a ring of recently freed addresses
+ * (#260) and otherwise by reading the freed block's header. The generation
+ * table answers it without touching the block: iron_gen_end fails for a
+ * generation that already ended. */
 
 Iron_FatPtr iron_heap_alloc(const char *site_file, int site_line, size_t size) {
     /* Allocate header + payload contiguously. */
@@ -269,12 +432,9 @@ Iron_FatPtr iron_heap_alloc(const char *site_file, int site_line, size_t size) {
     if (!block) {
         iron_oom_abort("iron_heap_alloc");
     }
-#ifndef IRON_DEBUG_ALLOCATOR
-    freed_ring_forget(block);
-#endif
     IronAllocHdr *hdr = (IronAllocHdr *)block;
 
-    IRON_ATOMIC_U64_INIT(hdr->gen, iron_heap_next_gen());
+    IRON_ATOMIC_U64_INIT(hdr->gen, iron_gen_new(false));
     hdr->size = (uint64_t)size;
 
 #ifdef IRON_DEBUG_ALLOCATOR
@@ -318,22 +478,18 @@ void iron_heap_free_dbg(Iron_FatPtr fp, const char *free_file, int free_line) {
     if (!fp.addr) return;
     IronAllocHdr *hdr = ((IronAllocHdr *)fp.addr) - 1;
 
-    uint64_t cur = IRON_ATOMIC_U64_LOAD_ACQUIRE(hdr->gen);
-    if (cur != fp.gen) {
-        /* DBG-04: the header still holds the FIRST free-site (recorded on the
-         * first free below, before the gen bump). Report BOTH sites. */
-        iron_panic_double_free(hdr->free_site_file, (int)hdr->free_site_line,
-                               free_file, free_line, hdr);
+    if (!iron_gen_end(fp.gen)) {
+        /* DBG-04: a second free. The header (and the first free-site it
+         * holds) is only read while the block is still quarantined, i.e.
+         * still ours; otherwise the first site is unknown. */
+        bool held = iron_debug_quarantine_holds(hdr);
+        iron_panic_double_free(held ? hdr->free_site_file : NULL,
+                               held ? (int)hdr->free_site_line : 0,
+                               free_file, free_line, held ? hdr : NULL);
         /* noreturn */
     }
 
-    /* Saturating overflow guard (matches release path). */
-    if (cur >= UINT64_MAX - 1) {
-        iron_oom_abort("iron_heap_free: generation counter overflow");
-    }
-
-    /* DBG-04: record THIS free-site BEFORE bumping gen, so a subsequent
-     * double-free reads it as the "first free-site". */
+    /* DBG-04: record THIS free-site so a later double free can name it. */
     hdr->free_site_file = free_file;
     hdr->free_site_line = (uint32_t)free_line;
 
@@ -342,10 +498,7 @@ void iron_heap_free_dbg(Iron_FatPtr fp, const char *free_file, int free_line) {
 
     /* DBG-01: poison the user payload so any UAF read hits 0xDD garbage. */
     memset(fp.addr, 0xDD, (size_t)hdr->size);
-
-    /* Bump generation BEFORE retiring the block (racing acquire-load sees the
-     * new value). */
-    (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(hdr->gen, 1);
+    IRON_ATOMIC_U64_STORE_RELEASE(hdr->gen, 0);
     /* Retain rather than free: the poison above and the free-site recorded in
      * the header are only readable while the block is still ours. */
     iron_debug_quarantine_push(hdr);
@@ -364,26 +517,10 @@ void iron_heap_free(Iron_FatPtr fp) {
     if (!fp.addr) return;
     IronAllocHdr *hdr = ((IronAllocHdr *)fp.addr) - 1;
 
-    /* A block freed moments ago: report the double free without reading
-     * memory the allocator owns again (#260). */
-    if (freed_ring_has(hdr)) {
+    /* Double-free / stale-fp validation through the generation table: the
+     * block itself is not read unless its generation is still live (#413). */
+    if (!iron_gen_end(fp.gen)) {
         iron_panic_stale_pointer("<iron_heap_free>", 0, NULL);
-    }
-
-    /* Double-free / stale-fp validation: caller's gen MUST match current.
-     * On mismatch, this is a stale or already-freed pointer — panic via
-     * iron_panic_stale_pointer (generic gen-mismatch; release keeps this). */
-    uint64_t cur = IRON_ATOMIC_U64_LOAD_ACQUIRE(hdr->gen);
-    if (cur != fp.gen) {
-        iron_panic_stale_pointer("<iron_heap_free>", 0, hdr);
-    }
-
-    /* Saturating overflow guard: bumping at UINT64_MAX-1 -> abort
-     * deterministically. UINT64_MAX free()s is physically unreachable
-     * (would take ~5 billion years at 100M free/sec) but defines
-     * behavior over wraparound (wrap risks false-positive validation). */
-    if (cur >= UINT64_MAX - 1) {
-        iron_oom_abort("iron_heap_free: generation counter overflow");
     }
 
     /* Phase 31 DBG-07 (Plan 31-03): release-build opt-in leak check — unlink
@@ -391,16 +528,6 @@ void iron_heap_free(Iron_FatPtr fp) {
      * still valid until free(hdr) below). Early-returns at zero cost when
      * IRON_LEAK_CHECK is unset. No poison in release. */
     iron_leakcheck_unregister(fp.addr);
-
-    /* Bump generation BEFORE freeing memory so any racing acquire-load
-     * on a stale fp.gen sees the new value (mismatches -> triggers panic
-     * on next deref). */
-    (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(hdr->gen, 1);
-    /* Record the address before free(): once the block is back with the
-     * allocator another thread can be handed the same address, and a ring
-     * entry added after that would flag its legitimate free as a double
-     * free. */
-    freed_ring_put(hdr);
     free(hdr);  /* free entire block (header + payload) */
 }
 

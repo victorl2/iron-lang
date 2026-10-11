@@ -108,6 +108,14 @@ typedef enum {
     IRON_LIR_ARENA_ALLOC,
     IRON_LIR_ARENA_PUSH,
     IRON_LIR_ARENA_POP,
+    /* Stack scopes (#537): entry to and exit from an inner block whose
+     * locals have their address taken. SCOPE_ENTER gives the block a scope
+     * id of its own (iron_stack_enter) and SCOPE_LEAVE, emitted on every
+     * exit edge by the scope-exit drop-stack pump, ends it, so a pointer to
+     * one of its locals is dangling afterwards. The function's own scope is
+     * the prologue/epilogue pair, not these. */
+    IRON_LIR_SCOPE_ENTER,
+    IRON_LIR_SCOPE_LEAVE,
     /* Phase 26 POL-06 (Plan 26-02): rc retain/release opcodes — emitted at
      * HIR-to-LIR copy sites (STORE / CALL arg / RETURN with IRON_TYPE_RC
      * target) and at scope-exit drop entries. emit_c.c lowers these to
@@ -199,7 +207,11 @@ typedef enum IronLIR_GenSource {
      * to iron_check_arena_pointer_gen (the third isomorphic deref-check
      * sibling). Pitfall 1: an untagged arena ptr would be checked by the heap
      * helper and read garbage. */
-    IRON_LIR_GEN_ARENA
+    IRON_LIR_GEN_ARENA,
+    /* A pointer whose producer does not say where it points (a field, a
+     * list element, a parameter, a call result, a capture): the check reads
+     * the regime off the generation itself (iron_check_ptr, #539). */
+    IRON_LIR_GEN_ANY
 } IronLIR_GenSource;
 
 /* ── Instruction (tagged union) ───────────────────────────────────────────── */
@@ -263,6 +275,10 @@ struct IronLIR_Instr {
              * standing for `(*_vN_box)`; the scope-exit release goes
              * through iron_cell_release. */
             bool        is_boxed;
+            /* The stack scope that owns the slot (#537): 0 for the
+             * function's own scope, otherwise the id of the inner block
+             * scope (IRON_LIR_SCOPE_ENTER) a `&` of it names. */
+            int         scope_id;
         } alloca;
 
         /* IRON_LIR_LOAD */
@@ -402,6 +418,9 @@ struct IronLIR_Instr {
          * IRON_LIR_ARENA_POP carries no operands (pops the TLS top). */
         struct { IronLIR_ValueId arena_val; } arena_push;
 
+        /* IRON_LIR_SCOPE_ENTER / IRON_LIR_SCOPE_LEAVE: the scope id (> 0). */
+        struct { int id; } scope;
+
         /* IRON_LIR_RC_RETAIN / IRON_LIR_RC_RELEASE (Phase 26 POL-06) */
         struct { IronLIR_ValueId target; } rc_retain;
         struct { IronLIR_ValueId target; } rc_release;
@@ -504,6 +523,10 @@ struct IronLIR_Instr {
         struct {
             IronLIR_ValueId    target;     /* lvalue whose address is taken */
             IronLIR_GenSource gen_source;
+            /* The scope that owns the local the place lives in (#537),
+             * stamped by iron_lir_prune_stack_scopes before any pass
+             * rewrites value ids: 0 for the function's own scope. */
+            int               scope_id;
         } addr_of;
 
         /* IRON_LIR_PTR_LOAD — Phase 20 PTR-06 read half.
@@ -712,6 +735,9 @@ struct IronLIR_Func {
      * their names on the alloca / IronLIR_Param. `ironc build --debug`
      * names the C locals after them so a debugger shows Iron names. */
     struct { IronLIR_ValueId key; const char *value; } *value_names;
+    /* The scope that declared each `val` binding's value (#537): a val has
+     * no slot, so `&v` addresses the value and takes this scope. */
+    struct { IronLIR_ValueId key; int value; } *val_scopes;
 };
 
 /* ── Module-level global binding (2026-07 remediation) ────────────────────
@@ -848,6 +874,10 @@ IronLIR_Instr *iron_lir_arena_alloc(IronLIR_Func *fn, IronLIR_Block *block,
                                     Iron_Type *type, Iron_Span span);
 IronLIR_Instr *iron_lir_arena_push(IronLIR_Func *fn, IronLIR_Block *block,
                                    IronLIR_ValueId arena_val, Iron_Span span);
+IronLIR_Instr *iron_lir_scope_enter(IronLIR_Func *fn, IronLIR_Block *block,
+                                    int scope_id, Iron_Span span);
+IronLIR_Instr *iron_lir_scope_leave(IronLIR_Func *fn, IronLIR_Block *block,
+                                    int scope_id, Iron_Span span);
 IronLIR_Instr *iron_lir_arena_pop(IronLIR_Func *fn, IronLIR_Block *block,
                                   Iron_Span span);
 IronLIR_Instr *iron_lir_rc_retain(IronLIR_Func *fn, IronLIR_Block *block,

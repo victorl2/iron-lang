@@ -10217,7 +10217,16 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 if (ue_ret->op == (Iron_OpKind)IRON_TOK_AMP) {
                     Iron_Symbol *root_sym =
                         iron_walk_to_root_binding(ue_ret->operand);
-                    if (root_sym && sym_is_stack_local(root_sym)) {
+                    /* A global is static storage, and a place reached
+                     * through a pointer or rc binding is not this frame's. */
+                    bool root_global = root_sym && ctx->global_scope &&
+                        root_sym->name &&
+                        iron_scope_lookup(ctx->global_scope, root_sym->name) == root_sym;
+                    bool root_indirect = root_sym && root_sym->type &&
+                        (root_sym->type->kind == IRON_TYPE_PTR ||
+                         root_sym->type->kind == IRON_TYPE_RC);
+                    if (root_sym && sym_is_stack_local(root_sym) && !root_global &&
+                        !root_indirect) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
                                  "cannot return reference to stack-local "

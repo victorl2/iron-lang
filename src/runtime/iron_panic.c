@@ -101,17 +101,33 @@ void iron_panic_stale_stack_pointer(const char *deref_file,
         fputs("iron: dangling stack pointer to frame\n", stderr);
         fprintf(stderr, "  deref site: %s:%d\n", df, deref_line);
         /* frame #id at depth d (iron_runtime.h, #471) */
+        unsigned owner = IRON_STACK_THREAD(captured_frame_gen);
+        unsigned self_no = iron_stack_thread_no();
+        unsigned cur = iron_stack_st ? (unsigned)atomic_load_explicit(&iron_stack_st->depth,
+                                                                     memory_order_relaxed) : 0;
         fprintf(stderr,
-                "  captured frame: #%llu at depth %llu (current depth: %u)\n",
+                "  captured frame: #%llu at depth %u (current depth: %u)\n",
                 (unsigned long long)(captured_frame_gen & IRON_STACK_ID_MASK),
-                (unsigned long long)((captured_frame_gen >> 47) & 0xFFFF),
-                (unsigned)iron_stack_depth);
+                (unsigned)IRON_STACK_DEPTH(captured_frame_gen), cur);
+        if (owner != self_no)
+            fprintf(stderr, "  the frame belonged to another thread (#%u)\n", owner);
     }
     /* Buffered stdout dies with abort(); flush it so a panicking program
      * keeps every line it printed before the panic. */
     fflush(stdout);
     fflush(stderr);
     abort();
+}
+
+/* A slot-form generation that ended (iron_runtime.h): a freed heap block,
+ * an rc object whose last handle went away, an arena segment after a reset,
+ * a restore or the arena's end. Same channels as iron_panic_stale_pointer;
+ * the arena form keeps its "(arena)" qualifier and JSON tag. */
+void iron_panic_stale_gen(const char *deref_file, int deref_line, uint64_t gen) {
+    if (gen & IRON_GEN_ARENA_BIT) {
+        iron_panic_arena_stale(deref_file, deref_line, NULL);
+    }
+    iron_panic_stale_pointer(deref_file, deref_line, NULL);
 }
 
 /* Phase 23 VEC-03: bounded vector out-of-bounds panic.
@@ -488,6 +504,26 @@ void iron_panic_arena_stale(const char *deref_file,
     }
     /* Buffered stdout dies with abort(); flush it so a panicking program
      * keeps every line it printed before the panic. */
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
+/* restore() with a save point that is no longer valid: the arena was reset,
+ * or restored to an earlier save point, after it was taken. */
+void iron_panic_arena_stale_save(const char *arena_name) {
+    fflush(stdout);
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+    }
+    const char *an = arena_name ? arena_name : "<unnamed>";
+    if (s_iron_panic_format == 1) {
+        fprintf(stderr, "{\"panic\":\"arena_stale_save\",\"arena\":\"%s\"}\n", an);
+    } else {
+        fputs("iron: arena restored to a stale save point\n", stderr);
+        fprintf(stderr, "  arena: %s (reset, or restored to an earlier save point, after the save)\n", an);
+    }
     fflush(stdout);
     fflush(stderr);
     abort();

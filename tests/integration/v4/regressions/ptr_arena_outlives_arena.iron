@@ -1,0 +1,26 @@
+-- @expect-panic: stale pointer dereference (arena)
+-- A pointer to an arena value that outlives the arena (the Arena binding
+-- ended with its function) panics. The check itself read the freed
+-- arena's counter, and the field read the freed buffer (#540).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object V {
+    val p: *P
+}
+
+func mk() -> V {
+    val a = Arena(4096)
+    val h = heap(in: a) P(3)
+    return V(&h)
+}
+
+func main() {
+    val v = mk()
+    println("made")
+    println("{v.p.hp}")
+}
