@@ -1,0 +1,763 @@
+-- mysql.iron -- MySQL and MariaDB client.
+--
+-- The client speaks the MySQL client/server protocol natively (no
+-- libmysqlclient): handshake v10, TLS, mysql_native_password,
+-- caching_sha2_password and sha256_password, the text protocol for
+-- queries and the binary protocol for prepared statements. The protocol
+-- work happens in src/stdlib/iron_mysql.c.
+--
+--   import mysql
+--
+--   var conn = Mysql.connect_url("mysql://app:secret@127.0.0.1:3306/shop")
+--   if conn.error.failed() { println(conn.error.message) }
+--   val res = conn.exec("SELECT id, name FROM users WHERE id = ?", [MysqlValue.Int(7)])
+--   if res.ok() and res.row_count() > 0 {
+--       println("{res.int(0, 0)} {res.text(0, res.col("name"))}")
+--   }
+--
+-- Errors are values: every operation returns a MysqlError (directly or in
+-- the `error` field of the connection, statement, result or pool it
+-- returns). Nothing here panics on a server or network failure.
+--
+-- Connections, statements and results own native resources and are
+-- `nocopy`: they are released when their binding goes out of scope (a
+-- pooled connection goes back to its pool). Bind them with `var` to call
+-- the methods that talk to the server. A pool is shared through an
+-- `rc MysqlPool` handle, which any number of tasks may use at once.
+--
+-- All timeouts are Int milliseconds; 0 means no limit.
+
+-- An error from the server or the client. `code` is 0 on success. For a
+-- server error (`server` is true) it is the MySQL error number, such as
+-- 1062 for a duplicate key, and `sqlstate` is the server's SQLSTATE. For
+-- a client error it is an IRON_ERR_* code: 1000.. network, 3000.. TLS,
+-- 7000.. MySQL client (protocol, conversion, pool, ...).
+object MysqlError {
+    val code: Int
+    val sqlstate: String
+    val message: String
+    val server: Bool
+
+    readonly func ok() -> Bool {
+        return self.code == 0
+    }
+
+    readonly func failed() -> Bool {
+        return self.code != 0
+    }
+
+    -- True when the connection the error happened on can no longer be
+    -- used: network and TLS failures, a closed connection, a protocol
+    -- error, and the server errors that end the session.
+    readonly func is_connection_error() -> Bool {
+        if self.server {
+            return self.code == 1053 or self.code == 1077 or self.code == 1078 or self.code == 1079 or self.code == 1080 or self.code == 1152 or self.code == 1153 or self.code == 1184 or self.code == 1927 or self.code == 3169 or self.code == 4031
+        }
+        if self.code >= 1000 and self.code < 1100 {
+            return true
+        }
+        if self.code >= 3000 and self.code < 3100 {
+            return true
+        }
+        return self.code == 7000 or self.code == 7003 or self.code == 7004
+    }
+}
+
+-- How the connection uses TLS. Preferred (the default) upgrades when the
+-- server offers TLS and does not verify the certificate, like the mysql
+-- command line client; VerifyCa checks the chain against the trusted
+-- roots (ca_file, or the system's); VerifyIdentity also checks the host
+-- name or IP address against the certificate.
+enum MysqlTls {
+    Disabled,
+    Preferred,
+    Required,
+    VerifyCa,
+    VerifyIdentity,
+}
+
+-- Connection settings. Construct with the five basics and adjust the
+-- rest, or parse a URL with Mysql.parse_url.
+object MysqlConfig {
+    var host: String
+    var port: Int
+    var user: String
+    var password: String
+    var database: String
+    var tls: MysqlTls
+    -- PEM bundle of trusted roots for VerifyCa / VerifyIdentity ("" uses the
+    -- system's trust store).
+    var ca_file: String
+    -- PEM file with the server's RSA public key, used by
+    -- caching_sha2_password and sha256_password to send the password
+    -- encrypted on a connection without TLS.
+    var server_public_key: String
+    -- Ask the server for its RSA public key when one is needed and none is
+    -- configured. A man in the middle could substitute its own key, so this
+    -- is off by default; prefer TLS or server_public_key.
+    var allow_public_key_retrieval: Bool
+    -- Allow mysql_clear_password (needed by some proxies and PAM/LDAP
+    -- plugins). The password is sent as is, so it is refused without TLS
+    -- unless this is set.
+    var allow_cleartext_password: Bool
+    -- Connection collation, for example "utf8mb4_0900_ai_ci" or
+    -- "utf8mb4_general_ci". "" picks utf8mb4 with the server's default.
+    var collation: String
+    var connect_timeout: Int
+    -- Limit for each command's round trip (write and read). 0: no limit.
+    var timeout: Int
+    -- Let one query string carry several statements separated by `;`.
+    var multi_statements: Bool
+    -- Largest packet the client accepts from the server, in bytes.
+    var max_allowed_packet: Int
+
+    init(host: String, port: Int, user: String, password: String, database: String) {
+        self.host = host
+        self.port = port
+        self.user = user
+        self.password = password
+        self.database = database
+        self.tls = MysqlTls.Preferred
+        self.ca_file = ""
+        self.server_public_key = ""
+        self.allow_public_key_retrieval = false
+        self.allow_cleartext_password = false
+        self.collation = ""
+        self.connect_timeout = 10000
+        self.timeout = 0
+        self.multi_statements = false
+        self.max_allowed_packet = 1073741824
+    }
+}
+
+-- A calendar date and time of day: DATE, DATETIME and TIMESTAMP values.
+-- A DATE has zero time fields.
+object MysqlDateTime {
+    val year: Int
+    val month: Int
+    val day: Int
+    val hour: Int
+    val minute: Int
+    val second: Int
+    val microsecond: Int
+
+    -- "YYYY-MM-DD HH:MM:SS" with ".ffffff" when microsecond is not zero.
+    readonly func to_string() -> String {
+        return MysqlNative.format_datetime(self)
+    }
+
+    -- "YYYY-MM-DD".
+    readonly func date_string() -> String {
+        return MysqlNative.format_date(self)
+    }
+}
+
+-- A TIME value: a signed duration that may exceed 24 hours.
+object MysqlTime {
+    val negative: Bool
+    val hours: Int
+    val minutes: Int
+    val seconds: Int
+    val microsecond: Int
+
+    -- "[-]HH:MM:SS" with ".ffffff" when microsecond is not zero.
+    readonly func to_string() -> String {
+        return MysqlNative.format_time(self)
+    }
+}
+
+-- A typed value: prepared statement parameters, and what
+-- MysqlResult.value returns for a cell. Decimal carries the exact decimal
+-- text. Bytes is binary data (BLOB, BINARY) and Text character data.
+enum MysqlValue {
+    Null,
+    Int(Int),
+    UInt(UInt),
+    Float(Float),
+    Decimal(String),
+    Text(String),
+    Bytes(String),
+    Bool(Bool),
+    Date(MysqlDateTime),
+    DateTime(MysqlDateTime),
+    Time(MysqlTime),
+}
+
+-- Column metadata. `type` is the MySQL wire type (MYSQL_TYPE_*: 1 TINY,
+-- 3 LONG, 8 LONGLONG, 12 DATETIME, 246 NEWDECIMAL, 252 BLOB, 253
+-- VAR_STRING, ...) and `type_name` its SQL name. `flags` holds the column
+-- flags (1 NOT_NULL, 2 PRI_KEY, 32 UNSIGNED, 128 BINARY, 512 AUTO_INCREMENT,
+-- ...). `charset` is the collation id (63 is binary).
+object MysqlColumn {
+    val name: String
+    val org_name: String
+    val table: String
+    val org_table: String
+    val schema: String
+    val type: Int
+    val type_name: String
+    val flags: Int
+    val decimals: Int
+    val length: Int
+    val charset: Int
+
+    readonly func is_unsigned() -> Bool {
+        return (self.flags & 32) != 0
+    }
+
+    readonly func is_nullable() -> Bool {
+        return (self.flags & 1) == 0
+    }
+
+    readonly func is_primary_key() -> Bool {
+        return (self.flags & 2) != 0
+    }
+
+    readonly func is_binary() -> Bool {
+        return self.charset == 63
+    }
+}
+
+-- The outcome of a query or statement execution. All result sets are read
+-- before the call returns, so the connection is free again at once. A
+-- statement that returns rows has row_count() rows of column_count()
+-- columns; one that changes data reports affected_rows() and
+-- last_insert_id(). With several result sets (multi statements, stored
+-- procedures) next_result() moves to the following one.
+--
+-- Typed readers take a row and a column index (see col() to find one by
+-- name). The short forms (`int`, `text`, ...) return null for SQL NULL
+-- and for a value that does not convert; the `get_` forms return the
+-- value with a MysqlError saying which (IRON_ERR_MYSQL_NULL 7005,
+-- CONVERSION 7006, RANGE 7007).
+nocopy object MysqlResult {
+    val handle: Int
+    val error: MysqlError
+
+    drop {
+        MysqlNative.res_free(self.handle)
+    }
+
+    readonly func ok() -> Bool {
+        return self.error.code == 0
+    }
+
+    readonly func row_count() -> Int {
+        return MysqlNative.res_info(self.handle, 0)
+    }
+
+    readonly func column_count() -> Int {
+        return MysqlNative.res_info(self.handle, 1)
+    }
+
+    readonly func affected_rows() -> Int {
+        return MysqlNative.res_info(self.handle, 2)
+    }
+
+    readonly func last_insert_id() -> Int {
+        return MysqlNative.res_info(self.handle, 3)
+    }
+
+    readonly func warnings() -> Int {
+        return MysqlNative.res_info(self.handle, 4)
+    }
+
+    -- Number of result sets, and the index of the current one.
+    readonly func result_count() -> Int {
+        return MysqlNative.res_info(self.handle, 5)
+    }
+
+    readonly func result_index() -> Int {
+        return MysqlNative.res_info(self.handle, 6)
+    }
+
+    -- The server's human readable summary of the statement, if any
+    -- ("Rows matched: 1  Changed: 1  Warnings: 0").
+    readonly func info() -> String {
+        return MysqlNative.res_info_text(self.handle)
+    }
+
+    -- Move to the next result set; false when there is none.
+    func next_result() -> Bool {
+        return MysqlNative.res_next(self.handle)
+    }
+
+    readonly func column(index: Int) -> MysqlColumn {
+        return MysqlNative.res_column(self.handle, index)
+    }
+
+    readonly func column_names() -> [String] {
+        var names: [String] = []
+        var i = 0
+        val n = MysqlNative.res_info(self.handle, 1)
+        while i < n {
+            names.push(MysqlNative.res_column(self.handle, i).name)
+            i += 1
+        }
+        return names
+    }
+
+    -- Index of the column with this name or label (case-insensitive), or
+    -- -1. Readers given -1 report IRON_ERR_MYSQL_RANGE.
+    readonly func col(name: String) -> Int {
+        return MysqlNative.res_col(self.handle, name)
+    }
+
+    readonly func is_null(row: Int, col: Int) -> Bool {
+        return MysqlNative.res_is_null(self.handle, row, col)
+    }
+
+    readonly func get_int(row: Int, col: Int) -> (Int, MysqlError) {
+        return MysqlNative.res_int(self.handle, row, col)
+    }
+
+    readonly func get_uint(row: Int, col: Int) -> (UInt, MysqlError) {
+        return MysqlNative.res_uint(self.handle, row, col)
+    }
+
+    readonly func get_float(row: Int, col: Int) -> (Float, MysqlError) {
+        return MysqlNative.res_float(self.handle, row, col)
+    }
+
+    -- Any value as text, in the form the text protocol uses (numbers in
+    -- decimal, dates as "YYYY-MM-DD HH:MM:SS"), whatever the protocol.
+    readonly func get_text(row: Int, col: Int) -> (String, MysqlError) {
+        return MysqlNative.res_text(self.handle, row, col)
+    }
+
+    readonly func get_bool(row: Int, col: Int) -> (Bool, MysqlError) {
+        return MysqlNative.res_bool(self.handle, row, col)
+    }
+
+    readonly func get_datetime(row: Int, col: Int) -> (MysqlDateTime, MysqlError) {
+        return MysqlNative.res_datetime(self.handle, row, col)
+    }
+
+    readonly func get_time(row: Int, col: Int) -> (MysqlTime, MysqlError) {
+        return MysqlNative.res_time(self.handle, row, col)
+    }
+
+    readonly func int(row: Int, col: Int) -> Int? {
+        val (v, err) = MysqlNative.res_int(self.handle, row, col)
+        if err.code != 0 {
+            return null
+        }
+        return v
+    }
+
+    readonly func uint(row: Int, col: Int) -> UInt? {
+        val (v, err) = MysqlNative.res_uint(self.handle, row, col)
+        if err.code != 0 {
+            return null
+        }
+        return v
+    }
+
+    readonly func float(row: Int, col: Int) -> Float? {
+        val (v, err) = MysqlNative.res_float(self.handle, row, col)
+        if err.code != 0 {
+            return null
+        }
+        return v
+    }
+
+    readonly func text(row: Int, col: Int) -> String? {
+        val (v, err) = MysqlNative.res_text(self.handle, row, col)
+        if err.code != 0 {
+            return null
+        }
+        return v
+    }
+
+    -- The raw bytes of a string or binary value (same as text for
+    -- character columns).
+    readonly func bytes(row: Int, col: Int) -> String? {
+        val (v, err) = MysqlNative.res_text(self.handle, row, col)
+        if err.code != 0 {
+            return null
+        }
+        return v
+    }
+
+    readonly func bool(row: Int, col: Int) -> Bool? {
+        val (v, err) = MysqlNative.res_bool(self.handle, row, col)
+        if err.code != 0 {
+            return null
+        }
+        return v
+    }
+
+    readonly func datetime(row: Int, col: Int) -> MysqlDateTime? {
+        val (v, err) = MysqlNative.res_datetime(self.handle, row, col)
+        if err.code != 0 {
+            return null
+        }
+        return v
+    }
+
+    readonly func time(row: Int, col: Int) -> MysqlTime? {
+        val (v, err) = MysqlNative.res_time(self.handle, row, col)
+        if err.code != 0 {
+            return null
+        }
+        return v
+    }
+
+    -- The cell as a MysqlValue chosen from the column type (Null for SQL
+    -- NULL, or for an out of range index).
+    readonly func value(row: Int, col: Int) -> MysqlValue {
+        return MysqlNative.res_value(self.handle, row, col)
+    }
+}
+
+-- A server-side prepared statement. Statements are tied to the connection
+-- that prepared them and must not outlive it; MysqlConn.exec caches
+-- statements by SQL text, which is usually all an application needs.
+nocopy object MysqlStmt {
+    val handle: Int
+    val error: MysqlError
+
+    drop {
+        MysqlNative.stmt_free(self.handle)
+    }
+
+    readonly func ok() -> Bool {
+        return self.error.code == 0
+    }
+
+    func exec(params: [MysqlValue]) -> MysqlResult {
+        val h = MysqlNative.stmt_exec(self.handle, params)
+        return MysqlResult(h, MysqlNative.res_error(h))
+    }
+
+    -- COM_STMT_RESET: discard buffered state on the server.
+    func reset() -> MysqlError {
+        return MysqlNative.stmt_reset(self.handle)
+    }
+
+    -- Deallocate the statement on the server now (also done on drop).
+    func close() {
+        MysqlNative.stmt_close(self.handle)
+    }
+
+    readonly func param_count() -> Int {
+        return MysqlNative.stmt_info(self.handle, 0)
+    }
+
+    readonly func column_count() -> Int {
+        return MysqlNative.stmt_info(self.handle, 1)
+    }
+}
+
+-- One connection. Not for use by several tasks at once: give each task its
+-- own connection, or share a MysqlPool.
+nocopy object MysqlConn {
+    val handle: Int
+    val error: MysqlError
+
+    drop {
+        MysqlNative.conn_free(self.handle)
+    }
+
+    readonly func ok() -> Bool {
+        return self.error.code == 0
+    }
+
+    -- Run SQL with the text protocol. Use exec for anything that includes
+    -- values from outside the program.
+    func query(sql: String) -> MysqlResult {
+        val h = MysqlNative.query(self.handle, sql)
+        return MysqlResult(h, MysqlNative.res_error(h))
+    }
+
+    -- Run SQL with `?` placeholders as a prepared statement, binding params
+    -- in order. Statements are prepared once per connection and cached by
+    -- their SQL text (LRU, 256 per connection).
+    func exec(sql: String, params: [MysqlValue]) -> MysqlResult {
+        val h = MysqlNative.exec(self.handle, sql, params)
+        return MysqlResult(h, MysqlNative.res_error(h))
+    }
+
+    -- Run SQL that returns no rows and report only the error.
+    func run(sql: String) -> MysqlError {
+        return MysqlNative.run(self.handle, sql)
+    }
+
+    func prepare(sql: String) -> MysqlStmt {
+        val h = MysqlNative.prepare(self.handle, sql)
+        return MysqlStmt(h, MysqlNative.stmt_error(h))
+    }
+
+    func begin() -> MysqlError {
+        return MysqlNative.run(self.handle, "START TRANSACTION")
+    }
+
+    func commit() -> MysqlError {
+        return MysqlNative.run(self.handle, "COMMIT")
+    }
+
+    func rollback() -> MysqlError {
+        return MysqlNative.run(self.handle, "ROLLBACK")
+    }
+
+    func ping() -> MysqlError {
+        return MysqlNative.command(self.handle, 0, "")
+    }
+
+    -- COM_RESET_CONNECTION: end any transaction, drop temporary tables,
+    -- user variables and prepared statements, keeping the session open.
+    func reset() -> MysqlError {
+        return MysqlNative.command(self.handle, 1, "")
+    }
+
+    func select_db(database: String) -> MysqlError {
+        return MysqlNative.command(self.handle, 2, database)
+    }
+
+    -- Escape a string for a quoted SQL literal, following the session's
+    -- NO_BACKSLASH_ESCAPES mode.
+    readonly func escape(s: String) -> String {
+        return MysqlNative.escape(self.handle, s)
+    }
+
+    -- The escaped string in single quotes.
+    readonly func quote(s: String) -> String {
+        return "'" + MysqlNative.escape(self.handle, s) + "'"
+    }
+
+    -- Set the per-command timeout in milliseconds (0: no limit).
+    func set_timeout(ms: Int) {
+        MysqlNative.conn_set(self.handle, 0, ms)
+    }
+
+    -- Send COM_QUIT and close the socket. A pooled connection is closed
+    -- too instead of going back to the pool.
+    func close() {
+        MysqlNative.conn_close(self.handle)
+    }
+
+    readonly func is_open() -> Bool {
+        return MysqlNative.conn_info(self.handle, 0) != 0
+    }
+
+    readonly func in_transaction() -> Bool {
+        return MysqlNative.conn_info(self.handle, 1) != 0
+    }
+
+    readonly func connection_id() -> Int {
+        return MysqlNative.conn_info(self.handle, 2)
+    }
+
+    readonly func is_tls() -> Bool {
+        return MysqlNative.conn_info(self.handle, 3) != 0
+    }
+
+    readonly func server_version() -> String {
+        return MysqlNative.server_version(self.handle)
+    }
+
+    -- The authentication plugin the session was established with.
+    readonly func auth_plugin() -> String {
+        return MysqlNative.auth_plugin(self.handle)
+    }
+}
+
+-- Pool sizing and maintenance. min connections are opened up front; up to
+-- max exist at once. A connection idle longer than idle_timeout (beyond
+-- min) or older than max_lifetime is closed; one idle longer than
+-- health_check is pinged before it is handed out. acquire waits up to
+-- acquire_timeout for a free connection. reset_on_release sends
+-- COM_RESET_CONNECTION when a connection comes back (an open transaction
+-- is always rolled back).
+object MysqlPoolOptions {
+    var min: Int
+    var max: Int
+    var idle_timeout: Int
+    var acquire_timeout: Int
+    var health_check: Int
+    var max_lifetime: Int
+    var reset_on_release: Bool
+
+    init(min: Int, max: Int) {
+        self.min = min
+        self.max = max
+        self.idle_timeout = 300000
+        self.acquire_timeout = 10000
+        self.health_check = 30000
+        self.max_lifetime = 1800000
+        self.reset_on_release = false
+    }
+}
+
+-- A thread-safe connection pool, shared as `rc MysqlPool` by any number of
+-- tasks. query/exec/run borrow a connection for one statement (retrying
+-- once on a fresh connection when a pooled one turns out to be dead before
+-- the statement reached the server); acquire hands out a connection for
+-- several statements, such as a transaction, and the connection returns to
+-- the pool when its binding goes out of scope.
+object MysqlPool {
+    val handle: Int
+    val error: MysqlError
+
+    drop {
+        MysqlNative.pool_free(self.handle)
+    }
+
+    readonly func ok() -> Bool {
+        return self.error.code == 0
+    }
+
+    func acquire() -> MysqlConn {
+        val h = MysqlNative.pool_acquire(self.handle)
+        return MysqlConn(h, MysqlNative.conn_error(h))
+    }
+
+    func query(sql: String) -> MysqlResult {
+        val h = MysqlNative.pool_query(self.handle, sql)
+        return MysqlResult(h, MysqlNative.res_error(h))
+    }
+
+    func exec(sql: String, params: [MysqlValue]) -> MysqlResult {
+        val h = MysqlNative.pool_exec(self.handle, sql, params)
+        return MysqlResult(h, MysqlNative.res_error(h))
+    }
+
+    func run(sql: String) -> MysqlError {
+        val h = MysqlNative.pool_query(self.handle, sql)
+        val err = MysqlNative.res_error(h)
+        MysqlNative.res_free(h)
+        return err
+    }
+
+    -- Close idle connections and refuse new acquisitions; connections in
+    -- use close when they are released.
+    func close() {
+        MysqlNative.pool_close(self.handle)
+    }
+
+    -- Open connections (idle plus in use), idle ones, and ones in use.
+    readonly func size() -> Int {
+        return MysqlNative.pool_info(self.handle, 0)
+    }
+
+    readonly func idle() -> Int {
+        return MysqlNative.pool_info(self.handle, 1)
+    }
+
+    readonly func in_use() -> Int {
+        return MysqlNative.pool_info(self.handle, 2)
+    }
+}
+
+object Mysql {}
+
+func Mysql.connect(config: MysqlConfig) -> MysqlConn {
+    val h = MysqlNative.connect(config)
+    return MysqlConn(h, MysqlNative.conn_error(h))
+}
+
+-- mysql://user:password@host:port/database?option=value&...
+-- Options: tls (disabled, preferred, required, verify_ca, verify_identity;
+-- also ssl-mode), ca, server_public_key, allow_public_key_retrieval,
+-- allow_cleartext_password, collation, connect_timeout, timeout,
+-- multi_statements, max_allowed_packet. User, password, database and
+-- values are percent-decoded. An IPv6 host is written in brackets.
+func Mysql.connect_url(url: String) -> MysqlConn {
+    val (config, err) = MysqlNative.parse_url(url)
+    if err.code != 0 {
+        return MysqlConn(0, err)
+    }
+    val h = MysqlNative.connect(config)
+    return MysqlConn(h, MysqlNative.conn_error(h))
+}
+
+func Mysql.parse_url(url: String) -> (MysqlConfig, MysqlError) {
+    return MysqlNative.parse_url(url)
+}
+
+func Mysql.open_pool(config: MysqlConfig, options: MysqlPoolOptions) -> rc MysqlPool {
+    val h = MysqlNative.pool_open(config, options)
+    return rc MysqlPool(h, MysqlNative.pool_error(h))
+}
+
+func Mysql.open_pool_url(url: String, options: MysqlPoolOptions) -> rc MysqlPool {
+    val (config, err) = MysqlNative.parse_url(url)
+    if err.code != 0 {
+        return rc MysqlPool(0, err)
+    }
+    val h = MysqlNative.pool_open(config, options)
+    return rc MysqlPool(h, MysqlNative.pool_error(h))
+}
+
+-- Escape for a quoted literal assuming backslash escapes (the server
+-- default); MysqlConn.escape follows the session's mode.
+func Mysql.escape(s: String) -> String {
+    return MysqlNative.escape(0, s)
+}
+
+-- Quote an identifier (table or column name) in backticks.
+func Mysql.quote_identifier(name: String) -> String {
+    return MysqlNative.quote_identifier(name)
+}
+
+func Mysql.date(year: Int, month: Int, day: Int) -> MysqlDateTime {
+    return MysqlDateTime(year, month, day, 0, 0, 0, 0)
+}
+
+func Mysql.datetime(year: Int, month: Int, day: Int, hour: Int, minute: Int, second: Int) -> MysqlDateTime {
+    return MysqlDateTime(year, month, day, hour, minute, second, 0)
+}
+
+-- Native entry points (src/stdlib/iron_mysql.c). Handles are opaque; use
+-- the objects above.
+object MysqlNative {}
+
+func MysqlNative.connect(config: MysqlConfig) -> Int {}
+func MysqlNative.parse_url(url: String) -> (MysqlConfig, MysqlError) {}
+func MysqlNative.conn_error(h: Int) -> MysqlError {}
+func MysqlNative.conn_free(h: Int) {}
+func MysqlNative.conn_close(h: Int) {}
+func MysqlNative.conn_set(h: Int, what: Int, value: Int) {}
+func MysqlNative.conn_info(h: Int, what: Int) -> Int {}
+func MysqlNative.server_version(h: Int) -> String {}
+func MysqlNative.auth_plugin(h: Int) -> String {}
+func MysqlNative.query(h: Int, sql: String) -> Int {}
+func MysqlNative.exec(h: Int, sql: String, params: [MysqlValue]) -> Int {}
+func MysqlNative.run(h: Int, sql: String) -> MysqlError {}
+func MysqlNative.command(h: Int, what: Int, arg: String) -> MysqlError {}
+func MysqlNative.escape(h: Int, s: String) -> String {}
+func MysqlNative.quote_identifier(name: String) -> String {}
+func MysqlNative.prepare(h: Int, sql: String) -> Int {}
+func MysqlNative.stmt_error(h: Int) -> MysqlError {}
+func MysqlNative.stmt_exec(h: Int, params: [MysqlValue]) -> Int {}
+func MysqlNative.stmt_reset(h: Int) -> MysqlError {}
+func MysqlNative.stmt_close(h: Int) {}
+func MysqlNative.stmt_free(h: Int) {}
+func MysqlNative.stmt_info(h: Int, what: Int) -> Int {}
+func MysqlNative.res_error(h: Int) -> MysqlError {}
+func MysqlNative.res_free(h: Int) {}
+func MysqlNative.res_info(h: Int, what: Int) -> Int {}
+func MysqlNative.res_info_text(h: Int) -> String {}
+func MysqlNative.res_next(h: Int) -> Bool {}
+func MysqlNative.res_column(h: Int, index: Int) -> MysqlColumn {}
+func MysqlNative.res_col(h: Int, name: String) -> Int {}
+func MysqlNative.res_is_null(h: Int, row: Int, col: Int) -> Bool {}
+func MysqlNative.res_int(h: Int, row: Int, col: Int) -> (Int, MysqlError) {}
+func MysqlNative.res_uint(h: Int, row: Int, col: Int) -> (UInt, MysqlError) {}
+func MysqlNative.res_float(h: Int, row: Int, col: Int) -> (Float, MysqlError) {}
+func MysqlNative.res_text(h: Int, row: Int, col: Int) -> (String, MysqlError) {}
+func MysqlNative.res_bool(h: Int, row: Int, col: Int) -> (Bool, MysqlError) {}
+func MysqlNative.res_datetime(h: Int, row: Int, col: Int) -> (MysqlDateTime, MysqlError) {}
+func MysqlNative.res_time(h: Int, row: Int, col: Int) -> (MysqlTime, MysqlError) {}
+func MysqlNative.res_value(h: Int, row: Int, col: Int) -> MysqlValue {}
+func MysqlNative.format_datetime(v: MysqlDateTime) -> String {}
+func MysqlNative.format_date(v: MysqlDateTime) -> String {}
+func MysqlNative.format_time(v: MysqlTime) -> String {}
+func MysqlNative.pool_open(config: MysqlConfig, options: MysqlPoolOptions) -> Int {}
+func MysqlNative.pool_error(h: Int) -> MysqlError {}
+func MysqlNative.pool_acquire(h: Int) -> Int {}
+func MysqlNative.pool_query(h: Int, sql: String) -> Int {}
+func MysqlNative.pool_exec(h: Int, sql: String, params: [MysqlValue]) -> Int {}
+func MysqlNative.pool_close(h: Int) {}
+func MysqlNative.pool_free(h: Int) {}
+func MysqlNative.pool_info(h: Int, what: Int) -> Int {}

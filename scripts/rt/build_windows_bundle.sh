@@ -14,7 +14,7 @@
 #   lib/clang_rt.builtins.lib  the compiler builtins
 #   lib/iron_tls.lib, libssl.lib, libcrypto.lib
 #                            the TLS module against a static OpenSSL, for
-#                            programs that import http or websocket
+#                            programs that import http, websocket or mysql
 #   lib/iron_tls_none.lib    the TLS module without OpenSSL, for the rest
 #   lib/raylib.lib           raylib (GLFW on Win32, OpenGL) and Iron's raylib
 #                            shim, for programs that import raylib
@@ -127,8 +127,13 @@ mkdir -p "$work/tls"
 "$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_tls.c" -o "$work/tls/iron_tls_none.obj"
 "$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
     -c "$here/src/stdlib/iron_tls.c" -o "$work/tls/iron_tls.obj"
+# The MySQL client needs libcrypto (auth hashing, RSA) and TLS, so it ships
+# in the OpenSSL flavour of the TLS library; build.c links that one for a
+# program that imports mysql.
+"$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
+    -c "$here/src/stdlib/iron_mysql.c" -o "$work/tls/iron_mysql.obj"
 "$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls_none.lib")" "$work/tls/iron_tls_none.obj"
-"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls.lib")" "$work/tls/iron_tls.obj"
+"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls.lib")" "$work/tls/iron_tls.obj" "$work/tls/iron_mysql.obj"
 cp "$ossl_prefix/lib/libssl.lib" "$ossl_prefix/lib/libcrypto.lib" "$dest/lib/"
 
 # raylib: each source is its own translation unit (rlgl.h and glad.h have

@@ -117,4 +117,30 @@
 #define IRON_ERR_IO_OTHER                  8011
 /* 8012..8099 reserved for future file additions */
 
+/* ── MySQL client (7000..7099) ──────────────────────────────────────────
+ * Client-side failures of stdlib/mysql. Errors the server reports (ERR
+ * packets) carry the server's own error number instead, with
+ * MysqlError.server set; network and TLS failures keep their
+ * IRON_ERR_NET_* / IRON_ERR_TLS_* codes. */
+#define IRON_ERR_MYSQL_PROTOCOL            7000   /* malformed or unexpected packet */
+#define IRON_ERR_MYSQL_AUTH                7001   /* unsupported auth plugin or exchange */
+#define IRON_ERR_MYSQL_INVALID_ARGUMENT    7002
+#define IRON_ERR_MYSQL_PACKET_TOO_LARGE    7003   /* over max_allowed_packet */
+#define IRON_ERR_MYSQL_CLOSED              7004   /* connection closed or unusable */
+#define IRON_ERR_MYSQL_NULL                7005   /* typed read of an SQL NULL */
+#define IRON_ERR_MYSQL_CONVERSION          7006   /* value does not convert to the type */
+#define IRON_ERR_MYSQL_RANGE               7007   /* row/column index or name not found */
+#define IRON_ERR_MYSQL_TLS_REQUIRED        7008   /* server does not offer TLS */
+#define IRON_ERR_MYSQL_POOL_TIMEOUT        7009   /* no pooled connection in time */
+#define IRON_ERR_MYSQL_POOL_CLOSED         7010
+#define IRON_ERR_MYSQL_PARAM_COUNT         7011   /* placeholders vs parameters */
+#define IRON_ERR_MYSQL_BAD_URL             7012
+#define IRON_ERR_MYSQL_INSECURE_AUTH       7013   /* password exchange needs TLS or an RSA key */
+#define IRON_ERR_MYSQL_NO_MEMORY           7014
+#define IRON_ERR_MYSQL_STMT_CLOSED         7015   /* statement closed or its connection released */
+#define IRON_ERR_MYSQL_RESULT_TOO_LARGE    7016
+#define IRON_ERR_MYSQL_LOCAL_INFILE        7017   /* LOAD DATA LOCAL is refused */
+#define IRON_ERR_MYSQL_UNAVAILABLE         7018   /* built without OpenSSL */
+/* 7019..7099 reserved for future MySQL client additions */
+
 #endif /* IRON_ERRORS_H */

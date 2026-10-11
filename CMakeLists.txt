@@ -358,6 +358,7 @@ add_library(iron_stdlib STATIC
     src/stdlib/iron_http.c
     src/stdlib/iron_tls.c
     src/stdlib/iron_websocket.c
+    src/stdlib/iron_mysql.c
 )
 target_include_directories(iron_stdlib PUBLIC src)
 find_package(Threads REQUIRED)

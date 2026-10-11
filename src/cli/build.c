@@ -486,6 +486,9 @@ static int prepend_marked_file(char **source_io, const char *base_dir,
 /* iron_os.c: the platform behind the freestanding runtime header (#235);
  * passed to clang with the other runtime sources. */
 static char *s_rt_os = NULL;
+/* stdlib/iron_mysql.c: compiled only into programs that import mysql
+ * (opts.use_mysql), so other programs do not pay for its compile time. */
+static char *s_sl_mysql = NULL;
 
 #ifdef _WIN32
 /* --debug on Windows (#312): Visual Studio views of Iron values. A natvis
@@ -661,6 +664,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     *sl_http_out    = make_path(base_dir, "stdlib/iron_http.c");
     *sl_tls_out     = make_path(base_dir, "stdlib/iron_tls.c");
     *sl_websocket_out = make_path(base_dir, "stdlib/iron_websocket.c");
+    free(s_sl_mysql);
+    s_sl_mysql      = make_path(base_dir, "stdlib/iron_mysql.c");
 
     if (!*rt_stb_out || !*rt_arena_out || !*rt_strbuf_out || !*rt_string_out ||
         !*rt_rc_out || !*rt_builtin_out || !*rt_threads_out || !*rt_collect_out ||
@@ -668,7 +673,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         !*rt_panic_out || !*rt_leakcheck_out || !*rt_arena_rt_out ||
         !*sl_math_out || !*sl_io_out || !*sl_time_out || !*sl_log_out ||
         !*sl_hint_out || !*sl_net_out || !*sl_http_out || !*sl_tls_out ||
-        !*sl_websocket_out) {
+        !*sl_websocket_out || !s_sl_mysql) {
         return 1;
     }
 
@@ -742,6 +747,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_http_out;
     argv_buf[ai++] = *sl_tls_out;
     argv_buf[ai++] = *sl_websocket_out;
+    if (opts.use_mysql) argv_buf[ai++] = s_sl_mysql;
     if (opts.use_tls) {
         argv_buf[ai++] = "/DIRON_HAVE_OPENSSL=1";
 #ifdef IRON_CLI_OPENSSL_INCLUDE_DIR
@@ -853,6 +859,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_http_out;
     argv_buf[ai++] = *sl_tls_out;
     argv_buf[ai++] = *sl_websocket_out;
+    if (opts.use_mysql) argv_buf[ai++] = s_sl_mysql;
     if (opts.use_tls) {
         argv_buf[ai++] = "-DIRON_HAVE_OPENSSL=1";
 #ifdef IRON_CLI_OPENSSL_INCLUDE_DIR
@@ -998,6 +1005,7 @@ static void free_src_list(char *base_dir,
     free(rt_threads); free(rt_collect);
     free(rt_netinit); free(rt_oom);
     free(s_rt_os); s_rt_os = NULL;
+    free(s_sl_mysql); s_sl_mysql = NULL;
     free(rt_fmt);
     free(rt_heap_track);
     free(rt_panic);
@@ -1820,6 +1828,21 @@ int iron_build(const char *source_path, const char *output_path,
     if (imports_websocket) {
         stdlib_prepended_lines +=
             prepend_marked_file(&source, base_dir, "stdlib/websocket.iron",
+                                line_markers);
+    }
+
+    /* MySQL client: native protocol over TCP with TLS and the hashing its
+     * authentication needs from libcrypto, so it links OpenSSL like http. */
+    if (iron_detect_import(source, source_path, "mysql", &detect_arena)) {
+        opts.use_mysql = true;
+        opts.wants_tls = true;
+#ifdef IRON_CLI_HAVE_OPENSSL
+        opts.use_tls = true;
+#else
+        opts.use_tls = false;
+#endif
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/mysql.iron",
                                 line_markers);
     }
 

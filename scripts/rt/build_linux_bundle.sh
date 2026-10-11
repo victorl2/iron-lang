@@ -22,8 +22,9 @@
 #   IRON_COMMIT      the short commit hash recorded in the manifest (default: git rev-parse --short HEAD)
 #
 # The TLS module is built twice: libiron_tls.a against a static OpenSSL
-# (libssl.a, libcrypto.a, shipped too) for programs that import http or
-# websocket, and libiron_tls_none.a for the rest.
+# (libssl.a, libcrypto.a, shipped too) for programs that import http,
+# websocket or mysql (the MySQL client is in it too), and libiron_tls_none.a
+# for the rest.
 #
 # Writes <out-dir>/iron-rt-<version>-<target>/ with lib/ (libiron_rt.a,
 # libc.a, crt1.o, crti.o, crtn.o, libclang_rt.builtins.a) and a rt.txt
@@ -141,8 +142,13 @@ rm -f "$dest/lib/libiron_rt.a" "$dest/lib/libiron_tls.a" "$dest/lib/libiron_tls_
 "$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_tls.c" -o "$work/iron_tls_none.o"
 "$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
     -c "$here/src/stdlib/iron_tls.c" -o "$work/iron_tls.o"
+# The MySQL client needs libcrypto (auth hashing, RSA) and TLS, so it ships
+# in the OpenSSL flavour of the TLS library; build.c links that one for a
+# program that imports mysql.
+"$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
+    -c "$here/src/stdlib/iron_mysql.c" -o "$work/iron_mysql.o"
 "$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls_none.a" "$work/iron_tls_none.o"
-"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/iron_tls.o"
+"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/iron_tls.o" "$work/iron_mysql.o"
 cp "$ossl_lib/libssl.a" "$ossl_lib/libcrypto.a" "$dest/lib/"
 
 cp "$musl_prefix/lib/libc.a" "$musl_prefix/lib/crt1.o" "$musl_prefix/lib/crti.o" "$musl_prefix/lib/crtn.o" "$dest/lib/"
