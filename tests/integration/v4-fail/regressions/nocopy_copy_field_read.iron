@@ -1,0 +1,16 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- Reading a nocopy field into a binding copies it (#638).
+object Holder {
+    val r: Res
+}
+func main() {
+    val h = Holder(Res(1))
+    val x = h.r
+    println("{x.id}")
+}

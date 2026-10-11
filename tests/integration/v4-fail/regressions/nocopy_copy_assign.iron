@@ -1,0 +1,14 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- Assigning a nocopy binding copies it (#638).
+func main() {
+    val a = Res(1)
+    var b = Res(2)
+    b = a
+    println("{b.id}")
+}

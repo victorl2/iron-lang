@@ -1,0 +1,13 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- A nocopy binding in a list literal becomes a second owner (#638).
+func main() {
+    val a = Res(1)
+    val xs = [a]
+    println("{xs.len()}")
+}

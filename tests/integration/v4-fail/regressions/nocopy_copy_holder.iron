@@ -1,0 +1,16 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- An object holding a nocopy field cannot be copied either (#638).
+object Holder {
+    val r: Res
+}
+func main() {
+    val a = Holder(Res(1))
+    val b = a
+    println("{b.r.id}")
+}
