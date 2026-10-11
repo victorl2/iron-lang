@@ -19,11 +19,14 @@
 # (15), WRK_THREADS (4), SERVICE_CPUS (0-3), WRK_CPUS (4-7), BENCH_OUT
 # (bench-results.md), BENCH_KEEP=1 to keep the database, BENCH_REUSE=1 to
 # reuse a kept one, BENCH_MYSQL_TLS=1 for TLS to MySQL (off by default for
-# both targets, as in go-sql-driver), BENCH_POOL (32) for the pool size.
+# both targets, as in go-sql-driver), BENCH_POOL (32) for the pool size,
+# BENCH_APP=DIR to build the iron target from another copy of apps/inventory
+# (an older revision, for before and after numbers) with BENCH_APP_IRON as
+# its compiler (default: the one given).
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 app=$(cd "$here/.." && pwd)
-[ $# -ge 1 ] || { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -ge 1 ] || { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 IRON=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 IRONC=$(dirname "$IRON")/ironc
 targets=${2:-iron,go}
@@ -49,9 +52,11 @@ cleanup() {
 trap cleanup EXIT
 
 # Build: the service and the stub with --release, the database tool, Go.
-cp -R "$app/src" "$app/iron.toml" "$work/" && mkdir -p "$work/stub" &&
+svc_app=${BENCH_APP:-$app}
+svc_iron=${BENCH_APP_IRON:-$IRON}
+cp -R "$svc_app/src" "$svc_app/iron.toml" "$work/" && mkdir -p "$work/stub" &&
     cp -R "$app/stub/src" "$app/stub/iron.toml" "$work/stub/" || exit 1
-(cd "$work" && "$IRON" build --release >build.log 2>&1) || { cat "$work/build.log"; exit 1; }
+(cd "$work" && "$svc_iron" build --release >build.log 2>&1) || { cat "$work/build.log"; exit 1; }
 (cd "$work/stub" && "$IRON" build --release >build.log 2>&1) || { cat "$work/stub/build.log"; exit 1; }
 "$IRONC" build "$app/tests/dbtool.iron" -o "$work/dbtool" >/dev/null 2>&1 || exit 1
 if [[ ,$targets, == *,go,* ]]; then

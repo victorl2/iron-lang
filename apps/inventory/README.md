@@ -107,11 +107,14 @@ settings are reported one per log line and the process exits with status 2;
 
 - `src/main.iron` wires everything: configuration, the MySQL pool, the
   listener, the background threads (database initialization, rate refresh)
-  and the accept loop.
-- Requests are served with `Http.poller`: the accept loop hands a
-  connection to a pool task only when a request has arrived on it, and the
-  task parks it again after answering, so thousands of idle keep-alive
-  clients cost no workers ([networking guide](../../docs/networking.md)).
+  and the serving threads.
+- Requests are served with `Http.poller`: `workers` serving threads (bound
+  spawns) each ask the poller for the next connection with a request ready,
+  answer it in place and park the connection again, so thousands of idle
+  keep-alive clients cost no threads and a slow database call holds only
+  the thread serving it ([networking guide](../../docs/networking.md)).
+- Each serving thread has its own metrics shard (summed when `/metrics` is
+  read), so counting a request takes no shared lock.
 - `src/api.iron` routes, validates and writes JSON with `JsonWriter`;
   request bodies are parsed with `Json.parse_with` and explicit limits.
 - `src/db.iron` holds the migrations and every query, as prepared statements
@@ -119,7 +122,8 @@ settings are reported one per log line and the process exits with status 2;
   and a transaction, retried on deadlock.
 - `src/rates.iron` is the upstream client, cache and circuit breaker;
   `src/metrics.iron` the counters and their exposition.
-- Shared state lives in `rc` objects guarded by a `Mutex` used as a lock.
+- Shared state lives in `rc` objects guarded by a `Mutex` or an `RWLock`
+  used as a lock; the rate table is read under a shared lock.
 
 ## Testing
 
