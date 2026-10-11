@@ -1918,7 +1918,10 @@ to a parameter of type `*T` takes its address automatically. A checked
 pointer carries the generation of the allocation it points to, and every
 dereference verifies it: reading through a pointer after the target was
 freed aborts with a "stale pointer dereference" message instead of reading
-garbage, even when the allocator has reused the address. Checked pointers
+garbage, even when the allocator has reused the address. A pointer to a
+local stays valid while the function that took it has not returned; read
+after that (kept in a closure or an object that outlived the call) it
+aborts with a "dangling stack pointer to frame" message. Checked pointers
 support no arithmetic (`E0268`, `E0295`); `&` cannot be applied to a
 temporary (`E0270`), a pointer to a local cannot be returned (`E0271`), `&`
 on an `rc` handle is rejected (`E0296`), and `&list[i]` on a growable list
@@ -2308,8 +2311,9 @@ construction). Method calls, field access, string concatenation,
 interpolation, bitwise operators and shifts, conversions such as
 `Float(n)`, reading a global, `break` and `continue`, lambdas, `match`,
 enum values, and `heap` or `rc` allocation are not available at compile
-time (`E0231`); an error while evaluating, such as a division by zero or
-an index out of range, is `E0232`. Evaluation is limited to one million
+time (`E0231`); an error while evaluating, such as an integer division by
+zero or an index out of range, is `E0232` (a float divided by zero is an
+infinity or NaN, as at run time). Evaluation is limited to one million
 steps and to calls nested 256 deep (`E0230`). The result is typically
 bound to a global `val`.
 
