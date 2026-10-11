@@ -1,0 +1,25 @@
+-- @expect-panic: iface_list_remove_site.iron:23
+-- remove(i) out of range on a list of interface values names the Iron line
+-- of the call in every build mode; outside --debug it named the generated
+-- C file (issue 418).
+interface Shape {
+    readonly func area() -> Int
+}
+
+object Sq impl Shape {
+    val s: Int
+    readonly func area() -> Int { return self.s * self.s }
+}
+
+object Rect impl Shape {
+    val w: Int
+    val h: Int
+    readonly func area() -> Int { return self.w * self.h }
+}
+
+func main() {
+    var shapes: [Shape] = [Sq(2), Rect(2, 3)]
+    val r = shapes.remove(0)
+    val bad = shapes.remove(5)
+    println("not reached {r.area()} {bad.area()}")
+}

@@ -2503,6 +2503,11 @@ Methods on `[T]` (and, where noted, on fixed arrays, bounded vectors and
 | `forEach(f: func(T))` | call `f` on each element |
 | `sum() -> T` | sum of an `[Int]` or `[Float]` |
 
+`pop()` on an empty list panics ("pop from an empty list"), and `get`,
+`set`, `remove`, `insert` and `xs[i]` with an index out of range panic
+("index out of bounds"), naming the Iron line of the call; this holds for
+every element type, lists of interface values included.
+
 The lambdas passed to `map`, `filter`, `reduce` and `forEach` must write
 their parameter types. Chains of `map`/`filter`/`reduce` calls are fused
 into one loop by the optimizer.
