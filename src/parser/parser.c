@@ -81,6 +81,12 @@ static inline bool iron_cancel_requested(const _Atomic bool *flag) {
  * func_or_method / object_decl would be harmless but redundant — these
  * are reached only through iron_parse_decl, already wrapped. */
 #define IRON_PARSER_MAX_DEPTH 256
+/* Operators and postfix layers one expression may stack (`a + b + c ...`,
+ * `x.f().g()...`): the Pratt climb is iterative, but every layer is one
+ * level of the AST, and each later pass recurses once per level. A chain
+ * of a few thousand overflowed the 8 MB stack in check and build (release;
+ * far fewer under the sanitizers). */
+#define IRON_EXPR_MAX_LAYERS 1024
 
 /* Forward decls for helpers used before their definitions. */
 static Iron_Span   iron_token_span(Iron_Parser *p, Iron_Token *t);
@@ -2173,6 +2179,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
         return iron_make_error(p);
     }
     Iron_Node *left = iron_parse_primary(p);
+    int layers = 0;
 
     for (;;) {
         /* HARD-08 companion: never attach postfix/infix layers to an error
@@ -2197,6 +2204,15 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
         int prec = iron_infix_prec(cur);
         if (prec <= min_prec && cur != IRON_TOK_IS) break;
         if (cur == IRON_TOK_IS && PREC_IS <= min_prec) break;
+        if (++layers > IRON_EXPR_MAX_LAYERS) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_PARSE_DEPTH_EXCEEDED,
+                           iron_token_span(p, iron_current(p)),
+                           "expression too long: more than 1024 operators or calls in a row",
+                           "split it with intermediate bindings");
+            p->in_error_recovery = true;
+            return iron_make_error(p);
+        }
 
         /* Field access / method call: expr.name or expr.name(args) */
         if (cur == IRON_TOK_DOT) {

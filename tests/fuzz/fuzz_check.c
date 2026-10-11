@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "analyzer/analyzer.h"
 #include "analyzer/stdlib_prepend.h"
@@ -76,10 +77,39 @@ static void analyze(const char *src, size_t len, IronAnalysisMode mode,
     free(buf);
 }
 
+typedef struct { const uint8_t *data; size_t size; } CheckJob;
+static void check_one(const uint8_t *Data, size_t Size);
+
+static void *check_thread(void *arg) {
+    CheckJob *job = (CheckJob *)arg;
+    check_one(job->data, job->size);
+    return NULL;
+}
+
+/* The analysis runs on a thread with a 512 MB stack: under ASan plus the
+ * fuzzer's coverage instrumentation a type checker frame is tens of KB, so
+ * a hundred nested operators overflow the 8 MB main stack although release
+ * builds handle the parser's limits with room to spare. */
 int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     if (Size > IRON_FUZZ_CHECK_MAX_INPUT) return -1;
+    CheckJob job = { Data, Size };
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, (size_t)512 * 1024 * 1024);
+    pthread_t t;
+    if (pthread_create(&t, &attr, check_thread, &job) != 0) {
+        pthread_attr_destroy(&attr);
+        check_one(Data, Size);
+        return 0;
+    }
+    pthread_join(t, NULL);
+    pthread_attr_destroy(&attr);
+    return 0;
+}
+
+static void check_one(const uint8_t *Data, size_t Size) {
     char *src = (char *)malloc(Size + 1);
-    if (!src) return 0;
+    if (!src) return;
     memcpy(src, Data, Size);
     src[Size] = '\0';
     size_t len = strlen(src);   /* the tools read up to the first NUL */
@@ -121,5 +151,4 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     iron_diaglist_free(&diags);
     iron_arena_free(&arena);
     free(src);
-    return 0;
 }
