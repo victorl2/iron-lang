@@ -2694,6 +2694,41 @@ void Iron_httppollernative_park(int64_t h, int64_t fd) {
     http_poller_unlock(st);
 }
 
+/* Close a connection whose peer may still be sending (a request rejected
+ * before it was read: too large, malformed). Closing with unread input
+ * makes the kernel reset the connection, and the reset can destroy the
+ * answer before the client reads it; so stop sending, read and drop what
+ * arrives for a short while, then close. */
+static void http_poller_close_draining(int64_t fd) {
+    char buf[4096];
+#ifdef _WIN32
+    u_long avail = 0;
+    if (ioctlsocket((SOCKET)fd, FIONREAD, &avail) != 0 || avail == 0) {
+        http_poller_close_fd(fd);
+        return;
+    }
+    shutdown((SOCKET)fd, SD_SEND);
+#else
+    ssize_t peek = recv((int)fd, buf, 1, MSG_PEEK | MSG_DONTWAIT);
+    if (peek <= 0) {
+        http_poller_close_fd(fd);
+        return;
+    }
+    shutdown((int)fd, SHUT_WR);
+#endif
+    Iron_Deadline deadline = Iron_deadline_from_timeout_ms(1000);
+    size_t drained = 0;
+    while (drained < (size_t)4 * 1024 * 1024) {
+        Iron_TcpSocket s = { fd };
+        int rem = Iron_deadline_remaining_ms(deadline);
+        if (rem <= 0) break;
+        Iron_Result_Int_Error r = Iron_net_tcp_recv_bytes(s, (uint8_t *)buf, sizeof(buf), rem);
+        if (r.v1.code != 0 || r.v0 <= 0) break;
+        drained += (size_t)r.v0;
+    }
+    http_poller_close_fd(fd);
+}
+
 void Iron_httppollernative_discard(int64_t h, int64_t fd) {
     HttpPollerState *st = (HttpPollerState *)(intptr_t)h;
     if (fd < 0) return;
@@ -2706,7 +2741,7 @@ void Iron_httppollernative_discard(int64_t h, int64_t fd) {
         }
         http_poller_unlock(st);
     }
-    http_poller_close_fd(fd);
+    http_poller_close_draining(fd);
 }
 
 void Iron_httppollernative_close(int64_t h) {

@@ -262,7 +262,9 @@ patch object HttpPoller {
         HttpPollerNative.park(self.core.handle, connection.fd)
     }
 
-    -- Close a connection taken from next().
+    -- Close a connection taken from next(). When the client is still sending
+    -- (a request rejected unread), the answer already written is protected
+    -- from a connection reset: input is drained for up to a second first.
     readonly func discard(connection: HttpConnection) {
         HttpPollerNative.discard(self.core.handle, connection.fd)
     }
