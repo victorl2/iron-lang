@@ -113,13 +113,12 @@ static const char *normalize_result(const char *source, size_t source_len,
 
 /* ── End-of-document position helper ──────────────────────────────────
  *
- * LSP `Range.end` for a full-document replace must point *past* the
- * last byte of the document. We compute it inline here rather than
- * pulling in line_index because the line index is cached on the
- * document elsewhere; this helper only needs newline counts and the
- * tail-line byte length. UTF-16 columns are computed via utf.c so a
- * client that negotiated UTF-16 receives a spec-compliant Range. */
-static IronLsp_Position end_position(const struct IronLsp_Document *doc) {
+ * LSP `Range.end` for a full-document replace points just past the last
+ * character of the document: the last line, and its length in the
+ * negotiated encoding (it was the byte count, past the end of a last line
+ * holding non-ASCII text). A CRLF's '\r' ends the line before it. */
+static IronLsp_Position end_position(const struct IronLsp_Document *doc,
+                                     IronLsp_PositionEncoding enc) {
     IronLsp_Position p;
     p.line      = 0;
     p.character = 0;
@@ -134,17 +133,11 @@ static IronLsp_Position end_position(const struct IronLsp_Document *doc) {
         }
     }
     p.line = (uint32_t)lines;
+    const char *tail = doc->text + last_nl;
     size_t tail_bytes = doc->text_len - last_nl;
-    /* For UTF-8 negotiation `character` is a UTF-8 codepoint index; for
-     * UTF-16 it is the UTF-16 code unit count. utf.c handles both. */
-    /* Note: The document store does not currently expose the negotiated
-     * encoding here; the line ends in raw byte count by default. The
-     * UTF-16 path will overshoot only on supplementary-plane codepoints
-     * in the trailing line, which is rare for source code. The FMT
-     * smoke tests assert against ASCII-only fixtures so this is sound
-     * for v1; Plan 05-04's on-type path will plumb the encoding through
-     * if needed. */
-    p.character = (uint32_t)tail_bytes;
+    p.character = enc == ILSP_ENC_UTF8
+        ? ilsp_utf8_byte_to_utf8_column(tail, tail_bytes, tail_bytes)
+        : ilsp_utf8_byte_to_utf16_column(tail, tail_bytes, tail_bytes);
     return p;
 }
 
@@ -153,7 +146,8 @@ IronLsp_TextEditList ilsp_facade_format_full(
     const struct IronLsp_WorkspaceIndex *ws,
     const IronFmtOptions                *opts_in,
     Iron_Arena                          *arena,
-    const _Atomic bool                  *cancel)
+    const _Atomic bool                  *cancel,
+    IronLsp_PositionEncoding             enc)
 {
     IronLsp_TextEditList empty = { NULL, 0 };
 
@@ -201,7 +195,7 @@ IronLsp_TextEditList ilsp_facade_format_full(
     IronLsp_Range full_range;
     full_range.start.line      = 0;
     full_range.start.character = 0;
-    full_range.end             = end_position(doc);
+    full_range.end             = end_position(doc, enc);
 
     IronLsp_TextEdit *edits = (IronLsp_TextEdit *)iron_arena_alloc(
         arena, sizeof(IronLsp_TextEdit), _Alignof(IronLsp_TextEdit));

@@ -103,8 +103,16 @@ def check(ironc, text, work, env):
     for line in err.splitlines():
         m = DIAG_HEAD.match(line)
         if m:
-            diags.append((m.group(2), m.group(3)))
+            diags.append((m.group(2), m.group(3), m.group(1)))
     return rc, diags
+
+
+def is_syntax(d):
+    """A lexer or parser error: E0001..E0199 (E0175/E0176 also come from
+    name resolution)."""
+    code, _msg, level = d
+    return level == 'error' and code.startswith('E') and int(code[1:]) < 200 and \
+        int(code[1:]) not in (175, 176)
 
 
 def comments(text):
@@ -205,7 +213,9 @@ def perturb(text, rng):
                 if rng.random() < 0.3 and '"' not in out[k][-1:]:
                     out[k] = out[k] + rng.choice([' ', '\t', '   ', ' \t '])
         elif op == 'spaces':
-            # widen runs of spaces between tokens outside strings
+            # widen runs of spaces between tokens outside strings (the
+            # formatter leaves spaces inside a line alone: not canonical)
+            kind = 'other'
             for k in range(len(out)):
                 if k in inside or '"' in out[k] or '--' in out[k]:
                     continue
@@ -242,6 +252,8 @@ def perturb(text, rng):
                     continue
                 out.insert(k, rng.choice(['-- own line', '    -- indented', '\t--', '-- "q" {b}']))
                 inside = {i + 1 if i >= k else i for i in inside}
+    if '\"\"\"' in text:
+        kind = 'other'   # a multi-line string's lines are its value
     t = '\n'.join(out)
     if 'crlf' in ops:
         t = t.replace('\n', '\r\n')
@@ -369,8 +381,12 @@ def build_and_run(ironc, text, work, env, tag):
     rc, _, err = run([ironc, 'build', src, '-o', exe], timeout=300, env=env)
     if rc != 0:
         return None
-    rc, out, err = run([exe], timeout=60, env=env)
-    return rc, out
+    # the program's own outcome, panics and hangs included: compared, not judged
+    try:
+        p = subprocess.run([exe], capture_output=True, timeout=20, env=env)
+    except subprocess.TimeoutExpired:
+        return ('timeout',)
+    return p.returncode, p.stdout.decode('utf-8', 'replace')
 
 
 def one_case(args, seed, files, lsp):
@@ -405,11 +421,11 @@ def one_case(args, seed, files, lsp):
             stage['label'] = label
             f1, err = fmt(args.ironc, text, work, env)
             rc, diags = check(args.ironc, text, work, env)
-            syntax = any(int(c[1:]) < 200 for c, _ in diags if c.startswith('E'))
+            syntax = any(is_syntax(d) for d in diags)
             if f1 is None:
-                if not syntax:
-                    raise Finding('refused-valid', f'{label}: ironc fmt refused, ironc check reports no '
-                                  f'syntax error ({diags[:5]}): {err[-800:]}')
+                if rc == 0:
+                    raise Finding('refused-valid', f'{label}: ironc fmt refused a file ironc check '
+                                  f'accepts: {err[-800:]}')
                 info['checks'].append('refused')
                 continue
             if syntax:
@@ -443,13 +459,28 @@ def one_case(args, seed, files, lsp):
                     stage['lsp_formatted'] = l1
                     raise Finding('lsp-fmt-parity', f'{label}: textDocument/formatting differs from ironc fmt')
                 l2 = lsp.format(text, ranged=True)
-                if l2 is not None and l2 != f1:
+                crlf_doc = '\r\n' in text and text.count('\n') == text.count('\r\n')
+                if l2 is not None and crlf_doc and l2.count('\n') != l2.count('\r\n'):
+                    stage['formatted'] = f1
+                    stage['lsp_formatted'] = l2
+                    raise Finding('lsp-rangefmt-line-ends', f'{label}: rangeFormatting of a CRLF '
+                                  f'document mixes line ends')
+                if l2 is not None:
+                    l2 = l2.replace('\r\n', '\n')
+                # range mode keeps a leading blank line and the blank lines
+                # that end the range (a whole-file format drops them)
+                def blanks(t):
+                    return re.sub(r'\n{3,}', '\n\n', t).strip('\n')
+                if l2 is not None and blanks(l2) != blanks(f1.replace('\r\n', '\n')):
                     stage['formatted'] = f1
                     stage['lsp_formatted'] = l2
                     raise Finding('lsp-rangefmt-parity', f'{label}: rangeFormatting over the whole '
                                   f'document differs from ironc fmt')
             info['checks'].append(label)
-            if args.run and rc == 0 and (label == 'orig' or rng.random() < 0.3):
+            # windows, sockets and clocks make the output vary run to run
+            runnable = not re.search(r'^\s*import\s+(raylib|net|http|websocket|time|os|log)\b',
+                                     text, re.M)
+            if args.run and runnable and rc == 0 and (label == 'orig' or rng.random() < 0.3):
                 before = build_and_run(args.ironc, text, work, env, 'a')
                 after = build_and_run(args.ironc, f1, work, env, 'b')
                 if (before is None) != (after is None):

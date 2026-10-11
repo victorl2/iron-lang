@@ -661,7 +661,7 @@ def parity_check(doc, lsp_diags, ironc, env):
     keeps the partial tree (so the follow-on errors differ both ways).
     What must hold:
       * when ironc reports a syntax error (a code below E0200), the server
-        reports each of ironc's syntax errors too (same code and start);
+        reports the first of them too (same code and start);
       * when ironc reports none, both report the same diagnostics (code,
         severity, start position and message);
       * the server reports an error exactly when ironc does.
@@ -708,9 +708,12 @@ def parity_check(doc, lsp_diags, ironc, env):
     c_syn = {(c, p) for c, sv, p, m in c_full if c.startswith('E') and int(c[1:]) < 200}
     l_syn = {(c, p) for c, sv, p, m in l_full if isinstance(c, str) and c.startswith('E') and int(c[1:]) < 200}
     if c_syn:
-        missing = c_syn - l_syn
-        if missing:
-            return f'ironc reports syntax errors {sorted(missing)} the server does not (server: {sorted(l_syn)})'
+        # Recovery differs after the first error (the CLI stops reporting
+        # inside a broken statement, so the parse of what follows can be
+        # reported differently): the first syntax error must agree.
+        first = min(c_syn, key=lambda cp: (cp[1], cp[0]))
+        if first not in l_syn:
+            return f'the server does not report the first syntax error {first} (server: {sorted(l_syn)[:12]})'
         return None
     if c_full != l_full:
         return (f'no syntax error, but the diagnostics differ: only ironc {sorted(c_full - l_full)[:8]}, '
@@ -1016,7 +1019,10 @@ class Session:
             params = self.params_for(doc, method, pos)
         rid = self.srv.request(method, params)
         self.stats['requests'] += 1
-        self.pending.append((rid, method, params, doc, doc.version, doc.text, doc.open, time.monotonic()))
+        # the history dict of this incarnation of the document: a reopen
+        # starts a new one, and its versions repeat the old numbers
+        self.pending.append((rid, method, params, doc, doc.version, doc.text, doc.open,
+                             time.monotonic(), doc.history))
         if cancel or r.random() < 0.07:
             self.srv.notify('$/cancelRequest', {'id': rid})
         return rid
@@ -1026,7 +1032,7 @@ class Session:
         every pending request (deadline each)."""
         keep = []
         for item in self.pending:
-            rid, method, params, doc, version, text, was_open, sent = item
+            rid, method, params, doc, version, text, was_open, sent, _hist = item
             if not all_:
                 with self.srv.cv:
                     if rid not in self.srv.responses:
@@ -1040,11 +1046,11 @@ class Session:
                 raise Finding('crash', f'server exited while {method} (id {rid}) was pending')
             self.check_response(item, resp)
         self.pending = keep
-        self.check_notes()
         self.stderr_check()
+        self.check_notes()
 
     def check_response(self, item, resp):
-        rid, method, params, doc, version, text, was_open, _ = item
+        rid, method, params, doc, version, text, was_open, _, history = item
         if 'error' in resp:
             code = resp['error'].get('code')
             if code in OK_ERRORS:
@@ -1067,9 +1073,10 @@ class Session:
         # resultId names
         if method == 'textDocument/diagnostic':
             m = re.fullmatch(r'v(\d+)', str((resp['result'] or {}).get('resultId', '')))
-            if not m or int(m.group(1)) not in doc.history:
+            if not m or int(m.group(1)) not in history:
                 return
-            text = doc.history[int(m.group(1))]
+            text = history[int(m.group(1))]
+            params = dict(params, _resultId=m.group(0), _sent_version=version)
         snap = Doc(doc.uri, doc.path, text, doc.enc)
         try:
             check_result(snap, method, params, resp['result'], self.ctx)
@@ -1101,6 +1108,9 @@ class Session:
                 uri = params.get('uri')
                 doc = next((d for d in self.docs if d.uri == uri), None)
                 ver = params.get('version')
+                if ver is None:
+                    self.ctx.setdefault('cleared', {})[uri] = True
+                    continue
                 self.ctx.setdefault('diags', {})[uri] = params.get('diagnostics') or []
                 self.ctx.setdefault('diag_ver', {})[uri] = ver
                 if doc and doc.open and ver == doc.version:
@@ -1108,6 +1118,17 @@ class Session:
                         check_diagnostics(doc, params.get('diagnostics') or [], 'publishDiagnostics')
                     except Finding as f:
                         if not self.ignored(f):
+                            self.ctx['fail_text'] = (doc.path, doc.text)
+                            # which earlier versions would the ranges fit?
+                            fits = []
+                            for v, t in sorted(doc.history.items()):
+                                try:
+                                    check_diagnostics(Doc(doc.uri, doc.path, t, doc.enc),
+                                                      params.get('diagnostics') or [], 'x')
+                                    fits.append(v)
+                                except Finding:
+                                    pass
+                            f.detail += f' [published version {ver}; ranges fit versions {fits[-8:]}]'
                             raise
 
     def settle(self, doc, timeout=None):
@@ -1148,6 +1169,15 @@ class Session:
                     d.open = True
                     d.version = r.choice([1, d.version + 1])
                     d.history = {d.version: d.text}
+                    # A publish from before the close may carry this version
+                    # again: wait for the cleared (unversioned) publish the
+                    # server sends after stopping the closed document's worker.
+                    end = time.monotonic() + 10
+                    while not self.ctx.get('cleared', {}).get(d.uri) and time.monotonic() < end:
+                        self.check_notes()
+                        with self.srv.cv:
+                            self.srv.cv.wait(0.02)
+                    self.ctx.get('diag_ver', {}).pop(d.uri, None)
                     self.srv.notify('textDocument/didOpen', {'textDocument': {
                         'uri': d.uri, 'languageId': 'iron', 'version': d.version, 'text': d.text}})
                 elif len(self.docs) < 6:
@@ -1156,6 +1186,7 @@ class Session:
             doc = r.choice(opened)
             if k < 0.04:
                 doc.open = False
+                self.ctx.setdefault('cleared', {})[doc.uri] = False
                 self.srv.notify('textDocument/didClose', {'textDocument': {'uri': doc.uri}})
                 if r.random() < 0.3:
                     self.send_request(doc)  # request on a closed document
@@ -1256,42 +1287,73 @@ def run_session(args, seed, files):
     return result
 
 
+def peak_rss_mb(pid):
+    try:
+        with open(f'/proc/{pid}/status') as f:
+            for line in f:
+                if line.startswith('VmHWM:'):
+                    return int(line.split()[1]) // 1024
+    except OSError:
+        pass
+    return None
+
+
 def replay(args):
-    """Resend a recorded session and report what the server did."""
+    """Resend a recorded session and report what the server did: requests
+    left unanswered, crash notices, sanitizer reports, peak RSS."""
     msgs = [json.loads(l) for l in open(args.replay, encoding='utf-8')]
     env = dict(os.environ)
     env.setdefault('ASAN_OPTIONS', 'detect_leaks=0:abort_on_error=0:symbolize=1')
     env.setdefault('UBSAN_OPTIONS', 'halt_on_error=1:print_stacktrace=1')
     srv = Server([args.ironls], env, [])
+    ids = []
     for m in msgs:
         if not srv.alive():
             break
+        if m.get('method') in ('shutdown', 'exit'):
+            continue
         srv._write(m, log=False)
+        if 'id' in m and 'method' in m:
+            ids.append((m['id'], m['method']))
         if m.get('method') == 'initialize':
             srv.wait(m['id'], args.deadline)
+            ids.pop()
         if args.replay_delay:
             time.sleep(args.replay_delay)
-    time.sleep(1)
-    try:
-        srv.proc.stdin.close()
-    except OSError:
-        pass
+    missing = []
+    for rid, method in ids:
+        try:
+            if srv.wait(rid, args.deadline) is None:
+                missing.append((rid, method, 'server exited'))
+        except Finding:
+            missing.append((rid, method, 'no response'))
+    rss = peak_rss_mb(srv.proc.pid)
+    code = None
+    if srv.alive():
+        rid = srv.request('shutdown', None)
+        try:
+            srv.wait(rid, args.deadline)
+        except Finding:
+            pass
+        srv.notify('exit', None)
     try:
         code = srv.proc.wait(timeout=args.deadline)
     except subprocess.TimeoutExpired:
         srv.proc.kill()
         code = 'hang'
+    srv.err_reader.join(5)
     err = ''.join(srv.stderr_buf)
     with srv.cv:
         notes = list(srv.notes)
     bad = [n for n in notes if n[0] in ('window/showMessage',) and
            ('crash' in str(n[1]) or 'quarantined' in str(n[1]))]
-    print(f'exit: {code}; crash notices: {len(bad)}')
+    print(f'exit: {code}; requests: {len(ids)}; unanswered: {missing[:10]}; '
+          f'crash notices: {len(bad)}; peak RSS: {rss} MB')
     m = SAN_RE.search(err)
     if m:
         print(err[max(0, m.start() - 200):m.start() + 4000])
         return 1
-    return 1 if bad or code not in (0, None) else 0
+    return 1 if bad or missing or code not in (0,) else 0
 
 
 def show(args):

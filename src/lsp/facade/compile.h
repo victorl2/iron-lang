@@ -61,6 +61,13 @@ void ilsp_facade_pull_diagnostic(struct IronLsp_Server   *server,
                                   struct IronLsp_Document *doc,
                                   const char              *request_id);
 
+/* Publish an empty diagnostic list (no version) for a document that was
+ * closed: the client clears what the closed file showed, and since the
+ * writer is FIFO this comes after any publish its worker sent before it
+ * stopped. No-op for a client that pulls diagnostics. */
+void ilsp_facade_publish_cleared(struct IronLsp_Server *server,
+                                 const char            *uri);
+
 /* Answer a pull diagnostic request with an empty full report (resultId
  * "v0"): for a document that is not open, was closed or quarantined while
  * the request waited, or a pull displaced by a newer one. Every request

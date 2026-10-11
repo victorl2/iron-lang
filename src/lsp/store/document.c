@@ -135,11 +135,12 @@ void ilsp_document_destroy(IronLsp_Document *doc) {
     free(doc);
 }
 
-void ilsp_document_set_version(IronLsp_Document *doc, int32_t version) {
-    if (!doc) return;
-    IRON_MUTEX_LOCK(doc->text_lock);
-    doc->version = version;
-    IRON_MUTEX_UNLOCK(doc->text_lock);
+void ilsp_document_lock(IronLsp_Document *doc) {
+    if (doc) IRON_MUTEX_LOCK(doc->text_lock);
+}
+
+void ilsp_document_unlock(IronLsp_Document *doc) {
+    if (doc) IRON_MUTEX_UNLOCK(doc->text_lock);
 }
 
 bool ilsp_document_snapshot(IronLsp_Document *doc, IronLsp_Document *out) {
@@ -201,19 +202,14 @@ bool ilsp_document_apply_full_replace(IronLsp_Document *doc,
                 doc->version, new_version);
         return false;
     }
-    IRON_MUTEX_LOCK(doc->text_lock);
     /* +1 so the trailing NUL always fits (see ilsp_document_create). */
-    if (!grow_cap(doc, new_len + 1)) {
-        IRON_MUTEX_UNLOCK(doc->text_lock);
-        return false;
-    }
+    if (!grow_cap(doc, new_len + 1)) return false;
     if (new_len > 0 && new_text) memcpy(doc->text, new_text, new_len);
     doc->text[new_len] = '\0';
     doc->text_len = new_len;
     doc->version  = new_version;
     ilsp_line_index_rebuild(&doc->line_idx, doc->text, doc->text_len);
     ilsp_sha256((const uint8_t *)doc->text, doc->text_len, doc->sha256);
-    IRON_MUTEX_UNLOCK(doc->text_lock);
     return true;
 }
 
@@ -255,12 +251,8 @@ bool ilsp_document_apply_incremental(IronLsp_Document        *doc,
         final_len = doc->text_len - (old_span - new_len);
     }
 
-    IRON_MUTEX_LOCK(doc->text_lock);
     /* +1 so the trailing NUL always fits (see ilsp_document_create). */
-    if (!grow_cap(doc, final_len + 1)) {
-        IRON_MUTEX_UNLOCK(doc->text_lock);
-        return false;
-    }
+    if (!grow_cap(doc, final_len + 1)) return false;
 
     /* memmove the tail (from end_byte to the new position post-gap). */
     size_t tail_len = doc->text_len - end_byte;
@@ -280,7 +272,6 @@ bool ilsp_document_apply_incremental(IronLsp_Document        *doc,
 
     ilsp_line_index_rebuild(&doc->line_idx, doc->text, doc->text_len);
     ilsp_sha256((const uint8_t *)doc->text, doc->text_len, doc->sha256);
-    IRON_MUTEX_UNLOCK(doc->text_lock);
 
     return true;
 }

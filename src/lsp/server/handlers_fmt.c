@@ -150,7 +150,8 @@ void ilsp_handle_text_document_formatting(IronLsp_Server    *s,
     Iron_Arena work_arena = iron_arena_create(64 * 1024);
 
     IronLsp_TextEditList result = ilsp_facade_format_full(
-        d, s->workspace_index, /* opts */ NULL, &work_arena, cancel);
+        d, s->workspace_index, /* opts */ NULL, &work_arena, cancel,
+        s->position_encoding);
 
     if (cancel && atomic_load(cancel)) {
         /* Cancelled: drop response per Phase 2 policy. */

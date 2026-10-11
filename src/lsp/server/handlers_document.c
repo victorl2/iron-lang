@@ -228,6 +228,9 @@ void ilsp_handle_didChange(IronLsp_Server *s, struct yyjson_doc *doc,
      * carried a version the client never sent.) */
     size_t count = yyjson_arr_size(changes);
     bool applied = false;
+    /* The worker snapshots under this lock: it sees the text before or
+     * after the whole notification, with the matching version. */
+    ilsp_document_lock(d);
     for (size_t i = 0; i < count; i++) {
         yyjson_val *ch    = yyjson_arr_get(changes, i);
         yyjson_val *range = yyjson_obj_get(ch, "range");
@@ -252,7 +255,8 @@ void ilsp_handle_didChange(IronLsp_Server *s, struct yyjson_doc *doc,
         }
         applied = true;
     }
-    if (applied) ilsp_document_set_version(d, new_ver);
+    if (applied) d->version = new_ver;
+    ilsp_document_unlock(d);
 
     /* Drift detection: if the client included a non-standard
      * "contentHash" string, compare against our SHA-256. Log WARN on
@@ -316,6 +320,9 @@ void ilsp_handle_didClose(IronLsp_Server *s, struct yyjson_doc *doc,
         ilsp_mailbox_destroy(d->mailbox);
         d->mailbox = NULL;
     }
+    /* The worker is stopped: clear what the closed file showed, after
+     * anything it published. */
+    ilsp_facade_publish_cleared(s, d->uri);
     ilsp_document_destroy(d);
     shdel(s->documents, uri);
 }
@@ -345,10 +352,15 @@ void ilsp_handle_didSave(IronLsp_Server *s, struct yyjson_doc *doc,
         ptrdiff_t idx = shgeti(s->documents, uri);
         if (idx >= 0) {
             IronLsp_Document *d = s->documents[idx].value;
-            /* didSave doesn't carry a version; bump by 1 to satisfy the
-             * monotonicity guard. */
-            (void)ilsp_document_apply_full_replace(d, ntxt, strlen(ntxt),
-                                                    d->version + 1);
+            /* didSave doesn't carry a version: the text is the client's
+             * current version, which the document keeps (the apply
+             * function wants a rising number, so step and restore). */
+            ilsp_document_lock(d);
+            int32_t keep = d->version;
+            if (ilsp_document_apply_full_replace(d, ntxt, strlen(ntxt),
+                                                 keep + 1))
+                d->version = keep;
+            ilsp_document_unlock(d);
         }
     }
     /* else: signal-only save -- no state change needed. */

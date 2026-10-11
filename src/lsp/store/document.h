@@ -22,8 +22,10 @@
  * Thread discipline: a given doc is mutated ONLY on the main dispatcher
  * thread, which also serves every request. The document's AST worker
  * runs on its own thread and reads the document only through
- * ilsp_document_snapshot; text_lock orders that copy against the edits
- * (which take the lock while they change text, line index and version). */
+ * ilsp_document_snapshot; text_lock orders that copy against the edits:
+ * the main thread holds it (ilsp_document_lock) around each didChange
+ * batch, so a snapshot never sees half a batch or a version that does not
+ * match the text. */
 
 #include <setjmp.h>
 
@@ -117,9 +119,11 @@ bool ilsp_document_apply_incremental(IronLsp_Document        *doc,
                                       IronLsp_PositionEncoding enc,
                                       int32_t                  new_version);
 
-/* Set the version after a didChange whose events were applied one by one
- * (they step through intermediate versions). */
-void ilsp_document_set_version(IronLsp_Document *doc, int32_t version);
+/* Hold the document's text_lock around a batch of edits (the apply
+ * functions do not lock), so the AST worker's snapshot sees whole
+ * versions. */
+void ilsp_document_lock(IronLsp_Document *doc);
+void ilsp_document_unlock(IronLsp_Document *doc);
 
 /* Copy uri (shared, not owned), text, line index and version into `out`
  * under the document's lock, for the AST worker: it analyzes the copy

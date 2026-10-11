@@ -250,7 +250,10 @@ static void test_compile_sees_a_snapshot(void) {
     for (int i = 0; i < 400 && !atomic_load(&g_in_compile); i++) sleep_ms(5);
     TEST_ASSERT_TRUE_MESSAGE(atomic_load(&g_in_compile), "the compile did not start");
     const char *v2 = "func main() { val changed = 1 }\n";
-    TEST_ASSERT_TRUE(ilsp_document_apply_full_replace(doc, v2, strlen(v2), 2));
+    ilsp_document_lock(doc);   /* as the didChange handler does */
+    bool ok = ilsp_document_apply_full_replace(doc, v2, strlen(v2), 2);
+    ilsp_document_unlock(doc);
+    TEST_ASSERT_TRUE(ok);
     atomic_store(&g_edit_done, true);
     TEST_ASSERT_TRUE(wait_for_compile_calls(1, 3000));
 

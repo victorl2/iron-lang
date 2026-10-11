@@ -135,7 +135,7 @@ static void parity_one_file(const char *path) {
     doc.version  = 1;
 
     IronLsp_TextEditList result = ilsp_facade_format_full(
-        &doc, /* ws */ NULL, &opts, &lsp_arena, /* cancel */ NULL);
+        &doc, /* ws */ NULL, &opts, &lsp_arena, /* cancel */ NULL, ILSP_ENC_UTF16);
 
     char msg[1024];
     if (result.count != 1) {

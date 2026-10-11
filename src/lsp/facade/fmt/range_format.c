@@ -121,6 +121,21 @@ static int cmp_edit_offset_desc(const void *a, const void *b) {
     return 0;
 }
 
+/* `text` with every "\n" written as "\r\n" (arena copy). */
+static char *with_crlf(char *text, Iron_Arena *arena) {
+    size_t n = 0, nl = 0;
+    for (; text[n]; n++) if (text[n] == '\n') nl++;
+    char *out = (char *)iron_arena_alloc(arena, n + nl + 1, 1);
+    if (!out) return text;
+    size_t o = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (text[i] == '\n' && (i == 0 || text[i - 1] != '\r')) out[o++] = '\r';
+        out[o++] = text[i];
+    }
+    out[o] = '\0';
+    return out;
+}
+
 IronLsp_TextEditList ilsp_facade_format_range(
     const struct IronLsp_Document       *doc,
     const struct IronLsp_WorkspaceIndex *ws,
@@ -199,10 +214,29 @@ IronLsp_TextEditList ilsp_facade_format_range(
                                                                : decl->span.line };
         arrput(spans, ls);
     }
+    /* The selected lines themselves, too: comments and blank lines between
+     * declarations belong to no declaration and were left unformatted
+     * even when the whole document was selected. */
+    {
+        uint32_t nlines = 0;
+        for (size_t i = 0; i < doc->text_len; i++) if (doc->text[i] == '\n') nlines++;
+        if (doc->text_len > 0 && doc->text[doc->text_len - 1] != '\n') nlines++;
+        uint32_t first = range.start.line + 1;
+        uint32_t last  = range.end.line + 1;
+        if (range.end.character == 0 && last > first) last--;
+        if (last > nlines) last = nlines;
+        if (first <= last) {
+            LineSpan ls = { first, last };
+            arrput(spans, ls);
+        }
+    }
     for (int a = 1; a < (int)arrlen(spans); a++)
         for (int b = a; b > 0 && spans[b - 1].first > spans[b].first; b--) {
             LineSpan t = spans[b]; spans[b] = spans[b - 1]; spans[b - 1] = t;
         }
+
+    const char *first_nl = memchr(doc->text, '\n', doc->text_len);
+    bool crlf = first_nl && first_nl > doc->text && first_nl[-1] == '\r';
 
     IronLsp_TextEdit *edits = NULL;
     for (int a = 0; a < (int)arrlen(spans); a++) {
@@ -215,6 +249,9 @@ IronLsp_TextEditList ilsp_facade_format_range(
          * these lines: indentation comes from the whole file. */
         char *rendered = iron_fmt_layout(doc->text, &opts, arena, m.first, m.last);
         if (!rendered) continue;
+        /* The layout writes '\n'; the lines around the edit keep theirs, so
+         * a CRLF document got lines of both kinds. */
+        if (crlf) rendered = with_crlf(rendered, arena);
 
         /* Replace whole lines: col 0 of the first line to col 0 of the
          * line after the last (LSP exclusive end, 0-based). */

@@ -248,6 +248,29 @@ void ilsp_facade_compile(struct IronLsp_Server   *server,
     iron_arena_free(&arena);
 }
 
+void ilsp_facade_publish_cleared(struct IronLsp_Server *server,
+                                 const char            *uri) {
+    if (!server || !uri || server->client_pulls_diagnostics) return;
+    Iron_Arena build_arena = iron_arena_create(4 * 1024);
+    yyjson_alc alc = ilsp_json_alc(&build_arena);
+    yyjson_mut_doc *d = yyjson_mut_doc_new(&alc);
+    if (d) {
+        yyjson_mut_val *root = yyjson_mut_obj(d);
+        yyjson_mut_doc_set_root(d, root);
+        yyjson_mut_obj_add_strcpy(d, root, "jsonrpc", "2.0");
+        yyjson_mut_obj_add_strcpy(d, root, "method", "textDocument/publishDiagnostics");
+        yyjson_mut_val *params = yyjson_mut_obj(d);
+        yyjson_mut_obj_add_strcpy(d, params, "uri", uri);
+        yyjson_mut_obj_add_val(d, params, "diagnostics", yyjson_mut_arr(d));
+        yyjson_mut_obj_add_val(d, root, "params", params);
+        size_t body_len = 0;
+        char *body = ilsp_json_write_mut(d, &build_arena, &body_len);
+        enqueue_body(server->writer, ILSP_PRIO_NOTIFICATION, body, body_len);
+        yyjson_mut_doc_free(d);
+    }
+    iron_arena_free(&build_arena);
+}
+
 void ilsp_facade_pull_diagnostic_empty(struct IronLsp_Server *server,
                                         const char            *request_id) {
     if (!server || !request_id) return;

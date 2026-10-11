@@ -61,7 +61,8 @@ IronLsp_TextEditList ilsp_facade_format_full(
     const struct IronLsp_WorkspaceIndex *ws,
     const IronFmtOptions                *opts_in,    /* may be NULL */
     Iron_Arena                          *arena,
-    const _Atomic bool                  *cancel);
+    const _Atomic bool                  *cancel,
+    IronLsp_PositionEncoding             enc);       /* of the edit's end */
 
 /* Plans 05-03 / 05-04 will append _range and _on_type entry points
  * declared here; they share the same in-TU static helper so the

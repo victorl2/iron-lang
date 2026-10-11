@@ -270,3 +270,69 @@ async def test_no_never_reassigned_warning_in_generic_function(client, tmp_path)
     _open(client, uri, text)
     diags = await _diagnostics_for_version(client, uri, 1)
     assert len(diags) == 0, diags
+
+
+@pytest.mark.asyncio
+async def test_formatting_edit_ends_at_the_document_end(lsp_binary, tmp_path):
+    # The whole-document edit ended at the byte length of the last line,
+    # past its end when that line holds non-ASCII text.
+    c = await _utf16_client(lsp_binary)
+    try:
+        uri = (tmp_path / "fmtend.iron").as_uri()
+        text = 'func main() {\n      println("a")\n}\n-- é😀'
+        _open(c, uri, text)
+        edits = await asyncio.wait_for(c.text_document_formatting_async(
+            types.DocumentFormattingParams(
+                text_document=types.TextDocumentIdentifier(uri=uri),
+                options=types.FormattingOptions(tab_size=4, insert_spaces=True))), timeout=10.0)
+        assert edits, edits
+        assert edits[-1].range.end == types.Position(line=3, character=6), edits[-1].range
+    finally:
+        await _stop(c)
+
+
+@pytest.mark.asyncio
+async def test_tuple_binding_symbol_has_a_name(client, tmp_path):
+    # `val (x, y) = ...` has no single name; its document symbol was named
+    # "", which clients reject (VS Code drops the whole outline).
+    uri = (tmp_path / "tuple.iron").as_uri()
+    text = ("func pair() -> (Int, Int) {\n"
+            "    return (1, 2)\n"
+            "}\n"
+            "\n"
+            "val (x, y) = pair()\n")
+    _open(client, uri, text)
+    syms = await asyncio.wait_for(client.text_document_document_symbol_async(
+        types.DocumentSymbolParams(text_document=types.TextDocumentIdentifier(uri=uri))),
+        timeout=10.0)
+
+    def names(ss):
+        for s in ss or []:
+            yield s.name
+            yield from names(getattr(s, "children", None))
+    got = list(names(syms))
+    assert all(got), got
+    assert "(x, y)" in got, got
+
+
+@pytest.mark.asyncio
+async def test_close_clears_published_diagnostics(client, tmp_path):
+    # Closing a document left its last diagnostics in the client (and a
+    # publish its worker sent before stopping could arrive after a reopen):
+    # the server now publishes an empty list for the closed URI.
+    uri = (tmp_path / "closed.iron").as_uri()
+    _open(client, uri, "func main() {\n    val x: Int = \"s\"\n}\n")
+    diags = await _diagnostics_for_version(client, uri, 1)
+    assert diags
+    client.text_document_did_close(types.DidCloseTextDocumentParams(
+        text_document=types.TextDocumentIdentifier(uri=uri)))
+    loop = asyncio.get_running_loop()
+    end = loop.time() + 10.0
+    while loop.time() < end:
+        params = await asyncio.wait_for(
+            client.wait_for_notification(types.TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS),
+            timeout=max(0.1, end - loop.time()))
+        if params.uri == uri and params.version is None:
+            assert len(params.diagnostics) == 0
+            return
+    pytest.fail("no cleared publishDiagnostics after didClose")
