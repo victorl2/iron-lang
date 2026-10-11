@@ -490,6 +490,9 @@ static char *s_rt_os = NULL;
  * the program imports crypto, http or websocket), kept like s_rt_os. */
 static char *s_sl_encoding = NULL;
 static char *s_sl_crypto = NULL;
+/* stdlib/iron_json.c, compiled only into programs that `import json`. */
+static char *s_sl_json = NULL;
+static bool s_imports_json = false;
 
 #ifdef _WIN32
 /* --debug on Windows (#312): Visual Studio views of Iron values. A natvis
@@ -669,6 +672,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     s_sl_encoding   = make_path(base_dir, "stdlib/iron_encoding.c");
     free(s_sl_crypto);
     s_sl_crypto     = make_path(base_dir, "stdlib/iron_crypto.c");
+    free(s_sl_json);
+    s_sl_json = make_path(base_dir, "stdlib/iron_json.c");
 
     if (!*rt_stb_out || !*rt_arena_out || !*rt_strbuf_out || !*rt_string_out ||
         !*rt_rc_out || !*rt_builtin_out || !*rt_threads_out || !*rt_collect_out ||
@@ -676,7 +681,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         !*rt_panic_out || !*rt_leakcheck_out || !*rt_arena_rt_out ||
         !*sl_math_out || !*sl_io_out || !*sl_time_out || !*sl_log_out ||
         !*sl_hint_out || !*sl_net_out || !*sl_http_out || !*sl_tls_out ||
-        !*sl_websocket_out || !s_sl_encoding || !s_sl_crypto) {
+        !*sl_websocket_out || !s_sl_encoding || !s_sl_crypto ||
+        !s_sl_json) {
         return 1;
     }
 
@@ -752,6 +758,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_websocket_out;
     argv_buf[ai++] = s_sl_encoding;
     if (opts.wants_tls) argv_buf[ai++] = s_sl_crypto;  /* only importers pay for it */
+    if (s_imports_json) argv_buf[ai++] = s_sl_json;
     if (opts.use_tls) {
         argv_buf[ai++] = "/DIRON_HAVE_OPENSSL=1";
 #ifdef IRON_CLI_OPENSSL_INCLUDE_DIR
@@ -865,6 +872,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_websocket_out;
     argv_buf[ai++] = s_sl_encoding;
     if (opts.wants_tls) argv_buf[ai++] = s_sl_crypto;  /* only importers pay for it */
+    if (s_imports_json) argv_buf[ai++] = s_sl_json;
     if (opts.use_tls) {
         argv_buf[ai++] = "-DIRON_HAVE_OPENSSL=1";
 #ifdef IRON_CLI_OPENSSL_INCLUDE_DIR
@@ -1012,6 +1020,7 @@ static void free_src_list(char *base_dir,
     free(s_rt_os); s_rt_os = NULL;
     free(s_sl_encoding); s_sl_encoding = NULL;
     free(s_sl_crypto); s_sl_crypto = NULL;
+    free(s_sl_json); s_sl_json = NULL;
     free(rt_fmt);
     free(rt_heap_track);
     free(rt_panic);
@@ -1851,6 +1860,14 @@ int iron_build(const char *source_path, const char *output_path,
     if (imports_websocket) {
         stdlib_prepended_lines +=
             prepend_marked_file(&source, base_dir, "stdlib/websocket.iron",
+                                line_markers);
+    }
+
+    /* `import json` prepends json.iron and links iron_json.c. */
+    s_imports_json = iron_detect_import(source, source_path, "json", &detect_arena);
+    if (s_imports_json) {
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/json.iron",
                                 line_markers);
     }
 

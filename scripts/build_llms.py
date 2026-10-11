@@ -10,6 +10,7 @@ Writes into the site directory (default: docs/site):
   llms/reference.md      the full reference manual (docs/language_definition.md)
   llms/iron.md           language guide for LLMs (docs/llms/iron.md)
   llms/networking.md     networking guide (docs/networking.md)
+  llms/json.md           JSON guide (docs/json.md)
   llms/crypto.md         cryptography guide (docs/crypto.md)
   llms/guide.md          project guide (docs/guide.md)
   llms/raylib.md         raylib guide (docs/raylib.md)
@@ -39,6 +40,7 @@ SITE_URL = "https://ironlang.dev"
 GUIDE = REPO / "docs" / "llms" / "iron.md"
 MANUAL = REPO / "docs" / "language_definition.md"
 NETWORKING = REPO / "docs" / "networking.md"
+JSON_GUIDE = REPO / "docs" / "json.md"
 CRYPTO = REPO / "docs" / "crypto.md"
 PROJECTS = REPO / "docs" / "guide.md"
 RAYLIB = REPO / "docs" / "raylib.md"
@@ -55,6 +57,7 @@ PRIMARY_MODULES = {
     "http": "HTTP/HTTPS clients and servers, REST, static files",
     "websocket": "WebSocket and secure WebSocket clients and servers",
     "url": "URL parsing, building, resolving, and percent-encoding",
+    "json": "JSON values, strict parser, serializer and streaming writer",
     "crypto": "Hashing, HMAC, HKDF, PBKDF2, scrypt, password hashing, secure random, AES-GCM and ChaCha20-Poly1305, RSA-OAEP",
     "encoding": "Hex and base64 (standard and URL-safe) encoders and decoders",
 }
@@ -116,8 +119,8 @@ def stdlib_page(name: str) -> str:
     if name in PRIMARY_MODULES:
         header += f"Import with `import {name}`. "
     header += (
-        "These are the declarations the compiler uses: bodies are empty "
-        "because the implementation is in the C runtime.\n\n"
+        "These are the declarations the compiler uses: an empty body means "
+        "the implementation is in the C runtime.\n\n"
     )
     return header + "```iron\n" + src.rstrip() + "\n```\n"
 
@@ -157,6 +160,9 @@ def llms_txt() -> str:
              "known gaps; every example is compiled in CI"),
         link("llms/networking.md", "Networking guide",
              "TCP, UDP, DNS, HTTP/HTTPS, REST servers, WebSocket"),
+        link("llms/json.md", "JSON guide",
+             "JSON values, strict parsing, serialization, JsonWriter and "
+             "JsonReader streaming, encoding your own types"),
         link("llms/crypto.md", "Cryptography guide",
              "binary data as String, hashing, HMAC and request signing, key "
              "derivation, password hashing, random numbers, authenticated "
@@ -190,7 +196,7 @@ def llms_txt() -> str:
 
 def llms_full_txt(pages: dict[str, str]) -> str:
     order = ["llms/reference.md", "llms/iron.md", "llms/networking.md",
-             "llms/crypto.md", "llms/guide.md", "llms/raylib.md"]
+             "llms/json.md", "llms/crypto.md", "llms/guide.md", "llms/raylib.md"]
     order += [f"llms/stdlib/{n}.md" for n in (*PRIMARY_MODULES, *CORE_MODULES)]
     order += ["llms/examples.md"]
     parts = [f"# Iron\n\n> {SUMMARY}\n\n{KEY_RULES}"]
@@ -204,6 +210,7 @@ def build(site: Path) -> list[str]:
         "llms/reference.md": MANUAL.read_text(),
         "llms/iron.md": GUIDE.read_text(),
         "llms/networking.md": NETWORKING.read_text(),
+        "llms/json.md": JSON_GUIDE.read_text(),
         "llms/crypto.md": CRYPTO.read_text(),
         "llms/guide.md": PROJECTS.read_text(),
         "llms/raylib.md": RAYLIB.read_text(),

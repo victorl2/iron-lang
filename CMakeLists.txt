@@ -358,6 +358,7 @@ add_library(iron_stdlib STATIC
     src/stdlib/iron_http.c
     src/stdlib/iron_tls.c
     src/stdlib/iron_websocket.c
+    src/stdlib/iron_json.c
     src/stdlib/iron_encoding.c
     src/stdlib/iron_crypto.c
 )
@@ -503,6 +504,7 @@ add_subdirectory(tests/compile_fail)
 add_subdirectory(tests/algorithms)
 add_subdirectory(tests/composite)
 add_subdirectory(tests/manual)
+add_subdirectory(tests/json)
 
 # ── ironc compiler executable ────────────────────────────────────────────────
 add_executable(ironc
@@ -1543,6 +1545,12 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz)
     set_tests_properties(prog_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
+    # The json module against Python's json on random and corrupted
+    # documents (tests/fuzz/json_fuzz.py). Fixed seeds.
+    add_test(NAME json_fuzz
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/json_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/json_fuzz)
+    set_tests_properties(json_fuzz PROPERTIES LABELS "stdlib" TIMEOUT 900)
 endif()
 # The standard library prelude, parsed by every compile, stays within the
 # section 13 grammar of the manual (#324).

@@ -1,0 +1,11 @@
+-- Comparing a T? that was not checked for null with a value (`a == 3`,
+-- `s < "x"`) was accepted and reached the C compiler, which rejected the
+-- comparison of an optional struct with a scalar. Check it first:
+-- `a != null and a == 3`.
+func is_three(a: Int?) -> Bool {
+    return a == 3
+}
+
+func main() {
+    println("{is_three(3)}")
+}

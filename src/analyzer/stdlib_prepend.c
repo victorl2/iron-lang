@@ -336,6 +336,13 @@ int iron_stdlib_prepend(char **source_io, const char *source_path, const char *b
                                       line_markers);
     }
 
+    /* Mirrors build.c: `import json` prepends json.iron. */
+    if (iron_detect_import(*source_io, source_path, "json", &detect_arena)) {
+        stdlib_prepended_lines +=
+            check_prepend_marked_file(source_io, base_dir, "stdlib/json.iron",
+                                      line_markers);
+    }
+
     /* Phase 59 05: detect "import url" and prepend url.iron (pure Iron,
      * no C backing) so `iron check` sees the Url/Url_Builder/UrlError
      * decls. String primitives rindex_of / byte_at / from_byte used by

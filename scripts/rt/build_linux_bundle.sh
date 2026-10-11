@@ -130,7 +130,7 @@ sources=$(cd "$here" && ls src/util/stb_ds_impl.c src/util/arena.c src/util/strb
     src/runtime/iron_os.c \
     src/stdlib/iron_math.c src/stdlib/iron_io.c src/stdlib/iron_time.c src/stdlib/iron_log.c \
     src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_websocket.c \
-    src/stdlib/iron_encoding.c)
+    src/stdlib/iron_encoding.c src/stdlib/iron_json.c)
 cflags=(--target="$triple" --sysroot="$musl_prefix" -std=gnu17 -fwrapv -fno-strict-aliasing
         -O2 -fPIC -I "$here/src" -I "$here/src/stdlib" -I "$here/src/vendor" -D_GNU_SOURCE)
 for s in $sources; do

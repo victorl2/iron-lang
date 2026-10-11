@@ -1,0 +1,33 @@
+-- An object whose only owning field is an enum (`object W { val node: N }`)
+-- was treated as needing no drop glue: a W binding was never destroyed and
+-- whatever its enum payload owned leaked (a String, an rc handle, an
+-- object with a drop block), and copies of it were not fixed up either.
+object Res {
+    val name: String
+    drop {
+        println("drop {self.name}")
+    }
+}
+
+enum Slot {
+    Full(Res),
+    Empty,
+}
+
+object Holder {
+    val slot: Slot
+}
+
+func make(name: String) -> Holder {
+    return Holder(Slot.Full(Res(name)))
+}
+
+func main() {
+    {
+        val h = make("first")
+        println("made")
+    }
+    println("after block")
+    val e = Holder(Slot.Empty)
+    println("end")
+}

@@ -77,7 +77,16 @@
 #define IRON_ERR_TLS_IO                 3009
 #define IRON_ERR_TLS_INVALID_ARGUMENT   3010
 /* 3011..3099 reserved for future TLS additions */
-/* ── JSON (4000..4999) — reserved for Phase 61 ───────────────────────────── */
+/* ── JSON (4000..4999) ──────────────────────────────────────────────────── */
+#define IRON_ERR_JSON_SYNTAX       4000   /* malformed JSON text */
+#define IRON_ERR_JSON_DEPTH        4001   /* nesting deeper than the limit */
+#define IRON_ERR_JSON_TOO_LARGE    4002   /* input larger than the limit */
+#define IRON_ERR_JSON_BAD_UTF8     4003   /* invalid UTF-8 in the input */
+#define IRON_ERR_JSON_BAD_STRING   4004   /* bad escape, control char, lone surrogate */
+#define IRON_ERR_JSON_BAD_NUMBER   4005   /* malformed or out-of-range number */
+#define IRON_ERR_JSON_TYPE         4006   /* value has another type than asked */
+#define IRON_ERR_JSON_MISSING      4007   /* key or index not present */
+/* 4008..4099 reserved for future JSON additions */
 /* ── Internal (7000..7999) — reserved for runtime invariant violations ───── */
 
 #define IRON_ERR_HTTP_BAD_URL              5000

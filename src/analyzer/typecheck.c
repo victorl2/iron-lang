@@ -4263,7 +4263,21 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_BINARY: {
             Iron_BinaryExpr *be = (Iron_BinaryExpr *)node;
             Iron_Type *lt = check_expr(ctx, be->left);
-            Iron_Type *rt = check_expr(ctx, be->right);
+            Iron_Type *rt = NULL;
+            if ((int)be->op == (int)IRON_TOK_AND || (int)be->op == (int)IRON_TOK_OR) {
+                /* The right operand of `and` runs only when the left one is
+                 * true (`or`: false), so it sees what the left one proves:
+                 * `x != null and x > 2` reads x as T. */
+                NarrowEntry *saved = narrowing_copy(ctx);
+                int kill_mark = narrowing_mark(ctx);
+                narrow_for_cond(ctx, be->left, (int)be->op == (int)IRON_TOK_AND);
+                rt = check_expr(ctx, be->right);
+                shfree(ctx->narrowed);
+                ctx->narrowed = saved;
+                narrowing_reapply_kills(ctx, kill_mark);
+            } else {
+                rt = check_expr(ctx, be->right);
+            }
 
             /* A numeric literal operand takes the other operand's numeric
              * type: `x + 1` with `x: Int8` is Int8 arithmetic.  An integer
@@ -4375,7 +4389,24 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                         (iron_type_is_float(lt) && iron_type_is_float(rt)) ||
                         types_assignable(lt, rt) ||
                         types_assignable(rt, lt);
-                    if (!comparable) {
+                    const Iron_Type *opt_side =
+                        lt->kind == IRON_TYPE_NULLABLE ? lt
+                        : rt->kind == IRON_TYPE_NULLABLE ? rt : NULL;
+                    const Iron_Type *opt_inner = opt_side ? opt_side->nullable.inner : NULL;
+                    if (comparable && opt_side && lt->kind != IRON_TYPE_NULL &&
+                        rt->kind != IRON_TYPE_NULL && opt_inner &&
+                        opt_inner->kind != IRON_TYPE_PTR && opt_inner->kind != IRON_TYPE_RC &&
+                        opt_inner->kind != IRON_TYPE_WEAK_RC) {
+                        /* A T? operand has no value to compare until it is
+                         * checked; this used to reach the C compiler. */
+                        char msg[512];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot compare '%s' with '%s': the nullable side may be null",
+                                 iron_type_to_string(lt, ctx->arena),
+                                 iron_type_to_string(rt, ctx->arena));
+                        emit_error(ctx, IRON_ERR_NULLABLE_ACCESS, be->span, msg,
+                                   "check it first: `x != null and x == v`");
+                    } else if (!comparable) {
                         char msg[512];
                         snprintf(msg, sizeof(msg),
                                  "cannot compare '%s' with '%s'",
@@ -10515,8 +10546,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                             emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH, ms->span,
                                        msg, "add 'else -> ...' or handle each variant");
                         }
-                    } else {
-                        /* else arm present: emit info note listing which variants it catches */
+                    } else if (!(ctx->program && ctx->program->user_source_start_line > 0 &&
+                                 ms->span.line < (uint32_t)ctx->program->user_source_start_line)) {
+                        /* else arm present: emit info note listing which variants it catches
+                         * (not for the prepended standard library, whose notes the user
+                         * cannot act on). */
                         int uncovered_count = 0;
                         for (int i = 0; i < ed->variant_count; i++) {
                             if (!covered[i]) uncovered_count++;
@@ -11201,9 +11235,19 @@ static bool is_readonly_compatible_type(const Iron_Type *t, TypeCtx *ctx) {
             return true;
         }
 
-        /* ── All other types — not readonly-compatible ───────────────────── */
+        /* ── rc / weak rc handles — compatible iff the shared value is ───
+         * A handle does not point into `self`: the value it reaches is
+         * shared, and every holder may already change it (a readonly method
+         * can push to an `rc [T]` field). Returning a handle therefore
+         * exposes nothing the method could not change itself, and rejecting
+         * it made every object with an rc field (a JSON tree, a graph
+         * node) unreturnable from a readonly accessor. */
         case IRON_TYPE_RC:
-        case IRON_TYPE_WEAK_RC:  /* Phase 27 POL-08: weak rc shares rc's non-readonly-compat stance */
+            return is_readonly_compatible_type(t->rc.inner, ctx);
+        case IRON_TYPE_WEAK_RC:
+            return is_readonly_compatible_type(t->weak_rc.inner, ctx);
+
+        /* ── All other types — not readonly-compatible ───────────────────── */
         case IRON_TYPE_FUNC:
         case IRON_TYPE_INTERFACE:
         case IRON_TYPE_GENERIC_PARAM:

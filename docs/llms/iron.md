@@ -357,6 +357,7 @@ capitalized module object: `import io` then `IO.read_file(path)`,
 | `http` | | HTTP/HTTPS clients and servers |
 | `websocket` | | WS/WSS clients and server upgrades |
 | `url` | | URL parsing and encoding |
+| `json` | `Json` | JSON values, `parse`, `to_string`, `JsonWriter`, `JsonReader` |
 | `crypto` | `Crypto`, `Hasher` | SHA-1/2/3, MD5, HMAC, HKDF, PBKDF2, scrypt, `hash_password` / `verify_password`, `random_bytes`, `random_token`, AES-256-GCM and ChaCha20-Poly1305 (`encrypt` / `decrypt`), RSA-OAEP |
 | `encoding` | `Hex`, `Base64` | hex and base64 (standard and URL-safe) |
 | `raylib` | | graphics, input, audio (ships with the compiler) |
@@ -415,6 +416,30 @@ func main() {
 
 ```output
 2 2 false 3 true false
+```
+
+JSON: `Json.parse(text)` returns a result with `value`, `error` and
+`error_message`; read with `get`, `at` and the `as_int()` style getters
+(which return `T?`), build with `Json.obj()`, `set`, `push`, and write a
+response without a tree with `JsonWriter`. Arrays and objects are shared
+between copies of a `Json`. A literal `{` in an Iron string starts an
+interpolation, so JSON written in Iron source escapes it as `\{`.
+
+```iron
+import json
+
+func main() {
+    val doc = Json.parse("\{\"id\": 7, \"tags\": [\"a\"]}").value
+    doc.get("tags").push(Json.str("b"))
+    val id = doc.get("id").as_int()
+    if id != null {
+        println("{id + 1} {doc}")
+    }
+}
+```
+
+```output
+8 {"id":7,"tags":["a","b"]}
 ```
 
 ```iron
