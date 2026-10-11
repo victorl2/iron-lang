@@ -628,11 +628,17 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                  * excluded — `pub interface` is deferred per RESEARCH Open
                  * Question 3. Stdlib carve-out (line-offset based) makes
                  * stdlib decls implicitly pub. */
+                bool global_binding = sym->sym_kind == IRON_SYM_VARIABLE && sym->decl_node &&
+                    ((sym->decl_node->kind == IRON_NODE_VAL_DECL &&
+                      ((Iron_ValDecl *)sym->decl_node)->is_global) ||
+                     (sym->decl_node->kind == IRON_NODE_VAR_DECL &&
+                      ((Iron_VarDecl *)sym->decl_node)->is_global));
                 bool is_global =
                     sym->sym_kind == IRON_SYM_FUNCTION ||
                     sym->sym_kind == IRON_SYM_TYPE     ||
                     sym->sym_kind == IRON_SYM_ENUM     ||
-                    sym->sym_kind == IRON_SYM_ENUM_VARIANT;
+                    sym->sym_kind == IRON_SYM_ENUM_VARIANT ||
+                    global_binding;
                 if (is_global && !sym->is_pub &&
                     sym->span.filename && id->span.filename &&
                     !is_stdlib_decl(ctx, sym)) {
@@ -800,6 +806,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             } else if (vd->name) {
                 define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
                            /*is_mutable=*/false, /*is_private=*/false);
+                if (vd->is_pub) {
+                    Iron_Symbol *ds = iron_scope_lookup_local(ctx->current_scope, vd->name);
+                    if (ds) ds->is_pub = true;
+                }
             }
             break;
         }
@@ -809,6 +819,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             if (vd->init) resolve_expr(ctx, vd->init);
             define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
                        /*is_mutable=*/true, /*is_private=*/false);
+            if (vd->is_pub) {
+                Iron_Symbol *ds = iron_scope_lookup_local(ctx->current_scope, vd->name);
+                if (ds) ds->is_pub = true;
+            }
             break;
         }
 

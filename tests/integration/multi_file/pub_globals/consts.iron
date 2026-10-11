@@ -1,0 +1,10 @@
+-- #547: `pub val` and `pub var` share a global with the other files of the
+-- package; a global without pub is private to its file.
+pub val LIMIT = 10
+pub val GREETING = "shared across files"
+pub var counter = 0
+val hidden = 3
+
+pub func bump_by_hidden() {
+    counter += hidden
+}

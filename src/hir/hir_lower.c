@@ -2477,12 +2477,14 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         bool list_field = fa->resolved_type &&
             fa->resolved_type->kind == IRON_TYPE_ARRAY &&
             fa->resolved_type->array.size < 0 && !fa->resolved_type->array.is_bounded;
-        if (fa->is_pub_access && !list_field) {
-            IronHIR_Expr **args = NULL;  /* zero-arg getter */
-            return iron_hir_expr_method_call(mod, obj, fa->field,
-                                              args, 0,
-                                              fa->resolved_type, span);
-        }
+        /* A read of a pub field is a field load like any other (#547).
+         * The getter is synthesized and only returns the field, but calling
+         * it copied the whole value: `app.cfg.port` copied the Config,
+         * retaining and then releasing each of its strings, which on a hot
+         * path shared by threads is atomic traffic on the same counters.
+         * The visibility check is the type checker's; writes still go
+         * through the setter. */
+        (void)list_field;
         /* Phase 20 PTR-06 (Plan 20-02b): is_auto_deref flag (set by Plan
          * 20-02a typecheck.c when receiver resolves to IRON_TYPE_PTR)
          * marks the receiver chain as needing iron_check_pointer_gen

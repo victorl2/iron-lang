@@ -1635,8 +1635,10 @@ number 4 word hi end
 `val` and `var` declarations may appear at the top level. A global `val`
 is a constant initialized before `main` runs (its initializer may call
 functions); a global `var` is a mutable variable shared by the whole
-program (and by all threads, without synchronization). Globals cannot be
-`pub`. A `pure` method may not read a global `var` (`E0241`).
+program (and by all threads, without synchronization). Like every other
+top-level declaration a global is private to its file; `pub val` and
+`pub var` share it with the package's other files (`E0320` otherwise). A
+`pure` method may not read a global `var` (`E0241`).
 
 ```iron
 val LIMIT = 10
@@ -1715,8 +1717,8 @@ is available without an import.
 ### 5.10 Visibility
 
 Every top-level declaration is private to its file unless marked `pub`.
-`pub` may prefix a function, object, patch, interface or enum (not a
-global binding). Using a private declaration from another file of the
+`pub` may prefix a function, object, patch, interface, enum or global
+binding (`pub val`, `pub var`). Using a private declaration from another file of the
 package is an error (`E0320`). Object members are private to the declaring
 file unless marked `pub` (section 5.3). The word `private` is not accepted
 (`E0101`).

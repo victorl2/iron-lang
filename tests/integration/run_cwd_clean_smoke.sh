@@ -136,4 +136,15 @@ printf 'pub func helper() -> Int {\n    return 1\n}\n' > src/util.iron
 cp "${WORK}/main.iron.orig" src/main.iron
 rm -f src/util.iron
 
+# A global without pub is private to its file (#547).
+printf 'val hidden = 3\npub val shared = 4\n' > src/consts.iron
+printf 'func main() {\n    println("{shared}")\n}\n' > src/main.iron
+"${IRON_BIN_ABS}" build > out.log 2>&1 || { echo "FAIL B: pub val across files"; cat out.log; exit 1; }
+printf 'func main() {\n    println("{hidden}")\n}\n' > src/main.iron
+if "${IRON_BIN_ABS}" build > out.log 2>&1 || ! grep -q E0320 out.log; then
+    echo "FAIL B: a private global used from another file should be E0320"; cat out.log; exit 1
+fi
+cp "${WORK}/main.iron.orig" src/main.iron
+rm -f src/consts.iron
+
 echo "run_cwd_clean_smoke OK"
