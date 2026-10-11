@@ -259,6 +259,15 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a);
 
 /* Type category predicates */
 bool iron_type_is_numeric(const Iron_Type *t);
+
+/* Mutex, Channel, RWLock or Arena: a reference counted runtime handle that a
+ * closure or thread holds its own reference to (manual 7.1). */
+bool iron_type_is_shared_handle(const Iron_Type *t);
+
+/* The nocopy object type `t` is or holds by value (through fields, fixed
+ * arrays, optionals, tuples and enum payloads), or NULL. Dynamic lists,
+ * rc, weak rc, pointers and the shared handles do not count (#512). */
+const Iron_Type *iron_type_nocopy_part(const Iron_Type *t);
 bool iron_type_is_integer(const Iron_Type *t);
 bool iron_type_is_float(const Iron_Type *t);
 
