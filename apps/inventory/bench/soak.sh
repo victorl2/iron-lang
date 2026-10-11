@@ -23,6 +23,12 @@ trap 'kill $svc_pid $stub_pid $wrk_pid 2>/dev/null; wait 2>/dev/null; rm -rf "$w
 cp -R "$app/src" "$app/iron.toml" "$work/" && mkdir -p "$work/stub" &&
     cp -R "$app/stub/src" "$app/stub/iron.toml" "$work/stub/" || exit 1
 (cd "$work" && "$IRON" build --release >/dev/null 2>&1) || exit 1
+# SOAK_SANITIZE=1: an AddressSanitizer build; leaks are reported at exit.
+if [ "${SOAK_SANITIZE:-0}" = 1 ]; then
+    (cd "$work" && IRON_CFLAGS="-g -O1 -fno-omit-frame-pointer -fsanitize=address" "$IRON" build >/dev/null 2>&1) || exit 1
+    export ASAN_OPTIONS=detect_leaks=1
+    for s in llvm-symbolizer llvm-symbolizer-18; do command -v $s >/dev/null && export ASAN_SYMBOLIZER_PATH=$(command -v $s) && break; done
+fi
 (cd "$work/stub" && "$IRON" build --release >/dev/null 2>&1) || exit 1
 db_url=$(python3 -c 'import sys,urllib.parse as u; p=u.urlsplit(sys.argv[1]); print(u.urlunsplit((p.scheme,p.netloc,"/inventory_bench","tls=disabled","")))' "$IRON_MYSQL_URL")
 "$work/stub/target/fxstub" 18090 >/dev/null 2>&1 &
@@ -51,6 +57,10 @@ grep -E "Requests/sec|Latency|requests in|Non-2xx" "$work/wrk.out"
 echo "requests by route and status:"
 curl -s http://127.0.0.1:18080/metrics | grep '^inventory_http_requests_total' | sed 's/inventory_http_requests_total//'
 grep -v '"level":"info"' "$work/svc.log" | cut -c1-200 | sort | uniq -c | sort -rn | head -5
+if [ "${SOAK_SANITIZE:-0}" = 1 ]; then
+    kill -TERM $svc_pid; wait $svc_pid
+    grep -A30 "ERROR: LeakSanitizer\|ERROR: AddressSanitizer" "$work/svc.log" | head -150
+fi
 python3 - "${SOAK_GROWTH_MB:-8}" "${samples[@]}" <<'PY'
 import sys
 limit = float(sys.argv[1]); s = [float(x) for x in sys.argv[2:]]
