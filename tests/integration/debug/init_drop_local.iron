@@ -1,0 +1,27 @@
+-- An init with a local that has a drop (here an object owning a String):
+-- its return of self went through a spill slot of the object's type, and
+-- --debug builds failed to compile (assigning Iron_Holder * to Iron_Holder).
+object Res {
+    val text: String
+    val code: Int
+}
+
+func make(n: Int) -> Res {
+    return Res("result number {n} with a long enough tail", n)
+}
+
+object Holder {
+    val code: Int
+    val label: String
+
+    init(n: Int) {
+        val r = make(n)
+        self.code = r.code
+        self.label = r.text
+    }
+}
+
+func main() {
+    val h = Holder(7)
+    println("{h.code} {h.label}")
+}

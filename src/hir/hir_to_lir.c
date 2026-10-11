@@ -5307,7 +5307,16 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
          * def-after-use hoisting concern as above; ALLOCA hoisting is the
          * one form emit_c handles for every instruction kind). */
         IronLIR_ValueId ret_slot = IRON_LIR_VALUE_INVALID;
-        if (has_value && ret_type) {
+        /* An init returning `self` returns its self parameter, which is in
+         * scope in every block: no spill slot, and none could hold it (the
+         * slot has the object's type, self is a pointer, and the emitter
+         * dereferences self only in the RETURN itself). Spilled, --debug
+         * builds of any init with a droppable local failed to compile. */
+        bool init_returns_self = ctx->cur_is_init && has_value &&
+            stmt->return_stmt.value->kind == IRON_HIR_EXPR_IDENT &&
+            stmt->return_stmt.value->ident.name &&
+            strcmp(stmt->return_stmt.value->ident.name, "self") == 0;
+        if (has_value && ret_type && !init_returns_self) {
             /* The slot holds the value as returned: after the T -> T?
              * coercion above (`return s` of a String binding from a
              * `-> String?` function), not the expression's own type. */
