@@ -1,0 +1,31 @@
+2005 <> <> <> -1 <> <> <>
+2005 <> <> <> -1 <> <> <>
+0 <http> <> <h> 80 </x> <> <>
+  http://h:80/x 0 true
+0 <http> <> <h> -1 </x> <> <>
+  http://h/x 0 true
+2004 <> <> <> -1 <> <> <>
+0 <http> <> <::1> 8080 </a> <> <>
+  http://[::1]:8080/a 0 true
+2003 <> <> <> -1 <> <> <>
+2003 <> <> <> -1 <> <> <>
+0 <> <> <> -1 <-a://h/x> <> <>
+  -a://h/x 0 true
+0 <> <> <> -1 <:x> <> <>
+  :x 0 true
+0 <> <> <> -1 <1http://h/> <> <>
+  1http://h/ 0 true
+0 <a+b.c-d> <> <> -1 <rest> <> <>
+  a+b.c-d:rest 0 true
+0 <http> <> <> -1 <//evil.com/x> <> <>
+  http:////evil.com/x 0 true
+0 <http> <u> <> -1 </x> <> <>
+  http://u@/x 0 true
+0 <http> <> <> 80 </x> <> <>
+  http://:80/x 0 true
+0 <file> <> <> -1 </etc/passwd> <> <>
+  file:/etc/passwd 0 true
+http://a/x http://a/b/日/g
+http://h/x
+//[::1]:8080
+//[::1]
