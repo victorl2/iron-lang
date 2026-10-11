@@ -14085,6 +14085,37 @@ static bool report_big_int_literal(Iron_Visitor *v, Iron_Node *node) {
     return true;
 }
 
+/* Methods of two types whose generated names coincide (#481): a method
+ * is named after its type lowercased up to the first underscore, so
+ * `A_b.c` and `A.b_c` (or `Ab.m` and `AB.m`) would share one function
+ * and lose a body. Reported instead of failing later without a source
+ * position. */
+static void check_method_name_collisions(TypeCtx *ctx, Iron_Program *program) {
+    struct { char *key; Iron_MethodDecl *value; } *seen = NULL;
+    sh_new_strdup(seen);
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (!md->type_name || !md->method_name || md->is_array_extension) continue;
+        char mn[512];
+        snprintf(mn, sizeof(mn), "%s_%s", md->type_name, md->method_name);
+        for (int ci = 0; mn[ci] && mn[ci] != '_'; ci++)
+            if (mn[ci] >= 'A' && mn[ci] <= 'Z') mn[ci] = (char)(mn[ci] + ('a' - 'A'));
+        ptrdiff_t at = shgeti(seen, mn);
+        if (at < 0) { shput(seen, mn, md); continue; }
+        Iron_MethodDecl *prev = seen[at].value;
+        if (strcmp(prev->type_name, md->type_name) == 0) continue;
+        char msg[600];
+        snprintf(msg, sizeof(msg),
+                 "methods '%s.%s' and '%s.%s' have the same generated name '%s'",
+                 prev->type_name, prev->method_name, md->type_name, md->method_name, mn);
+        emit_error(ctx, IRON_ERR_DUPLICATE_DECL, md->span, msg,
+                   "rename one of the methods or types");
+    }
+    shfree(seen);
+}
+
 void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                     Iron_Arena *arena, Iron_DiagList *diags,
                     const _Atomic bool *cancel_flag) {
@@ -14655,6 +14686,8 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
      * iface) pair where an implementation method's tier is weaker than its
      * corresponding interface signature tier. */
     check_iface_tier_strengthening(&ctx, program);
+
+    check_method_name_collisions(&ctx, program);
 
     shfree(ctx.narrowed);
     arrfree(ctx.narrow_kills);
