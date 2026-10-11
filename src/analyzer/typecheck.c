@@ -10901,8 +10901,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     }
                 }
                 arrfree(rets);
-                if (!body_ret) body_ret = iron_type_make_primitive(IRON_TYPE_INT);
+                /* no `return value`: the task returns nothing (lowered as a
+                 * void function); await still types it Int, as before */
                 ss->result_type = body_ret;
+                if (!body_ret) body_ret = iron_type_make_primitive(IRON_TYPE_INT);
                 /* Store the result type for the await lookup */
                 if (ss->handle_name)
                     shput(ctx->spawn_result_types, ss->handle_name, body_ret);
