@@ -467,11 +467,12 @@ Iron_Result_TcpSocket_Error Iron_tcplistener_accept(Iron_TcpListener l, int64_t 
             out.v1 = iron_net_err_timeout();
             return out;
         }
-        int rc = iron_net_poll(l.fd, POLLIN, rem);
-        if (rc == 0) {
-            out.v1 = iron_net_err_timeout();
-            return out;
-        }
+        /* Wait in slices: a listener closed by another task (the shutdown
+         * pattern of the guide) is noticed within one slice even where
+         * closing it does not wake the poll (macOS); the next accept then
+         * fails on the closed descriptor. */
+        int rc = iron_net_poll(l.fd, POLLIN, rem > 100 ? 100 : rem);
+        if (rc == 0) continue;
         if (rc < 0) {
             out.v1 = iron_net_err_from_last();
             return out;
@@ -628,8 +629,50 @@ void Iron_tcpsocket_close(Iron_TcpSocket s) {
     IRON_NET_CLOSE(s.fd);
 }
 
+/* Close a connection the peer may still be writing to (a server that
+ * answers a request it rejected, an oversized header or body, without
+ * reading all of it). Closing a socket with unread input resets the
+ * connection, and the reset can destroy the response before the peer has
+ * read it. So the write side is shut down first and what the peer still
+ * sends is read and dropped, bounded in time (a 50 ms gap ends it, 1 s at
+ * most) and size (1 MiB). */
+void iron_net_lingering_close(int64_t fd) {
+    if (fd < 0) return;
+#ifdef _WIN32
+    shutdown((SOCKET)fd, SD_SEND);
+#else
+    shutdown((int)fd, SHUT_WR);
+#endif
+    char buf[4096];
+    size_t total = 0;
+    Iron_Deadline dl = Iron_deadline_from_timeout_ms(1000);
+    for (;;) {
+        int rem = Iron_deadline_remaining_ms(dl);
+        if (rem <= 0 || total > ((size_t)1 << 20)) break;
+        int rc = iron_net_poll(fd, POLLIN, rem < 50 ? rem : 50);
+        if (rc <= 0) break;
+#ifdef _WIN32
+        int n = recv((SOCKET)fd, buf, (int)sizeof(buf), 0);
+#else
+        ssize_t n = recv((int)fd, buf, sizeof(buf), 0);
+#endif
+        if (n <= 0) break;
+        total += (size_t)n;
+    }
+    IRON_NET_CLOSE(fd);
+}
+
 void Iron_tcplistener_close(Iron_TcpListener l) {
     if (l.fd < 0) return;
+    /* Wake a task blocked in accept on this listener (the guide's
+     * shutdown pattern: close the server to wake the accept loop). close
+     * alone leaves a poll() in another thread waiting for its timeout on
+     * Linux; shutdown makes the socket readable and accept fail. */
+#ifdef _WIN32
+    shutdown((SOCKET)l.fd, SD_BOTH);
+#else
+    shutdown((int)l.fd, SHUT_RDWR);
+#endif
     IRON_NET_CLOSE(l.fd);
 }
 

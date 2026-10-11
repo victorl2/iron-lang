@@ -498,8 +498,12 @@ struct IronLIR_Instr {
             Iron_CaptureEntry *capture_metadata;  /* field names, types, is_mutable */
         } make_closure;
 
-        /* IRON_LIR_FUNC_REF */
-        struct { const char *func_name; } func_ref;
+        /* IRON_LIR_FUNC_REF. res_elem is set on the calls of the per element
+         * Mutex / RWLock / Channel glue: func_name is then a format with one
+         * %s that the emitter fills with the element type's C name
+         * (emit_resolve_resource_calls), which only the emitter knows for a
+         * list, a Map or a generic object element. */
+        struct { const char *func_name; const Iron_Type *res_elem; } func_ref;
 
         /* IRON_LIR_SPAWN */
         struct {

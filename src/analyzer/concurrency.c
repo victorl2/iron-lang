@@ -391,7 +391,12 @@ static void check_expr_for_mutation(ConcurrencyCtx *ctx, Iron_Node *n) {
             check_expr_for_mutation(ctx, mc->object);
             for (int i = 0; i < mc->arg_count; i++) check_expr_for_mutation(ctx, mc->args[i]);
             const char *root = expr_ident_name(mc->object);
-            if (root && !name_is_local(ctx, root) && !is_own_element(ctx, mc->object) &&
+            /* `Json.int(i)`, `Crypto.sha256(s)`: a static function called
+             * through its type's name, not a method of an outer binding. */
+            bool on_type = mc->object && mc->object->kind == IRON_NODE_IDENT &&
+                           ((Iron_Ident *)mc->object)->resolved_sym &&
+                           ((Iron_Ident *)mc->object)->resolved_sym->sym_kind == IRON_SYM_TYPE;
+            if (root && !on_type && !name_is_local(ctx, root) && !is_own_element(ctx, mc->object) &&
                 method_call_mutates(ctx, mc)) {
                 char msg[256];
                 snprintf(msg, sizeof(msg),

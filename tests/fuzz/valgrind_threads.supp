@@ -1,0 +1,418 @@
+# Valgrind suppressions for the helgrind and DRD runs of prog_fuzz.py
+# (--helgrind RTDIR / --drd RTDIR build programs and runtime at -O0
+# without inlining, so these frames are visible).
+#
+# Neither tool models C11 atomics: the runtime's reference counts (String,
+# rc, closure environments and cells, and the shared Mutex, Channel,
+# RWLock and Arena handles of spawned tasks), the one-time initialization
+# of string literals (_iron_lit_N_get) and the generation counters
+# synchronize through atomic_* operations with acquire / release ordering,
+# which the tools see as plain accesses (ThreadSanitizer, which models
+# them, runs the same programs clean). glibc's reuse of cached thread
+# stacks is a known helgrind and DRD false positive.
+
+{
+   helgrind-glibc-thread-stack-cache
+   Helgrind:Race
+   ...
+   fun:get_cached_stack
+}
+{
+   helgrind-glibc-allocate-stack
+   Helgrind:Race
+   ...
+   fun:allocate_stack
+}
+{
+   helgrind-atomic-_iron_lit_N_get
+   Helgrind:Race
+   ...
+   fun:_iron_lit_*_get
+}
+{
+   helgrind-atomic-iron_string_retain
+   Helgrind:Race
+   ...
+   fun:iron_string_retain
+}
+{
+   helgrind-atomic-iron_string_release
+   Helgrind:Race
+   ...
+   fun:iron_string_release
+}
+{
+   helgrind-atomic-iron__str_free
+   Helgrind:Race
+   ...
+   fun:iron__str_free
+}
+{
+   helgrind-atomic-iron_rc_retain
+   Helgrind:Race
+   ...
+   fun:iron_rc_retain
+}
+{
+   helgrind-atomic-iron_rc_release
+   Helgrind:Race
+   ...
+   fun:iron_rc_release
+}
+{
+   helgrind-atomic-iron_weak_rc_retain
+   Helgrind:Race
+   ...
+   fun:iron_weak_rc_retain
+}
+{
+   helgrind-atomic-iron_weak_rc_release
+   Helgrind:Race
+   ...
+   fun:iron_weak_rc_release
+}
+{
+   helgrind-atomic-iron_rc_downgrade
+   Helgrind:Race
+   ...
+   fun:iron_rc_downgrade
+}
+{
+   helgrind-atomic-iron_rc_upgrade
+   Helgrind:Race
+   ...
+   fun:iron_rc_upgrade
+}
+{
+   helgrind-atomic-iron_cell_retain
+   Helgrind:Race
+   ...
+   fun:iron_cell_retain
+}
+{
+   helgrind-atomic-iron_cell_release
+   Helgrind:Race
+   ...
+   fun:iron_cell_release
+}
+{
+   helgrind-atomic-iron_cell_release_closure
+   Helgrind:Race
+   ...
+   fun:iron_cell_release_closure
+}
+{
+   helgrind-atomic-iron_closure_retain
+   Helgrind:Race
+   ...
+   fun:iron_closure_retain
+}
+{
+   helgrind-atomic-iron_closure_release
+   Helgrind:Race
+   ...
+   fun:iron_closure_release
+}
+{
+   helgrind-atomic-iron_closure_env_free
+   Helgrind:Race
+   ...
+   fun:iron_closure_env_free
+}
+{
+   helgrind-atomic-iron_shared_release
+   Helgrind:Race
+   ...
+   fun:iron_shared_release
+}
+{
+   helgrind-atomic-Iron_channel_retain
+   Helgrind:Race
+   ...
+   fun:Iron_channel_retain
+}
+{
+   helgrind-atomic-Iron_mutex_retain
+   Helgrind:Race
+   ...
+   fun:Iron_mutex_retain
+}
+{
+   helgrind-atomic-Iron_RWLock_N_retain
+   Helgrind:Race
+   ...
+   fun:Iron_RWLock_*_retain
+}
+{
+   helgrind-atomic-Iron_RWLock_N_destroy
+   Helgrind:Race
+   ...
+   fun:Iron_RWLock_*_destroy
+}
+{
+   helgrind-atomic-Iron_channel_destroy_with
+   Helgrind:Race
+   ...
+   fun:Iron_channel_destroy_with
+}
+{
+   helgrind-atomic-Iron_mutex_destroy_with
+   Helgrind:Race
+   ...
+   fun:Iron_mutex_destroy_with
+}
+{
+   helgrind-atomic-iron_arena_rt_retain
+   Helgrind:Race
+   ...
+   fun:iron_arena_rt_retain
+}
+{
+   helgrind-atomic-iron_arena_rt_destroy
+   Helgrind:Race
+   ...
+   fun:iron_arena_rt_destroy
+}
+{
+   helgrind-atomic-iron_arena_rt_alloc
+   Helgrind:Race
+   ...
+   fun:iron_arena_rt_alloc
+}
+{
+   helgrind-atomic-iron_arena_rt_used
+   Helgrind:Race
+   ...
+   fun:iron_arena_rt_used
+}
+{
+   helgrind-atomic-iron_check_arena_pointer_gen
+   Helgrind:Race
+   ...
+   fun:iron_check_arena_pointer_gen
+}
+{
+   helgrind-atomic-iron_heap_next_gen
+   Helgrind:Race
+   ...
+   fun:iron_heap_next_gen
+}
+{
+   drd-glibc-thread-stack-cache
+   drd:ConflictingAccess
+   ...
+   fun:get_cached_stack
+}
+{
+   drd-glibc-allocate-stack
+   drd:ConflictingAccess
+   ...
+   fun:allocate_stack
+}
+{
+   drd-atomic-_iron_lit_N_get
+   drd:ConflictingAccess
+   ...
+   fun:_iron_lit_*_get
+}
+{
+   drd-atomic-iron_string_retain
+   drd:ConflictingAccess
+   ...
+   fun:iron_string_retain
+}
+{
+   drd-atomic-iron_string_release
+   drd:ConflictingAccess
+   ...
+   fun:iron_string_release
+}
+{
+   drd-atomic-iron__str_free
+   drd:ConflictingAccess
+   ...
+   fun:iron__str_free
+}
+{
+   drd-atomic-iron_rc_retain
+   drd:ConflictingAccess
+   ...
+   fun:iron_rc_retain
+}
+{
+   drd-atomic-iron_rc_release
+   drd:ConflictingAccess
+   ...
+   fun:iron_rc_release
+}
+{
+   drd-atomic-iron_weak_rc_retain
+   drd:ConflictingAccess
+   ...
+   fun:iron_weak_rc_retain
+}
+{
+   drd-atomic-iron_weak_rc_release
+   drd:ConflictingAccess
+   ...
+   fun:iron_weak_rc_release
+}
+{
+   drd-atomic-iron_rc_downgrade
+   drd:ConflictingAccess
+   ...
+   fun:iron_rc_downgrade
+}
+{
+   drd-atomic-iron_rc_upgrade
+   drd:ConflictingAccess
+   ...
+   fun:iron_rc_upgrade
+}
+{
+   drd-atomic-iron_cell_retain
+   drd:ConflictingAccess
+   ...
+   fun:iron_cell_retain
+}
+{
+   drd-atomic-iron_cell_release
+   drd:ConflictingAccess
+   ...
+   fun:iron_cell_release
+}
+{
+   drd-atomic-iron_cell_release_closure
+   drd:ConflictingAccess
+   ...
+   fun:iron_cell_release_closure
+}
+{
+   drd-atomic-iron_closure_retain
+   drd:ConflictingAccess
+   ...
+   fun:iron_closure_retain
+}
+{
+   drd-atomic-iron_closure_release
+   drd:ConflictingAccess
+   ...
+   fun:iron_closure_release
+}
+{
+   drd-atomic-iron_closure_env_free
+   drd:ConflictingAccess
+   ...
+   fun:iron_closure_env_free
+}
+{
+   drd-atomic-iron_shared_release
+   drd:ConflictingAccess
+   ...
+   fun:iron_shared_release
+}
+{
+   drd-atomic-Iron_channel_retain
+   drd:ConflictingAccess
+   ...
+   fun:Iron_channel_retain
+}
+{
+   drd-atomic-Iron_mutex_retain
+   drd:ConflictingAccess
+   ...
+   fun:Iron_mutex_retain
+}
+{
+   drd-atomic-Iron_RWLock_N_retain
+   drd:ConflictingAccess
+   ...
+   fun:Iron_RWLock_*_retain
+}
+{
+   drd-atomic-Iron_RWLock_N_destroy
+   drd:ConflictingAccess
+   ...
+   fun:Iron_RWLock_*_destroy
+}
+{
+   drd-atomic-Iron_channel_destroy_with
+   drd:ConflictingAccess
+   ...
+   fun:Iron_channel_destroy_with
+}
+{
+   drd-atomic-Iron_mutex_destroy_with
+   drd:ConflictingAccess
+   ...
+   fun:Iron_mutex_destroy_with
+}
+{
+   drd-atomic-iron_arena_rt_retain
+   drd:ConflictingAccess
+   ...
+   fun:iron_arena_rt_retain
+}
+{
+   drd-atomic-iron_arena_rt_destroy
+   drd:ConflictingAccess
+   ...
+   fun:iron_arena_rt_destroy
+}
+{
+   drd-atomic-iron_arena_rt_alloc
+   drd:ConflictingAccess
+   ...
+   fun:iron_arena_rt_alloc
+}
+{
+   drd-atomic-iron_arena_rt_used
+   drd:ConflictingAccess
+   ...
+   fun:iron_arena_rt_used
+}
+{
+   drd-atomic-iron_check_arena_pointer_gen
+   drd:ConflictingAccess
+   ...
+   fun:iron_check_arena_pointer_gen
+}
+{
+   drd-atomic-iron_heap_next_gen
+   drd:ConflictingAccess
+   ...
+   fun:iron_heap_next_gen
+}
+# glibc's pthread_cond_wait signals its condition variable internally
+# (__condvar_cancel_waiting / spurious wake handling), which helgrind
+# reports as a signal without the associated lock held.
+{
+   helgrind-glibc-cond-wait-internal-signal
+   Helgrind:Misc
+   ...
+   fun:__pthread_cond_wait_common
+}
+{
+   drd-glibc-cond-wait-internal-signal
+   drd:CondErr
+   ...
+   fun:__pthread_cond_wait_common
+}
+{
+   helgrind-glibc-cond-wait-internal-signal-dubious
+   Helgrind:Dubious
+   ...
+   fun:__pthread_cond_wait_common
+}
+{
+   helgrind-atomic-iron_once
+   Helgrind:Race
+   ...
+   fun:iron_once
+}
+{
+   drd-atomic-iron_once
+   drd:ConflictingAccess
+   ...
+   fun:iron_once
+}

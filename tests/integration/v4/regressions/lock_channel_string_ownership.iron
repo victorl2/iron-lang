@@ -1,0 +1,73 @@
+-- A Mutex, RWLock or Channel owns its value the way a list owns its
+-- elements: `get()` hands out a copy, `set(v)` drops the value it replaces,
+-- a value given from a binding is retained, and what the lock or channel
+-- still holds is dropped with it. The glue copied the bits instead: a
+-- String or an object with a String field read with get() was released
+-- twice, set(binding) left the lock with a string its binding freed, and a
+-- String left in a Mutex or a channel leaked. Found by the sync program
+-- fuzzer (#474).
+object P {
+    val a: Int
+    val s: String
+}
+
+enum Tok {
+    Num(Int),
+    Word(String),
+}
+
+func word_len(t: Tok) -> Int {
+    match t {
+        Tok.Num(n) -> return n
+        Tok.Word(w) -> return w.len()
+    }
+    return -1
+}
+
+func main() {
+    val base = "a string long enough to live on the heap, not inline"
+    val ms = Mutex(base)
+    for i in range(16) parallel {
+        val g = ms.lock()
+        val cur: String = g.get()
+        g.set(cur + "x")
+    }
+    {
+        val g = ms.lock()
+        val keep = base + " and a long tail"
+        g.set(keep)
+        val v: String = g.get()
+        println("mutex {v.len()} {keep.len()}")
+    }
+    val mp = Mutex(P(1, base))
+    for i in range(20) {
+        val g = mp.lock()
+        val c: P = g.get()
+        val next = P(c.a + i, c.s + "y")
+        g.set(next)
+    }
+    {
+        val g = mp.lock()
+        val c: P = g.get()
+        println("object {c.a} {c.s.len()}")
+    }
+    val rw = RWLock(Tok.Word(base))
+    for i in range(8) parallel {
+        val w = rw.write()
+        match w.get() {
+            Tok.Num(n) -> w.set(Tok.Num(n + i))
+            Tok.Word(s) -> w.set(Tok.Word(s + "z"))
+        }
+    }
+    {
+        val r = rw.read()
+        println("rwlock {word_len(r.get())}")
+    }
+    val ch = Channel[String](4)
+    val item = base + " sent twice"
+    ch.send(item)
+    ch.send(item)
+    ch.send(base + " left in the channel")
+    val first: String = ch.recv()
+    println("channel {first.len()} {item.len()}")
+}

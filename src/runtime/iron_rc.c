@@ -310,6 +310,7 @@ void iron_rc_release(void *user_ptr) {
     if (!user_ptr) return;
     Iron_RcHeader *rch = iron_rc_header_of(user_ptr);
 
+    IRON_HB_BEFORE(&rch->refcount);
     uint64_t prev = IRON_ATOMIC_U64_FETCH_SUB_RELEASE(rch->refcount, 1);
     IRON_RC_COUNT_BUMP_RELEASE();  /* Phase 29 OPT-08: no-op unless IRON_RC_COUNT */
 
@@ -329,6 +330,7 @@ void iron_rc_release(void *user_ptr) {
          * releases from other threads so the destructor observes their
          * writes to user fields. */
         IRON_ATOMIC_FENCE_ACQUIRE();
+        IRON_HB_AFTER(&rch->refcount);
 
         if (rch->drop_fn) {
             rch->drop_fn(user_ptr);
@@ -413,6 +415,7 @@ void iron_weak_rc_retain(void *user_ptr) {
 void iron_weak_rc_release(void *user_ptr) {
     if (!user_ptr) return;
     Iron_RcHeader *rch = iron_rc_header_of(user_ptr);
+    IRON_HB_BEFORE(&rch->weak_count);
     uint64_t prev = IRON_ATOMIC_U64_FETCH_SUB_RELEASE(rch->weak_count, 1);
 #ifndef NDEBUG
     if (prev == 0) {
@@ -424,6 +427,7 @@ void iron_weak_rc_release(void *user_ptr) {
         /* Last weak (including the strong cohort's collective weak) gone —
          * strong is necessarily 0 and drop_fn has run. This thread frees. */
         IRON_ATOMIC_FENCE_ACQUIRE();
+        IRON_HB_AFTER(&rch->weak_count);
         free((char *)user_ptr - IRON_RC_HEADER_TOTAL_SIZE);
         /* Phase 37 rc-balance: debug leak detector — block fully released. */
         iron_rc_leak_track_free();

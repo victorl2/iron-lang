@@ -1587,6 +1587,18 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_arena arena)
     set_tests_properties(prog_fuzz_arena PROPERTIES LABELS "codegen" TIMEOUT 900)
+    # Locks, channels and tasks with owning elements, panics in tasks, and
+    # arenas with interfaces, generics, closures and threads.
+    add_test(NAME prog_fuzz_sync
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_sync sync arenax)
+    set_tests_properties(prog_fuzz_sync PROPERTIES LABELS "codegen" TIMEOUT 900)
+    # Programs using the json, crypto, encoding and http modules (a server
+    # and its clients in one program on 127.0.0.1).
+    add_test(NAME prog_fuzz_stdlib
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_stdlib jsonp crypto http)
+    set_tests_properties(prog_fuzz_stdlib PROPERTIES LABELS "stdlib" TIMEOUT 900)
     # The edge case areas (NaN and conversions, strings and collections,
     # generics, pointers and frames, comptime, destruction order).
     add_test(NAME prog_fuzz_edges_num

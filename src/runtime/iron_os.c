@@ -147,6 +147,7 @@ void iron_once(iron_once_t *once, void (*fn)(void)) {
     int expected = 0;
     if (atomic_compare_exchange_strong(&once->state, &expected, 1)) {
         fn();
+        IRON_HB_BEFORE(&once->state);
         atomic_store_explicit(&once->state, 2, memory_order_release);
         return;
     }
@@ -157,6 +158,7 @@ void iron_once(iron_once_t *once, void (*fn)(void)) {
         sched_yield();
 #endif
     }
+    IRON_HB_AFTER(&once->state);
 }
 
 #ifdef _WIN32
