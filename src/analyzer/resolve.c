@@ -271,7 +271,7 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             sym->type = ty;
             /* Phase 93 VIS-02/03: propagate the AST is_pub bit. */
             sym->is_pub = od->is_pub;
-            if (!iron_scope_define(ctx->global_scope, ctx->arena, sym)) {
+            if (!iron_scope_define_type(ctx->global_scope, ctx->arena, sym)) {
                 Iron_Symbol *prev = iron_scope_lookup(ctx->global_scope, sym->name);
                 bool prev_in_stdlib = prev && is_stdlib_decl(ctx, prev);
                 char dmsg[256], dhelp[256];
@@ -313,7 +313,7 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
              * gate; the gate predicate excludes IRON_SYM_INTERFACE anyway,
              * so this is documentation only. */
             sym->is_pub = false;
-            if (!iron_scope_define(ctx->global_scope, ctx->arena, sym)) {
+            if (!iron_scope_define_type(ctx->global_scope, ctx->arena, sym)) {
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_DUPLICATE_DECL, id->span,
                                "duplicate interface declaration", NULL);
@@ -332,7 +332,7 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             enum_sym->type = ty;
             /* Phase 93 VIS-02/03: propagate is_pub onto the enum symbol. */
             enum_sym->is_pub = ed->is_pub;
-            if (!iron_scope_define(ctx->global_scope, ctx->arena, enum_sym)) {
+            if (!iron_scope_define_type(ctx->global_scope, ctx->arena, enum_sym)) {
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_DUPLICATE_DECL, ed->span,
                                "duplicate enum declaration", NULL);
