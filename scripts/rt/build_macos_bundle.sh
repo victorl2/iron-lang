@@ -39,13 +39,17 @@
 #   IRON_COMMIT      the short commit hash recorded in the manifest
 #                    (default: git rev-parse --short HEAD)
 #   OPENSSL_VERSION  OpenSSL release for TLS (default 3.5.9)
+#   OPENSSL_NO_ASM   1 builds OpenSSL's C fallbacks instead of its assembly
+#                    (several times slower, and their table-based AES is
+#                    not constant time; the default uses the assembly)
+#   JOBS             parallel make jobs for OpenSSL (default: all cores)
 #
 # Writes <out-dir>/iron-rt-<version>-<target>/ with lib/ and a rt.txt
 # manifest, plus the .tar.gz and its .sha256 line next to it.
 set -euo pipefail
 
 if [ $# -ne 3 ]; then
-    sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
 fi
 target=$1 version=$2
@@ -73,9 +77,10 @@ mkdir -p "$dest/lib" "$work/objs"
 
 # 1. OpenSSL, static, built once into a cache next to the output.
 openssl=${OPENSSL_VERSION:-3.5.9}
-jobs=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+jobs=${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || echo 4)}
 cache="$out/cache-$target"
-ossl_prefix="$cache/openssl-$openssl-install"
+if [ "${OPENSSL_NO_ASM:-0}" = 1 ]; then asm_flag=no-asm asm_tag=noasm; else asm_flag="" asm_tag=asm; fi
+ossl_prefix="$cache/openssl-$openssl-$asm_tag-install"
 if [ ! -f "$ossl_prefix/lib/libssl.a" ]; then
     echo "== openssl $openssl"
     mkdir -p "$cache"
@@ -85,7 +90,7 @@ if [ ! -f "$ossl_prefix/lib/libssl.a" ]; then
     case "$arch" in arm64) ossl_target=darwin64-arm64-cc;; x86_64) ossl_target=darwin64-x86_64-cc;; esac
     ( cd "$cache/openssl-$openssl" &&
       CC="$clang --target=$triple -isysroot $sdk" AR="$tc/bin/llvm-ar" RANLIB="$tc/bin/llvm-ranlib" \
-      ./Configure "$ossl_target" no-shared no-tests no-docs no-apps no-dso no-engine no-module no-asm \
+      ./Configure "$ossl_target" no-shared no-tests no-docs no-apps no-dso no-engine no-module $asm_flag \
           --prefix="$ossl_prefix" --openssldir=/etc/ssl > "$cache/configure.log" &&
       make -j "$jobs" build_libs > "$cache/build.log" && make install_dev > "$cache/install.log" ) \
         || { tail -30 "$cache/configure.log" "$cache/build.log" 2>/dev/null; exit 1; }
@@ -198,7 +203,7 @@ commit $commit
 target $target
 triple $triple
 libc libSystem
-tls openssl $openssl
+tls openssl $openssl $asm_tag
 llvm $llvm
 MANIFEST
 

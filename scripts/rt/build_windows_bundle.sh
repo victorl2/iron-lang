@@ -39,13 +39,19 @@
 #   OPENSSL_VERSION  OpenSSL release for TLS (default 3.5.9)
 #   PERL             a native Windows perl for OpenSSL's Configure
 #                    (default: Strawberry Perl in C:\Strawberry)
+#   NASM             OpenSSL's assembler (default: nasm on PATH, or
+#                    C:\Program Files\NASM). The assembly is what gives TLS
+#                    and the crypto module AES-NI, SHA extensions and
+#                    constant-time AES and GHASH; OPENSSL_NO_ASM=1 builds the
+#                    C fallbacks instead (several times slower, and their
+#                    table-based AES is not constant time).
 #
 # Writes <out-dir>/iron-rt-<version>-<target>/ with lib/ and a rt.txt
 # manifest, plus the .tar.gz and its .sha256 line next to it.
 set -euo pipefail
 
 if [ $# -ne 3 ]; then
-    sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
 fi
 target=$1 version=$2
@@ -79,17 +85,26 @@ mkdir -p "$dest/lib" "$work/objs"
 openssl=${OPENSSL_VERSION:-3.5.9}
 perl=${PERL:-/c/Strawberry/perl/bin/perl.exe}
 cache="$out/cache-$target"
-ossl_prefix="$cache/openssl-$openssl-install"
+if [ "${OPENSSL_NO_ASM:-0}" = 1 ]; then
+    asm_flag=no-asm asm_tag=noasm
+else
+    asm_flag="" asm_tag=asm
+    nasm_bin=${NASM:-$(command -v nasm || echo "/c/Program Files/NASM/nasm.exe")}
+    [ -x "$nasm_bin" ] || { echo "build_windows_bundle.sh: nasm not found (OpenSSL's assembly needs it; set NASM, or OPENSSL_NO_ASM=1 for the slow C fallbacks)" >&2; exit 1; }
+    export PATH="$(dirname "$nasm_bin"):$PATH"
+fi
+ossl_prefix="$cache/openssl-$openssl-$asm_tag-install"
 if [ ! -f "$ossl_prefix/lib/libssl.lib" ]; then
     echo "== openssl $openssl"
-    src="$cache/openssl-$openssl"
+    src="$cache/openssl-$openssl-$asm_tag"
     if [ ! -f "$src/libssl.lib" ]; then
         mkdir -p "$cache"
-        rm -rf "$src"
+        rm -rf "$src" "$cache/openssl-$openssl"
         curl -fsSL "https://github.com/openssl/openssl/releases/download/openssl-$openssl/openssl-$openssl.tar.gz" \
             | tar -xz -C "$cache"
+        mv "$cache/openssl-$openssl" "$src"
         ( cd "$src" &&
-          MSYS2_ARG_CONV_EXCL='*' "$perl" Configure VC-WIN64A no-shared no-asm no-tests no-docs no-apps \
+          MSYS2_ARG_CONV_EXCL='*' "$perl" Configure VC-WIN64A no-shared $asm_flag no-tests no-docs no-apps \
               no-dso no-engine no-module -GS- "CC=$(w "$tc/bin/clang-cl.exe")" \
               "--prefix=$(w "$ossl_prefix")" "--openssldir=$(w "$ossl_prefix/ssl")" > "$cache/configure.log" &&
           MSYS2_ARG_CONV_EXCL='*' nmake -nologo build_libs > "$cache/build.log" ) \
@@ -234,7 +249,7 @@ commit $commit
 target $target
 triple $triple
 libc ucrt
-tls openssl $openssl
+tls openssl $openssl $asm_tag
 llvm $llvm
 MANIFEST
 
