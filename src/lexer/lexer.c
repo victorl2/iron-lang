@@ -502,6 +502,18 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
                                        "naming a Unicode scalar value");
                         break;
                     }
+                    if (cp == 0) {
+                        /* Literals are carried as C strings up to the
+                         * emitter, which would end the value here and
+                         * silently drop the rest (issue filed). */
+                        Iron_Span span = iron_span_make(l->filename, l->line, l->col,
+                                                         l->line, l->col);
+                        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                                       IRON_ERR_INVALID_CHAR, span,
+                                       "a string literal cannot contain the zero byte \\u{0}",
+                                       "build the value with String.from_byte(0) and +");
+                        break;
+                    }
                     if (cp < 0x80) {
                         PUSH_CHAR((char)cp);
                     } else if (cp < 0x800) {

@@ -1,0 +1,24 @@
+hex upper: ok deadbeef
+hex odd: 9101 invalid hex length
+hex char: 9100 invalid hex character at byte 2
+hex space: 9100 invalid hex character at byte 2
+hex empty: ok 
+b64 no padding: 9102 invalid base64 padding at byte 6
+b64 bad padding: 9102 invalid base64 padding at byte 6
+b64 extra padding: 9102 invalid base64 padding at byte 4
+b64 padding inside: 9102 invalid base64 padding at byte 2
+b64 url alphabet: 9100 invalid base64 character at byte 0
+b64 whitespace: 9100 invalid base64 character at byte 4
+b64 length: 9101 invalid base64 length
+b64url std alphabet: 9100 invalid base64url character at byte 0
+b64url padded: ok 666f6f62 9102 invalid base64url padding at byte 6
+b64 trailing bits: ok 66
+all bytes: 256
+hex round trip: true 512
+b64 round trip: true 344
+b64url round trip: true 342
+b64 vs url: false false true
+| +g==|-g +vs=|-vs +vv8|-vv8 +vv8/Q==|-vv8_Q +vv8/f4=|-vv8_f4 +vv8/f7/|-vv8_f7_ 
+byte_slice: [hé] [é] 6 5
+byte_slice clamp: [h] [lo] [] []
+zero bytes: 4 006200

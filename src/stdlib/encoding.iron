@@ -1,0 +1,40 @@
+-- encoding.iron -- hex and base64 (RFC 4648) encoders and decoders.
+--
+-- Binary data is a String: Iron strings hold arbitrary bytes, including
+-- zero, so the same type carries text, file contents (IO.read_bytes),
+-- socket payloads and digests. Use byte_len() and byte_slice() on binary
+-- data; len() and substring() count UTF-8 characters.
+--
+-- Encoders never fail. Decoders are strict (only the alphabet, no
+-- whitespace) and report malformed input in the result instead of
+-- panicking: error is 0 on success, otherwise 9100 (invalid character),
+-- 9101 (invalid length) or 9102 (invalid padding), and error_message names
+-- the byte offset. Implemented in src/stdlib/iron_encoding.c.
+
+object DecodeResult {
+    val data: String
+    val error: Int
+    val error_message: String
+}
+
+-- Kept for symmetry with the other result types: strings are freed with
+-- the value that holds them, so this does nothing.
+func DecodeResult.release(result: DecodeResult) {}
+
+object Hex {}
+
+-- Lowercase hex, two characters per byte.
+func Hex.encode(data: String) -> String {}
+-- Upper or lower case; the length must be even.
+func Hex.decode(text: String) -> DecodeResult {}
+
+object Base64 {}
+
+-- Standard alphabet (+ /) with = padding.
+func Base64.encode(data: String) -> String {}
+-- Standard alphabet; the padding is required.
+func Base64.decode(text: String) -> DecodeResult {}
+-- URL and filename safe alphabet (- _) without padding, as in JWTs.
+func Base64.url_encode(data: String) -> String {}
+-- URL-safe alphabet; padding is optional but must be correct when present.
+func Base64.url_decode(text: String) -> DecodeResult {}

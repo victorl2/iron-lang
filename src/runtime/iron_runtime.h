@@ -910,6 +910,11 @@ void         iron_string_release(Iron_String *s);
 /* Registers one more owner of the string's characters (a copy of the value
  * that will be released on its own). No-op for inline and interned strings. */
 void         iron_string_retain(const Iron_String *s);
+/* In-place construction for producers of binary data (iron_string.c):
+ * alloc gives `byte_len` writable bytes through *bytes, seal keeps the
+ * first `byte_len` once they are written. *s must not move in between. */
+void         iron_string_alloc_bytes(Iron_String *s, size_t byte_len, char **bytes);
+void         iron_string_seal_bytes(Iron_String *s, size_t byte_len);
 
 /* ── Phase 26 POL-06: rc policy runtime API ──────────────────────────────────
  *
@@ -2026,6 +2031,7 @@ int64_t               Iron_string_count(Iron_String self, Iron_String sub);
 int64_t               Iron_string_rindex_of(Iron_String self, Iron_String sub);
 int64_t               Iron_string_byte_at(Iron_String self, int64_t i);
 Iron_String           Iron_string_from_byte(int64_t b);
+Iron_String           Iron_string_byte_slice(Iron_String self, int64_t start, int64_t end_idx);
 int64_t               Iron_string_byte_len(Iron_String self);
 void                  Iron_string_release(Iron_String self);
 

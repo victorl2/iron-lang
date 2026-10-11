@@ -357,10 +357,38 @@ capitalized module object: `import io` then `IO.read_file(path)`,
 | `http` | | HTTP/HTTPS clients and servers |
 | `websocket` | | WS/WSS clients and server upgrades |
 | `url` | | URL parsing and encoding |
+| `crypto` | `Crypto`, `Hasher` | SHA-1/2/3, MD5, HMAC, HKDF, PBKDF2, scrypt, `hash_password` / `verify_password`, `random_bytes`, `random_token`, AES-256-GCM and ChaCha20-Poly1305 (`encrypt` / `decrypt`), RSA-OAEP |
+| `encoding` | `Hex`, `Base64` | hex and base64 (standard and URL-safe) |
 | `raylib` | | graphics, input, audio (ships with the compiler) |
 
 Strings have methods such as `upper`, `lower`, `trim`, `split`, `contains`,
-`replace`, `starts_with`, `to_int`. Lists have `push`, `map`, `filter`,
+`replace`, `starts_with`, `to_int`. Strings also carry binary data (file
+bytes, socket payloads, digests, ciphertexts): use `byte_len()` and
+`byte_slice(start, end)` on them, not `len()` and `substring()`, which count
+characters. Results that can fail are objects with `data`, `error` (0 on
+success) and `error_message`:
+
+```iron
+import crypto
+import encoding
+
+func main() {
+    println(Hex.encode(Crypto.hmac(HashAlgorithm.Sha256, "key", "message")))
+    val stored = Crypto.hash_password_scrypt("hunter2", 10, 8, 1).data
+    println("{Crypto.verify_password("hunter2", stored)} {Crypto.verify_password("nope", stored)}")
+    val key = Crypto.random_bytes(32)
+    val box = Crypto.encrypt(AeadAlgorithm.Aes256Gcm, key, "secret", "")
+    val bad = Crypto.decrypt(AeadAlgorithm.Aes256Gcm, key, box.data, "other aad")
+    println("{bad.error} {Base64.encode(Crypto.sha1("abc").byte_slice(0, 3))}")
+}
+```
+
+```output
+6e9ef29b75fffc5b7abae527d58fdadb2fe42e7219011976917343065f58ed4a
+true false
+9004 qZk+
+```
+ Lists have `push`, `map`, `filter`,
 `reduce`, `sum`.
 
 `Map[K, V]` and `Set[T]` are hash containers constructed empty with their

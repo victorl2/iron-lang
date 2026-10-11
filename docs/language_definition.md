@@ -144,6 +144,8 @@ A string literal is at most 4095 bytes. The escape sequences are:
 | `\u{H}` | the Unicode scalar `H` (1 to 6 hex digits), encoded as UTF-8 |
 
 Any other character after a backslash is kept together with the backslash.
+A literal cannot contain the zero byte: `\u{0}` is an error (`E0002`);
+build such strings with `String.from_byte(0)`.
 
 A string literal that contains an unescaped `{` is an **interpolated
 string**: each `{expression}` is evaluated and its text spliced in (section
@@ -1691,7 +1693,8 @@ an unknown module is an error (`E0209`); an unused import warns (`W0611`).
 declarations are used by their own names.
 
 The modules that require an import are `math`, `io`, `time`, `log`,
-`hint`, `net`, `http`, `websocket`, `url` and `raylib`; their functions are
+`hint`, `net`, `http`, `websocket`, `url`, `crypto`, `encoding` and
+`raylib`; their functions are
 called on the capitalized module object (`import math`, then
 `Math.sqrt(x)`). Everything else in section 9 (strings, lists, `Box`,
 `Arena`, `Channel`, `Mutex`, `RWLock`, `FileHandle`, `Hashable`, `RawPtr`)
@@ -2397,6 +2400,7 @@ entirely a number (`"4 2"`, `"3x"`, `""`).
 | `pad_left(width, ch) -> String`, `pad_right(width, ch) -> String` | padding |
 | `to_int() -> Int`, `to_float() -> Float` | parsing (0 when not a number) |
 | `byte_at(i) -> Int`, `String.from_byte(b: Int) -> String` | byte access |
+| `byte_slice(start, end) -> String` | bytes `[start, end)`, clamped like `substring` (for binary data) |
 | `release()` | does nothing (kept for source compatibility) |
 
 `Int`, `Int32` and `Float` have a `to_string() -> String` method. `s[i]`
@@ -2749,7 +2753,44 @@ fields. `websocket` provides `WebSocket.connect` (and the `_with_ca`,
 `Url.percent_encode`, `Url.percent_decode` and a `Url.builder()`.
 All timeouts are integer milliseconds.
 
-### 9.12 `raylib` (import)
+### 9.12 `crypto` and `encoding` (import)
+
+The cryptography modules are documented in [docs/crypto.md](crypto.md).
+Binary data is a `String` (strings hold arbitrary bytes; measure and cut it
+with `byte_len` and `byte_slice`). `encoding` provides `Hex.encode`,
+`Hex.decode`, `Base64.encode`, `Base64.decode`, `Base64.url_encode` and
+`Base64.url_decode`; decoders return `DecodeResult { data: String, error:
+Int, error_message: String }`. `crypto` provides digests
+(`Crypto.hash(HashAlgorithm.Sha256, data)`, `Crypto.sha256(data)`, ... and
+the streaming `Hasher.new(alg)` / `Hasher.hmac(alg, key)` with `update` and
+`finish`), `Crypto.hmac`, `Crypto.hkdf`, `Crypto.pbkdf2`, `Crypto.scrypt`,
+password hashing (`hash_password`, `verify_password`,
+`password_needs_rehash`), `constant_time_equal`, `xor`, `random_bytes`,
+`random_int`, `random_token`, authenticated encryption (`seal`, `open`,
+`encrypt`, `decrypt` with `AeadAlgorithm.Aes256Gcm` or `ChaCha20Poly1305`)
+and RSA-OAEP. Fallible calls return `CryptoResult { data: String, error:
+Int, error_message: String }`; a forged ciphertext is error 9004, not a
+panic. The module is OpenSSL 3's libcrypto and links it like `http` does.
+
+```iron
+import crypto
+import encoding
+
+func main() {
+    println(Hex.encode(Crypto.sha256("abc")))
+    val key = Crypto.random_bytes(32)
+    val box = Crypto.encrypt(AeadAlgorithm.ChaCha20Poly1305, key, "secret", "")
+    val back = Crypto.decrypt(AeadAlgorithm.ChaCha20Poly1305, key, box.data, "")
+    println("{back.error} {back.data} {Base64.url_encode("hi?")}")
+}
+```
+
+```output
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+0 secret aGk_
+```
+
+### 9.13 `raylib` (import)
 
 `import raylib` makes the raylib bindings available: the objects
 `Vector2`, `Vector3`, `Color`, `Rectangle`, `Texture`, `Font` and so on,
