@@ -326,8 +326,8 @@ class SyncGen(SegProgram):
     def add_segment(self):
         r = self.r
         pick = r.choices(
-            ['mutex', 'rwlock', 'shared', 'chan', 'results', 'ring', 'order', 'store', 'panic'],
-            [5, 3, 2, 4, 2, 1, 1, 1, 0.6])[0]
+            ['mutex', 'rwlock', 'shared', 'chan', 'results', 'ring', 'order', 'store', 'panic', 'rpc'],
+            [5, 3, 2, 4, 2, 1, 1, 1, 0.6, 1])[0]
         self.segs.append(getattr(self, 'seg_' + pick)())
 
     # ---------------------------------------------------------- workers
@@ -660,6 +660,56 @@ class SyncGen(SegProgram):
         lines += ['{', f'    val {ga} = {ma}.lock()', f'    val {gb} = {mb}.lock()',
                   f'    println("{{{ga}.get()}} {{{gb}.get()}}")', '}']
         return Seg(lines, [f'{a0 - sum(idx)} {b0 + 2 * sum(idx)}'])
+
+    def seg_rpc(self):
+        """Workers answer requests: each takes a request from one channel and
+        replies on its own; main sends one request at a time per worker, so
+        the replies come back in order. Each reply also updates a Mutex and
+        an RWLock, always in that order."""
+        r = self.r
+        kd = Kind(r, r.choice(['Int', 'String', 'P', 'Tok']))
+        nw = r.randint(1, 3)
+        rounds = r.randint(1, 5)
+        m, rw = self.fresh('m'), self.fresh('rw')
+        lines = [f'val {m} = Mutex(0)', f'val {rw} = RWLock(0)']
+        reqs, resps, hs = [], [], []
+        for w in range(nw):
+            rq, rp, h = self.fresh('rq'), self.fresh('rp'), self.fresh('h')
+            q, x, cur, g1, g2 = (self.fresh('q'), self.fresh('x'), self.fresh('cur'),
+                                 self.fresh('g'), self.fresh('w'))
+            lines += [f'val {rq} = Channel[Int]({r.choice([0, 1, 2])})',
+                      f'val {rp} = Channel[{kd.t}]({r.choice([0, 1])})',
+                      f'val {h} = spawn("worker{w}") {{',
+                      f'    for {q} in range({rounds}) {{',
+                      f'        val {x}: Int = {rq}.recv()',
+                      f'        var {cur} = {kd.init_src()}',
+                      f'        {cur} = {kd.upd_src(cur, f"({x} + {w})")}',
+                      f'        {{', f'            val {g1} = {m}.lock()', f'            val {g2} = {rw}.write()',
+                      f'            {g1}.set({g1}.get() + {x})', f'            {g2}.set({g2}.get() + 1)', '        }',
+                      f'        {rp}.send({cur})', '    }', f'    return {rounds}', '}']
+            reqs.append(rq)
+            resps.append(rp)
+            hs.append(h)
+        out = []
+        tot = 0
+        q, y = self.fresh('q'), self.fresh('y')
+        body = []
+        for w in range(nw):
+            body += [f'    {reqs[w]}.send({q} * 3 + {w})', f'    val {y}{w}: {kd.t} = {resps[w]}.recv()',
+                     f'    println("rpc{w} {kd.show_src(y + str(w))}")']
+        lines += [f'for {q} in range({rounds}) {{'] + body + ['}']
+        for qq in range(rounds):
+            for w in range(nw):
+                v = kd.py_upd(kd.py_init(), qq * 3 + w + w)
+                out.append(f'rpc{w} {kd.py_show(v)}')
+                tot += qq * 3 + w
+        for h in hs:
+            lines.append(f'val {self.fresh("z")} = await {h}')
+        g1, g2 = self.fresh('g'), self.fresh('rd')
+        lines += ['{', f'    val {g1} = {m}.lock()', f'    val {g2} = {rw}.read()',
+                  f'    println("rpc {{{g1}.get()}} {{{g2}.get()}}")', '}']
+        out.append(f'rpc {tot} {rounds * nw}')
+        return Seg(lines, out)
 
     # ------------------------------------------------------------- panic
     def seg_panic(self):
