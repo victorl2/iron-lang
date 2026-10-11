@@ -1334,12 +1334,11 @@ void emit_ensure_filehandle(EmitCtx *ctx) {
         "static void Iron_FileHandle_close(Iron_FileHandle *fh);\n"
         "static void Iron_FileHandle_drop(Iron_FileHandle *fh);\n");
 
-    /* open creates/truncates the file; close prints "closed fd" then closes.
-     * Uses fopen/fileno (portable, no <fcntl.h> needed) — the value is the
-     * underlying fd so the drop path matches the surface contract. */
+    /* open creates the file when needed (an existing file keeps its
+     * contents) and returns the fd; close closes it once and sets -1. */
     iron_strbuf_appendf(&ctx->lifted_funcs,
         "static Iron_FileHandle Iron_FileHandle_open(Iron_String path) {\n"
-        "    Iron_FileHandle fh; fh.fd = iron_filehandle_open(iron_string_cstr(&path));\n"
+        "    Iron_FileHandle fh; fh.fd = iron_filehandle_open(iron_string_cstr(&path), iron_string_byte_len(&path));\n"
         "    return fh;\n"
         "}\n"
         "static void Iron_FileHandle_close(Iron_FileHandle *fh) {\n"

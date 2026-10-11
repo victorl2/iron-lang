@@ -1,3 +1,6 @@
-opened
-closed fd
+opened true
+closed twice -1
+reused true
+contents kept
+empty path -1
 done

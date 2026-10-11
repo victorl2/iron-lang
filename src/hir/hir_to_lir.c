@@ -2885,9 +2885,15 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 fname = "Iron_FileHandle_open";
             }
             if (fname) {
+                /* FileHandle.open only reads its path: a temporary path
+                 * (`FileHandle.open(dir + "/f")`) is released after the
+                 * call. Mutex / RWLock take ownership of their value. */
+                bool borrows = strcmp(fname, "Iron_FileHandle_open") == 0;
+                TempOwned *ftemps = NULL;
                 IronLIR_ValueId *cargs = NULL;
                 for (int i = 0; i < expr->method_call.arg_count; i++) {
                     IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+                    if (borrows) note_owned_temp(ctx, &ftemps, expr->method_call.args[i], av, span);
                     arrput(cargs, av);
                 }
                 int cargc = (int)arrlen(cargs);
@@ -2895,6 +2901,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                     ctx->current_block, fname, NULL, span);
                 IronLIR_Instr *ccall = iron_lir_call(ctx->current_func,
                     ctx->current_block, NULL, cref->id, cargs, cargc, type, span);
+                release_owned_temps(ctx, &ftemps, span);
                 arrfree(cargs);
                 return ccall->id;
             }

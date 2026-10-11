@@ -107,7 +107,7 @@ IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_null_box(void) {
 #define iron_panic_null_box() iron_dbg_panic_null_box()
 #endif
 /* FileHandle.open(path) (write mode) / close: the descriptor, or -1. */
-int    iron_filehandle_open(const char *path);
+int    iron_filehandle_open(const char *path, size_t len);
 void   iron_filehandle_close(int fd);
 
 /* ── Atomics: C11 on every platform ──────────────────────────────────────── */
