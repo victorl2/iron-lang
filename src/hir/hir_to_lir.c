@@ -4376,6 +4376,27 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
             }
 
+            if (!stmt->let.init && !boxed && type &&
+                (type_needs_drop(type, ctx->program) || type_is_rc_like(type) ||
+                 type->kind == IRON_TYPE_FUNC) &&
+                ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                /* `var m: Map[K, V]` assigned later: the first assignment
+                 * drops the slot's old value, which was uninitialized
+                 * stack memory (a crash for a map, set, rc handle or
+                 * closure). Start from the zero value, which drops as a
+                 * no-op. */
+                IronLIR_Instr *z = iron_lir_const_null(ctx->current_func,
+                                                       ctx->current_block, type, span);
+                if (z) iron_lir_store(ctx->current_func, ctx->current_block,
+                                      alloca_id, z->id, span);
+                /* An rc-like var is released at scope exit like one with an
+                 * initializer (the handle assigned later leaked). */
+                if (type_is_rc_like(type) && ctx->defer_depth > 0 && ctx->drop_stacks &&
+                    ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
+                    IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false };
+                    arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
+                }
+            }
             if (stmt->let.init) {
                 IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
                 tag_arena_ctor_binding(ctx, init_val, vid);

@@ -1,0 +1,35 @@
+-- A var declared with a type and assigned later starts from the zero
+-- value (#629): the first assignment dropped uninitialized memory for a
+-- map, a set, an rc handle or a closure, and an rc var was never released.
+object N {
+    val a: Int
+    drop {
+        println("drop {self.a}")
+    }
+}
+
+func main() {
+    var m: Map[String, Int]
+    m = Map[String, Int]()
+    m.put("k", 1)
+    var s: Set[Int]
+    if m.len() > 0 {
+        s = Set[Int]()
+    } else {
+        s = Set[Int]()
+    }
+    var shared: rc [Int]
+    shared = rc [1, 2]
+    var f: func(Int) -> Int
+    val k = 5
+    f = func(x: Int) -> Int { return x + k }
+    var x: rc N
+    var w: weak rc N
+    var o: rc N?
+    x = rc N(1)
+    w = x.downgrade()
+    o = w.upgrade()
+    var text: String
+    text = "a string long enough to live on the heap {k}"
+    println("{m.len()} {s.len()} {len(shared)} {f(1)} {x.a} {o != null} {text.len()}")
+}
