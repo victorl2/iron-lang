@@ -4126,6 +4126,27 @@ static Iron_Node *type_ann_from_expr(TypeCtx *ctx, Iron_Node *n) {
         ta->weak_rc_inner = inner;
         return (Iron_Node *)ta;
     }
+    if (n->kind == IRON_NODE_ARRAY_LIT && ((Iron_ArrayLit *)n)->type_ann &&
+        ((Iron_ArrayLit *)n)->type_ann->kind == IRON_NODE_TYPE_ANNOTATION &&
+        ((Iron_TypeAnnotation *)((Iron_ArrayLit *)n)->type_ann)->is_tuple) {
+        /* `(Int, String)` written as a type argument: the parser reads it as
+         * a tuple literal (it was taken for a list and the element type was
+         * lost). */
+        Iron_ArrayLit *al = (Iron_ArrayLit *)n;
+        Iron_TypeAnnotation *ta = ARENA_ALLOC(ctx->arena, Iron_TypeAnnotation);
+        if (!ta) return NULL;
+        memset(ta, 0, sizeof(*ta));
+        ta->kind = IRON_NODE_TYPE_ANNOTATION;
+        ta->span = n->span;
+        ta->is_tuple = true;
+        for (int i = 0; i < al->element_count; i++) {
+            Iron_Node *e = type_ann_from_expr(ctx, al->elements[i]);
+            if (!e) return NULL;
+            IRON_ARENA_ARR_PUSH(ctx->arena, ta->tuple_elems, ta->tuple_elem_count, e);
+            ta->tuple_elem_count++;
+        }
+        return (Iron_Node *)ta;
+    }
     if (n->kind == IRON_NODE_ARRAY_LIT) {
         /* `[Int]` written as a type argument: a list of the element type;
          * `[Int; 2]` a fixed-size array of it. */

@@ -1671,7 +1671,9 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             Iron_Span lparen_span = iron_token_span(p, iron_current(p));
             iron_advance(p);
             iron_skip_newlines(p);
-            Iron_Node *first = iron_parse_expr(p);
+            /* A tuple element may be a type (`Channel[(Int, func(Int) -> Int)]`):
+             * the list literal rules decide, and keep every expression. */
+            Iron_Node *first = iron_parse_bracket_elem(p, false);
             iron_skip_newlines(p);
             if (iron_check(p, IRON_TOK_COMMA)) {
                 /* Tuple literal: (e0, e1, ...) — arity >= 2 enforced. The
@@ -1685,7 +1687,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                     iron_advance(p);  /* consume , */
                     iron_skip_newlines(p);
                     if (iron_check(p, IRON_TOK_RPAREN)) break;  /* trailing comma */
-                    Iron_Node *e = iron_parse_expr(p);
+                    Iron_Node *e = iron_parse_bracket_elem(p, false);
                     arrput(elems, e);
                     iron_skip_newlines(p);
                 }
