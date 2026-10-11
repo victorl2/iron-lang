@@ -1,0 +1,8 @@
+2 false
+3 true false
+changed 7
+kept string long enough to be heap allocated 7
+0
+5 BOXED 2
+3 bc true
+42 2.5

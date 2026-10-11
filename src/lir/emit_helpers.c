@@ -985,7 +985,21 @@ void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
         /* _is_null */ struct_name, struct_name,
         /* _null_val */ struct_name, struct_name,
         struct_name);
-    if (!box_elem_drop) {
+    /* A String, list, closure, optional or other value that owns memory
+     * but has no object drop: released through its cell drop thunk before
+     * the cell is freed (Box("..." + s) leaked the string). */
+    const char *cell_drop = box_elem_drop ? "NULL"
+        : emit_cell_drop_fn(ctx, (Iron_Type *)elem_type);
+    if (!box_elem_drop && strcmp(cell_drop, "NULL") != 0) {
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "static void %s_free(%s *box) {\n"
+            "    if (box && box->inner.addr) {\n"
+            "        %s(box->inner.addr);\n"
+            "        iron_heap_free(box->inner); box->inner.addr = NULL;\n"
+            "    }\n"
+            "}\n\n",
+            struct_name, struct_name, cell_drop);
+    } else if (!box_elem_drop) {
         iron_strbuf_appendf(&ctx->lifted_funcs,
             "static void %s_free(%s *box) {\n"
             "    /* Phase 26 (Plan 26-02): rc Box[T] rejected via E0286 -- "

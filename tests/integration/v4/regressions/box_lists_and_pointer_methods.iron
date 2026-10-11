@@ -1,0 +1,52 @@
+-- A list of Box[T] compiles and frees its cells (#576); a Box owns its
+-- value (a String, a list) and drops it with the cell, retaining a value
+-- copied out of a binding; String / Int / Float methods work through a
+-- pointer (#575).
+object Cell {
+    var label: String
+    init(label: String) {
+        self.label = label
+    }
+}
+
+func main() {
+    val i = 7
+    var xs: [Box[Int]] = []
+    xs.push(Box(1))
+    xs.push(Box(2))
+    println("{xs.len()} {xs[1].is_null()}")
+    var ss: [Box[String]] = []
+    for k in range(4) {
+        ss.push(Box("a string long enough to be heap allocated {k}"))
+    }
+    ss[1].free()
+    val last = ss.pop()
+    println("{ss.len()} {ss[1].is_null()} {last.is_null()}")
+    var cs: [Box[Cell]] = []
+    cs.push(Box(Cell("a cell label long enough to be heap allocated {i}")))
+    val pc: *var unchecked Cell = cs[0].unwrap()
+    pc.label = "changed {i}"
+    println(pc.label)
+    val s = "kept string long enough to be heap allocated {i}"
+    {
+        val b = Box(s)
+    }
+    println(s)
+    var words = [s, s + "!"]
+    {
+        val b2 = Box(words.copy())
+        val b3 = Box(words.take())
+    }
+    println("{words.len()}")
+    val bs = Box("boxed")
+    val p: *var unchecked String = bs.unwrap()
+    println("{p.byte_len()} {p.upper()} {p.index_of("x")}")
+    var t = "abc"
+    val q = &t
+    println("{q.len()} {q.substring(1, 3)} {q.contains("b")}")
+    var n = 42
+    val r = &n
+    var f = 2.5
+    val g = &f
+    println("{r.to_string()} {g.to_string()}")
+}

@@ -305,12 +305,10 @@ class MathGen(StdGen):
         code, out = [], []
         b = self.fresh('bx')
         s = 'boxed string long enough to live on the heap ' * r.randint(1, 3)
-        # (a list of Box[T] does not compile: #576)
-        k = r.choice(['str', 'int', 'free', 'null'])
+        k = r.choice(['str', 'int', 'free', 'null', 'list'])
         if k == 'str':
             code += [f'val {b} = Box("{s}")', f'val p{b}: *var unchecked String = {b}.unwrap()']
-            # (a String method through the pointer types as Void: #575)
-            self.raw(code, out, [f'{b}.is_null()'], ['false'])
+            self.raw(code, out, [f'{b}.is_null()', f'p{b}.byte_len()'], ['false', len(s)])
         elif k == 'int':
             v = r.choice(INTS)
             code += [f'val {b} = Box({iexpr(v)})', f'val p{b}: *var unchecked Int = {b}.unwrap()']
