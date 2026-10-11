@@ -274,18 +274,11 @@ void ilsp_handle_didChange(IronLsp_Server *s, struct yyjson_doc *doc,
 
     /* Plan 05 CORE-14/CORE-15: post a COMPILE to the ASTWorker. Worker
      * debounces 150ms + coalesces rapid didChange floods into a single
-     * compile of the newest version. Register a per-version cancel flag
-     * so a subsequent edit can race-cancel the in-flight analyze. The
-     * cancel-flag key is "<uri>#v<version>" -- unique per edit, so
-     * cancel_signal can flip the right flag without cross-doc confusion. */
+     * compile of the newest version. (A per-version cancel flag was
+     * registered here, never signalled and never released: one allocation
+     * leaked per edit.) */
     if (d->mailbox && d->worker_started) {
-        char cancel_key[1024];
-        snprintf(cancel_key, sizeof(cancel_key),
-                  "%s#v%d", uri, d->version);
-        _Atomic bool *flag = s->cancels
-                               ? ilsp_cancel_register(s->cancels, cancel_key)
-                               : NULL;
-        ilsp_mailbox_post_compile(d->mailbox, d->version, flag);
+        ilsp_mailbox_post_compile(d->mailbox, d->version, NULL);
     }
 }
 

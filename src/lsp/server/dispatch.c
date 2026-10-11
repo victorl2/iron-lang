@@ -20,6 +20,7 @@
 #include "lsp/server/dispatch.h"
 #include "lsp/server/server.h"
 #include "lsp/server/lifecycle.h"
+#include "lsp/server/cancel.h"
 #include "lsp/facade/semantic.h"
 #include "lsp/obs/crash_dump.h"   /* Phase 7 Plan 07-01: in-flight ring buffer */
 #include "lsp/transport/json.h"
@@ -29,6 +30,7 @@
 #include "util/arena.h"
 
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -382,8 +384,33 @@ void ilsp_dispatch_route(IronLsp_Server *server,
     if (ring_id == 0) ring_id = 1;
     ilsp_crash_ring_push(ring_id, method);
 
+    /* The request's cancel flag (the key handlers register under). The
+     * handlers run on this thread, so a $/cancelRequest is read only after
+     * the handler returns; the flag is released then (it used to stay in
+     * the registry forever: one allocation leaked per request, and a
+     * client reusing a cancelled id got no answer). A handler that saw
+     * the flag set returns without a response: answer RequestCancelled. */
+    char cancel_key[64];
+    cancel_key[0] = '\0';
+    _Atomic bool *cancel_flag = NULL;
+    if (is_request && server->cancels) {
+        if (yyjson_is_int(id) || yyjson_is_sint(id))
+            snprintf(cancel_key, sizeof(cancel_key), "%lld", (long long)yyjson_get_sint(id));
+        else if (yyjson_is_uint(id))
+            snprintf(cancel_key, sizeof(cancel_key), "%llu", (unsigned long long)yyjson_get_uint(id));
+        else if (yyjson_is_str(id) && yyjson_get_str(id))
+            snprintf(cancel_key, sizeof(cancel_key), "%s", yyjson_get_str(id));
+        if (cancel_key[0]) cancel_flag = ilsp_cancel_register(server->cancels, cancel_key);
+    }
+
     /* Dispatch. */
     entry->handler(server, doc, arena);
+
+    if (cancel_flag) {
+        if (atomic_load(cancel_flag))
+            enqueue_error(server, arena, id, -32800, "RequestCancelled");
+        ilsp_cancel_unregister(server->cancels, cancel_key);
+    }
 
     ilsp_crash_ring_pop(ring_id);
 
