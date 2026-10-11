@@ -79,7 +79,15 @@ class RcV:
         self.obj = obj
 
 
+_COPY_BUDGET = [0]
+
+
 def vcopy(v):
+    # a program whose values keep doubling (a list pushed copies of
+    # itself in a loop) is dropped, not modelled for ever
+    _COPY_BUDGET[0] += 1
+    if _COPY_BUDGET[0] > 300000:
+        raise Bail('copy budget')
     if isinstance(v, CellV):
         return CellV(vcopy(v.v))
     if isinstance(v, PairV):
@@ -523,9 +531,9 @@ class GenGen(Gen):
                 xs, st = self.lexpr(S, d - 1), self.gexpr(S, d - 1)
                 return Ev(f'fold({xs.src()}, {st.src()}, func(a: String, b: String) -> String '
                           f'{{ return a + b }})',
-                          lambda m, f: st.ev(m, f) + ''.join(xs.ev(m, f).items))
+                          lambda m, f: _short(st.ev(m, f) + ''.join(xs.ev(m, f).items)))
             a, b = self.gexpr(S, d - 1), self.gexpr(S, d - 1)
-            return Ev(f'({a.src()} + {b.src()})', lambda m, f: a.ev(m, f) + b.ev(m, f))
+            return Ev(f'({a.src()} + {b.src()})', lambda m, f: _short(a.ev(m, f) + b.ev(m, f)))
         if k == 'Bool':
             return self.bexpr(d)
         if k == 'Pt':
@@ -866,11 +874,23 @@ class GenGen(Gen):
     def top_lines(self):
         return PROLOGUE.splitlines() + ['']
 
+    def model(self):
+        _COPY_BUDGET[0] = 0
+        return super().model()
+
     def param_types(self):
         return ['Int', 'Int', 'Bool']
 
 
 _MISSING = object()
+
+
+def _short(t):
+    """A string the model builds; a program whose strings keep doubling
+    is dropped."""
+    if len(t) > 20000:
+        raise Bail('long string')
+    return t
 
 
 def _apply(x, n, k):
@@ -904,6 +924,7 @@ def _set_add(s, k):
 
 
 def generate(rng):
+    _COPY_BUDGET[0] = 0
     g = GenGen(rng)
     g.program()
     return g
