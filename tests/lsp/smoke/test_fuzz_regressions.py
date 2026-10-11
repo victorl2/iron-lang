@@ -474,3 +474,15 @@ async def test_no_repeated_diagnostics_from_generic_instances(lsp_binary, tmp_pa
         assert len(keys) == len(set(keys)), keys
     finally:
         await _stop(c)
+
+
+@pytest.mark.asyncio
+async def test_deep_expression_analyzed(client, tmp_path):
+    # A sanitizer build of ironls overflowed its 8 MB stacks on nesting a
+    # release build handles; its threads now get sanitizer-sized stacks.
+    uri = (tmp_path / "deep.iron").as_uri()
+    text = ("func main() {\n    val y = 1\n    val x = " + " + ".join(["y"] * 1000)
+            + "\n    val bad: Int = \"text\"\n}\n")
+    _open(client, uri, text)
+    diags = await _diagnostics_for_version(client, uri, 1, timeout=60.0)
+    assert any(d.code == "E0202" or "mismatch" in d.message for d in diags), diags

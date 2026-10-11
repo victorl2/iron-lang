@@ -1,0 +1,250 @@
+-- 1000 operators in one expression and 120 nested blocks, then an error:
+-- a sanitizer build of ironc overflowed its stack before reaching it
+-- (its frames are many times a release build's).
+func main() {
+    var y = 1
+    val x = y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y + y
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+if y > 0 {
+        y = y + 1
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+    val bad: Int = "text"
+    println("{x} {bad}")
+}
