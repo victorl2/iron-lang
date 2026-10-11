@@ -414,6 +414,7 @@ const char *emit_web_module(IronLIR_Module *module, Iron_Arena *arena,
      */
     emit_type_decls(&ctx);
     emit_resolve_hash_calls(&ctx);
+    emit_resolve_resource_calls(&ctx);
     emit_extern_prototypes(&ctx);
     /* Auto-gen prototypes for foreign-method stubs (Iron_window_*, Iron_draw_*,
      * Iron_audio_*, …). Without this, emcc fails with implicit-function-

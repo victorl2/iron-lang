@@ -1,0 +1,11 @@
+-- A lock keeps the value `set` gives it and a channel the item `send`
+-- gives it, as a Map keeps what `put` gives it: a list binding is never
+-- duplicated implicitly (manual 6.8), so passing one is E0328; write
+-- copy() or take() (#431).
+func main() {
+    val ml = Mutex([1, 2])
+    var xs = [3, 4]
+    val g = ml.lock()
+    g.set(xs)
+    println("{xs.len()}")
+}

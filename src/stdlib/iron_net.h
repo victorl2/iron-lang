@@ -369,4 +369,8 @@ Iron_Net_ipv6addr_format(Iron_IPv6Addr a) {
     return Iron_ipv6addr_format(a);
 }
 
+/* Close a server-side connection without resetting it while the peer is
+ * still sending (see iron_net.c). */
+void iron_net_lingering_close(int64_t fd);
+
 #endif /* IRON_NET_H */
