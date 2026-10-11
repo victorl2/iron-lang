@@ -12200,6 +12200,10 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         Iron_Symbol *esym = iron_scope_lookup(ctx.global_scope, ed->name);
         if (!esym || !esym->type || esym->type->kind != IRON_TYPE_ENUM) continue;
         Iron_Type *ty = esym->type;
+        /* A second declaration of the name (E0201) does not own the type:
+         * filling the type's arrays from its variants sized them for the
+         * wrong enum, and a construct of the first one read past them. */
+        if (ty->enu.decl != ed) continue;
         /* Allocate outer array of Iron_Type** pointers */
         Iron_Type ***vpt = iron_arena_alloc(ctx.arena,
             sizeof(Iron_Type **) * (size_t)ed->variant_count, _Alignof(Iron_Type **));

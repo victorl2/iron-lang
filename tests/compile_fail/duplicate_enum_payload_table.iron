@@ -1,0 +1,15 @@
+-- A second declaration of an enum with fewer variants filled the type's
+-- payload table; constructing a variant of the first one read past it
+-- (ironc check crashed).
+enum Tok {
+    Empty,
+    Flag(Bool)
+}
+
+enum Tok {
+    Word(Int)
+}
+
+func main() {
+    val v = Tok.Flag(true)
+}
