@@ -55,6 +55,9 @@ MISPLACED = ['return', 'return 0', 'break', 'continue', 'defer println("d")', 'f
              'leak x', 'await 1', 'else {', '}', 'match 1 {', 'spawn("s") {', 'val', '} else {',
              'parallel', 'comptime 1', 'drop {', 'init() {', 'func f() {', 'object O {']
 SIGNALS = (signal.SIGSEGV, signal.SIGBUS, signal.SIGILL, signal.SIGFPE)
+# cg_reduce.py on a crash that aborts (a double free the allocator caught)
+if os.environ.get('CG_REDUCE_ABORT'):
+    SIGNALS += (signal.SIGABRT,)
 
 
 def timeout():

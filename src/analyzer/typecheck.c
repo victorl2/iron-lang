@@ -8690,6 +8690,30 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     }
                 }
             }
+            /* Elements of different kinds (`[n, "x"]`): the list has one
+             * element type. The C stored the String into an int64_t list
+             * (the literal was accepted, then failed in the C compiler). */
+            if (elem_type && elem_type->kind != IRON_TYPE_ERROR &&
+                elem_type->kind != IRON_TYPE_INTERFACE) {
+                Iron_Type *base_t = elem_type->kind == IRON_TYPE_NULLABLE
+                    ? elem_type->nullable.inner : elem_type;
+                for (int i = 0; base_t && i < arrlen(elem_types); i++) {
+                    Iron_Type *et = elem_types[i];
+                    if (!et || et->kind == IRON_TYPE_ERROR) continue;
+                    if (et->kind == IRON_TYPE_NULLABLE && et->nullable.inner) et = et->nullable.inner;
+                    if (et->kind == base_t->kind) continue;
+                    if (iron_type_is_numeric(et) && iron_type_is_numeric(base_t)) continue;
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "list literal elements have different types: '%s' and '%s'",
+                             iron_type_to_string(base_t, ctx->arena),
+                             iron_type_to_string(et, ctx->arena));
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, al->span, msg,
+                               "a list holds elements of one type");
+                    elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    break;
+                }
+            }
             arrfree(elem_types);
             if (!elem_type) {
                 /* Empty literal with no expected-type context: emit a
