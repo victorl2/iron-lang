@@ -39,23 +39,26 @@ dirty=$(git status --porcelain | grep -v '^??' | head -1)
 linux_leg() {   # $1 = asan | release | leaks
     local leg=$1 dir="build-ci-$1"
     export IRON_CURRENT_PHASE=37
+    # No OPENSSL_ROOT_DIR here: with it, CMake 3.28's FindOpenSSL looks in
+    # /usr/lib and /usr/lib64 only and misses Ubuntu's multiarch
+    # /usr/lib/x86_64-linux-gnu, so TLS and crypto built as unavailable.
     case $leg in
     asan)
         export ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:detect_stack_use_after_return=1
         export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
         cmake -S . -B "$dir" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang \
-            -DOPENSSL_ROOT_DIR=/usr -DIRON_ENABLE_SANITIZERS=ON >/dev/null &&
+            -DIRON_ENABLE_SANITIZERS=ON >/dev/null &&
         cmake --build "$dir" -j8 >"$dir.build.log" 2>&1 &&
         ctest --test-dir "$dir" --output-on-failure -j8 -E benchmark &&
         tests/integration/run_integration.sh "$dir/ironc" ;;
     release)
         cmake -S . -B "$dir" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang \
-            -DOPENSSL_ROOT_DIR=/usr >/dev/null &&
+            >/dev/null &&
         cmake --build "$dir" -j8 >"$dir.build.log" 2>&1 &&
         ctest --test-dir "$dir" --output-on-failure -j8 -E benchmark ;;
     leaks)
         cmake -S . -B "$dir" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang \
-            -DOPENSSL_ROOT_DIR=/usr >/dev/null &&
+            >/dev/null &&
         cmake --build "$dir" -j8 --target iron ironc >"$dir.build.log" 2>&1 &&
         LEAK_CHECK_JOBS=8 tests/oracles/leak_check.sh "$dir/iron" \
             $(find tests/integration/v4 -mindepth 1 -maxdepth 2 -type d) ;;

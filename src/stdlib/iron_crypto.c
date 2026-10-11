@@ -60,14 +60,6 @@ static Iron_String cr_cstr(const char *text) {
     return iron_string_from_cstr(text, strlen(text));
 }
 
-static Iron_CryptoResult cr_ok(Iron_String data) {
-    Iron_CryptoResult out;
-    out.data = data;
-    out.error = 0;
-    out.error_message = iron_string_from_cstr("", 0);
-    return out;
-}
-
 static Iron_CryptoResult cr_fail(int64_t code, const char *message) {
 #ifdef IRON_CRYPTO_OPENSSL
     ERR_clear_error();  /* leave no stale entries for the next call or for TLS */
@@ -126,6 +118,14 @@ Iron_String Iron_crypto_xor(Iron_String data, Iron_String key) {
 }
 
 #ifdef IRON_CRYPTO_OPENSSL
+
+static Iron_CryptoResult cr_ok(Iron_String data) {
+    Iron_CryptoResult out;
+    out.data = data;
+    out.error = 0;
+    out.error_message = iron_string_from_cstr("", 0);
+    return out;
+}
 
 /* ── Algorithm tables (fetched once, shared by every thread) ──────────── */
 

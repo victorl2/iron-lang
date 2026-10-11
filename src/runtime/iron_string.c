@@ -17,6 +17,10 @@
  * literals belong to the runtime and are never counted. */
 typedef struct { _Atomic uint64_t rc; uint64_t _pad; } IronStrHdr;
 
+/* heap.codepoint_count of a string from iron_string_seal_bytes: not
+ * counted yet (iron_string_codepoint_count counts on demand). */
+#define IRON_STRING_COUNT_UNKNOWN UINT32_MAX
+
 static char *iron__str_alloc(size_t byte_len, const char *where) {
     IronStrHdr *h = (IronStrHdr *)malloc(sizeof(IronStrHdr) + byte_len + 1);
     if (!h) iron_oom_abort(where);
@@ -140,7 +144,10 @@ void iron_string_seal_bytes(Iron_String *s, size_t byte_len) {
         }
         s->heap.data[byte_len]  = '\0';
         s->heap.byte_length     = (uint32_t)byte_len;
-        s->heap.codepoint_count = (uint32_t)count_codepoints(s->heap.data, byte_len);
+        /* Binary producers (ciphertexts, decoded payloads) would pay a
+         * byte-by-byte scan for a character count nobody asks of binary
+         * data; it is counted when asked instead. */
+        s->heap.codepoint_count = IRON_STRING_COUNT_UNKNOWN;
         return;
     }
     if (byte_len > s->sso.len) byte_len = s->sso.len;
@@ -171,6 +178,8 @@ size_t iron_string_byte_len(const Iron_String *s) {
 
 size_t iron_string_codepoint_count(const Iron_String *s) {
     if (s->heap.flags & 0x01) {
+        if (s->heap.codepoint_count == IRON_STRING_COUNT_UNKNOWN)
+            return count_codepoints(s->heap.data, (size_t)s->heap.byte_length);
         return (size_t)s->heap.codepoint_count;
     }
     /* SSO: count on demand (strings <= 23 bytes, cheap) */
