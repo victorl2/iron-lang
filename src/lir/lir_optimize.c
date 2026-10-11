@@ -284,6 +284,9 @@ static void analyze_array_param_modes(IronLIR_Module *module,
         for (int fi = 0; fi < module->func_count; fi++) {
             IronLIR_Func *fn = module->funcs[fi];
             if (fn->is_extern || fn->block_count == 0) continue;
+            /* `main(args: [String])` is called by the generated C entry
+             * point with the runtime's list: its signature is fixed. */
+            if (fn->name && strcmp(fn->name, "main") == 0) continue;
 
             for (int pi = 0; pi < fn->param_count; pi++) {
                 Iron_Type *pt = fn->params[pi].type;
