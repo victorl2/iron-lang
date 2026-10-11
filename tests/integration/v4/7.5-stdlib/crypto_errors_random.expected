@@ -1,0 +1,45 @@
+AES-256-GCM sealed: 0 30
+AES-256-GCM opened: 0 attack at dawn
+AES-256-GCM forged bytes caught: 30/30
+AES-256-GCM wrong aad: 9004
+AES-256-GCM wrong nonce: 9004
+AES-256-GCM wrong key: 9004
+AES-256-GCM truncated: 9004 9004
+AES-256-GCM short key: 9002 the key must be 32 bytes
+AES-256-GCM long nonce: 9003 the nonce must be 12 bytes
+AES-256-GCM open short key: 9002
+AES-256-GCM encrypt: 0 42 differ=true
+AES-256-GCM decrypt: 0 same plaintext
+AES-256-GCM nonce prefix: same plaintext
+AES-256-GCM decrypt forged: 9004 short=9004
+AES-256-GCM empty plaintext: 28 0
+AES-256-GCM binary: 0 true
+ChaCha20-Poly1305 sealed: 0 30
+ChaCha20-Poly1305 opened: 0 attack at dawn
+ChaCha20-Poly1305 forged bytes caught: 30/30
+ChaCha20-Poly1305 wrong aad: 9004
+ChaCha20-Poly1305 wrong nonce: 9004
+ChaCha20-Poly1305 wrong key: 9004
+ChaCha20-Poly1305 truncated: 9004 9004
+ChaCha20-Poly1305 short key: 9002 the key must be 32 bytes
+ChaCha20-Poly1305 long nonce: 9003 the nonce must be 12 bytes
+ChaCha20-Poly1305 open short key: 9002
+ChaCha20-Poly1305 encrypt: 0 42 differ=true
+ChaCha20-Poly1305 decrypt: 0 same plaintext
+ChaCha20-Poly1305 nonce prefix: same plaintext
+ChaCha20-Poly1305 decrypt forged: 9004 short=9004
+ChaCha20-Poly1305 empty plaintext: 28 0
+ChaCha20-Poly1305 binary: 0 true
+sizes: 32 12 16
+hkdf length: 9005 9005 8160
+hkdf empty ikm: 9002
+pbkdf2: 9006 9005 32
+scrypt: 9006 9006 9006 9006 9005
+scrypt message: scrypt parameters out of range (log_n 1..30, r * p < 2^30, memory at most 1 GiB)
+random bytes: 32 32 true 0 100000
+random_int: true true true 7
+random_int full range: true
+token: 43 0 32 true []
+equal: true false false true
+xor: ff00f0 00030205 same
+xor twice: round trip text
