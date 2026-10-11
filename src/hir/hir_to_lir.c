@@ -3897,18 +3897,30 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
 
     /* Phase 27 POL-08 (Plan 27-02): rc_val.downgrade() → IRON_LIR_WEAK_RC_DOWNGRADE. */
     case IRON_HIR_EXPR_WEAK_RC_DOWNGRADE: {
-        IronLIR_ValueId src = lower_expr(ctx,
-            expr->weak_rc_downgrade.strong_rc_val);
-        return iron_lir_weak_rc_downgrade(ctx->current_func, ctx->current_block,
-                                           src, type, span)->id;
+        IronHIR_Expr *se = expr->weak_rc_downgrade.strong_rc_val;
+        IronLIR_ValueId src = lower_expr(ctx, se);
+        IronLIR_ValueId res = iron_lir_weak_rc_downgrade(ctx->current_func,
+            ctx->current_block, src, type, span)->id;
+        /* A temporary handle (`make().downgrade()`) has no other owner: its
+         * reference is released once the weak one is taken (it leaked). */
+        if (se && se->type && rc_expr_transfers_ownership(se) &&
+            ctx->current_block && !block_is_terminated(ctx->current_block))
+            emit_rc_release_for_type(ctx, se->type, src, span);
+        return res;
     }
 
     /* Phase 27 POL-09 (Plan 27-02): weak_val.upgrade() → IRON_LIR_WEAK_RC_UPGRADE. */
     case IRON_HIR_EXPR_WEAK_RC_UPGRADE: {
-        IronLIR_ValueId src = lower_expr(ctx,
-            expr->weak_rc_upgrade.weak_rc_val);
-        return iron_lir_weak_rc_upgrade(ctx->current_func, ctx->current_block,
-                                         src, type, span)->id;
+        IronHIR_Expr *we = expr->weak_rc_upgrade.weak_rc_val;
+        IronLIR_ValueId src = lower_expr(ctx, we);
+        IronLIR_ValueId res = iron_lir_weak_rc_upgrade(ctx->current_func,
+            ctx->current_block, src, type, span)->id;
+        /* A temporary weak handle (`r.downgrade().upgrade()`, `f().upgrade()`)
+         * is released once upgraded (it leaked the allocation). */
+        if (we && we->type && rc_expr_transfers_ownership(we) &&
+            ctx->current_block && !block_is_terminated(ctx->current_block))
+            emit_rc_release_for_type(ctx, we->type, src, span);
+        return res;
     }
 
     case IRON_HIR_EXPR_CONSTRUCT: {
