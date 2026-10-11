@@ -1,0 +1,9 @@
+// Already migrated: nothing changes.
+//iron:fusible
+func f() -> Int {
+    return 1 // one
+}
+
+func main() {
+    println("{f()}")
+}

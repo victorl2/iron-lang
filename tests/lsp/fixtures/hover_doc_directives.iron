@@ -1,0 +1,15 @@
+-- HOVER@13:22
+-- Hover shows the `//` documentation run above a field and its directives
+-- (own line and trailing), with the blank line below keeping this header
+-- out of it.
+
+object Item {
+    // The catalog number.
+    //db:primary_key
+    pub val item_id: Int  //json:id
+}
+
+func main() {
+    val n = Item(7).item_id
+    println("{n}")
+}

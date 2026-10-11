@@ -1016,6 +1016,14 @@ add_test(NAME diag_c_logical_operators
         -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/c_logical_operators.expected_help
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/c_logical_operators.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+# `//iron:<hint>` compiler hints: unknown or misplaced ones warn (W0617).
+add_test(NAME diag_iron_hints
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/iron_hints.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/iron_hints.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/iron_hints.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 add_test(NAME diag_help_quality
     COMMAND ${CMAKE_COMMAND}
         -DIRONC=$<TARGET_FILE:ironc>
@@ -1620,6 +1628,13 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/json_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/json_fuzz)
     set_tests_properties(json_fuzz PROPERTIES LABELS "stdlib" TIMEOUT 900)
+endif()
+# `ironc fmt --migrate-comments` golden files: rewrite, idempotence, same
+# program output, refusals (tests/fmt/migrate/run.sh).
+if(UNIX)
+    add_test(NAME test_fmt_migrate_comments
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/fmt/migrate/run.sh $<TARGET_FILE:ironc>)
+    set_tests_properties(test_fmt_migrate_comments PROPERTIES LABELS "unit" TIMEOUT 600)
 endif()
 # The standard library prelude, parsed by every compile, stays within the
 # section 13 grammar of the manual (#324).

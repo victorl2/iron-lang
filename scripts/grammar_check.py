@@ -68,9 +68,53 @@ class LexError(Exception):
     pass
 
 
+def scan_string(src: str, i: int, sl: int, sc: int) -> int:
+    """Index just past the string literal starting at src[i]. An
+    interpolation `{...}` may hold string literals, which may interpolate
+    in turn (tests/integration/v4/regressions/interp_nested_literal_braces)."""
+    n = len(src)
+    multiline = src.startswith('"""', i)
+    i += 3 if multiline else 1
+    while True:
+        if i >= n:
+            raise LexError(f"{sl}:{sc}: unterminated string")
+        d = src[i]
+        if not multiline and d == "\n":
+            raise LexError(f"{sl}:{sc}: unterminated string")
+        if d == "\\":
+            i += 2
+            continue
+        if multiline and src.startswith('"""', i):
+            return i + 3
+        if not multiline and d == '"':
+            return i + 1
+        if d == "{":
+            # The interpolation runs to its matching `}`; braces and quotes
+            # inside its nested literals do not count.
+            i += 1
+            depth = 1
+            while depth > 0:
+                if i >= n or (src[i] == "\n" and not multiline):
+                    raise LexError(f"{sl}:{sc}: unterminated string")
+                e = src[i]
+                if e == "\\":  # `\"old\"` inside an interpolation
+                    i += 2
+                    continue
+                if e == '"':
+                    i = scan_string(src, i, sl, sc)
+                    continue
+                if e == "{":
+                    depth += 1
+                elif e == "}":
+                    depth -= 1
+                i += 1
+            continue
+        i += 1
+
+
 def lex(src: str) -> List[Token]:
     """Tokenize Iron source the way src/lexer/lexer.c does, minus newlines
-    (the parser skips them everywhere) and doc comments."""
+    (the parser skips them everywhere) and comments."""
     toks: List[Token] = []
     i, n = 0, len(src)
     line, col = 1, 1
@@ -94,46 +138,15 @@ def lex(src: str) -> List[Token]:
             while i < n and src[i] != "\n":
                 adv()
             continue
-        if c == "/" and src.startswith("///", i):
+        if c == "/" and src.startswith("//", i):  # `//`, and `///` while code migrates
             while i < n and src[i] != "\n":
                 adv()
             continue
         sl, sc = line, col
         if c == '"':
             start = i
-            multiline = src.startswith('"""', i)
-            adv(3 if multiline else 1)
-            depth = 0
-            while True:
-                if i >= n:
-                    raise LexError(f"{sl}:{sc}: unterminated string")
-                d = src[i]
-                if not multiline and d == "\n":
-                    raise LexError(f"{sl}:{sc}: unterminated string")
-                if depth > 0 and d == '"':
-                    # nested literal inside an interpolation expression
-                    adv()
-                    while i < n and src[i] not in '"\n':
-                        if src[i] == "\\":
-                            adv()
-                        adv()
-                    if i < n and src[i] == '"':
-                        adv()
-                    continue
-                if d == "\\":
-                    adv(2)
-                    continue
-                if d == "{":
-                    depth += 1
-                elif d == "}" and depth > 0:
-                    depth -= 1
-                if multiline and src.startswith('"""', i):
-                    adv(3)
-                    break
-                if not multiline and d == '"':
-                    adv()
-                    break
-                adv()
+            end = scan_string(src, i, sl, sc)
+            adv(end - i)
             toks.append(Token("STRING", src[start:i], sl, sc))
             continue
         if c.isdigit():

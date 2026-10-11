@@ -46,21 +46,26 @@ types and list literals (`[Int; 4]`).
 
 ### 1.2 Comments
 
-A line comment starts with `--` and runs to the end of the line. There are
-no block comments, and `//` and `#` are not comments.
+Iron has one comment form: `//` starts a comment that runs to the end of
+the line. There are no block comments, and `#` is not a comment. A `//`
+inside a string literal is string text (`"http://example.com"`).
 
-A line starting with `///` is a documentation comment. A run of `///`
-lines directly above a declaration, field, enum variant or interface method
-(no blank line in between) is attached to it and shown by the language
-server; a blank line breaks the association. The compiler otherwise ignores
-doc comments.
+**Documentation.** A run of `//` comment lines directly above a
+declaration, an object field, an enum variant or an interface method, with
+no blank line between the lines or before the declaration, is its
+documentation. The language server shows it on hover, in completion and in
+signature help, with one leading space removed from each line. A blank line
+breaks the association, and a comment at the end of a line of code is never
+documentation. The compiler otherwise ignores comments.
 
 ```iron
-/// Doubles its argument.
-/// Attached to `twice` because no blank line separates them.
+// Doubles its argument.
+// Attached to `twice` because no blank line separates them.
 func twice(x: Int) -> Int {
-    return x * 2   -- a line comment
+    return x * 2   // a comment at the end of a line
 }
+
+// A comment followed by a blank line documents nothing.
 
 func main() {
     println("{twice(21)}")
@@ -70,6 +75,54 @@ func main() {
 ```output
 42
 ```
+
+**Directives.** A comment written `//key:value`, with no space after `//`,
+a key of lowercase letters, digits and `_` starting with a letter, and a
+`:` right after the key, is a directive. A directive belongs to the
+declaration or field it sits directly above, as part of its comment run, or
+to the one whose line it ends. Directive lines are not part of the
+documentation. The value is the rest of the line. `// json:id`, with a
+space, is an ordinary comment.
+
+```iron
+object Item {
+    // The catalog number.
+    //db:primary_key
+    pub val item_id: Int  //json:id
+    pub val name: String  //json:name
+}
+
+func main() {
+    val it = Item(7, "lamp")
+    println("{it.item_id} {it.name}")
+}
+```
+
+```output
+7 lamp
+```
+
+The compiler keeps directives on the declarations they belong to and gives
+them no meaning of their own, except the `iron` key: `//iron:<hint>` is a
+compiler hint. A hint changes only how the compiler represents or optimizes
+a declaration (a function, object or field), never what the program does;
+anything that is part of a type or changes what type checks, such as
+`[T, layout: soa]` or `[I, unordered]`, is language syntax instead. The
+hints are:
+
+| Hint | On | Meaning |
+|------|----|---------|
+| `//iron:fusible` | a function or method, on the line above `func` | eligible for loop fusion of chained list operations (section 5.2) |
+
+An `//iron:` hint the compiler does not know, or one written above a
+declaration it does not apply to, is warning W0617, so a misspelling such
+as `//iron:fusable` does not pass silently.
+
+**Transition.** Earlier versions wrote line comments with `--`,
+documentation lines with `///` and the fusion hint as `@fusible`. These
+are still accepted, with the same meaning as `//`, `//` and
+`//iron:fusible`, while code moves over; `iron fmt --migrate-comments
+[paths]` rewrites them (section 10) and a later version will reject them.
 
 ### 1.3 Identifiers and keywords
 
@@ -103,10 +156,11 @@ implemented). `init`, `copy`, `drop`, `null` and `free` may additionally
 appear as method names after a `.` or after `func` inside an object body,
 which is how `Box.null()` and `b.free()` are spelled.
 
-The words `as`, `fusible`, `layout`, `soa`, `aos`, `unordered`,
-`allow_drop_skip` and `Self` are ordinary identifiers with a special meaning
-in specific positions (import aliases, `@fusible`, list attributes, `heap`
-options and the receiver type).
+The words `as`, `layout`, `soa`, `aos`, `unordered`, `allow_drop_skip`
+and `Self` are ordinary identifiers with a special meaning in specific
+positions (import aliases, list attributes, `heap` options and the
+receiver type). `fusible` is an ordinary identifier too; it is special only
+after `@` in the transitional `@fusible` (section 1.2).
 
 ### 1.4 Literals
 
@@ -1308,8 +1362,10 @@ func main() {
 A top-level function name is a function value: `val f = twice`,
 `apply(twice, 4)` and `[twice]` work like the equivalent lambdas.
 
-`@fusible` before a `func` marks it as eligible for loop fusion of chained
-list operations; it changes nothing else about the function.
+The compiler hint `//iron:fusible` on the line directly above a `func`
+marks it as eligible for loop fusion of chained list operations; it changes
+nothing else about the function. The older `@fusible` before `func` means
+the same and is accepted while code migrates (section 1.2).
 
 ### 5.3 Objects
 
@@ -2914,7 +2970,13 @@ every `.iron` file under `src/` and `vendor/` into `target/`, `iron run`
 builds and runs it, `iron check` type-checks the same sources, `iron test`
 runs the package's `test "name" { ... }` blocks (section 10.2.1) and every
 `tests/test_*.iron` program, and `iron fmt file.iron` reformats a file
-(`--check` only reports). All files of a package share one namespace: a
+(`--check` only reports). `iron fmt --migrate-comments [paths]` rewrites
+the transitional `--` comments, `///` documentation lines and `@fusible`
+in every `.iron` file under the given files or directories (the current
+directory by default) to `//` and `//iron:fusible` (section 1.2); it
+changes only comments as the lexer reads them, checks that every rewritten
+file still lexes, parses and documents the same, and with `--check` only
+lists the files it would change. All files of a package share one namespace: a
 `pub` declaration in one file is visible in every other file, and a
 private one only in its own (`E0320`). `import` of a package file is
 optional and documents the dependency.
@@ -3147,6 +3209,7 @@ codes cited in this manual:
 | E0700 to E0703 | web main loop rules |
 | W0601, W0604, W0605, W0606 | narrowing cast; spawn data race; arena skips `drop`; heap value never freed |
 | W0611, W0613, W0614 | unused import; `var` never reassigned; `var` parameter never reassigned |
+| W0617 | unknown `//iron:` compiler hint, or one on a declaration it does not apply to |
 
 `docs/dev/diagnostic-codes.md` lists every code with its message.
 
@@ -3178,6 +3241,20 @@ or one of the keywords allowed in name position. Newlines and comments are
 not part of the grammar: the parser skips them between any two tokens (see
 section 1.6). The grammar is checked against the fixture corpus by
 `scripts/grammar_check.py`.
+
+Comments are lexical (section 1.2):
+
+```text
+comment        ::= '//' { any character except newline }
+directive      ::= '//' KEY ':' { any character except newline }
+KEY            ::= 'a'..'z' { 'a'..'z' | '0'..'9' | '_' }
+doc_run        ::= { own-line comment, one per line, no blank line between }
+                   (documents the declaration, field, enum variant or
+                    interface method on the next line)
+```
+
+`--` and `///` are transitional spellings of `//`, and `@fusible` of the
+directive `//iron:fusible` (section 1.2).
 
 ```ebnf
 program        ::= { decl }

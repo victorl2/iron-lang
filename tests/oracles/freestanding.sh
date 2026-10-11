@@ -37,7 +37,7 @@ for dir in "$@"; do
         [ -e "$src" ] || continue
         name=$(basename "$src" .iron)
         abs=$(cd "$(dirname "$src")" && pwd)/$(basename "$src")
-        if head -n 10 "$src" | grep -qE '^[[:space:]]*--[[:space:]]*@(compile-only|expected-pass-after)'; then continue; fi
+        if head -n 10 "$src" | grep -qE '^[[:space:]]*(--|//)[[:space:]]*@(compile-only|expected-pass-after)'; then continue; fi
         if ! mkdir -p "$work/$name" || ! (cd "$work/$name" && "$IRON" build --emit-c "$abs" >/dev/null 2>"$work/$name.build"); then
             # A fixture that does not build (a @posix-only path, a missing library) is not this oracle's concern.
             skipped=$((skipped+1)); continue

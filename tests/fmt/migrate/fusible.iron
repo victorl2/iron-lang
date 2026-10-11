@@ -1,0 +1,15 @@
+-- `@fusible` becomes the compiler hint `//iron:fusible`.
+
+/// Doc above the annotation.
+@fusible
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+    @fusible func dec(x: Int) -> Int {
+        return x - 1
+    }
+
+func main() {
+    println("{inc(1)} {dec(1)}")
+}
