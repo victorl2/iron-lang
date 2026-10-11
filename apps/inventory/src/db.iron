@@ -493,7 +493,8 @@ pub func category_report(db: rc MysqlPool, window_s: Int) -> Report {
 
 -- The report aggregates every movement of the window, which grows with
 -- traffic: repeated and concurrent requests within report_cache_ms share
--- one result, computed by one of them.
+-- one result, computed by one of them; while it recomputes, the others get
+-- the previous result.
 pub object ReportCache {
     val lock: Mutex[Int]
     val ttl_ms: Int
@@ -522,12 +523,17 @@ pub func cached_report(cache: rc ReportCache, db: rc MysqlPool, window_s: Int) -
         if true {
             val g = cache.lock.lock()
             val now = Time.now_ms()
-            if cache.at > 0 and cache.window == window_s and now - cache.at < cache.ttl_ms {
+            val have = cache.at > 0 and cache.window == window_s
+            if have and now - cache.at < cache.ttl_ms {
                 return Report(cache.rows.copy(), 200, ok_error())
             }
             if not cache.computing or waited >= 10000 {
                 cache.computing = true
                 compute = true
+            } elif have {
+                -- Someone is recomputing: answer from the previous result
+                -- rather than holding this thread until it is done.
+                return Report(cache.rows.copy(), 200, ok_error())
             }
         }
         if compute {

@@ -785,14 +785,13 @@ def t_http_protocol_edges():
     check(out.startswith(b"HTTP/1.1 400"), f"missing Host: {out[:80]!r}")
     out = raw_exchange(port, b"GET /healthz HTTP/1.0\r\nUser-Agent: it\r\n\r\n")
     check(out.startswith(b"HTTP/1.1 200") and b"Connection: close" in out, f"HTTP/1.0: {out[:120]!r}")
-    # Headers over max_header_bytes: 431. The server closes with the rest of
-    # the request unread, which resets the connection and can destroy the
-    # answer before the client reads it (#509), so a reset is accepted too.
-    try:
-        out = raw_exchange(port, b"GET /healthz HTTP/1.1\r\nHost: x\r\n" + b"X-Big: " + b"a" * 20000 + b"\r\n\r\n")
-        check(out.startswith(b"HTTP/1.1 431") or out == b"", f"huge header: {out[:80]!r}")
-    except ConnectionResetError:
-        pass
+    # Headers over max_header_bytes: 431, delivered although the rest of the
+    # request was never read (the poller drains before closing).
+    out = raw_exchange(port, b"GET /healthz HTTP/1.1\r\nHost: x\r\n" + b"X-Big: " + b"a" * 20000 + b"\r\n\r\n")
+    check(out.startswith(b"HTTP/1.1 431"), f"huge header: {out[:80]!r}")
+    # A body over max_body_bytes is refused from its Content-Length alone.
+    out = raw_exchange(port, b"POST /v1/items HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 200000\r\n\r\n" + b"x" * 200000)
+    check(out.startswith(b"HTTP/1.1 413"), f"huge body: {out[:80]!r}")
     # Chunked request body.
     body = json.dumps({"sku": "CH-" + rand_suffix(), "name": "chunky", "category": "c", "price_cents": 3}).encode()
     chunked = b"%x\r\n%s\r\n0\r\n\r\n" % (len(body), body)
