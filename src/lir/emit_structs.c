@@ -533,15 +533,19 @@ static void emit_ensure_enum_list(EmitCtx *ctx, const Iron_Type *et) {
                                                    : emit_mangle_name(et->enu.decl->name, ctx->arena);
         if (shgeti(ctx->emitted_mono_list_types, mangled) >= 0) return;
         shput(ctx->emitted_mono_list_types, mangled, true);
-        iron_strbuf_appendf(&ctx->struct_bodies,
+        /* The typedef goes with the enum's (before every struct body: an
+         * object field may be a [Color]); the functions at the end. */
+        iron_strbuf_appendf(&ctx->enum_defs,
             "typedef struct Iron_List_%s {\n"
             "    %s    *items;\n"
             "    int64_t count;\n"
             "    int64_t capacity;\n"
-            "} Iron_List_%s;\n"
+            "} Iron_List_%s;\n",
+            mangled, mangled, mangled);
+        iron_strbuf_appendf(&ctx->struct_bodies,
             "IRON_LIST_DECL(%s, %s)\n"
             "IRON_LIST_IMPL(%s, %s)\n\n",
-            mangled, mangled, mangled, mangled, mangled, mangled, mangled);
+            mangled, mangled, mangled, mangled);
         return;
     }
     const char *mangled = et->enu.mangled_name ? et->enu.mangled_name
@@ -590,6 +594,50 @@ static void ensure_lists_in_type(EmitCtx *ctx, const Iron_Type *t, int depth) {
         break;
     default:
         break;
+    }
+}
+
+/* The prototypes of a list of an ADT enum nested in t below its top level
+ * (a Map's value, an optional, a tuple component), declared early with the
+ * same "early:" key emit_enum_decl uses for direct list payloads. */
+static void early_nested_list_decls(EmitCtx *ctx, const Iron_Type *t, int depth) {
+    if (!t || depth > 12) return;
+    const Iron_Type *sub[2] = { NULL, NULL };
+    if (t->kind == IRON_TYPE_NULLABLE) sub[0] = t->nullable.inner;
+    else if (t->kind == IRON_TYPE_OBJECT && t->object.elem) {
+        sub[0] = t->object.elem;
+        sub[1] = t->object.elem2;
+    } else if (t->kind == IRON_TYPE_TUPLE) {
+        for (int i = 0; i < t->tuple.elem_count; i++)
+            early_nested_list_decls(ctx, t->tuple.elem_types[i], depth + 1);
+        return;
+    } else if (t->kind == IRON_TYPE_ARRAY) sub[0] = t->array.elem;
+    for (int s = 0; s < 2; s++) {
+        const Iron_Type *x = sub[s];
+        if (!x) continue;
+        if (depth > 0 || t->kind != IRON_TYPE_ARRAY) {
+            if (x->kind == IRON_TYPE_ARRAY && x->array.size < 0 && !x->array.is_bounded &&
+                x->array.elem && x->array.elem->kind == IRON_TYPE_ENUM &&
+                x->array.elem->enu.decl && x->array.elem->enu.decl->has_payloads &&
+                !(x->array.elem->enu.decl->name &&
+                  strcmp(x->array.elem->enu.decl->name, "Address") == 0)) {
+                const Iron_Type *el = x->array.elem;
+                const char *em = el->enu.mangled_name ? el->enu.mangled_name
+                                                      : emit_mangle_name(el->enu.decl->name, ctx->arena);
+                if (shgeti(ctx->emitted_mono_list_types, em) < 0) {
+                    size_t kl = strlen(em) + 7;
+                    char *key = (char *)iron_arena_alloc(ctx->arena, kl, 1);
+                    if (!key) iron_oom_abort("emit_structs.c:early_nested_list_decls key");
+                    snprintf(key, kl, "early:%s", em);
+                    if (shgeti(ctx->emitted_mono_list_types, key) < 0) {
+                        shput(ctx->emitted_mono_list_types, key, true);
+                        iron_strbuf_appendf(&ctx->struct_bodies,
+                                            "IRON_LIST_DECL(%s, %s)\n", em, em);
+                    }
+                }
+            }
+        }
+        early_nested_list_decls(ctx, x, depth + 1);
     }
 }
 
@@ -926,9 +974,11 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
         if (!f || !f->type_ann || !f->resolved_type ||
             f->resolved_type->kind == IRON_TYPE_ERROR) continue;
         Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
+        early_nested_list_decls(ctx, f->resolved_type, 0);
         if (ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || ta->is_pointer ||
             ta->is_tuple || !ta->name ||
-            (ta->is_array && (ta->bounded || ta->array_size || ta->array_elem_ann)))
+            (ta->is_array && (ta->bounded || ta->array_size || ta->array_elem_ann ||
+                              ta->is_nullable)))
             (void)emit_type_to_c(f->resolved_type, ctx);
         /* A `T?` field of a user type: its Iron_Optional_T typedef wraps
          * T by value, so it is declared here, after T's struct (the
@@ -971,6 +1021,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                  * Iron_Tuple_..., the annotation path dereferenced NULL.) */
                 if ((ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || iface_list ||
                      ta->is_pointer || ta->is_tuple || !ta->name ||
+                     (ta->is_array && ta->is_nullable) ||
                      (ta->is_array && (ta->bounded || ta->array_size || ta->array_elem_ann))) &&
                     f->resolved_type && f->resolved_type->kind != IRON_TYPE_ERROR) {
                     /* Box[T], a generic enum, weak rc T, a pointer (`*T` is
@@ -1120,6 +1171,14 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
          * emitted with the other lists, after every struct, and the C did
          * not compile. */
         bool self_list = false;
+        /* (Also a list inside a payload's Map, optional or tuple:
+         * `C(Map[String, [W2]])` emitted the table's drop thunk naming
+         * Iron_List_Iron_W2_free before its prototype.) */
+        for (int j = 0; vpt && j < ed->variant_count; j++) {
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            for (int k = 0; vpt[j] && k < ev->payload_count; k++)
+                if (vpt[j][k]) early_nested_list_decls(ctx, vpt[j][k], 0);
+        }
         for (int j = 0; vpt && j < ed->variant_count; j++) {
             Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
             for (int k = 0; vpt[j] && k < ev->payload_count; k++) {

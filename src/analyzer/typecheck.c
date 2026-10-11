@@ -1564,6 +1564,14 @@ static bool stale_signature_type(const Iron_Type *t, int depth) {
         case IRON_TYPE_ARRAY:    return stale_signature_type(t->array.elem, depth + 1);
         case IRON_TYPE_NULLABLE: return stale_signature_type(t->nullable.inner, depth + 1);
         case IRON_TYPE_RC:       return stale_signature_type(t->rc.inner, depth + 1);
+        case IRON_TYPE_TUPLE:
+            for (int i = 0; i < t->tuple.elem_count; i++)
+                if (stale_signature_type(t->tuple.elem_types[i], depth + 1)) return true;
+            return false;
+        case IRON_TYPE_OBJECT:
+            /* Map / Set element types */
+            return (t->object.elem && stale_signature_type(t->object.elem, depth + 1)) ||
+                   (t->object.elem2 && stale_signature_type(t->object.elem2, depth + 1));
         case IRON_TYPE_ENUM:
             for (int i = 0; t->enu.type_args && i < t->enu.type_arg_count; i++)
                 if (stale_signature_type(t->enu.type_args[i], depth + 1)) return true;
@@ -12884,9 +12892,10 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         for (int fi = 0; fi < od->field_count; fi++) {
             Iron_Field *f = (Iron_Field *)od->fields[fi];
             /* (An ERROR from an earlier round names a generic instance
-             * that did not exist yet: resolve again.) */
+             * that did not exist yet, also inside a tuple or a list: resolve
+             * again.) */
             if (f && f->type_ann &&
-                (!f->resolved_type || f->resolved_type->kind == IRON_TYPE_ERROR))
+                (!f->resolved_type || stale_signature_type(f->resolved_type, 0)))
                 f->resolved_type = resolve_type_annotation(&ctx, f->type_ann);
         }
     }

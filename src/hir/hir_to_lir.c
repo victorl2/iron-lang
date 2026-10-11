@@ -1623,6 +1623,21 @@ static void collect_mono_enums_node(HIR_to_LIR_Ctx *ctx, MonoEnumSeen **seen,
         case IRON_NODE_PARAM:
             register_mono_enum(ctx, seen, ((Iron_Param *)node)->resolved_type);
             break;
+        case IRON_NODE_ENUM_DECL: {
+            /* The payload types of a plain enum (`V0([Mb[String]])`). */
+            Iron_EnumDecl *ed = (Iron_EnumDecl *)node;
+            if (ed->generic_param_count > 0 || !ctx->global_scope || !ed->name) break;
+            Iron_Symbol *es = iron_scope_lookup(ctx->global_scope, ed->name);
+            Iron_Type *et = es ? es->type : NULL;
+            if (!et || et->kind != IRON_TYPE_ENUM || !et->enu.variant_payload_types) break;
+            for (int j = 0; j < ed->variant_count; j++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+                if (!ev || !et->enu.variant_payload_types[j]) continue;
+                for (int k = 0; k < ev->payload_count; k++)
+                    register_mono_enum(ctx, seen, et->enu.variant_payload_types[j][k]);
+            }
+            break;
+        }
         case IRON_NODE_OBJECT_DECL: {
             /* Field types (a generic instance's are concrete). */
             Iron_ObjectDecl *od = (Iron_ObjectDecl *)node;

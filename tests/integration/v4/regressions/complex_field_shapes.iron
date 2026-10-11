@@ -1,0 +1,59 @@
+-- Object fields and enum payloads of complex shapes (#654): a tuple of a
+-- generic instance, a generic enum of a generic instance, a nullable list,
+-- a list of a plain enum, a list of a generic enum instance in a payload,
+-- a map of a list of enums in a payload.
+object Gb[T] {
+    val v: T
+}
+
+enum Mb[T] {
+    No,
+    So(T),
+}
+
+enum E1 {
+    P,
+    Q,
+}
+
+enum W2 {
+    A,
+    B(Int),
+}
+
+enum E3 {
+    V0([Mb[String]]),
+    V1(Map[String, [W2]]),
+}
+
+object R {
+    val t: (Gb[Int], Int)
+    val m: Mb[Gb[String]]
+    val o: [Int]?
+    val l: [E1]
+}
+
+func main() {
+    val r = R((Gb[Int](-300), 7), Mb.So(Gb[String]("s")), [1, 2], [E1.P, E1.Q])
+    val (a, b) = r.t
+    match r.m {
+        Mb.So(g) -> println("{a.v} {b} {g.v}")
+        Mb.No -> println("no")
+    }
+    val o = r.o
+    if o != null {
+        println("{len(o)} {len(r.l)} {r.l[1] == E1.Q}")
+    }
+    val e = E3.V0([Mb.So("x"), Mb.No])
+    match e {
+        E3.V0(l) -> println("{len(l)}")
+        E3.V1(m) -> println("{m.len()}")
+    }
+    var m = Map[String, [W2]]()
+    m.put("k", [W2.B(1), W2.A])
+    val f = E3.V1(m.take())
+    match f {
+        E3.V0(l) -> println("{len(l)}")
+        E3.V1(mm) -> println("{len(mm.get("k"))}")
+    }
+}
