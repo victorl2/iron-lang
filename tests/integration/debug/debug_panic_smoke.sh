@@ -195,7 +195,7 @@ runtime_check_panics() {
             grep -qE "^#0 +(0x[0-9a-f]+ in )?Iron_$func \(.*\) at (.*/)?$name\.iron:$line\$" <<< "$out" ||
                 { echo "FAIL: gdb: $name stops outside $func at $name.iron:$line"; echo "$out"; exit 1; }
             grep -qE "\\\$1 = $val\b" <<< "$out" || { echo "FAIL: gdb: $var is not $val"; echo "$out"; exit 1; }
-            grep -F "panic: $text at " <<< "$out" | grep -E "/?$name\.iron:$line\$" >/dev/null ||
+            grep -F "panic: $text at " <<< "$out" | tr -d '\r' | grep -E "/?$name\.iron:$line\$" >/dev/null ||
                 { echo "FAIL: gdb: no 'panic: $text'"; echo "$out"; exit 1; }
             grep -qE "$final" <<< "$out" || { echo "FAIL: gdb: continuing does not panic"; echo "$out"; exit 1; }
             grep -q "SIGABRT" <<< "$out" || { echo "FAIL: gdb: continuing does not abort"; echo "$out"; exit 1; }
@@ -213,7 +213,7 @@ runtime_check_panics() {
             grep -qE "frame #0: .*Iron_$func\(.*\) at $name\.iron:$line|frame #0: .*Iron_$func at $name\.iron:$line" <<< "$out" ||
                 { echo "FAIL: lldb: $name stops outside $func at $name.iron:$line"; echo "$out"; exit 1; }
             grep -qE "\) $var = $val\b" <<< "$out" || { echo "FAIL: lldb: $var is not $val"; echo "$out"; exit 1; }
-            grep -F "panic: $text at " <<< "$out" | grep -E "/?$name\.iron:$line\$" >/dev/null ||
+            grep -F "panic: $text at " <<< "$out" | tr -d '\r' | grep -E "/?$name\.iron:$line\$" >/dev/null ||
                 { echo "FAIL: lldb: no 'panic: $text'"; echo "$out"; exit 1; }
             grep -q "SIGABRT" <<< "$out" || { echo "FAIL: lldb: continuing does not abort"; echo "$out"; exit 1; }
             echo "lldb: $name stops in $func at $name.iron:$line, continue aborts"

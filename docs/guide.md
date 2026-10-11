@@ -148,6 +148,15 @@ the stop is reported as an exception with the panic's message and the
 call stack starts at the Iron frame; `"stopOnPanic": false` in the launch
 configuration turns this off. In LLDB started by hand, run
 `iron-panic-stop` after loading the formatters; in gdb, `break abort`.
+A `--debug` build stops there in any debugger, even with nothing loaded
+(plain gdb or LLDB, the Visual Studio debugger): when a debugger is
+attached, a failing check (an `assert`, an index, a division by zero,
+`unwrap()` of a null `Box`, `pop()` on an empty list, `remove`, `insert`
+or `set` out of range, `read_file` of a file it cannot read) runs a
+breakpoint instruction in the Iron function and prints
+`panic: <message> at <file>:<line>`; continuing runs the panic as usual.
+Panics the program cannot check where it calls (out of memory, a full
+arena) still end in `abort`.
 
 `iron debug` builds with `--debug` and starts the debugger on the
 program with the value formatters below already loaded: LLDB on macOS
@@ -243,10 +252,12 @@ a name used twice in one function, or one that is also a C keyword,
 carries a suffix (`total_14`). The compiler's own temporaries carry no
 debug info, so no debugger lists them (set `IRON_DEBUG_TEMPORARIES=1`
 when building to keep them, as `_v12`: a C name that starts with `_` is
-never an Iron binding). The exceptions are synthetic parameters, which C
-cannot hide: a closure's environment, and the `_v1` / `_v1_len` pair a
-list parameter passed as a C array arrives in (its Iron name is the
-copy beside it). A `var` that a closure captures lives in a shared cell
+never an Iron binding). C cannot leave a parameter out of the debug
+info, so the synthetic ones get names a debugger front end hides: a
+closure's environment is `_env`, and a `var` parameter's pointer to the
+caller's binding keeps a `_v` name (the copy the function works on is
+listed as the parameter's Iron name, `n`). A list parameter passed as a C array is `xs` with its length
+`xs_len`, which `iron dap` shows as one list. A `var` that a closure captures lives in a shared cell
 and appears as `_ref_count`, a pointer to it; inside the closure, each
 captured binding appears the same way. The `locals` command that the
 formatters below add to gdb and LLDB lists the Iron bindings only: it
