@@ -1607,6 +1607,22 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/json_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/json_fuzz)
     set_tests_properties(json_fuzz PROPERTIES LABELS "stdlib" TIMEOUT 900)
+    # The io / os / FileHandle / url, math / time / String, and net /
+    # websocket modules against Python models (the websocket peer is a
+    # scripted Python server), and log (tests/fuzz/stdlib_fuzz_suite.py,
+    # log_fuzz.py). Fixed seeds. (POSIX: the io programs work under /tmp.)
+    if(NOT WIN32)
+    foreach(_sf_group io num net)
+        add_test(NAME stdlib_fuzz_${_sf_group}
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/stdlib_fuzz_suite.py
+                $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/stdlib_fuzz_${_sf_group} ${_sf_group})
+        set_tests_properties(stdlib_fuzz_${_sf_group} PROPERTIES LABELS "stdlib" TIMEOUT 900)
+    endforeach()
+    add_test(NAME log_fuzz
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/log_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/log_fuzz)
+    set_tests_properties(log_fuzz PROPERTIES LABELS "stdlib" TIMEOUT 900)
+    endif()
 endif()
 # The standard library prelude, parsed by every compile, stays within the
 # section 13 grammar of the manual (#324).

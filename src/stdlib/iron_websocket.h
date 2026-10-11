@@ -89,4 +89,11 @@ int64_t Iron_websocket_close(Iron_WebSocket socket, int64_t code,
 void Iron_websocket_abort(Iron_WebSocket socket);
 bool Iron_websocket_is_open(Iron_WebSocket socket);
 
+/* Fuzzing entry point (tests/fuzz/fuzz_stdlib.c): feeds `data` to the frame
+ * decoder as the bytes a peer sent after the handshake and receives until
+ * a receive fails. Returns the number of messages received, or -1 where it
+ * is not available (Windows). */
+int64_t iron_websocket_fuzz_frames(const uint8_t *data, size_t length,
+                                   int is_client, size_t max_message);
+
 #endif

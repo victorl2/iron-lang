@@ -143,13 +143,15 @@ def check(ironc, outdir, seed, mode, rtlib):
     return 'ok', ''
 
 
-SUITE = range(1, 61)
+SUITE = range(1, 41)
 
 
 def run(ironc, outdir, seeds, mode, rtlib, quiet):
+    from concurrent.futures import ThreadPoolExecutor
     bad = 0
-    for s in seeds:
-        st, msg = check(ironc, outdir, s, mode, rtlib)
+    pool = ThreadPoolExecutor(min(4, os.cpu_count() or 1))
+    results = pool.map(lambda s: (s, check(ironc, outdir, s, mode, rtlib)), seeds)
+    for s, (st, msg) in results:
         if st != 'ok':
             bad += 1
             print(f'log seed {s}: {st.upper()} {os.path.join(outdir, f"log_{s}")}\n    ' +

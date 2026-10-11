@@ -887,7 +887,13 @@ next_frame: ;
             message.data = ws_string((const char *)payload, (size_t)length);
             if (opcode == 9 && !session->close_sent) {
                 error = send_frame(session, 10, payload, (size_t)length, deadline);
-                if (error) { free(payload); return ws_message_error(error); }
+                if (error) {
+                    /* (the ping's data was already copied into the message) */
+                    iron_string_release(&message.data);
+                    iron_string_release(&message.error_message);
+                    free(payload);
+                    return ws_message_error(error);
+                }
             }
         }
         free(payload);
@@ -1511,4 +1517,41 @@ void Iron_websocket_abort(Iron_WebSocket socket) {
 bool Iron_websocket_is_open(Iron_WebSocket socket) {
     WsSession *session = ws_lookup(socket.handle);
     return session && session->open && !session->failed && !session->close_received;
+}
+
+int64_t iron_websocket_fuzz_frames(const uint8_t *data, size_t length,
+                                   int is_client, size_t max_message) {
+#ifdef _WIN32
+    (void)data; (void)length; (void)is_client; (void)max_message;
+    return -1;
+#else
+    int pair[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0) return -1;
+    close(pair[1]);   /* the peer: reads past the input see the end */
+    fcntl(pair[0], F_SETFL, fcntl(pair[0], F_GETFL, 0) | O_NONBLOCK);
+    Iron_TcpSocket sock;
+    sock.fd = pair[0];
+    WsTransport transport = { sock, NULL };
+    WsSession *session = session_new(transport, is_client, max_message ? max_message : 1);
+    if (!session) { close(pair[0]); return -1; }
+    if (length) {
+        session->prefetch = (uint8_t *)malloc(length);
+        if (!session->prefetch) { session_free(session); close(pair[0]); return -1; }
+        memcpy(session->prefetch, data, length);
+        session->prefetch_len = length;
+    }
+    int64_t handle = ws_register(session);
+    Iron_WebSocket socket = { handle };
+    int64_t received = 0;
+    for (int i = 0; i < 4096; i++) {
+        Iron_WebSocketMessage m = Iron_websocket_receive(socket, 0);
+        int64_t error = m.error;
+        iron_string_release(&m.data);
+        iron_string_release(&m.error_message);
+        if (error != 0) break;
+        received++;
+    }
+    Iron_websocket_abort(socket);
+    return received;
+#endif
 }

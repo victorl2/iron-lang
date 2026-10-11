@@ -226,8 +226,9 @@ precedent).
 its drop closes the wrapped fd. Containers of `FileHandle` therefore
 release each contained fd at scope exit through the Plan 33-04
 element-destructor-aware `_free` loop. The fixture
-`tests/integration/v4/7.5-stdlib/list_drop_filehandle.iron` locks the
-"closed fd" line per element.
+`tests/integration/v4/7.5-stdlib/list_drop_filehandle.iron` checks that
+each element's descriptor is closed (reopening the files reuses them; the
+runtime no longer prints "closed fd", #570).
 
 ---
 
