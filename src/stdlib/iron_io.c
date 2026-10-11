@@ -192,6 +192,36 @@ Iron_String Iron_io_read_line(void) {
     return iron_string_from_cstr(buf, len);
 }
 
+/* Unbuffered whole-string writes to fd 1 / fd 2 (IO.write_stdout and
+ * IO.write_stderr). stdout's stdio buffer is flushed first so output from
+ * println and from these calls stays in program order. */
+static int64_t io_write_fd(int fd, Iron_String s) {
+    const char *data = iron_string_cstr(&s);
+    size_t len = iron_string_byte_len(&s);
+    fflush(stdout);
+    size_t done = 0;
+    while (done < len) {
+#ifdef _WIN32
+        size_t chunk = len - done > 0x7fffffff ? 0x7fffffff : len - done;
+        int n = _write(fd, data + done, (unsigned int)chunk);
+#else
+        ssize_t n = write(fd, data + done, len - done);
+#endif
+        if (n < 0) {
+#ifndef _WIN32
+            if (errno == EINTR) continue;
+#endif
+            return -1;
+        }
+        if (n == 0) return -1;
+        done += (size_t)n;
+    }
+    return (int64_t)done;
+}
+
+int64_t Iron_io_write_stdout(Iron_String s) { return io_write_fd(1, s); }
+int64_t Iron_io_write_stderr(Iron_String s) { return io_write_fd(2, s); }
+
 Iron_Error Iron_io_append_file(Iron_String path, Iron_String content) {
     const char *p = iron_string_cstr(&path);
     FILE *f = fopen(p, "ab");

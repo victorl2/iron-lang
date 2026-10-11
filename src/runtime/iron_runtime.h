@@ -1998,6 +1998,10 @@ Iron_List_Iron_String iron_runtime_args(void);
 /* os.iron (iron_os.c). */
 bool        Iron_os_has_env(Iron_String name);
 Iron_String Iron_os_env_or(Iron_String name, Iron_String fallback);
+void        Iron_os_trap_shutdown_signals(void);
+int64_t     Iron_os_shutdown_signal(void);
+int64_t     Iron_os_pid(void);
+void        Iron_os_exit(int64_t code);
 IRON_LIST_DECL(Iron_Closure, Iron_Closure)
 /* Phase 68 (Plan 68-01): ABI-FLOAT32 + ABI-UINT8 primitive list types.
  * Suffix matches ironc's emit_type_to_c output (emit_helpers.c:151):

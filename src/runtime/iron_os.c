@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <signal.h>
 
 #ifdef _WIN32
   #include <io.h>
@@ -389,4 +390,69 @@ Iron_String Iron_os_env_or(Iron_String name, Iron_String fallback) {
     Iron_String s = iron_string_from_cstr(v, (size_t)len);
     free(v);
     return s;
+}
+
+/* os.iron: OS.trap_shutdown_signals() and OS.shutdown_signal().
+ *
+ * After the trap is installed, SIGINT and SIGTERM (Ctrl+C, Ctrl+Break and
+ * console close on Windows) no longer end the process: the handler records
+ * the first signal and the program polls OS.shutdown_signal() to drain and
+ * exit on its own. A second signal of either kind ends the process at once,
+ * so a stuck shutdown can still be interrupted. */
+static volatile sig_atomic_t os_shutdown_signo = 0;
+
+#ifdef _WIN32
+static BOOL WINAPI os_console_handler(DWORD kind) {
+    switch (kind) {
+    case CTRL_C_EVENT: case CTRL_BREAK_EVENT: case CTRL_CLOSE_EVENT:
+    case CTRL_SHUTDOWN_EVENT:
+        if (os_shutdown_signo != 0) ExitProcess(130);
+        os_shutdown_signo = kind == CTRL_C_EVENT ? 2 : 15;
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
+void Iron_os_trap_shutdown_signals(void) {
+    SetConsoleCtrlHandler(os_console_handler, TRUE);
+}
+#else
+static void os_shutdown_handler(int signo) {
+    if (os_shutdown_signo != 0) {
+        signal(signo, SIG_DFL);
+        raise(signo);
+        return;
+    }
+    os_shutdown_signo = signo;
+}
+
+void Iron_os_trap_shutdown_signals(void) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = os_shutdown_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+}
+#endif
+
+int64_t Iron_os_shutdown_signal(void) { return (int64_t)os_shutdown_signo; }
+
+int64_t Iron_os_pid(void) {
+#ifdef _WIN32
+    return (int64_t)GetCurrentProcessId();
+#else
+    return (int64_t)getpid();
+#endif
+}
+
+/* os.iron: OS.exit(code). Flushes standard output and error and ends the
+ * process with the status (truncated to 0..255 on POSIX). Drops, defers and
+ * other tasks do not run: it is for fatal errors and command-line tools. */
+void Iron_os_exit(int64_t code) {
+    fflush(stdout);
+    fflush(stderr);
+    exit((int)code);
 }

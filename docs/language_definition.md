@@ -2578,8 +2578,10 @@ false
 
 ### 9.6 `time` (import)
 
-`Time.now() -> Float` (seconds since the Unix epoch), `Time.now_ms() -> Int`
-and `Time.now_ns() -> Int` (milliseconds and nanoseconds), `Time.sleep(ms:
+`Time.now() -> Float` (seconds since the Unix epoch), `Time.unix_ms() -> Int`
+(milliseconds since the Unix epoch), `Time.now_ms() -> Int`
+and `Time.now_ns() -> Int` (milliseconds and nanoseconds of a monotonic clock
+with an arbitrary origin, for measuring durations), `Time.sleep(ms:
 Int)`, `Time.since(start: Float) -> Float` (seconds elapsed since a
 `Time.now()` value), and `Time.Timer(seconds: Float) -> Timer` with the
 fields `elapsed_ms` and `duration_ms` and the methods `done() -> Bool`,

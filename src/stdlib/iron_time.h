@@ -7,6 +7,7 @@
 /* ── Monotonic time ──────────────────────────────────────────────────────── */
 double  Iron_time_now(void);         /* wall-clock seconds as double */
 int64_t Iron_time_now_ms(void);      /* monotonic milliseconds */
+int64_t Iron_time_unix_ms(void);     /* wall-clock milliseconds since the Unix epoch */
 int64_t Iron_time_now_ns(void);      /* monotonic nanoseconds */
 void    Iron_time_sleep(int64_t ms); /* sleep for given milliseconds */
 double  Iron_time_since(double start); /* elapsed seconds since start */

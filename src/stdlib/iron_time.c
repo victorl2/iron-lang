@@ -10,6 +10,14 @@ double Iron_time_now(void) {
     return (double)ts.tv_sec + (double)ts.tv_nsec / 1.0e9;
 }
 
+/* ── Wall-clock time (milliseconds since the Unix epoch) ─────────────── */
+
+int64_t Iron_time_unix_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (int64_t)ts.tv_sec * 1000 + (int64_t)ts.tv_nsec / 1000000;
+}
+
 /* ── Monotonic time (milliseconds) ──────────────────────────────────────── */
 
 int64_t Iron_time_now_ms(void) {
