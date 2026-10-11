@@ -92,6 +92,20 @@ uint64_t iron_list_pin(const void *buf);
 void     iron_list_unpin(const void *buf, uint64_t gen);
 void     iron_list_pinned_panic(const void *buf);
 bool     iron_list_is_pinned(const void *buf);
+/* Receiver pins of interface values (#650): a method dispatched on an
+ * interface value other code can reach pins the value's storage for the
+ * call; replacing or dropping a pinned value panics. */
+void     iron_recv_pin(const void *addr);
+void     iron_recv_unpin(const void *addr);
+bool     iron_recv_is_pinned(const void *addr);
+void     iron_recv_pinned_panic(void);
+#define IRON_RECV_PIN_CHECK(p)                                                      \
+    do {                                                                            \
+        const void *_rc = (const void *)(p);                                        \
+        if (atomic_load_explicit(&iron_list_pin_count, memory_order_relaxed) &&     \
+            iron_recv_is_pinned(_rc))                                               \
+            iron_recv_pinned_panic();                                               \
+    } while (0)
 #define IRON_LIST_PIN_CHECK(p)                                                      \
     do {                                                                            \
         const void *_pc = (const void *)(p);                                        \
@@ -435,6 +449,14 @@ uint64_t iron_gen_new(bool arena);
 bool     iron_gen_end(uint64_t gen);
 /* Give a thread's cached free slots back (thread exit). */
 void     iron_gen_thread_exit(void);
+/* Receiver pins: a method running on a value reached through a heap or
+ * arena handle or a pointer pins the value's generation; ending a pinned
+ * generation (free, reset, restore, the last rc handle) panics, since the
+ * method would go on reading and writing the storage. Stack generations
+ * are ignored (a scope cannot end during a call it made). */
+void     iron_gen_pin(uint64_t gen);
+void     iron_gen_unpin(uint64_t gen);
+extern _Atomic uint64_t iron_gen_pin_count;
 
 IRON_CHECK_FN bool iron_gen_live(uint64_t gen) {
     uint32_t s = IRON_GEN_SLOT_OF(gen);
@@ -450,6 +472,11 @@ IRON_CHECK_FN bool iron_gen_live(uint64_t gen) {
 __attribute__((noreturn))
 #endif
 void iron_panic_stale_gen(const char *deref_file, int deref_line, uint64_t gen);
+/* A pinned receiver's generation was about to end (iron_gen_pin). */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_receiver_pinned(uint64_t gen);
 #ifdef IRON_DEBUG_TRAPS_ON
 IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_stale_gen(const char *f, int l, uint64_t g) {
     if (iron_debug_panic_stop(f, l, (g & IRON_GEN_ARENA_BIT) ? "stale pointer dereference (arena)"

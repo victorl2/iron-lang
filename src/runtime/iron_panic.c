@@ -508,6 +508,46 @@ void iron_panic_arena_stale(const char *deref_file,
     abort();
 }
 
+/* A value a method is running on was freed, or its arena reset or restored
+ * past it, or its last rc handle released, before the method returned. */
+void iron_panic_receiver_pinned(uint64_t gen) {
+    fflush(stdout);
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+    }
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"receiver_freed\"}\n", stderr);
+    } else {
+        fprintf(stderr, "iron: %s while one of its methods is running\n",
+                (gen & IRON_GEN_ARENA_BIT) ? "an arena value was reset"
+                                           : "a value was freed");
+        fputs("  the method's receiver must outlive the call\n", stderr);
+    }
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
+/* An interface value was replaced or dropped while a method dispatched on it
+ * was running (#650). */
+void iron_recv_pinned_panic(void) {
+    fflush(stdout);
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+    }
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"receiver_replaced\"}\n", stderr);
+    } else {
+        fputs("iron: an interface value was replaced while one of its methods is running\n", stderr);
+        fputs("  the method's receiver must outlive the call\n", stderr);
+    }
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
 /* A list whose element is borrowed by a call in progress was grown past its
  * capacity, shrunk or freed (#543). */
 void iron_list_pinned_panic(const void *buf) {

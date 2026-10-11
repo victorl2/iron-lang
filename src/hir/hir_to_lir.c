@@ -3573,12 +3573,16 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * emitter in emit_c.c — so the receiver must be passed by address
          * exactly like a concrete pointer-receiver method. */
         Iron_FuncDecl *iface_sig = NULL;
+        /* (through a pointer to an interface value too, #575) */
+        Iron_Type *iface_recv_t = expr->method_call.object ? expr->method_call.object->type : NULL;
+        if (iface_recv_t && iface_recv_t->kind == IRON_TYPE_PTR && iface_recv_t->ptr.pointee)
+            iface_recv_t = iface_recv_t->ptr.pointee;
         if (!is_static_call &&
-            expr->method_call.object && expr->method_call.object->type &&
-            expr->method_call.object->type->kind == IRON_TYPE_INTERFACE &&
-            expr->method_call.object->type->interface.decl &&
+            iface_recv_t &&
+            iface_recv_t->kind == IRON_TYPE_INTERFACE &&
+            iface_recv_t->interface.decl &&
             expr->method_call.method) {
-            Iron_InterfaceDecl *idecl = expr->method_call.object->type->interface.decl;
+            Iron_InterfaceDecl *idecl = iface_recv_t->interface.decl;
             for (int mi = 0; mi < idecl->method_count; mi++) {
                 Iron_Node *msig = idecl->method_sigs[mi];
                 if (!msig || msig->kind != IRON_NODE_FUNC_DECL) continue;
@@ -3659,6 +3663,9 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 if (rt && rt->kind == IRON_TYPE_PTR && rt->ptr.pointee &&
                     rt->ptr.pointee->kind != IRON_TYPE_OBJECT &&
                     rt->ptr.pointee->kind != IRON_TYPE_PTR &&
+                    /* a mutating interface method takes the union by
+                     * address: pass the pointer itself */
+                    !(rt->ptr.pointee->kind == IRON_TYPE_INTERFACE && callee_is_mut_receiver) &&
                     self_val != IRON_LIR_VALUE_INVALID && ctx->current_block &&
                     !block_is_terminated(ctx->current_block)) {
                     self_val = iron_lir_ptr_load(ctx->current_func, ctx->current_block, self_val,

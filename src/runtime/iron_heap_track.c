@@ -122,8 +122,54 @@ uint64_t iron_gen_new(bool arena) {
     }
 }
 
+/* Receiver pins (iron_runtime.h): few at a time, in an array under a
+ * spin lock; iron_gen_pin_count is read without it on every end. */
+_Atomic uint64_t iron_gen_pin_count;
+static atomic_flag s_gpin_lock = ATOMIC_FLAG_INIT;
+static uint64_t *s_gpins;
+static size_t    s_ngpins, s_gpincap;
+
+void iron_gen_pin(uint64_t gen) {
+    if (!(gen & IRON_GEN_SLOT_TAG) || (gen & IRON_STACK_TAG)) return;
+    while (atomic_flag_test_and_set_explicit(&s_gpin_lock, memory_order_acquire)) { }
+    if (s_ngpins == s_gpincap) {
+        size_t cap = s_gpincap ? s_gpincap * 2 : 16;
+        uint64_t *n = (uint64_t *)realloc(s_gpins, cap * sizeof(uint64_t));
+        if (!n) { atomic_flag_clear_explicit(&s_gpin_lock, memory_order_release);
+                  iron_oom_abort("receiver pins"); }
+        s_gpins = n;
+        s_gpincap = cap;
+    }
+    s_gpins[s_ngpins++] = gen;
+    atomic_fetch_add_explicit(&iron_gen_pin_count, 1, memory_order_relaxed);
+    atomic_flag_clear_explicit(&s_gpin_lock, memory_order_release);
+}
+
+void iron_gen_unpin(uint64_t gen) {
+    if (!(gen & IRON_GEN_SLOT_TAG) || (gen & IRON_STACK_TAG)) return;
+    while (atomic_flag_test_and_set_explicit(&s_gpin_lock, memory_order_acquire)) { }
+    for (size_t i = s_ngpins; i > 0; i--) {
+        if (s_gpins[i - 1] != gen) continue;
+        s_gpins[i - 1] = s_gpins[--s_ngpins];
+        atomic_fetch_sub_explicit(&iron_gen_pin_count, 1, memory_order_relaxed);
+        break;
+    }
+    atomic_flag_clear_explicit(&s_gpin_lock, memory_order_release);
+}
+
+static bool gen_is_pinned(uint64_t gen) {
+    bool p = false;
+    while (atomic_flag_test_and_set_explicit(&s_gpin_lock, memory_order_acquire)) { }
+    for (size_t i = 0; i < s_ngpins && !p; i++) p = s_gpins[i] == gen;
+    atomic_flag_clear_explicit(&s_gpin_lock, memory_order_release);
+    return p;
+}
+
 bool iron_gen_end(uint64_t gen) {
     if (!(gen & IRON_GEN_SLOT_TAG) || (gen & IRON_STACK_TAG)) return false;
+    if (atomic_load_explicit(&iron_gen_pin_count, memory_order_relaxed) && gen_is_pinned(gen) &&
+        iron_gen_live(gen))
+        iron_panic_receiver_pinned(gen);
     uint32_t s = IRON_GEN_SLOT_OF(gen);
     if (s == 0) return false;
     iron_atomic_u64 *c = atomic_load_explicit(&iron_gen_chunks[s >> IRON_GEN_CHUNK_BITS],
@@ -166,42 +212,38 @@ uint64_t iron_heap_next_gen(void) {
  * by the fast path of IRON_LIST_PIN_CHECK. */
 _Atomic uint64_t iron_list_pin_count;
 static atomic_flag s_pin_lock = ATOMIC_FLAG_INIT;
-static struct { const void *buf; uint64_t count; } *s_pins;
+static struct { const void *buf; uint64_t count; int kind; } *s_pins;   /* kind 0 list, 1 receiver */
 static size_t s_npins, s_pincap;
 
 static void pin_lock(void)   { while (atomic_flag_test_and_set_explicit(&s_pin_lock, memory_order_acquire)) { } }
 static void pin_unlock(void) { atomic_flag_clear_explicit(&s_pin_lock, memory_order_release); }
 
-uint64_t iron_list_pin(const void *buf) {
-    if (buf) {
-        pin_lock();
-        size_t i = 0;
-        while (i < s_npins && s_pins[i].buf != buf) i++;
-        if (i == s_npins) {
-            if (s_npins == s_pincap) {
-                size_t cap = s_pincap ? s_pincap * 2 : 16;
-                void *n = realloc(s_pins, cap * sizeof(*s_pins));
-                if (!n) { pin_unlock(); iron_oom_abort("list pins"); }
-                s_pins = n;
-                s_pincap = cap;
-            }
-            s_pins[s_npins].buf = buf;
-            s_pins[s_npins].count = 0;
-            s_npins++;
+static void addr_pin(const void *buf, int kind) {
+    pin_lock();
+    size_t i = 0;
+    while (i < s_npins && !(s_pins[i].buf == buf && s_pins[i].kind == kind)) i++;
+    if (i == s_npins) {
+        if (s_npins == s_pincap) {
+            size_t cap = s_pincap ? s_pincap * 2 : 16;
+            void *n = realloc(s_pins, cap * sizeof(*s_pins));
+            if (!n) { pin_unlock(); iron_oom_abort("pins"); }
+            s_pins = n;
+            s_pincap = cap;
         }
-        s_pins[i].count++;
-        atomic_fetch_add_explicit(&iron_list_pin_count, 1, memory_order_relaxed);
-        pin_unlock();
+        s_pins[s_npins].buf = buf;
+        s_pins[s_npins].count = 0;
+        s_pins[s_npins].kind = kind;
+        s_npins++;
     }
-    return iron_gen_new(false);
+    s_pins[i].count++;
+    atomic_fetch_add_explicit(&iron_list_pin_count, 1, memory_order_relaxed);
+    pin_unlock();
 }
 
-void iron_list_unpin(const void *buf, uint64_t gen) {
-    (void)iron_gen_end(gen);
-    if (!buf) return;
+static void addr_unpin(const void *buf, int kind) {
     pin_lock();
     for (size_t i = 0; i < s_npins; i++) {
-        if (s_pins[i].buf != buf) continue;
+        if (s_pins[i].buf != buf || s_pins[i].kind != kind) continue;
         if (--s_pins[i].count == 0) s_pins[i] = s_pins[--s_npins];
         atomic_fetch_sub_explicit(&iron_list_pin_count, 1, memory_order_relaxed);
         break;
@@ -209,13 +251,29 @@ void iron_list_unpin(const void *buf, uint64_t gen) {
     pin_unlock();
 }
 
-bool iron_list_is_pinned(const void *buf) {
+static bool addr_is_pinned(const void *buf, int kind) {
     bool pinned = false;
     pin_lock();
-    for (size_t i = 0; i < s_npins && !pinned; i++) pinned = s_pins[i].buf == buf;
+    for (size_t i = 0; i < s_npins && !pinned; i++)
+        pinned = s_pins[i].buf == buf && s_pins[i].kind == kind;
     pin_unlock();
     return pinned;
 }
+
+uint64_t iron_list_pin(const void *buf) {
+    if (buf) addr_pin(buf, 0);
+    return iron_gen_new(false);
+}
+
+void iron_list_unpin(const void *buf, uint64_t gen) {
+    (void)iron_gen_end(gen);
+    if (buf) addr_unpin(buf, 0);
+}
+
+bool iron_list_is_pinned(const void *buf) { return addr_is_pinned(buf, 0); }
+void iron_recv_pin(const void *addr) { if (addr) addr_pin(addr, 1); }
+void iron_recv_unpin(const void *addr) { if (addr) addr_unpin(addr, 1); }
+bool iron_recv_is_pinned(const void *addr) { return addr_is_pinned(addr, 1); }
 
 /* ── Stack scopes (iron_runtime.h, #471 #537 #538 #541) ──────────────────
  *

@@ -363,6 +363,14 @@ struct IronLIR_Instr {
              * growable list and the callee might change lists (or needs
              * the receiver's generation): pin the list for the call. */
             bool            pin_recv;
+            /* Receiver pins: the callee might free or reset storage: a
+             * receiver reached through a heap or arena handle or a pointer
+             * has its generation pinned for the call (iron_gen_pin). */
+            bool            pin_gen_recv;
+            /* Interface receiver pins (#650): a method dispatched on an
+             * interface value that other code can reach (a capture cell, a
+             * global, a field) pins the value's storage for the call. */
+            bool            pin_iface_recv;
             /* 2026-07 remediation (ARENA-10 arena-OOM panic name): when the
              * call is an Arena ctor stub (arena_new / arena_new_threadsafe /
              * arena_with_capacity) bound by a LET, hir_to_lir records the

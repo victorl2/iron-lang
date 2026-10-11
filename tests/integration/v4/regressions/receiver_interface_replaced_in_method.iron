@@ -1,0 +1,52 @@
+-- @expect-panic: an interface value was replaced while one of its methods is running
+-- A method dispatched on an interface value keeps running on its payload; a
+-- lambda replacing the value during the call freed the (boxed) payload the
+-- method went on reading. The value is pinned for the call (#650).
+interface Act {
+    func act(f: func())
+}
+object Small impl Act {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func act(f: func()) {
+        f()
+        self.n += 1
+        println("small {self.n}")
+    }
+}
+object Big impl Act {
+    var a: Int
+    var b: Int
+    var c: Int
+    var d: Int
+    var e: Int
+    var f: Int
+    var g: Int
+    var h: Int
+    var i: Int
+    var j: Int
+    init(a: Int) {
+        self.a = a
+        self.b = a
+        self.c = a
+        self.d = a
+        self.e = a
+        self.f = a
+        self.g = a
+        self.h = a
+        self.i = a
+        self.j = a
+    }
+    func act(f: func()) {
+        f()
+        println("big {self.a}")
+    }
+}
+func main() {
+    var x: Act = Big(7)
+    x.act(func() {
+        x = Small(1)
+    })
+}

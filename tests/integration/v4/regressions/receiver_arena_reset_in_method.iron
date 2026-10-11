@@ -1,0 +1,26 @@
+-- @expect-panic: an arena value was reset while one of its methods is running
+-- A method whose receiver is an arena value resets the arena (through a
+-- lambda) and goes on using self: it wrote into the next allocation. The
+-- receiver is pinned for the call and the reset panics (#650).
+object Q {
+    var n: Int
+    var s: String
+    init(n: Int) {
+        self.n = n
+        self.s = "abc"
+    }
+    func run(f: func()) {
+        f()
+        self.n += 1
+        println("{self.n}")
+    }
+}
+func main() {
+    val a = Arena(4096)
+    var q = heap(in: a, allow_drop_skip: true) Q(1)
+    q.run(func() {
+        a.reset()
+        val other = heap(in: a, allow_drop_skip: true) Q(50)
+        println("{other.n}")
+    })
+}

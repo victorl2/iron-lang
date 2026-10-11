@@ -7115,12 +7115,13 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
 
                     mc->resolved_type = result;
                     break;  /* skip decl scan — return type already resolved */
-                } else if (obj_id->resolved_type &&
-                           obj_id->resolved_type->kind == IRON_TYPE_INTERFACE &&
-                           obj_id->resolved_type->interface.decl) {
+                } else if (eff_recv_t &&
+                           eff_recv_t->kind == IRON_TYPE_INTERFACE &&
+                           eff_recv_t->interface.decl) {
                     /* Interface dispatch: find the method in the interface's
-                     * method signatures and resolve the return type. */
-                    Iron_InterfaceDecl *iface_mc = obj_id->resolved_type->interface.decl;
+                     * method signatures and resolve the return type (also
+                     * through a pointer to an interface value). */
+                    Iron_InterfaceDecl *iface_mc = eff_recv_t->interface.decl;
                     for (int mi = 0; mi < iface_mc->method_count; mi++) {
                         Iron_Node *msig = iface_mc->method_sigs[mi];
                         if (!msig || msig->kind != IRON_NODE_FUNC_DECL) continue;

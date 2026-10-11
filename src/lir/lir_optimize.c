@@ -6737,6 +6737,25 @@ static const char *call_callee_name(IronLIR_Func *fn, IronLIR_Instr *in) {
     return NULL;
 }
 
+/* An interface dispatcher (`<iface>_<method>`, emitted with the C, not a
+ * LIR function) whose implementors may need the receiver's generation:
+ * some method `<type>_<method>` of the module does. A spurious match only
+ * hands over a generation nobody reads (the dispatcher clears it before an
+ * implementor that does not need it). */
+static bool self_gen_dispatch_target(IronLIR_Module *module, const char *name) {
+    if (!name) return false;
+    const char *us = strchr(name, '_');
+    if (!us || !us[1]) return false;
+    size_t ml = strlen(us);            /* "_method" */
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *f = module->funcs[fi];
+        if (!f->needs_self_gen || !f->name) continue;
+        size_t fl = strlen(f->name);
+        if (fl > ml && strcmp(f->name + fl - ml, us) == 0) return true;
+    }
+    return false;
+}
+
 /* Receiver provenance (#542): which pointer-receiver methods need their
  * receiver's generation, to the fixed point (a method passing self to such
  * a method needs it too), and which calls hand it over. */
@@ -6786,9 +6805,10 @@ static void mark_self_gen(IronLIR_Module *module) {
                 IronLIR_Instr *in = blk->instrs[ii];
                 if (in->kind != IRON_LIR_CALL || !in->call.self_by_addr || in->call.arg_count < 1)
                     continue;
-                IronLIR_Func *cf = gencheck_find_func(module, call_callee_name(fn, in));
-                if (!cf || !cf->needs_self_gen) continue;
-                in->call.pass_self_gen = true;
+                const char *cname = call_callee_name(fn, in);
+                IronLIR_Func *cf = gencheck_find_func(module, cname);
+                if (cf ? cf->needs_self_gen : self_gen_dispatch_target(module, cname))
+                    in->call.pass_self_gen = true;
             }
         }
     }
@@ -6819,6 +6839,8 @@ static bool place_in_list_elem(IronLIR_Func *fn, IronLIR_ValueId v, int depth) {
 /* List element borrows (#543): a method called on a list element pins the
  * list unless the callee provably changes no list (no allocation or free,
  * no unknown or indirect call) and keeps no pointer to its receiver. */
+static bool esc_private_slot(IronLIR_Func *fn, IronLIR_ValueId slot);
+
 static void mark_pinned_receivers(IronLIR_Module *module) {
     IronLIR_FuncSummaryEntry *summaries = NULL;
     bool have = false;
@@ -6831,16 +6853,26 @@ static void mark_pinned_receivers(IronLIR_Module *module) {
                 IronLIR_Instr *in = blk->instrs[ii];
                 if (in->kind != IRON_LIR_CALL || !in->call.self_by_addr || in->call.arg_count < 1)
                     continue;
-                if (!place_in_list_elem(fn, in->call.args[0], 0)) continue;
                 const char *cname = call_callee_name(fn, in);
                 IronLIR_Func *cf = gencheck_find_func(module, cname);
-                bool pin = true;
-                if (cf && !cf->is_extern && !cf->needs_self_gen) {
+                bool may = true;
+                if (cf && !cf->is_extern) {
                     if (!have) { summaries = iron_lir_compute_func_summaries(module); have = true; }
                     IronLIR_FuncSummary sm = iron_lir_func_summary_lookup(summaries, cname);
-                    pin = sm.may_free || sm.may_spawn;
+                    may = sm.may_free || sm.may_spawn;
                 }
-                in->call.pin_recv = pin;
+                in->call.pin_gen_recv = may;
+                {
+                    Iron_Type *rt = gencheck_value_type(fn, in->call.args[0]);
+                    if (rt && rt->kind == IRON_TYPE_INTERFACE && may) {
+                        IronLIR_ValueId root = scope_place_root(fn, in->call.args[0], 0);
+                        bool private_local = root != IRON_LIR_VALUE_INVALID &&
+                                             esc_private_slot(fn, root);
+                        in->call.pin_iface_recv = !private_local;
+                    }
+                }
+                if (!place_in_list_elem(fn, in->call.args[0], 0)) continue;
+                in->call.pin_recv = may || (cf && cf->needs_self_gen);
             }
         }
     }
