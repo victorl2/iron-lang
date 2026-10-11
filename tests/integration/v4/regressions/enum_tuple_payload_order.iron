@@ -1,0 +1,25 @@
+-- An enum payload tuple holding another enum instance: the instance's struct
+-- is declared first (#654).
+enum Mb[T] {
+    No,
+    So(T),
+}
+
+enum W {
+    A,
+    B((Mb[Int?], Bool?), Int),
+}
+
+func main() {
+    val w = W.B((Mb.So(3), null), 4)
+    match w {
+        W.B(t, n) -> {
+            val (m, b) = t
+            match m {
+                Mb.So(v) -> println("{v} {b} {n}")
+                Mb.No -> println("no")
+            }
+        }
+        W.A -> println("A")
+    }
+}

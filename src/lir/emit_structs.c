@@ -196,12 +196,15 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
                 Iron_Node *ann = ev->payload_type_anns ? ev->payload_type_anns[k] : NULL;
                 if (!ann || ann->kind != IRON_NODE_TYPE_ANNOTATION) continue;
                 Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)ann;
-                if (!ta->name || ta->is_rc || ta->is_weak_rc || ta->is_pointer || ta->is_array) continue;
+                if (ta->is_rc || ta->is_weak_rc || ta->is_pointer) continue;
                 bool boxed = td->type->enu.payload_is_boxed && td->type->enu.payload_is_boxed[j] &&
                              td->type->enu.payload_is_boxed[j][k];
                 if (boxed) continue;
+                /* (also a nameless payload: a tuple, `[E?]`, whose
+                 * components are inline) */
                 if (td->type->enu.variant_payload_types && td->type->enu.variant_payload_types[j])
                     ir_topo_visit_type(state, idx, td->type->enu.variant_payload_types[j][k]);
+                if (!ta->name || ta->is_array) continue;
                 int dep = find_ir_type_decl_idx(state->module, ta->name);
                 if (dep >= 0 && dep != idx) ir_topo_visit(state, dep);
             }
