@@ -1,0 +1,50 @@
+-- A top-level function named <object>_<method> (sq_area next to Sq.area)
+-- was the same HIR function as the method: one body was lost (E0950,
+-- issue 481). User functions whose names the compiler also generates (a
+-- method, a global's storage, a lifted, runtime or type-derived helper
+-- name) get a fresh name, so each keeps its own body.
+object Sq {
+    val s: Int
+    readonly func area() -> Int {
+        return self.s * self.s
+    }
+}
+
+val counter = 5
+
+func sq_area(n: Int) -> Int {
+    return n + 1000
+}
+
+func usq_area() -> Int {
+    return 12
+}
+
+func iron_string_concat(a: Int) -> Int {
+    return a + 1
+}
+
+func g_counter() -> Int {
+    return 7
+}
+
+func lambda_0() -> Int {
+    return 3
+}
+
+func __lambda_0() -> Int {
+    return 4
+}
+
+func Shape_from_Sq() -> Int {
+    return 11
+}
+
+func main() {
+    val q = Sq(3)
+    println("{q.area()} {sq_area(1)} {usq_area()} {iron_string_concat(1)} {"a" + "b"}")
+    println("{g_counter()} {counter} {lambda_0()} {__lambda_0()} {Shape_from_Sq()}")
+    val f = sq_area
+    val g = func(x: Int) -> Int { return x + 1 }
+    println("{f(2)} {g(1)}")
+}
