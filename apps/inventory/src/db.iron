@@ -118,16 +118,10 @@ pub object Item {
     pub val updated_at: String
 }
 
-val ITEM_COLUMNS = "id, sku, name, category, price_cents, quantity, created_at, updated_at"
-
--- DATETIME(6) as RFC 3339 (the session time zone is UTC).
-func timestamp_at(res: *MysqlResult, row: Int, col: Int) -> String {
-    val t = res.text_or(row, col, "")
-    if t.len() == 0 {
-        return t
-    }
-    return t.replace(" ", "T") + "Z"
-}
+-- Timestamps come back as RFC 3339 text formatted by the server (the
+-- session time zone is UTC): cheaper than formatting every DATETIME here.
+val ITEM_COLUMNS = "id, sku, name, category, price_cents, quantity, " +
+    "DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%s.%fZ'), DATE_FORMAT(updated_at, '%Y-%m-%dT%H:%i:%s.%fZ')"
 
 func item_at(res: *MysqlResult, row: Int) -> Item {
     return Item(
@@ -137,8 +131,8 @@ func item_at(res: *MysqlResult, row: Int) -> Item {
         res.text_or(row, 3, ""),
         res.int_or(row, 4, 0),
         res.int_or(row, 5, 0),
-        timestamp_at(res, row, 6),
-        timestamp_at(res, row, 7))
+        res.text_or(row, 6, ""),
+        res.text_or(row, 7, ""))
 }
 
 -- Outcome of a repository call: `status` is the HTTP status the API should
@@ -432,7 +426,7 @@ pub object MovementPage {
 -- Newest first. 404 when the item does not exist.
 pub func list_movements(db: rc MysqlPool, item_id: Int, limit: Int) -> MovementPage {
     var out: [Movement] = []
-    val res = db.exec("SELECT i.id, m.id, m.delta, m.reason, m.created_at FROM items i LEFT JOIN stock_movements m ON m.item_id = i.id WHERE i.id = ? ORDER BY m.id DESC LIMIT ?",
+    val res = db.exec("SELECT i.id, m.id, m.delta, m.reason, DATE_FORMAT(m.created_at, '%Y-%m-%dT%H:%i:%s.%fZ') FROM items i LEFT JOIN stock_movements m ON m.item_id = i.id WHERE i.id = ? ORDER BY m.id DESC LIMIT ?",
         [MysqlValue.Int(item_id), MysqlValue.Int(limit)])
     if res.failed() {
         return MovementPage(out.take(), db_status(res.error), res.error)
@@ -443,7 +437,7 @@ pub func list_movements(db: rc MysqlPool, item_id: Int, limit: Int) -> MovementP
     var row = 0
     while row < res.row_count() {
         if not res.is_null(row, 1) {
-            out.push(Movement(res.int_or(row, 1, 0), res.int_or(row, 2, 0), res.text_or(row, 3, ""), timestamp_at(res, row, 4)))
+            out.push(Movement(res.int_or(row, 1, 0), res.int_or(row, 2, 0), res.text_or(row, 3, ""), res.text_or(row, 4, "")))
         }
         row += 1
     }
