@@ -86,37 +86,29 @@ size_t ilsp_utf16_column_to_utf8_byte(const char *line, size_t len,
     return i;
 }
 
-uint32_t ilsp_utf8_byte_to_utf8_column(const char *line, size_t len,
-                                        size_t target_byte) {
-    if (target_byte > len) target_byte = len;
-    uint32_t col = 0;
-    size_t   i   = 0;
-    while (i < target_byte) {
-        size_t   nbytes; uint32_t nunits;
+/* UTF-8 position encoding: LSP 3.17 counts UTF-8 code units, i.e.
+ * bytes, so the column is the byte offset itself. An offset inside a
+ * codepoint moves to the end of that codepoint (as the UTF-16 variants
+ * do), so a range never splits a character. */
+static size_t utf8_round_up(const char *line, size_t len, size_t target) {
+    if (target >= len) return len;
+    size_t i = 0;
+    while (i < target) {
+        size_t nbytes; uint32_t nunits;
         classify((unsigned char)line[i], &nbytes, &nunits);
         (void)nunits;
-        if (i + nbytes > target_byte) {
-            /* Mid-codepoint -- count this codepoint. */
-            col += 1;
-            break;
-        }
-        col += 1;
-        i   += nbytes;
+        if (i + nbytes > len) return len;
+        i += nbytes;
     }
-    return col;
+    return i;
+}
+
+uint32_t ilsp_utf8_byte_to_utf8_column(const char *line, size_t len,
+                                        size_t target_byte) {
+    return (uint32_t)utf8_round_up(line, len, target_byte);
 }
 
 size_t ilsp_utf8_column_to_utf8_byte(const char *line, size_t len,
                                       uint32_t target_col) {
-    uint32_t col = 0;
-    size_t   i   = 0;
-    while (i < len && col < target_col) {
-        size_t   nbytes; uint32_t nunits;
-        classify((unsigned char)line[i], &nbytes, &nunits);
-        (void)nunits;
-        if (i + nbytes > len) return len;
-        col += 1;
-        i   += nbytes;
-    }
-    return i;
+    return utf8_round_up(line, len, (size_t)target_col);
 }

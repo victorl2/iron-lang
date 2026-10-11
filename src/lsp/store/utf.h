@@ -48,10 +48,10 @@ size_t   ilsp_utf16_column_to_utf8_byte(const char *line_utf8,
                                          size_t      line_len_bytes,
                                          uint32_t    utf16_column);
 
-/* UTF-8 codepoint index variants (used when the negotiated encoding is
- * UTF-8 -- i.e., "character" in an LSP Position is a codepoint index,
- * NOT a byte index). Supplementary-plane codepoints count as 1 here
- * (vs. 2 in the UTF-16 surrogate form). */
+/* UTF-8 variants (used when the negotiated encoding is UTF-8). LSP 3.17
+ * counts UTF-8 code units there, i.e. bytes: the column is the byte
+ * offset within the line. An offset inside a codepoint rounds up to the
+ * next codepoint boundary; past the end clamps to line_len_bytes. */
 uint32_t ilsp_utf8_byte_to_utf8_column(const char *line_utf8,
                                         size_t      line_len_bytes,
                                         size_t      byte_offset);
