@@ -67,7 +67,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from pf_lang import Bail, Expected  # noqa: E402
 
-AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime')
+AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime',
+         'sync')
 
 
 def generator(area):
@@ -359,6 +360,14 @@ def reduce_program(ironc, outdir, area, seed, mode='plain', rtlib=None, jobs=8):
     changed = True
     while changed:
         changed = False
+        # segment programs (pf_seg.py): drop whole segments
+        while hasattr(g, 'segs') and len(g.segs) > 1:
+            cands = [deletion(g.segs, i, 1) for i in range(len(g.segs) - 1, -1, -1)]
+            k = first_failing(cands)
+            if k < 0:
+                break
+            cands[k][0]()
+            changed = True
         while True:
             cands = [deletion(g.funcs, i, 1) for i in range(len(g.funcs) - 1, -1, -1)]
             k = first_failing(cands)
