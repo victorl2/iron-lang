@@ -147,18 +147,63 @@ char *iron_cstr_format(const char *fmt, ...) {
     return buf;
 }
 
+/* String interpolation (the emitter is the only caller). The format holds
+ * literal text and the conversions %lld, %llu, %s (a C string) and %S (an
+ * Iron_String *, written with every byte: a String may hold a zero byte,
+ * which %s stopped at). */
+static void fmt_put(char **buf, size_t *n, size_t *cap, const char *s, size_t len) {
+    if (*n + len + 1 > *cap) {
+        size_t nc = *cap ? *cap : 64;
+        while (nc < *n + len + 1) nc *= 2;
+        char *nb = (char *)realloc(*buf, nc);
+        if (!nb) iron_oom_abort("iron_string_format");
+        *buf = nb;
+        *cap = nc;
+    }
+    memcpy(*buf + *n, s, len);
+    *n += len;
+}
+
 Iron_String iron_string_format(const char *fmt, ...) {
-    va_list ap, ap2;
+    va_list ap;
     va_start(ap, fmt);
-    va_copy(ap2, ap);
-    int n = vsnprintf(NULL, 0, fmt, ap);
+    char *buf = NULL;
+    size_t n = 0, cap = 0;
+    const char *p = fmt;
+    while (*p) {
+        const char *q = p;
+        while (*q && *q != '%') q++;
+        if (q > p) fmt_put(&buf, &n, &cap, p, (size_t)(q - p));
+        p = q;
+        if (!*p) break;
+        char tmp[32];
+        if (p[1] == 'S') {
+            const Iron_String *s = va_arg(ap, const Iron_String *);
+            fmt_put(&buf, &n, &cap, iron_string_cstr(s), iron_string_byte_len(s));
+            p += 2;
+        } else if (p[1] == 's') {
+            const char *s = va_arg(ap, const char *);
+            if (!s) s = "(null)";
+            fmt_put(&buf, &n, &cap, s, strlen(s));
+            p += 2;
+        } else if (p[1] == 'l' && p[2] == 'l' && p[3] == 'd') {
+            int k = snprintf(tmp, sizeof tmp, "%lld", va_arg(ap, long long));
+            fmt_put(&buf, &n, &cap, tmp, (size_t)k);
+            p += 4;
+        } else if (p[1] == 'l' && p[2] == 'l' && p[3] == 'u') {
+            int k = snprintf(tmp, sizeof tmp, "%llu", va_arg(ap, unsigned long long));
+            fmt_put(&buf, &n, &cap, tmp, (size_t)k);
+            p += 4;
+        } else if (p[1] == '%') {
+            fmt_put(&buf, &n, &cap, "%", 1);
+            p += 2;
+        } else {
+            fmt_put(&buf, &n, &cap, p, 1);
+            p += 1;
+        }
+    }
     va_end(ap);
-    if (n < 0) n = 0;
-    char *buf = (char *)malloc((size_t)n + 1);
-    if (!buf) iron_oom_abort("iron_string_format");
-    vsnprintf(buf, (size_t)n + 1, fmt, ap2);
-    va_end(ap2);
-    Iron_String s = iron_string_from_cstr(buf, (size_t)n);
+    Iron_String s = iron_string_from_cstr(buf ? buf : "", n);
     free(buf);
     return s;
 }

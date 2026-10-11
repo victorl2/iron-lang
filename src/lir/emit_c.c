@@ -7543,6 +7543,11 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             }
                         }
                         break;
+                    /* A String is passed by address and written with
+                     * every byte (a zero byte included). */
+                    case IRON_TYPE_STRING:
+                        fmt_spec = "%S";
+                        break;
                     /* -Wswitch-enum opt-out: interp-string format selector
                      * only distinguishes integer / float / bool from the
                      * generic string path; every other kind goes through
@@ -7608,10 +7613,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         break;
                     }
                     case IRON_TYPE_STRING: {
-                        /* iron_string_cstr() converts to const char* */
+                        /* %S: the Iron_String itself, by address */
                         Iron_StrBuf tmp = iron_strbuf_create(32);
                         emit_val(&tmp, part_id);
-                        iron_strbuf_appendf(&args_sb, "iron_string_cstr(&%s)",
+                        iron_strbuf_appendf(&args_sb, "&%s",
                                             iron_strbuf_get(&tmp));
                         iron_strbuf_free(&tmp);
                         break;
