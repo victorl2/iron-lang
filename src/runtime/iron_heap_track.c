@@ -41,8 +41,9 @@ iron_atomic_u64 iron_alloc_id_counter;
  * 6 or 7 for a 32 byte block), so with generations counted from 1 a stale
  * read through a pointer whose generation happened to be that number passed
  * the check and read zeroed memory. A value with high bits set is neither a
- * small integer nor a user space address. */
-iron_atomic_u64 iron_heap_gen_counter = 0xA11C000000000001ULL;
+ * small integer nor a user space address. Bit 63 stays clear: it marks a
+ * stack frame's generation (IRON_STACK_TAG, #471). */
+iron_atomic_u64 iron_heap_gen_counter = 0x711C000000000001ULL;
 
 uint64_t iron_heap_next_gen(void) {
     uint64_t g = IRON_ATOMIC_U64_FETCH_ADD_RELAXED(iron_heap_gen_counter, 1);
@@ -63,7 +64,20 @@ uint64_t iron_heap_next_gen(void) {
  * every IRON_LIR_RETURN when fn->takes_local_addr.
  *
  * Declaration in iron_runtime.h. */
-_Thread_local uint64_t iron_stack_gen = 1;
+_Thread_local uint64_t iron_stack_gen = IRON_STACK_GEN_INIT;
+/* Frame identity, see iron_runtime.h (#471). */
+_Thread_local uint32_t iron_stack_depth = 0;
+_Thread_local uint64_t iron_stack_next_id = 0;
+_Thread_local uint64_t iron_stack_ids[IRON_STACK_FRAMES_MAX];
+_Thread_local uint32_t iron_stack_thread = 0;
+static iron_atomic_u64 iron_stack_thread_counter;
+
+/* The thread's number in its stack generations: 1..4095, given out on its
+ * first frame that takes a local address. */
+uint32_t iron_stack_thread_number(void) {
+    uint64_t n = IRON_ATOMIC_U64_FETCH_ADD_RELAXED(iron_stack_thread_counter, 1);
+    return (uint32_t)(n % 4095) + 1;
+}
 
 /* iron_panic_stale_pointer body lives in src/runtime/iron_panic.c (Plan
  * 19-02). It is forward-declared in src/runtime/iron_runtime.h with

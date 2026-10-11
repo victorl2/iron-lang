@@ -1306,6 +1306,24 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
 /* True when `vid` names storage emit_receiver_addr can address without
  * falling back to `&<expr>`: a LOAD from a value-typed alloca, or a
  * GET_FIELD chain rooted in one (or in a pointer). */
+/* Whether vid is (a field or inline element of) a global binding: a
+ * pointer to it never dangles, so `&` gives it the generation of no frame
+ * (IRON_STACK_GEN_INIT) instead of the current frame's, which made it
+ * look dangling once that frame returned (#471). */
+static bool emit_vid_roots_at_global(IronLIR_Func *fn, IronLIR_ValueId vid, int depth) {
+    IronLIR_Instr *in = emit_def_instr(fn, vid);
+    if (!in || depth > 32) return false;
+    if (in->kind == IRON_LIR_ALLOCA) return in->alloca.global_name != NULL;
+    if (in->kind == IRON_LIR_LOAD) return emit_vid_roots_at_global(fn, in->load.ptr, depth + 1);
+    if (in->kind == IRON_LIR_GET_FIELD) return emit_vid_roots_at_global(fn, in->field.object, depth + 1);
+    if (in->kind == IRON_LIR_GET_INDEX) {
+        Iron_Type *at = emit_get_value_type(fn, in->index.array);
+        return at && at->kind == IRON_TYPE_ARRAY && at->array.size >= 0 &&
+               emit_vid_roots_at_global(fn, in->index.array, depth + 1);
+    }
+    return false;
+}
+
 static bool emit_vid_is_storage_path(IronLIR_Func *fn, IronLIR_ValueId vid) {
     IronLIR_Instr *in = emit_def_instr(fn, vid);
     if (!in) return false;
@@ -6591,7 +6609,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * "dangling stack pointer to frame" panic. */
         if (fn->takes_local_addr) {
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "iron_stack_gen += 1;\n");
+            iron_strbuf_appendf(sb, "iron_stack_leave(_iron_stack_saved);\n");
         }
         /* Owned lists are freed through their binding's scope-exit $drop
          * (hir_to_lir), which is correct on every path. (Freeing each list
@@ -8752,7 +8770,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_expr_to_buf(sb, obj, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ").gen };\n");
                 } else {
-                    iron_strbuf_appendf(sb, "iron_stack_gen };\n");
+                    iron_strbuf_appendf(sb, "%s };\n",
+                        emit_vid_roots_at_global(fn, obj, 0) ? "IRON_STACK_GEN_INIT"
+                                                             : "iron_stack_gen");
                 }
                 break;
             }
@@ -8784,7 +8804,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 iron_strbuf_appendf(sb, "&");
                 emit_val(sb, instr->addr_of.target);
             }
-            iron_strbuf_appendf(sb, ", .gen = iron_stack_gen };\n");
+            iron_strbuf_appendf(sb, ", .gen = %s };\n",
+                emit_vid_roots_at_global(fn, instr->addr_of.target, 0) ? "IRON_STACK_GEN_INIT"
+                                                                       : "iron_stack_gen");
         } else {
             iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)&");
             emit_val(sb, instr->addr_of.target);
@@ -10879,7 +10901,7 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
      * per recursive entry. RESEARCH Pattern 6 codegen template. */
     if (fn->takes_local_addr) {
         emit_indent(sb, 1);
-        iron_strbuf_appendf(sb, "iron_stack_gen += 1;\n");
+        iron_strbuf_appendf(sb, "uint64_t _iron_stack_saved = iron_stack_enter();\n");
     }
 
     /* ── Capture alias setup for lifted lambda functions ─────────────────────
