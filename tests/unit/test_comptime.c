@@ -184,6 +184,7 @@ void test_comptime_no_heap(void) {
     ctx.frame_depth     = 0;
     ctx.had_return      = false;
     ctx.return_val      = NULL;
+    ctx.program         = NULL;
 
     /* Build a synthetic HEAP node */
     Iron_HeapExpr *heap_node = iron_arena_alloc(&g_arena, sizeof(Iron_HeapExpr),
