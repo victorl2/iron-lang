@@ -2523,6 +2523,10 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 }
             }
             IronLIR_ValueId av = lower_expr(ctx, expr->call.args[i]);
+            /* An owned temporary is noted with its own type, before it is
+             * wrapped for a T? parameter: the drop slot was typed T and
+             * stored the optional (C type error for an object argument). */
+            note_owned_temp(ctx, &temps, expr->call.args[i], av, span);
             {
                 Iron_Type *ct = expr->call.callee ? expr->call.callee->type : NULL;
                 if (ct && ct->kind == IRON_TYPE_FUNC && i < ct->func.param_count &&
@@ -2540,7 +2544,6 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
              * call forms consistent. Sound single-threaded because the
              * caller's reference outlives the call; a callee that stores
              * the argument into a binding retains via the LET alias path. */
-            note_owned_temp(ctx, &temps, expr->call.args[i], av, span);
             arrput(args, av);
         }
         /* For direct calls: callee is an IDENT or FUNC_REF → look up func_decl */

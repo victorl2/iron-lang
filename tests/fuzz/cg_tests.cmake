@@ -96,3 +96,12 @@ if(NOT WIN32)
         set_tests_properties(cg_${_cg_t} PROPERTIES LABELS "codegen" TIMEOUT 120)
     endforeach()
 endif()
+
+if(NOT WIN32)
+    # #606: nullable generic instance parameters, tuple object fields.
+    add_test(NAME cg_generic_nullable_param
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_check.sh $<TARGET_FILE:ironc>
+            ${_cg_reg}/generic_nullable_param.iron ${_cg_reg}/generic_nullable_param.expected
+            ${CMAKE_BINARY_DIR}/cg_check/generic_nullable_param)
+    set_tests_properties(cg_generic_nullable_param PROPERTIES LABELS "codegen" TIMEOUT 120)
+endif()

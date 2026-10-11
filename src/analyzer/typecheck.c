@@ -2557,7 +2557,14 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                         : NULL;
                     Iron_Symbol *isym = mangled
                         ? iron_scope_lookup(ctx->global_scope, mangled) : NULL;
-                    if (isym && isym->type) return isym->type;
+                    if (isym && isym->type) {
+                        /* `C[Int]?`: the instance, nullable (the `?` was
+                         * dropped, so null was rejected and a value never
+                         * wrapped). */
+                        if (!ann->is_nullable) return isym->type;
+                        Iron_Type *nb = iron_type_make_nullable(ctx->arena, isym->type);
+                        return nb ? nb : iron_type_make_primitive(IRON_TYPE_ERROR);
+                    }
                     return iron_type_make_primitive(IRON_TYPE_ERROR);
                 }
 
