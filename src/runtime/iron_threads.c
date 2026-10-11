@@ -1094,6 +1094,25 @@ void iron_threads_init(void) {
     Iron_io_pool = Iron_elastic_pool_create("io", 64, 30000);
 }
 
+/* At program end (manual 7.1) a thread that is still running is stopped
+ * with the program: a fire-and-forget spawn blocked on a channel nobody
+ * feeds (or merely still working) must not keep the process alive. When a
+ * pool still has work queued or running, its queued items are dropped
+ * without running and the pool is left to the process exit (its workers
+ * keep pointers to it, so it is not freed); otherwise it is idle and is
+ * destroyed as usual. Returns whether the pool is idle. */
+static bool pool_shutdown_idle(Iron_Pool *pool) {
+    IRON_MUTEX_LOCK(pool->lock);
+    bool idle = pool->pending <= 0;
+    if (!idle) {
+        pool->shutdown = true;
+        pool->queue_count = 0;   /* never start what has not started */
+        IRON_COND_BROADCAST(pool->work_ready);
+    }
+    IRON_MUTEX_UNLOCK(pool->lock);
+    return idle;
+}
+
 void iron_threads_shutdown(void) {
 #ifndef __EMSCRIPTEN__
     /* WEB-RUNTIME-02: Cannot join workers from the browser main thread.
@@ -1103,11 +1122,11 @@ void iron_threads_shutdown(void) {
      * ALLOW_BLOCKING_ON_MAIN_THREAD=0 setting. The browser reclaims
      * worker memory at page unload, so leaking here is acceptable on
      * web; the alternative is a guaranteed crash. */
-    if (Iron_io_pool) {
+    if (Iron_io_pool && pool_shutdown_idle(Iron_io_pool)) {
         Iron_pool_destroy(Iron_io_pool);
         Iron_io_pool = NULL;
     }
-    if (Iron_global_pool) {
+    if (Iron_global_pool && pool_shutdown_idle(Iron_global_pool)) {
         Iron_pool_destroy(Iron_global_pool);
         Iron_global_pool = NULL;
     }
