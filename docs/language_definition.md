@@ -596,8 +596,10 @@ Calling a primitive type name like a function converts a value:
 `Int(x)`, `Float(x)`, `Int32(x)`, `UInt8(x)` and so on. The source must be
 a numeric type or `Bool` (`E0310`; `Bool` itself is not a conversion
 target); float to integer truncates toward zero, and `Int(true)` is 1. A
-conversion to a narrower integer type warns (`W0601`) and a constant that
-does not fit is an error (`E0311`). Numbers are converted to strings with
+float outside the target's range converts to the type's largest or
+smallest value and NaN converts to 0 (`Int8(x)` with `x = 300.5` is 127).
+A conversion to a narrower integer type warns (`W0601`) and a constant that
+does not fit, integer or float, is an error (`E0311`). Numbers are converted to strings with
 `n.to_string()` or by interpolation; strings are parsed with `s.to_int()`
 and `s.to_float()`. There is no `String(x)`.
 
