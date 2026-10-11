@@ -861,7 +861,7 @@ class JsonGen(SegProgram):
             res = self.fresh('res')
             lines += [f'val {res} = Json.parse({iron_lit(text)})',
                       f'println("dup {{{res}.error}} {{{res}.value.len()}} {{{res}.value.distinct_keys()}} '
-                      f'{{show({res}.value.find({iron_lit(fix_utf8(k).b.decode())}))}}")',
+                      f'{{show({res}.value.find({iron_bytes(fix_utf8(k))}))}}")',
                       f'println({res}.value.format(0, true))']
             rr = reparse(root)
             rr.keys.append(fix_utf8(k))
