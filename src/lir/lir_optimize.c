@@ -1889,8 +1889,10 @@ static bool run_dce(IronLIR_Module *module) {
 
                 /* Always keep side-effecting instructions, terminators,
                  * and capturing closures (must not be DCE-eliminated) */
+                /* (an instruction that may trap is in the live set from
+                 * step 1: asking again here would look at operands this
+                 * loop has already removed) */
                 if (!iron_lir_instr_is_pure(in->kind) ||
-                    iron_lir_instr_may_trap(fn, in) ||
                     (in->kind == IRON_LIR_MAKE_CLOSURE &&
                      in->make_closure.capture_count > 0) ||
                     in->id == IRON_LIR_VALUE_INVALID) {
