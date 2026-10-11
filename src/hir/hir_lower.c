@@ -3172,11 +3172,12 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                  * declared name, matching the existing stdlib pattern
                  * `func Duration.to_ms(d: Duration) { return d.ms }`. */
                 total_params = md->param_count;
-                params = (IronHIR_Param *)iron_arena_alloc(
+                /* A `static func` with no parameters has none at all. */
+                params = total_params == 0 ? NULL : (IronHIR_Param *)iron_arena_alloc(
                     mod->arena,
                     (size_t)total_params * sizeof(IronHIR_Param),
                     _Alignof(IronHIR_Param));
-                if (!params) iron_oom_abort("hir_lower.c:lower_module_decls_hir receiver_method_params");
+                if (!params && total_params > 0) iron_oom_abort("hir_lower.c:lower_module_decls_hir receiver_method_params");
                 for (int p = 0; p < md->param_count; p++) {
                     Iron_Param *ap = (Iron_Param *)md->params[p];
                     params[p].name   = ap->name;

@@ -84,6 +84,7 @@ void test_all_keywords(void) {
         { "return",     IRON_TOK_RETURN     },
         { "self",       IRON_TOK_SELF       },
         { "spawn",      IRON_TOK_SPAWN      },
+        { "static",     IRON_TOK_STATIC     },
         { "super",      IRON_TOK_SUPER      },
         { "true",       IRON_TOK_TRUE       },
         { "unchecked",  IRON_TOK_UNCHECKED  },  /* Phase 16: v4 */
@@ -93,7 +94,7 @@ void test_all_keywords(void) {
         { "while",      IRON_TOK_WHILE      },
     };
     int count = (int)(sizeof(cases) / sizeof(cases[0]));
-    TEST_ASSERT_EQUAL_INT(42, count);
+    TEST_ASSERT_EQUAL_INT(43, count);
 
     for (int i = 0; i < count; i++) {
         Iron_Arena   a = iron_arena_create(4096);

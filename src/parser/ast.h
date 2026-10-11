@@ -330,6 +330,9 @@ typedef struct {
      * (`ironc build --test`); other builds drop it after checking. */
     bool               is_test;
     const char        *test_name;
+    /* `static func` in an interface body: a function of the implementing
+     * type, called as `T.f(args)` (no receiver). */
+    bool               is_static;
 } Iron_FuncDecl;
 
 typedef struct {
@@ -418,7 +421,18 @@ typedef struct {
      * semantics. Plan 20-02b's emit_c.c reads it on method bodies for
      * the iron_stack_gen prologue/epilogue injection. Default false. */
     bool               takes_local_addr;
+    /* `static func` in an object, patch or interface default body: no
+     * receiver. is_receiver_form is true (it was declared in a body) but
+     * params[] holds only the declared parameters, there is no `self`. */
+    bool               is_static;
 } Iron_MethodDecl;
+
+/* Number of leading entries of md->params that are the receiver: 1 for a
+ * method declared in a body (`self`) or in receiver form, 0 for the
+ * standalone `func Type.m()` form and for a `static func`. */
+static inline int iron_method_recv_count(const Iron_MethodDecl *md) {
+    return (md && md->is_receiver_form && !md->is_static) ? 1 : 0;
+}
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
 
@@ -1049,6 +1063,17 @@ typedef struct Iron_Visitor {
  * If visit_node returns true, children are visited recursively.
  * After children, v->post_visit is called (if non-NULL). */
 void iron_ast_walk(Iron_Node *root, Iron_Visitor *v);
+
+/* True when a type annotation names `Self` anywhere (`Self`, `Self?`,
+ * `[Self]`, `Map[String, Self]`, `func(Self) -> Int`, ...). */
+bool iron_type_ann_mentions_self(Iron_Node *n);
+
+/* True when interface signature `sig` can be called through a value of the
+ * interface type: not static, no parameter mentions `Self`, and the result
+ * is either free of `Self` or exactly `Self` (boxed back into the
+ * interface). Other signatures are only callable on a concrete type or a
+ * constrained type parameter, and get no run-time dispatcher. */
+bool iron_iface_sig_dispatchable(const Iron_FuncDecl *sig);
 
 /* Return a human-readable name for the node kind. */
 const char *iron_node_kind_str(Iron_NodeKind kind);

@@ -12753,6 +12753,9 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                 Iron_Node *sig_node = entry->iface_decl->method_sigs[mi];
                 if (!sig_node || sig_node->kind != IRON_NODE_FUNC_DECL) continue;
                 Iron_FuncDecl *sig = (Iron_FuncDecl *)sig_node;
+                /* Static functions and signatures built from Self are not
+                 * callable through an interface value (E0354). */
+                if (!iron_iface_sig_dispatchable(sig)) continue;
 
                 const char *ret_type_c = "void";
                 bool has_return = false;

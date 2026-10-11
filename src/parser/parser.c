@@ -4434,6 +4434,42 @@ static const char *tokens_text(Iron_Parser *p, int from, int to) {
     return r;
 }
 
+/* `static` before `func` in an object, patch or interface body (#455): a
+ * function of the type, called as `Type.f(args)`, with no receiver. It is
+ * written after `pub` and before `func`; a tier modifier on either side of
+ * it is an error (there is no `self` for the tier to restrict), and only a
+ * function can be static. Returns true when the member is a static func. */
+static bool iron_parse_static_modifier(Iron_Parser *p, bool *is_readonly, bool *is_pure) {
+    bool tier_before = *is_readonly || *is_pure;
+    if (!iron_check(p, IRON_TOK_STATIC)) return false;
+    Iron_Token *st = iron_advance(p);
+    bool tier_after = false;
+    if (iron_check(p, IRON_TOK_READONLY) || iron_check(p, IRON_TOK_PURE)) {
+        tier_after = true;
+        iron_advance(p);
+        if (iron_check(p, IRON_TOK_READONLY) || iron_check(p, IRON_TOK_PURE)) iron_advance(p);
+    }
+    if (tier_before || tier_after) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                       iron_token_span(p, st),
+                       "a static function has no receiver: 'readonly' and "
+                       "'pure' do not apply to it",
+                       "remove the modifier, or drop `static` to declare a method");
+        *is_readonly = false;
+        *is_pure     = false;
+    }
+    if (!iron_check(p, IRON_TOK_FUNC)) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                       iron_token_span(p, st),
+                       "only a function can be static",
+                       "write `static func name(params) -> T { ... }`");
+        return false;
+    }
+    return true;
+}
+
 static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool is_pub,
                                          bool is_nocopy, Iron_Node ***extra_decls_out) {
     Iron_Token *start = iron_current(p);
@@ -4545,6 +4581,9 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
                 iron_advance(p);  /* consume 'readonly' to recover */
             }
         }
+
+        bool member_is_static =
+            iron_parse_static_modifier(p, &member_is_readonly, &member_is_pure);
 
         /* Phase 85 INIT-03/07/08/11: init declaration inside object body.
          *
@@ -4911,6 +4950,11 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             for (int i = 0; i < explicit_count; i++) {
                 all_params[i + 1] = explicit_params[i];
             }
+            if (member_is_static) {
+                /* No receiver: the declared parameters only. */
+                all_params = explicit_params;
+                total      = explicit_count;
+            }
 
             /* Build the Iron_MethodDecl; mirror parser.c:2413-2436. */
             Iron_MethodDecl *m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
@@ -4957,6 +5001,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->is_init              = false;
             m->init_name            = NULL;
             m->is_patch_member      = false;  /* Phase 94 LIB-02: in-block func on regular object */
+            m->is_static            = member_is_static;
 
             if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
@@ -5777,6 +5822,9 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             }
         }
 
+        bool member_is_static =
+            iron_parse_static_modifier(p, &member_is_readonly, &member_is_pure);
+
         /* Phase 16: `copy { ... }` and `drop { ... }` inside a patch body
          * mirror the object-body branches above. Semantics reserved for Phase 24. */
         if (iron_check(p, IRON_TOK_COPY) || iron_check(p, IRON_TOK_DROP)) {
@@ -6070,6 +6118,10 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             for (int i = 0; i < explicit_count; i++) {
                 all_params[i + 1] = explicit_params[i];
             }
+            if (member_is_static) {
+                all_params = explicit_params;
+                total      = explicit_count;
+            }
 
             Iron_MethodDecl *m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
             if (!m) iron_oom_abort("parser.c:iron_parse_patch_decl method MethodDecl");
@@ -6107,6 +6159,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->is_init              = false;
             m->init_name            = NULL;
             m->is_patch_member      = true;  /* Phase 94 LIB-02: stub generator suppresses */
+            m->is_static            = member_is_static;
 
             if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
@@ -6251,7 +6304,10 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
             }
         }
 
-        /* Method signature: [readonly|pure] func name(params) [-> Type] [{ body }] */
+        bool member_is_static =
+            iron_parse_static_modifier(p, &member_is_readonly, &member_is_pure);
+
+        /* Method signature: [static] [readonly|pure] func name(params) [-> Type] [{ body }] */
         if (!iron_check(p, IRON_TOK_FUNC)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_UNEXPECTED_TOKEN,
@@ -6315,6 +6371,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         sig->is_readonly          = member_is_readonly;
         sig->is_pure              = member_is_pure;
         sig->doc_comment          = sig_doc;  /* Phase 3 NAV-14 */
+        sig->is_static            = member_is_static;
         arrput(method_sigs, (Iron_Node *)sig);
         method_count++;
         iron_skip_newlines(p);
@@ -6786,6 +6843,19 @@ Iron_Node *iron_parse(Iron_Parser *p) {
                            NULL);
             iron_advance(p);
             iron_parser_sync_toplevel(p);
+            continue;
+        }
+        /* `static func` belongs in an object, patch or interface body; a
+         * top-level function already has no receiver. Report it and parse
+         * the function that follows. */
+        if (iron_check(p, IRON_TOK_STATIC)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                           iron_token_span(p, iron_current(p)),
+                           "'static' is only valid on a function inside an "
+                           "object, patch or interface body",
+                           "a top-level function has no receiver already: remove `static`");
+            iron_advance(p);
             continue;
         }
         /* Phase 24 DROP-08 (Plan 24-01): `nocopy object T { ... }` modifier.
