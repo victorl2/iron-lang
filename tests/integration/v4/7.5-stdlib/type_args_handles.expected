@@ -1,0 +1,11 @@
+rc 1
+weak 1
+nullable true
+maps 3 2 1
+set true 1
+pointers 4 5 true
+generic 1 1 false false
+drop node 4
+drop node 3
+drop node 2
+drop node 1

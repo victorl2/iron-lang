@@ -1,0 +1,31 @@
+-- Lambdas and rc expressions keep parsing as expressions between brackets
+-- now that function, rc and pointer types are read there as type
+-- arguments (#506): a lambda always has a body.
+object Node {
+    val id: Int
+}
+
+val K = 7
+
+func run(fs: [func(Int) -> Int], i: Int, x: Int) -> Int {
+    return fs[i](x)
+}
+
+func main() {
+    val fs = [func(x: Int) -> Int { return x + 1 }, func(x: Int) -> Int { return x * 3 }]
+    val typed: [func(Int) -> Int] = [func(x) { return x - 1 }, func(x: Int) -> Int { return x }]
+    println("{fs[0](1)} {fs[1](2)} {typed[0](10)} {typed[1](10)} {run(fs, 1, 5)}")
+    val zero = [func() { println("zero-arg lambda") }]
+    zero[0]()
+    val nested = [[func(x: Int) -> Int { return x + 100 }]]
+    println("{nested[0][0](1)}")
+    var table = Map[String, func(Int) -> Int]()
+    table.put("inc", fs[0])
+    table.put("lam", func(x: Int) -> Int { return x + K })
+    println("{table.get("lam")(table.get("inc")(1))}")
+    val p = Node(5)
+    val handles = [rc p, rc Node(6)]
+    val nums = [rc K]
+    val weaks: [weak rc Node] = [weak rc null, handles[0].downgrade()]
+    println("{handles[1].id} {len(nums)} {len(weaks)}")
+}

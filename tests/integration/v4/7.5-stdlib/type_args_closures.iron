@@ -1,0 +1,94 @@
+-- Function types written as type arguments (#506): channels, maps, boxes,
+-- generic functions and generic methods of closures, nested function
+-- types, and closures sent between spawned tasks and stored in a map.
+object Holder {
+    val n: Int
+    func pick[T](a: T, b: T) -> T {
+        return b
+    }
+}
+
+func id[T](v: T) -> T {
+    return v
+}
+
+func twice(x: Int) -> Int {
+    return x * 2
+}
+
+func apply_all(fs: [func(Int) -> Int], x: Int) -> Int {
+    var total = 0
+    for f in fs {
+        total += f(x)
+    }
+    return total
+}
+
+func main() {
+    -- A channel of closures between tasks: the producer captures values,
+    -- the consumer runs what it receives.
+    val jobs = Channel[func(Int) -> Int](4)
+    val results = Channel[Int](4)
+    val base = 100
+    val producer = spawn("producer") {
+        for i in range(4) {
+            val k = i * 10
+            jobs.send(func(x: Int) -> Int { return x + k + base })
+        }
+        return 0
+    }
+    val consumer = spawn("consumer") {
+        var sum = 0
+        for i in range(4) {
+            val f: func(Int) -> Int = jobs.recv()
+            val r = f(i)
+            results.send(r)
+            sum += r
+        }
+        return sum
+    }
+    await producer
+    val total = await consumer
+    var got = 0
+    for i in range(4) {
+        val r: Int = results.recv()
+        got += r
+    }
+    println("tasks {total} {got}")
+
+    -- A map of closures, some capturing a String.
+    var ops = Map[String, func(Int) -> Int]()
+    val n = 3
+    val label = "offset {n}"
+    ops.put("double", twice)
+    ops.put("add", func(x: Int) -> Int { return x + len(label) })
+    ops.put("neg", func(x: Int) -> Int { return 0 - x })
+    println("ops {ops.get("double")(5)} {ops.get("add")(5)} {ops.get("neg")(5)} {ops.len()}")
+
+    -- Nested: a map of lists of closures, a channel of higher-order closures.
+    var groups = Map[String, [func(Int) -> Int]]()
+    groups.put("g", [twice, func(x: Int) -> Int { return x + 1 }])
+    println("groups {apply_all(groups.get("g"), 4)}")
+    val hi = Channel[func(func(Int) -> Int) -> Int](1)
+    hi.send(func(f: func(Int) -> Int) -> Int { return f(7) })
+    val app: func(func(Int) -> Int) -> Int = hi.recv()
+    println("higher {app(twice)}")
+
+    -- Generic calls with explicit function type arguments.
+    val g = id[func(Int) -> Int](twice)
+    var h = Holder(1)
+    val p = h.pick[func(Int) -> Int](twice, func(x: Int) -> Int { return x - 1 })
+    println("generic {g(4)} {p(4)}")
+
+    -- A box of a closure, and a Mutex of one.
+    val b = Box[func(Int) -> Int](func(x: Int) -> Int { return x + base })
+    println("box {b.is_null()}")
+    val m = Mutex[func(Int) -> Int](twice)
+    {
+        val guard = m.lock()
+        guard.set(func(x: Int) -> Int { return x * base })
+    }
+    val guard = m.lock()
+    val cur: func(Int) -> Int = guard.get()
+    println("mutex {cur(2)}")
+}

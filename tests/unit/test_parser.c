@@ -1815,6 +1815,116 @@ void test_index_access(void) {
     TEST_ASSERT_EQUAL(IRON_NODE_INT_LIT, ix->index->kind);
 }
 
+/* ── Types as type arguments in brackets (#506) ──────────────────────────── */
+
+static Iron_Node *val_init(const char *src) {
+    Iron_Node *prog = parse(src);
+    Iron_Node *d    = first_decl(prog);
+    TEST_ASSERT_EQUAL(IRON_NODE_VAL_DECL, d->kind);
+    return ((Iron_ValDecl *)d)->init;
+}
+
+/* The callee of `X[...](args)`: the IndexExpr holding the type arguments. */
+static Iron_IndexExpr *call_type_args(const char *src) {
+    Iron_Node *init = val_init(src);
+    TEST_ASSERT_EQUAL(IRON_NODE_CALL, init->kind);
+    Iron_Node *callee = ((Iron_CallExpr *)init)->callee;
+    TEST_ASSERT_EQUAL(IRON_NODE_INDEX, callee->kind);
+    return (Iron_IndexExpr *)callee;
+}
+
+void test_type_arg_func_type(void) {
+    Iron_IndexExpr *ix = call_type_args("val ch = Channel[func(Int) -> Int](4)");
+    TEST_ASSERT_EQUAL(0, (int)diags.error_count);
+    TEST_ASSERT_EQUAL(IRON_NODE_TYPE_ANNOTATION, ix->index->kind);
+    TEST_ASSERT_TRUE(((Iron_TypeAnnotation *)ix->index)->is_func);
+}
+
+void test_type_arg_map_func_value(void) {
+    Iron_IndexExpr *ix = call_type_args("val m = Map[String, func(Int) -> Int]()");
+    TEST_ASSERT_EQUAL(0, (int)diags.error_count);
+    TEST_ASSERT_EQUAL(2, ix->type_arg_count);
+    TEST_ASSERT_EQUAL(IRON_NODE_IDENT, ix->type_args[0]->kind);
+    TEST_ASSERT_EQUAL(IRON_NODE_TYPE_ANNOTATION, ix->type_args[1]->kind);
+}
+
+void test_type_arg_nested_func_types(void) {
+    Iron_IndexExpr *ix = call_type_args("val m = Map[String, [func(Int) -> Int]]()");
+    TEST_ASSERT_EQUAL(0, (int)diags.error_count);
+    TEST_ASSERT_EQUAL(IRON_NODE_ARRAY_LIT, ix->type_args[1]->kind);
+    Iron_ArrayLit *al = (Iron_ArrayLit *)ix->type_args[1];
+    TEST_ASSERT_EQUAL(1, al->element_count);
+    TEST_ASSERT_EQUAL(IRON_NODE_TYPE_ANNOTATION, al->elements[0]->kind);
+    ix = call_type_args("val c = Channel[func(func(Int) -> Int) -> Int](1)");
+    TEST_ASSERT_EQUAL(0, (int)diags.error_count);
+    TEST_ASSERT_TRUE(((Iron_TypeAnnotation *)ix->index)->is_func);
+}
+
+void test_type_arg_rc_weak_ptr(void) {
+    const char *srcs[] = {
+        "val b = Box[rc Foo](x)",
+        "val c = Channel[weak rc Foo](1)",
+        "val s = Set[*Foo]()",
+        "val n = Channel[?*Foo](1)",
+        "val u = Channel[rc Foo?](1)",
+        "val p = id[*var Foo](q)",
+    };
+    for (size_t i = 0; i < sizeof(srcs) / sizeof(srcs[0]); i++) {
+        Iron_IndexExpr *ix = call_type_args(srcs[i]);
+        TEST_ASSERT_EQUAL_MESSAGE(0, (int)diags.error_count, srcs[i]);
+        TEST_ASSERT_EQUAL_MESSAGE(IRON_NODE_TYPE_ANNOTATION, ix->index->kind, srcs[i]);
+    }
+}
+
+void test_type_arg_generic_method(void) {
+    Iron_Node *init = val_init("val p = h.pick[func(Int) -> Int](f, g)");
+    TEST_ASSERT_EQUAL(0, (int)diags.error_count);
+    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_CALL, init->kind);
+    Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)init;
+    TEST_ASSERT_EQUAL(1, mc->generic_arg_count);
+    TEST_ASSERT_EQUAL(2, mc->arg_count);
+}
+
+void test_lambdas_still_parse_in_brackets(void) {
+    /* A body after the signature makes a lambda, typed or not. */
+    Iron_Node *init = val_init("val fs = [func(x: Int) -> Int { return x }, func(x) { return x }, func() { }]");
+    TEST_ASSERT_EQUAL(0, (int)diags.error_count);
+    TEST_ASSERT_EQUAL(IRON_NODE_ARRAY_LIT, init->kind);
+    Iron_ArrayLit *al = (Iron_ArrayLit *)init;
+    TEST_ASSERT_EQUAL(3, al->element_count);
+    for (int i = 0; i < 3; i++) TEST_ASSERT_EQUAL(IRON_NODE_LAMBDA, al->elements[i]->kind);
+    /* A lambda as an index and next to an index stays a lambda. */
+    init = val_init("val r = table[func(x: Int) -> Int { return x }]");
+    TEST_ASSERT_EQUAL(0, (int)diags.error_count);
+    TEST_ASSERT_EQUAL(IRON_NODE_LAMBDA, ((Iron_IndexExpr *)init)->index->kind);
+    init = val_init("val r = fs[0](func(x: Int) -> Int { return x })");
+    TEST_ASSERT_EQUAL(0, (int)diags.error_count);
+    TEST_ASSERT_EQUAL(IRON_NODE_CALL, init->kind);
+}
+
+void test_rc_elements_stay_expressions_in_list_literals(void) {
+    Iron_Node *init = val_init("val xs = [rc p, rc Foo(1), weak rc null]");
+    TEST_ASSERT_EQUAL(0, (int)diags.error_count);
+    Iron_ArrayLit *al = (Iron_ArrayLit *)init;
+    TEST_ASSERT_EQUAL(3, al->element_count);
+    TEST_ASSERT_EQUAL(IRON_NODE_RC, al->elements[0]->kind);
+    TEST_ASSERT_EQUAL(IRON_NODE_RC, al->elements[1]->kind);
+    TEST_ASSERT_EQUAL(IRON_NODE_WEAK_RC_NULL, al->elements[2]->kind);
+    /* What follows the rc can only be a type: the element is a type. */
+    init = val_init("val t = [rc func(Int) -> Int]");
+    TEST_ASSERT_EQUAL(0, (int)diags.error_count);
+    TEST_ASSERT_EQUAL(IRON_NODE_TYPE_ANNOTATION, ((Iron_ArrayLit *)init)->elements[0]->kind);
+}
+
+void test_tuple_type_arg(void) {
+    Iron_IndexExpr *ix = call_type_args("val ch = Channel[(Int, func(Int) -> Int)](2)");
+    TEST_ASSERT_EQUAL(0, (int)diags.error_count);
+    TEST_ASSERT_EQUAL(IRON_NODE_ARRAY_LIT, ix->index->kind);
+    Iron_ArrayLit *al = (Iron_ArrayLit *)ix->index;
+    TEST_ASSERT_EQUAL(2, al->element_count);
+    TEST_ASSERT_EQUAL(IRON_NODE_TYPE_ANNOTATION, al->elements[1]->kind);
+}
+
 /* ── Special expressions ─────────────────────────────────────────────────── */
 
 void test_lambda(void) {
@@ -2190,6 +2300,16 @@ int main(void) {
     RUN_TEST(test_parse_tuple_literal_in_return);
     RUN_TEST(test_parse_tuple_destructure_binding);
     RUN_TEST(test_parse_tuple_destructure_wildcard);
+
+    /* #506: types as type arguments in brackets */
+    RUN_TEST(test_type_arg_func_type);
+    RUN_TEST(test_type_arg_map_func_value);
+    RUN_TEST(test_type_arg_nested_func_types);
+    RUN_TEST(test_type_arg_rc_weak_ptr);
+    RUN_TEST(test_type_arg_generic_method);
+    RUN_TEST(test_lambdas_still_parse_in_brackets);
+    RUN_TEST(test_rc_elements_stay_expressions_in_list_literals);
+    RUN_TEST(test_tuple_type_arg);
 
     return UNITY_END();
 }

@@ -1,0 +1,34 @@
+-- Generic instances are printed and parsed again: a Channel[T], Map[K, V],
+-- [V] or Box[V] inside a generic body instantiated with a function, rc,
+-- weak rc or pointer type must read back as a type argument (#506).
+object Node {
+    val id: Int
+}
+func relay[T](v: T) -> T {
+    val ch = Channel[T](1)
+    ch.send(v)
+    return ch.recv()
+}
+func store[V](k: String, v: V) -> Int {
+    var m = Map[String, V]()
+    m.put(k, v)
+    val xs: [V] = [v]
+    val b = Box[V](v)
+    return m.len() + len(xs)
+}
+func twice(x: Int) -> Int {
+    return x * 2
+}
+func main() {
+    val f = relay[func(Int) -> Int](twice)
+    println("{f(4)}")
+    val g = relay(func(x: Int) -> Int { return x + 1 })
+    println("{g(4)}")
+    val n = rc Node(3)
+    val r = relay(n)
+    val w = relay(n.downgrade())
+    var p = Node(5)
+    val q = relay(&p)
+    println("{r.id} {q.id}")
+    println("{store("a", twice)} {store("b", n)} {store("c", n.downgrade())} {store("d", &p)}")
+}
