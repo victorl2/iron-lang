@@ -90,12 +90,17 @@ void test_rng_small_seeds_scrambled(void) {
 }
 
 void test_rng_next_int_range(void) {
+    /* Inclusive at both ends, as Math.random_int documents (#573). */
     Iron_RNG rng = Iron_rng_create(12345);
-    for (int i = 0; i < 100; i++) {
-        int64_t v = Iron_rng_next_int(&rng, 1, 11); /* [1, 11) -> [1, 10] */
+    bool lo = false, hi = false;
+    for (int i = 0; i < 1000; i++) {
+        int64_t v = Iron_rng_next_int(&rng, 1, 11);
         TEST_ASSERT_GREATER_OR_EQUAL_INT64(1, v);
-        TEST_ASSERT_LESS_THAN_INT64(11, v);
+        TEST_ASSERT_LESS_OR_EQUAL_INT64(11, v);
+        if (v == 1) lo = true;
+        if (v == 11) hi = true;
     }
+    TEST_ASSERT_TRUE(lo && hi);
 }
 
 void test_math_random(void) {
@@ -257,6 +262,43 @@ void test_log_debug_info_warn_error(void) {
     TEST_PASS_MESSAGE("log functions completed without crash");
 }
 
+#ifndef _WIN32
+#include <unistd.h>
+static const void *find_bytes(const char *hay, size_t n, const char *needle, size_t m) {
+    for (size_t i = 0; i + m <= n; i++)
+        if (memcmp(hay + i, needle, m) == 0) return hay + i;
+    return NULL;
+}
+/* #625: a level below DEBUG shows everything and a message is written
+ * with all its bytes (a zero byte does not end it). */
+void test_log_negative_level_and_zero_byte(void) {
+    char path[] = "/tmp/iron_log_test_XXXXXX";
+    int fd = mkstemp(path);
+    TEST_ASSERT_TRUE(fd >= 0);
+    fflush(stderr);
+    int saved = dup(2);
+    dup2(fd, 2);
+    Iron_log_set_level(-5);
+    Iron_log_debug(make_str("shown"));
+    Iron_String nul = iron_string_from_cstr("a\0b", 3);
+    Iron_log_info(nul);
+    Iron_log_set_level(99);
+    Iron_log_error(make_str("hidden"));
+    fflush(stderr);
+    dup2(saved, 2);
+    close(saved);
+    Iron_log_set_level(IRON_LOG_INFO);
+    char buf[512];
+    ssize_t n = pread(fd, buf, sizeof(buf), 0);
+    close(fd);
+    unlink(path);
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_NOT_NULL(find_bytes(buf, (size_t)n, "[DEBUG] shown\n", 14));
+    TEST_ASSERT_NOT_NULL(find_bytes(buf, (size_t)n, "[INFO] a\0b\n", 11));
+    TEST_ASSERT_NULL(find_bytes(buf, (size_t)n, "hidden", 6));
+}
+#endif
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * Test runner
  * ═══════════════════════════════════════════════════════════════════════════ */
@@ -293,6 +335,9 @@ int main(void) {
     /* Log */
     RUN_TEST(test_log_set_level);
     RUN_TEST(test_log_debug_info_warn_error);
+#ifndef _WIN32
+    RUN_TEST(test_log_negative_level_and_zero_byte);
+#endif
 
     return UNITY_END();
 }
