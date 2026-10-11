@@ -639,6 +639,7 @@ static bool emit_patch_member_field(Iron_MethodDecl *m,
     struct patch_member_emit_ctx *st = (struct patch_member_emit_ctx *)ud;
     (void)p;
     if (!st || !m || !m->method_name) return true;
+    if (m->is_static || m->is_init) return true;   /* called on the type */
     const char *tier_prefix = "func";
     if      (m->is_readonly) tier_prefix = "readonly func";
     else if (m->is_pure)     tier_prefix = "pure func";
@@ -722,6 +723,7 @@ static const char *type_str(const Iron_Type *t, Iron_Arena *arena) {
 static const char *method_detail(Iron_MethodDecl *md, Iron_Arena *arena) {
     char buf[512];
     size_t n = (size_t)snprintf(buf, sizeof(buf), "%sfunc %s(",
+                                md->is_static ? "static " :
                                 md->is_readonly ? "readonly " : md->is_pure ? "pure " : "",
                                 md->method_name ? md->method_name : "?");
     bool first = true;
@@ -754,17 +756,30 @@ static void push_builtins(IronLsp_CompletionCandidate **out, Iron_Arena *arena,
 
 /* Methods declared for `type_name` (the file's and the stdlib's), or the
  * list extensions (`func [T].map`) when `list`. */
+/* Which methods a receiver can call: a value calls methods (not static
+ * functions); a type name calls static functions and named inits, and the
+ * standard library's namespace functions (`Math.sqrt`), but not a
+ * program's own methods (E0351). */
+typedef enum { MEMBERS_OF_VALUE, MEMBERS_OF_TYPE } MemberMode;
+
 static void push_declared_methods(IronLsp_CompletionCandidate **out, Iron_Arena *arena,
                                   const Iron_Program *program, const char *type_name,
-                                  bool list, const char *prefix) {
+                                  bool list, const char *prefix, MemberMode mode) {
     for (int i = 0; i < all_decls(program); i++) {
         Iron_Node *d = program->decls[i];
         if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
         Iron_MethodDecl *md = (Iron_MethodDecl *)d;
-        if (!md->method_name || md->is_init || md->is_synth_accessor) continue;
+        if (!md->method_name || md->is_synth_accessor) continue;
         if (list ? !md->is_array_extension
                  : (md->is_array_extension || !md->type_name || !type_name ||
                     strcmp(md->type_name, type_name) != 0)) continue;
+        if (mode == MEMBERS_OF_VALUE && (md->is_init || md->is_static)) continue;
+        if (mode == MEMBERS_OF_TYPE) {
+            if (md->is_init && !md->init_name) continue;
+            bool user = i < program->decl_count;
+            if (user && !md->is_static && !md->is_init && iron_method_recv_count(md) == 1)
+                continue;
+        }
         maybe_push(out, arena, md->method_name, LSP_CK_METHOD, ILSP_COMPLETION_BUCKET_LOCAL,
                    method_detail(md, arena), "", md->method_name, false, false, prefix);
     }
@@ -807,7 +822,8 @@ static void emit_object_members_by_name(IronLsp_CompletionCandidate **out_arr,
         push_fields(out_arr, arena, od, query_prefix);
         break;
     }
-    push_declared_methods(out_arr, arena, program, type_name, false, query_prefix);
+    push_declared_methods(out_arr, arena, program, type_name, false, query_prefix,
+                          MEMBERS_OF_VALUE);
     struct patch_member_emit_ctx ctx_pms = {
         .out = out_arr, .arena = arena, .prefix = query_prefix,
     };
@@ -909,7 +925,8 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
         if (td && td->kind == IRON_NODE_OBJECT_DECL) {
             Iron_ObjectDecl *od = (Iron_ObjectDecl *)td;
             push_fields(out_arr, arena, od, query_prefix);
-            push_declared_methods(out_arr, arena, program, od->name, false, query_prefix);
+            push_declared_methods(out_arr, arena, program, od->name, false, query_prefix,
+                                  MEMBERS_OF_TYPE);
             return;
         }
         if (td && td->kind == IRON_NODE_ENUM_DECL) {
@@ -921,7 +938,8 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
                            ILSP_COMPLETION_BUCKET_LOCAL, ed->name ? ed->name : "",
                            "", ev->name, false, false, query_prefix);
             }
-            push_declared_methods(out_arr, arena, program, ed->name, false, query_prefix);
+            push_declared_methods(out_arr, arena, program, ed->name, false, query_prefix,
+                                  MEMBERS_OF_TYPE);
             return;
         }
     }
@@ -931,7 +949,8 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
     switch ((int)t->kind) {
         case IRON_TYPE_ARRAY:
             push_builtins(out_arr, arena, ilsp_list_builtins, t, query_prefix);
-            push_declared_methods(out_arr, arena, program, NULL, true, query_prefix);
+            push_declared_methods(out_arr, arena, program, NULL, true, query_prefix,
+                                  MEMBERS_OF_VALUE);
             return;
         case IRON_TYPE_OBJECT: {
             Iron_ObjectDecl *od = t->object.decl;
@@ -953,6 +972,8 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
             for (int j = 0; id && j < id->method_count; j++) {
                 Iron_FuncDecl *sig = (Iron_FuncDecl *)id->method_sigs[j];
                 if (!sig || sig->kind != IRON_NODE_FUNC_DECL || !sig->name) continue;
+                /* Through an interface value only what it can dispatch (E0354). */
+                if (!iron_iface_sig_dispatchable(sig)) continue;
                 maybe_push(out_arr, arena, sig->name, LSP_CK_METHOD,
                            ILSP_COMPLETION_BUCKET_LOCAL, id->name ? id->name : "",
                            "", sig->name, false, false, query_prefix);
@@ -962,13 +983,14 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
         case IRON_TYPE_ENUM:
             if (t->enu.decl) {
                 push_declared_methods(out_arr, arena, program, t->enu.decl->name, false,
-                                      query_prefix);
+                                      query_prefix, MEMBERS_OF_VALUE);
             }
             return;
         default: {
             /* String, Int, Float...: the stdlib's `patch object String`. */
             const char *name = type_str(t, arena);
-            push_declared_methods(out_arr, arena, program, name, false, query_prefix);
+            push_declared_methods(out_arr, arena, program, name, false, query_prefix,
+                                  MEMBERS_OF_VALUE);
             return;
         }
     }

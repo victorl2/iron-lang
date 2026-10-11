@@ -70,7 +70,7 @@ static bool span_eq(Iron_Span a, Iron_Span b) {
 /* A declaration's span starts at its keyword (`func`); its range starts
  * at the modifiers written before it on the same line (`pub readonly`). */
 static Iron_Span with_modifiers(Iron_Span sp, const IronLsp_Document *doc) {
-    static const char *const mods[] = { "pub", "private", "readonly", "pure", "nocopy" };
+    static const char *const mods[] = { "pub", "private", "readonly", "pure", "static", "nocopy" };
     if (sp.line == 0 || sp.col == 0 || !doc->text) return sp;
     size_t ls = ilsp_byte_of_line(&doc->line_idx, sp.line - 1);
     size_t i = ls + sp.col - 1;

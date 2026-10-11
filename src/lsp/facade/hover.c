@@ -139,6 +139,7 @@ static const char *signature_func(Iron_FuncDecl *fd, Iron_Arena *arena) {
      * of readonly + pure is enforced by the parser at
      * src/parser/parser.c:3162-3180; both fields cannot be true at once,
      * so the order between them is academic for emission. */
+    if (fd->is_static)   sb_append(&sb, "static ");
     if (fd->is_readonly) sb_append(&sb, "readonly ");
     if (fd->is_pure)     sb_append(&sb, "pure ");
     sb_append(&sb, "func ");
@@ -184,6 +185,7 @@ static const char *signature_method(Iron_MethodDecl *md, Iron_Arena *arena) {
      * `pub init`. */
     if (ilsp_vis_is_public((const Iron_Node *)md)) sb_append(&sb, "pub ");
     /* Regular method form: pub -> readonly|pure -> func Type.method. */
+    if (md->is_static)   sb_append(&sb, "static ");
     if (md->is_readonly) sb_append(&sb, "readonly ");
     if (md->is_pure)     sb_append(&sb, "pure ");
     sb_append(&sb, "func ");
