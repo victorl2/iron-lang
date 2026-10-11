@@ -46,7 +46,11 @@ func main() {
     for u in users {
         admin.run("DROP USER IF EXISTS '{u}'@'%'")
     }
-    var e = admin.run("CREATE USER 'iron_native'@'%' IDENTIFIED WITH mysql_native_password BY 'native_pw'")
+    var create_native = "CREATE USER 'iron_native'@'%' IDENTIFIED WITH mysql_native_password BY 'native_pw'"
+    if mariadb {
+        create_native = "CREATE USER 'iron_native'@'%' IDENTIFIED VIA mysql_native_password USING PASSWORD('native_pw')"
+    }
+    var e = admin.run(create_native)
     check(e.ok(), "create native user: {e.message}")
     admin.run("GRANT ALL ON {db}.* TO 'iron_native'@'%'")
     if not mariadb {

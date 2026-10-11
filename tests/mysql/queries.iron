@@ -200,6 +200,7 @@ func main() {
     conn.run("DROP TABLE IF EXISTS iron_many")
     conn.run("CREATE TABLE iron_many (id INT PRIMARY KEY, v VARCHAR(40))")
     conn.run("SET SESSION cte_max_recursion_depth = 100000")
+    conn.run("SET SESSION max_recursive_iterations = 100000")
     val fill = conn.run("INSERT INTO iron_many (id, v) WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < 50000) SELECT n, CONCAT('value-', n) FROM s")
     check(fill.ok(), "fill 50000 rows: {fill.message}")
     val many = conn.query("SELECT id, v FROM iron_many ORDER BY id")
