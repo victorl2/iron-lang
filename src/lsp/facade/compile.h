@@ -61,6 +61,13 @@ void ilsp_facade_pull_diagnostic(struct IronLsp_Server   *server,
                                   struct IronLsp_Document *doc,
                                   const char              *request_id);
 
+/* Answer a pull diagnostic request with an empty full report (resultId
+ * "v0"): for a document that is not open, was closed or quarantined while
+ * the request waited, or a pull displaced by a newer one. Every request
+ * gets a response. */
+void ilsp_facade_pull_diagnostic_empty(struct IronLsp_Server *server,
+                                        const char            *request_id);
+
 /* Test seam: run the analyzer only; caller provides + owns arena+diags.
  * Used by tests/lsp/parity/test_parity_ironc_lsp.c to compare against
  * the CLI path without touching the writer queue. */

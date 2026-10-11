@@ -64,10 +64,15 @@ void ilsp_mailbox_post_compile(IronLsp_Mailbox *m,
 
 /* Post a PULL_DIAGNOSTIC. request_id is duplicated into mailbox-owned
  * memory; the worker frees it after handling. If a pending pull exists,
- * the new id REPLACES the old one (the old id is freed). */
-void ilsp_mailbox_post_pull(IronLsp_Mailbox *m,
+ * the new id replaces it, and the old id is returned (caller frees it and
+ * answers that request); NULL otherwise. */
+char *ilsp_mailbox_post_pull(IronLsp_Mailbox *m,
                              int32_t          version,
                              const char      *request_id);
+
+/* Remove a pending pull and return its request id (caller frees and
+ * answers it), or NULL. For a document closed while a pull waited. */
+char *ilsp_mailbox_take_pull(IronLsp_Mailbox *m);
 
 /* Post SHUTDOWN. Never coalesced; never overwrites. Sets a sticky flag
  * the dequeue path checks first. Wakes a parked worker. */

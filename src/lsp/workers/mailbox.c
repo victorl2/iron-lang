@@ -84,15 +84,17 @@ void ilsp_mailbox_post_compile(IronLsp_Mailbox *m,
     IRON_MUTEX_UNLOCK(m->lock);
 }
 
-void ilsp_mailbox_post_pull(IronLsp_Mailbox *m,
+char *ilsp_mailbox_post_pull(IronLsp_Mailbox *m,
                              int32_t          version,
                              const char      *request_id) {
-    if (!m) return;
+    if (!m) return NULL;
     char *dup = request_id ? strdup(request_id) : NULL;
+    char *displaced = NULL;
     IRON_MUTEX_LOCK(m->lock);
-    /* If a pull is already pending, free the old id and replace. */
+    /* If a pull is already pending, the new one replaces it; the caller
+     * answers the old request. */
     if (m->pull_has && m->pull.pull_request_id) {
-        free(m->pull.pull_request_id);
+        displaced = m->pull.pull_request_id;
     }
     m->pull.kind            = ILSP_MSG_PULL_DIAGNOSTIC;
     m->pull.version         = version;
@@ -101,6 +103,20 @@ void ilsp_mailbox_post_pull(IronLsp_Mailbox *m,
     m->pull_has             = true;
     IRON_COND_SIGNAL(m->cond);
     IRON_MUTEX_UNLOCK(m->lock);
+    return displaced;
+}
+
+char *ilsp_mailbox_take_pull(IronLsp_Mailbox *m) {
+    if (!m) return NULL;
+    char *id = NULL;
+    IRON_MUTEX_LOCK(m->lock);
+    if (m->pull_has) {
+        id = m->pull.pull_request_id;
+        m->pull.pull_request_id = NULL;
+        m->pull_has = false;
+    }
+    IRON_MUTEX_UNLOCK(m->lock);
+    return id;
 }
 
 void ilsp_mailbox_post_shutdown(IronLsp_Mailbox *m) {

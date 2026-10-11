@@ -1,0 +1,221 @@
+"""Smoke: language server bugs found by the editing-session fuzzer
+(tests/fuzz/lsp_fuzz.py). Each test is the reduced session.
+"""
+from __future__ import annotations
+
+import asyncio
+import os
+
+import pytest
+from lsprotocol import types
+
+from conftest import _default_init_params, _install_register_capability_handler
+
+
+def _open(client, uri, text, version=1):
+    client.text_document_did_open(types.DidOpenTextDocumentParams(
+        text_document=types.TextDocumentItem(uri=uri, language_id="iron",
+                                             version=version, text=text)))
+
+
+async def _diagnostics_for_version(client, uri, version, timeout=10.0):
+    """The diagnostics published for `uri` at `version`; fails when the
+    server publishes no diagnostics with that version."""
+    loop = asyncio.get_running_loop()
+    end = loop.time() + timeout
+    seen = []
+    while loop.time() < end:
+        try:
+            params = await asyncio.wait_for(
+                client.wait_for_notification(types.TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS),
+                timeout=max(0.1, end - loop.time()))
+        except asyncio.TimeoutError:
+            break
+        if params.uri != uri:
+            continue
+        seen.append(params.version)
+        if params.version == version:
+            return params.diagnostics
+    pytest.fail(f"no diagnostics for version {version}; published versions {seen}")
+
+
+def _line_units(line, enc):
+    if enc == "utf-8":
+        return len(line.encode("utf-8"))
+    return len(line.encode("utf-16-le")) // 2
+
+
+def _assert_in_document(text, rng, enc):
+    lines = text.replace("\r\n", "\n").split("\n")
+    for p in (rng.start, rng.end):
+        assert p.line < len(lines), f"{rng} past the last line {len(lines) - 1}"
+        assert p.character <= _line_units(lines[p.line], enc), \
+            f"{rng} past the end of line {p.line} {lines[p.line]!r}"
+
+
+@pytest.mark.asyncio
+async def test_several_changes_in_one_did_change_keep_the_version(client, tmp_path):
+    # Events of one didChange make one version. The server used to give the
+    # document the version of its last internal step (3 here), so every
+    # later diagnostic carried a version the client never sent.
+    uri = (tmp_path / "multi.iron").as_uri()
+    _open(client, uri, "func main() {\n    val x = 1\n}\n")
+    await _diagnostics_for_version(client, uri, 1)
+    client.text_document_did_change(types.DidChangeTextDocumentParams(
+        text_document=types.VersionedTextDocumentIdentifier(uri=uri, version=2),
+        content_changes=[
+            types.TextDocumentContentChangePartial(
+                range=types.Range(start=types.Position(line=1, character=12),
+                                  end=types.Position(line=1, character=13)),
+                text="2"),
+            types.TextDocumentContentChangePartial(
+                range=types.Range(start=types.Position(line=1, character=8),
+                                  end=types.Position(line=1, character=9)),
+                text="y"),
+        ]))
+    await _diagnostics_for_version(client, uri, 2)
+
+
+@pytest.mark.asyncio
+async def test_utf8_positions_count_bytes(client, tmp_path):
+    # The default client fixture negotiates utf-8: LSP counts UTF-8 code
+    # units (bytes) then. The server counted code points.
+    uri = (tmp_path / "utf8.iron").as_uri()
+    text = 'func main() {\n    val s = "é😀" + zz\n}\n'
+    _open(client, uri, text)
+    diags = await _diagnostics_for_version(client, uri, 1)
+    undefined = [d for d in diags if d.code == "E0200"]
+    assert undefined, diags
+    line = text.split("\n")[1]
+    want = len(line[:line.index("zz")].encode("utf-8"))
+    assert undefined[0].range.start.character == want, (undefined[0].range, want)
+
+
+async def _utf16_client(lsp_binary):
+    from pytest_lsp import ClientServerConfig
+    c = await ClientServerConfig(server_command=[lsp_binary]).start()
+    _install_register_capability_handler(c)
+    params = _default_init_params()
+    params.capabilities.general.position_encodings = [types.PositionEncodingKind.Utf16]
+    await c.initialize_session(params)
+    return c
+
+
+async def _stop(c):
+    try:
+        await asyncio.wait_for(c.shutdown_session(), timeout=3.0)
+        await asyncio.wait_for(c.stop(), timeout=3.0)
+    except Exception:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_selection_range_stays_in_the_document(lsp_binary, tmp_path):
+    # The module rung ended one character past the empty last line, and
+    # positions and ranges were byte columns whatever the encoding.
+    c = await _utf16_client(lsp_binary)
+    try:
+        uri = (tmp_path / "sel.iron").as_uri()
+        text = 'func main() {\n    val s = "😀😀"\n    val t = s\n}\n'
+        _open(c, uri, text)
+        res = await c.text_document_selection_range_async(types.SelectionRangeParams(
+            text_document=types.TextDocumentIdentifier(uri=uri),
+            positions=[types.Position(line=1, character=16),
+                       types.Position(line=2, character=12)]))
+        assert res and len(res) == 2
+        for sr in res:
+            child = None
+            while sr is not None:
+                _assert_in_document(text, sr.range, "utf-16")
+                if child is not None:
+                    a, b = child.range, sr.range
+                    assert (b.start.line, b.start.character) <= (a.start.line, a.start.character)
+                    assert (a.end.line, a.end.character) <= (b.end.line, b.end.character)
+                child, sr = sr, sr.parent
+        # `t` on line 2 sits after no wide character; `s` in the string
+        # line is after two surrogate pairs: its rung starts at their end.
+        assert res[1].range.start == types.Position(line=2, character=12)
+    finally:
+        await _stop(c)
+
+
+@pytest.mark.asyncio
+async def test_crlf_diagnostic_ends_inside_its_line(lsp_binary, tmp_path):
+    # A CRLF line ends at its '\r'; a span reaching the line break (an
+    # unterminated string runs to it) ended one character past the line.
+    c = await _utf16_client(lsp_binary)
+    try:
+        uri = (tmp_path / "crlf.iron").as_uri()
+        text = 'func main() {\r\n    val s = "abc\r\n}\r\n'
+        _open(c, uri, text)
+        diags = await _diagnostics_for_version(c, uri, 1)
+        assert diags
+        for d in diags:
+            _assert_in_document(text, d.range, "utf-16")
+    finally:
+        await _stop(c)
+
+
+@pytest.mark.asyncio
+async def test_pull_diagnostics_always_answered(lsp_binary, tmp_path):
+    # A pull for a document that is not open (or was closed while the pull
+    # waited) got no response at all.
+    from pytest_lsp import ClientServerConfig
+    c = await ClientServerConfig(server_command=[lsp_binary]).start()
+    _install_register_capability_handler(c)
+    params = _default_init_params()
+    params.capabilities.text_document.diagnostic = types.DiagnosticClientCapabilities()
+    await c.initialize_session(params)
+    try:
+        unknown = (tmp_path / "never_opened.iron").as_uri()
+        rep = await asyncio.wait_for(c.text_document_diagnostic_async(
+            types.DocumentDiagnosticParams(
+                text_document=types.TextDocumentIdentifier(uri=unknown))), timeout=5.0)
+        assert rep is not None and len(rep.items) == 0, rep
+
+        uri = (tmp_path / "closing.iron").as_uri()
+        _open(c, uri, "func main() {\n    val x: Int = \"s\"\n}\n")
+        fut = c.text_document_diagnostic_async(types.DocumentDiagnosticParams(
+            text_document=types.TextDocumentIdentifier(uri=uri)))
+        c.text_document_did_close(types.DidCloseTextDocumentParams(
+            text_document=types.TextDocumentIdentifier(uri=uri)))
+        rep = await asyncio.wait_for(fut, timeout=5.0)
+        assert rep is not None
+    finally:
+        await _stop(c)
+
+
+@pytest.mark.asyncio
+async def test_defer_free_snippet_with_other_candidates(lsp_binary, tmp_path):
+    # With a snippet-capable client, `def` at a statement head after a heap
+    # binding appends `defer free <name>` snippets. They were arrput onto
+    # the candidate array, which is a plain arena array, not an stb_ds one:
+    # heap corruption (a UBSan pointer overflow under the sanitizers).
+    from pytest_lsp import ClientServerConfig
+    c = await ClientServerConfig(server_command=[lsp_binary]).start()
+    _install_register_capability_handler(c)
+    params = _default_init_params()
+    params.capabilities.text_document.completion = types.CompletionClientCapabilities(
+        completion_item=types.ClientCompletionItemOptions(snippet_support=True))
+    await c.initialize_session(params)
+    try:
+        uri = (tmp_path / "snip.iron").as_uri()
+        text = ("object Buffer { val size: Int }\n"
+                "func main() {\n"
+                "    val buffer = heap Buffer(1024)\n"
+                "    def\n"
+                "}\n")
+        _open(c, uri, text)
+        res = await asyncio.wait_for(c.text_document_completion_async(types.CompletionParams(
+            text_document=types.TextDocumentIdentifier(uri=uri),
+            position=types.Position(line=3, character=7))), timeout=10.0)
+        items = res.items if hasattr(res, "items") else res
+        labels = [i.label for i in items or []]
+        assert "defer free buffer" in labels, labels
+        assert "defer" in labels, labels
+        # still alive
+        await asyncio.wait_for(c.text_document_hover_async(types.HoverParams(
+            text_document=types.TextDocumentIdentifier(uri=uri),
+            position=types.Position(line=2, character=9))), timeout=10.0)
+    finally:
+        await _stop(c)

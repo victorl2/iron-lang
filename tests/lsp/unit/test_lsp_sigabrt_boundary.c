@@ -71,11 +71,14 @@ static IronLsp_Document *make_bare_doc(const char *uri) {
     d->uri = strdup(uri);
     atomic_init(&d->quarantined, false);
     atomic_init(&d->shutdown, false);
+    IRON_MUTEX_INIT(d->text_lock);   /* the worker snapshots the text */
+    d->owns_lock = true;
     return d;
 }
 
 static void destroy_bare_doc(IronLsp_Document *d) {
     if (!d) return;
+    IRON_MUTEX_DESTROY(d->text_lock);
     free(d->uri);
     free(d);
 }

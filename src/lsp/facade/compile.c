@@ -235,6 +235,21 @@ void ilsp_facade_compile(struct IronLsp_Server   *server,
     iron_arena_free(&arena);
 }
 
+void ilsp_facade_pull_diagnostic_empty(struct IronLsp_Server *server,
+                                        const char            *request_id) {
+    if (!server || !request_id) return;
+    Iron_Arena build_arena = iron_arena_create(4 * 1024);
+    yyjson_mut_doc *mdoc = ilsp_build_pull_diagnostic_report(
+        NULL, NULL, server->position_encoding, request_id, &build_arena);
+    if (mdoc) {
+        size_t body_len = 0;
+        char *body = ilsp_json_write_mut(mdoc, &build_arena, &body_len);
+        enqueue_body(server->writer, ILSP_PRIO_RESPONSE, body, body_len);
+        yyjson_mut_doc_free(mdoc);
+    }
+    iron_arena_free(&build_arena);
+}
+
 void ilsp_facade_pull_diagnostic(struct IronLsp_Server   *server,
                                   struct IronLsp_Document *doc,
                                   const char              *request_id) {
