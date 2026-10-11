@@ -205,7 +205,8 @@ func main() {
     var nowhere = MysqlConfig("127.0.0.1", 1, "u", "p", "")
     nowhere.connect_timeout = 2000
     val refused = Mysql.connect(nowhere)
-    check(refused.error.code == 1001 and refused.error.is_connection_error(), "refused connection is 1001 (got {refused.error.code})")
+    -- (Windows retries a refused SYN for about two seconds, so it may time out.)
+    check((refused.error.code == 1001 or refused.error.code == 1004) and refused.error.is_connection_error(), "refused connection is 1001 or 1004 (got {refused.error.code})")
 
     for u in users {
         admin.run("DROP USER IF EXISTS '{u}'@'%'")
