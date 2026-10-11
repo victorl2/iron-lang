@@ -1,0 +1,15 @@
+-- An object with two fields of its own type allocated in an arena is
+-- E0223; the check for arena destructors walked it 2^32 times (ironc
+-- hung, #609).
+object Pt {
+    val a: Pt
+    val b: Pt
+}
+
+func f(ar: Arena) {
+    val o = heap(in: ar) Pt(1, 2)
+}
+
+func main() {
+    println("x")
+}

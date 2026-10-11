@@ -11477,6 +11477,9 @@ static bool compute_has_user_copy_transitive(Iron_Type *t, TypeCtx *ctx) {
 static bool arena_type_has_nontrivial_dtor(Iron_Type *t, TypeCtx *ctx,
                                             int depth) {
     if (!t || depth > 32) return false;
+    /* The object decls on the current walk, by depth (see below). */
+    static _Thread_local Iron_ObjectDecl *walk_path[40];
+    walk_path[depth] = NULL;
     /* A value that owns storage outside the arena has a destructor too, even
      * without a `drop` block: a list's buffer, a string, a map or set's
      * table, an rc reference, a closure's environment. An arena object
@@ -11494,6 +11497,12 @@ static bool arena_type_has_nontrivial_dtor(Iron_Type *t, TypeCtx *ctx,
     if (t->kind != IRON_TYPE_OBJECT || !t->object.decl || !ctx->program)
         return false;
     Iron_ObjectDecl *od = t->object.decl;
+    /* An object met again on the walk (a circular by-value type, E0223
+     * elsewhere) adds nothing: without this, an object with two fields of
+     * its own type took 2^32 steps (ironc check hung). */
+    for (int i = 0; i < depth; i++)
+        if (walk_path[i] == od) return false;
+    walk_path[depth] = od;
     /* (a) direct user `drop` block: methods live as top-level
      * IRON_NODE_METHOD_DECL nodes with type_name == od->name (Plan 86 layout). */
     for (int i = 0; i < ctx->program->decl_count; i++) {
