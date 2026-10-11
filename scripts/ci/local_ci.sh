@@ -87,7 +87,7 @@ run_linux() {
     for leg in asan leaks; do
         ssh "$CI_HOST" "for i in \$(seq 1 90); do
                 podman exec $tag-mysql-$leg mysqladmin -uroot -pironci ping >/dev/null 2>&1 &&
-                podman exec $tag-mysql-$leg mysql -uroot -pironci -e 'SELECT 1' >/dev/null 2>&1 && break
+                podman exec $tag-mysql-$leg mysql --protocol=TCP -h127.0.0.1 -uroot -pironci -e 'SELECT 1' >/dev/null 2>&1 && break
                 sleep 2
             done
             podman cp $tag-mysql-$leg:/var/lib/mysql/ca.pem $CI_REMOTE_DIR/.mysql-ca-$leg.pem" >/dev/null 2>&1

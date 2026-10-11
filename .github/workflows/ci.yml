@@ -155,7 +155,7 @@ jobs:
             -e MYSQL_ROOT_PASSWORD=ironci -e MYSQL_DATABASE=iron_test \
             mysql:8.4 --max-allowed-packet=67108864 --mysql-native-password=ON
           for i in $(seq 1 90); do
-            docker exec iron-mysql mysql -uroot -pironci -e 'SELECT 1' >/dev/null 2>&1 && break
+            docker exec iron-mysql mysql --protocol=TCP -h127.0.0.1 -uroot -pironci -e 'SELECT 1' >/dev/null 2>&1 && break
             sleep 2
           done
           docker cp iron-mysql:/var/lib/mysql/ca.pem "$RUNNER_TEMP/mysql-ca.pem"
