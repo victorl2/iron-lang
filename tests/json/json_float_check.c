@@ -59,7 +59,7 @@ static long check_parse(long n) {
             *o++ = (char)('1' + next() % 9);
             for (int k = 1; k < nd; k++) *o++ = (char)('0' + next() % 10);
             if (fd) { *o++ = '.'; for (int k = 0; k < fd; k++) *o++ = (char)('0' + next() % 10); }
-            o += sprintf(o, "e%d", (int)(next() % 640) - 340);
+            o += snprintf(o, (size_t)(buf + sizeof buf - o), "e%d", (int)(next() % 640) - 340);
             *o = 0;
         } else {
             uint64_t b = next();
@@ -67,7 +67,7 @@ static long check_parse(long n) {
             memcpy(&v, &b, 8);
             if (!isfinite(v)) continue;
             snprintf(buf, sizeof buf, mode == 1 ? "%.17g" : "%.16g", v);
-            if (!strchr(buf, '.') && !strchr(buf, 'e')) strcat(buf, ".0");
+            if (!strchr(buf, '.') && !strchr(buf, 'e')) strncat(buf, ".0", sizeof buf - strlen(buf) - 1);
         }
         double want = strtod(buf, NULL);
         if (!isfinite(want)) continue;          /* the scanner rejects these */
