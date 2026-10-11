@@ -2667,9 +2667,9 @@ if(NOT WIN32)
         set(_fixsrc "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron")
         # An @expect-panic fixture must exit through the named panic after
         # printing exactly its .expected stdout.
-        file(STRINGS "${_fixsrc}" _panic_line REGEX "^-- @expect-panic:")
+        file(STRINGS "${_fixsrc}" _panic_line REGEX "^(--|//) @expect-panic:")
         if(_panic_line)
-            string(REGEX REPLACE "^-- @expect-panic:[ ]*" "" _panic_msg "${_panic_line}")
+            string(REGEX REPLACE "^(--|//) @expect-panic:[ ]*" "" _panic_msg "${_panic_line}")
             add_test(
                 NAME v4_4.11-ptr-check-elision_${_fix}
                 COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${_fixsrc} && if \"\$d/${_fix}\" >\"\$d/out\" 2>\"\$d/err\"; then exit 1; fi && [ \"\$(cat \"\$d/out\")\" = \"\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.expected)\" ] && grep -qF \"${_panic_msg}\" \"\$d/err\" && rm -rf \"\$d\""

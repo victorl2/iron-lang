@@ -358,7 +358,7 @@ run_one_fixture() {
     if grep -qE '^[[:space:]]*(--|//)[[:space:]]*@expect-panic:' <<< "$(head -n 10 "${test_file}")"; then
         expect_panic_substr=$(head -n 10 "${test_file}" \
             | grep -E '^[[:space:]]*(--|//)[[:space:]]*@expect-panic:' \
-            | head -1 | sed -E 's/^[[:space:]]*(--|//)[[:space:]]*@expect-panic:[[:space:]]*//')
+            | head -1 | sed -E 's#^[[:space:]]*(--|//)[[:space:]]*@expect-panic:[[:space:]]*##')
     fi
 
     if [ ! -f "${expected_file}" ] && [ "${compile_only}" -eq 0 ] && [ -z "${expect_panic_substr}" ] && [ -z "${expected_pass_after}" ]; then

@@ -276,6 +276,16 @@ static void test_migrate_aligned_trailing_comments(void) {
                    "object Q {\n    val a: Int   // one\n    val bb: Int  // two\n}\n");
 }
 
+/* Found by comment_fuzz: a `///` body kept its trailing whitespace while a
+ * `//` comment drops it, so the migrated text looked like a different doc
+ * and the migration refused the file. */
+static void test_migrate_triple_with_trailing_whitespace(void) {
+    expect_migrate("val a = 1 ////q\t \n/// doc  \nfunc f() {}\n",
+                   "val a = 1 // /q\t \n// doc  \nfunc f() {}\n");
+    Iron_Program *p = parse("/// doc \t\nfunc f() {}\n");
+    TEST_ASSERT_EQUAL_STRING("doc", ((Iron_FuncDecl *)p->decls[0])->doc_comment);
+}
+
 static void test_migrate_file_with_errors(void) {
     /* A file that does not parse migrates as long as it reports the same
      * diagnostics afterwards. */
@@ -311,6 +321,7 @@ int main(void) {
     RUN_TEST(test_migrate_keeps_meaning_of_odd_bodies);
     RUN_TEST(test_migrate_fusible);
     RUN_TEST(test_migrate_aligned_trailing_comments);
+    RUN_TEST(test_migrate_triple_with_trailing_whitespace);
     RUN_TEST(test_migrate_file_with_errors);
     RUN_TEST(test_formatter_keeps_comment_forms);
     return UNITY_END();
