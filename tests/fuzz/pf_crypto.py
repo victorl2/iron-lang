@@ -127,7 +127,7 @@ class CryptoGen(SegProgram):
         """An Iron expression for bytes b."""
         try:
             t = b.decode('ascii')
-            if all(32 <= ord(c) < 127 for c in t) and self.r.random() < 0.7:
+            if len(t) <= 1000 and all(32 <= ord(c) < 127 for c in t) and self.r.random() < 0.7:
                 return iron_lit(t)
         except UnicodeDecodeError:
             pass

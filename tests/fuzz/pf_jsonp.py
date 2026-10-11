@@ -626,7 +626,9 @@ class JsonGen(SegProgram):
             if all(b'.' not in t for t in toks) and toks and r.random() < 0.5:
                 pth = '.'.join(t.decode() for t in toks)
                 lines.append(f'println("path {{show({rn}.path({iron_lit(pth)}))}}")')
-                out.append('path ' + self.show(self.lookup(root, [t for t in pth.encode().split(b'.')])))
+                # path("") is the value itself
+                out.append('path ' + self.show(root if pth == '' else
+                                               self.lookup(root, [t for t in pth.encode().split(b'.')])))
         if isinstance(root, JObj):
             for _ in range(r.randint(0, 3)):
                 k = r.choice(root.keys) if root.keys and r.random() < 0.7 else self.rand_str()
@@ -641,7 +643,7 @@ class JsonGen(SegProgram):
                              f'{{opt_int({rn}.get_int({kl}))}} {{{rn}.get({kl}).type_name()}}")')
                 out.append(f'get {"true" if i >= 0 else "false"} {self.show(v) if i >= 0 else "none"} '
                            f'{gi if gi is not None else "none"} {self.type_name(v) if i >= 0 else "null"}')
-                if gs is not None and '\n' not in gs and '\r' not in gs:
+                if gs is not None and not any(c in gs for c in '\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029'):
                     lines.append(f'println("str " + opt_str({rn}.get_string({kl})))')
                     out.append('str ' + gs)
         if isinstance(root, JArr) and root.items:

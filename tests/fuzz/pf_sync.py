@@ -75,6 +75,13 @@ func tok_add(t: Tok, i: Int) -> Tok {
     return t
 }
 
+func adder(n: Int) -> func(Int) -> Int {
+    val tag = "an adder closure with a heap string {n} inside its environment"
+    return func(x: Int) -> Int {
+        return x + n + tag.len() * 0
+    }
+}
+
 func lpush(xs: [Int], v: Int) -> [Int] {
     var out = xs.copy()
     out.push(v)
@@ -136,6 +143,12 @@ class Kind:
         elif name == 'List':
             self.init = [r.randint(-5, 5) for _ in range(r.randint(1, 3))]
             self.t = '[Int]'
+        elif name == 'Rc':
+            self.init = (r.randint(0, 9), r.choice(['r', LONG]))
+            self.t = 'rc P'
+        elif name == 'Fn':
+            self.init = r.randint(0, 20)
+            self.t = 'func(Int) -> Int'
         elif name == 'Map':
             self.init = {}
             self.K = r.randint(1, 4)
@@ -157,6 +170,10 @@ class Kind:
             return f'Tok.Num({x})' if v == 'Num' else f'Tok.Word({iron_lit(x)})'
         if n == 'List':
             return '[' + ', '.join(map(str, self.init)) + ']' if self.init else '[Int]()'
+        if n == 'Rc':
+            return f'rc P({self.init[0]}, {iron_lit(self.init[1])})'
+        if n == 'Fn':
+            return f'adder({self.init})'
         if n == 'Map':
             return 'Map[String, Int]()'
         return f'Store({self.init})'
@@ -185,6 +202,10 @@ class Kind:
             return f'tok_add({cur}, {i})'
         if n == 'List':
             return f'lpush({cur}, {i})'
+        if n == 'Rc':
+            return f'rc P({cur}.a + {i} * {self.k}, {cur}.s + "y")'
+        if n == 'Fn':
+            return f'adder({cur}(0) + {i})'
         if n == 'Map':
             return f'mput({cur}, "k{{{i} % {self.K}}}", {i})'
         raise ValueError(n)
@@ -203,6 +224,10 @@ class Kind:
             return f'tok_show({c}).len() > 0'
         if n == 'List':
             return f'{c}.len() >= {len(self.init)}'
+        if n == 'Rc':
+            return f'{c}.s.len() >= {len(self.init[1])}'
+        if n == 'Fn':
+            return f'{c}(0) >= {self.init}'
         if n == 'Map':
             return f'{c}.len() >= 0'
         return f'{c}.n >= {self.init}'
@@ -221,6 +246,10 @@ class Kind:
             return f'{{tok_show({c})}}'
         if n == 'List':
             return f'{{{c}.len()}} {{{c}.sum()}}'
+        if n == 'Rc':
+            return f'{{{c}.a}} {{{c}.s.len()}}'
+        if n == 'Fn':
+            return f'{{{c}(0)}}'
         if n == 'Map':
             return f'{{{c}.len()}} {{msum({c})}}'
         return f'{{{c}.n}} {{{c}.m.len()}}'
@@ -238,6 +267,8 @@ class Kind:
             return list(self.init)
         if n == 'Map':
             return {}
+        if n == 'Rc':
+            return list(self.init)
         return self.init
 
     def py_upd(self, v, i):
@@ -254,6 +285,10 @@ class Kind:
             return ['Num', v[1] + i] if v[0] == 'Num' else ['Word', v[1] + 'z']
         if n == 'List':
             return v + [i]
+        if n == 'Rc':
+            return [v[0] + i * self.k, v[1] + 'y']
+        if n == 'Fn':
+            return v + i
         if n == 'Map':
             d = dict(v)
             d[f'k{i % self.K}'] = d.get(f'k{i % self.K}', 0) + i
@@ -274,6 +309,10 @@ class Kind:
             return f'num {v[1]}' if v[0] == 'Num' else f'word {len(v[1])} {v[1].count("z")}'
         if n == 'List':
             return f'{len(v)} {sum(v)}'
+        if n == 'Rc':
+            return f'{v[0]} {len(v[1])}'
+        if n == 'Fn':
+            return str(v)
         if n == 'Map':
             return f'{len(v)} {sum(v.values())}'
         return f'{v[0]} {len(v[1])}'
@@ -282,7 +321,7 @@ class Kind:
 class SyncGen(SegProgram):
     HELPERS = HELPERS
     NSEGS = (2, 6)
-    KINDS = ['Int', 'String', 'String', 'P', 'P', 'Color', 'Tok', 'Tok', 'List', 'Map']
+    KINDS = ['Int', 'String', 'String', 'P', 'P', 'Color', 'Tok', 'Tok', 'List', 'Map', 'Rc', 'Fn']
 
     def add_segment(self):
         r = self.r
@@ -495,7 +534,7 @@ class SyncGen(SegProgram):
     # ---------------------------------------------------------- channels
     def seg_chan(self):
         r = self.r
-        kd = Kind(r, r.choice(['Int', 'String', 'String', 'P', 'Color', 'Tok', 'List', 'Map']))
+        kd = Kind(r, r.choice(['Int', 'String', 'String', 'P', 'Color', 'Tok', 'List', 'Map', 'Rc']))
         cap = r.choice([0, 0, 1, 2, 4])
         eff = max(cap, 1)
         ch = self.fresh('ch')
