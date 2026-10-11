@@ -2615,10 +2615,27 @@ const char *emit_ensure_hash(EmitCtx *ctx, const Iron_Type *t) {
                         name, is_map ? "Map[K, V] hash table" : "Set[T] hash table",
                         iron_strbuf_get(&protos));
     iron_strbuf_free(&protos);
-    iron_strbuf_appendf(&body,
-        "static inline uint64_t %s_khash(const %s *k) { return %s; }\n"
-        "static inline bool %s_keq(const %s *a, const %s *b) { return %s; }\n",
-        name, k_c, k_hash, name, k_c, k_c, k_eq);
+    if (K->kind == IRON_TYPE_OBJECT) {
+        /* An object key is compared through its equals(other: Hashable),
+         * which takes the Iron_Hashable union by value: a table emitted
+         * with the struct of an object that holds it (a generic
+         * `Counter[Pt]` with a Map[K, Int] field) came before that union
+         * was complete. Declare the helpers here, define them with the
+         * lifted functions, after every type. */
+        iron_strbuf_appendf(&body,
+            "static inline uint64_t %s_khash(const %s *k);\n"
+            "static inline bool %s_keq(const %s *a, const %s *b);\n",
+            name, k_c, name, k_c, k_c);
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "static inline uint64_t %s_khash(const %s *k) { return %s; }\n"
+            "static inline bool %s_keq(const %s *a, const %s *b) { return %s; }\n\n",
+            name, k_c, k_hash, name, k_c, k_c, k_eq);
+    } else {
+        iron_strbuf_appendf(&body,
+            "static inline uint64_t %s_khash(const %s *k) { return %s; }\n"
+            "static inline bool %s_keq(const %s *a, const %s *b) { return %s; }\n",
+            name, k_c, k_hash, name, k_c, k_c, k_eq);
+    }
     iron_strbuf_appendf(&body, "static inline void %s_kcopy(%s *k) {\n", name, k_c);
     emit_copy_fixup_lvalue(&body, 1, ctx, (Iron_Type *)K, "(*k)");
     iron_strbuf_appendf(&body, "    (void)k;\n}\n");

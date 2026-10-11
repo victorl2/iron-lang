@@ -34,7 +34,14 @@ bool emit_enum_is_equatable(const Iron_Type *t, int depth) {
             const Iron_Type *pt = t->enu.variant_payload_types[j][k];
             if (!pt || pt == t || pt->kind == IRON_TYPE_VOID) continue;
             if (pt->kind == IRON_TYPE_ENUM) {
-                if (pt->enu.decl != ed && !emit_enum_is_equatable(pt, depth + 1)) return false;
+                /* The same enum (a recursive payload) is skipped; another
+                 * instance of the same generic enum is not (Opt[Opt[Pt]]
+                 * called an Iron_Opt_Pt_eq that was never emitted). */
+                bool same = pt->enu.decl == ed &&
+                            (pt->enu.mangled_name == t->enu.mangled_name ||
+                             (pt->enu.mangled_name && t->enu.mangled_name &&
+                              strcmp(pt->enu.mangled_name, t->enu.mangled_name) == 0));
+                if (!same && !emit_enum_is_equatable(pt, depth + 1)) return false;
             } else if (pt->kind != IRON_TYPE_STRING && pt->kind != IRON_TYPE_BOOL &&
                        !iron_type_is_numeric(pt)) {
                 return false;
@@ -125,6 +132,29 @@ static int find_ir_type_decl_idx(IronLIR_Module *module, const char *name) {
     return -1;
 }
 
+static void ir_topo_visit(IrTopoState *state, int idx);
+
+/* The type decl a value of resolved type t is stored inline as: an object,
+ * or an ADT enum (a generic enum instance is registered under its mangled
+ * name, which the annotation-based walk below cannot see: `Pair[Opt[Bool],
+ * Int]` was emitted before Iron_Opt_Bool, an incomplete type). */
+static void ir_topo_visit_type(IrTopoState *state, int idx, const Iron_Type *t) {
+    for (int guard = 0; t && guard < 8; guard++) {
+        if (t->kind == IRON_TYPE_NULLABLE) { t = t->nullable.inner; continue; }
+        if (t->kind == IRON_TYPE_ARRAY && t->array.size >= 0) { t = t->array.elem; continue; }
+        break;
+    }
+    if (!t) return;
+    const char *name = NULL;
+    if (t->kind == IRON_TYPE_OBJECT && t->object.decl) name = t->object.decl->name;
+    else if (t->kind == IRON_TYPE_ENUM)
+        name = t->enu.mangled_name ? t->enu.mangled_name
+                                   : (t->enu.decl ? t->enu.decl->name : NULL);
+    if (!name) return;
+    int dep = find_ir_type_decl_idx(state->module, name);
+    if (dep >= 0 && dep != idx) ir_topo_visit(state, dep);
+}
+
 static void ir_topo_visit(IrTopoState *state, int idx) {
     if (state->colors[idx] == IR_TOPO_BLACK) return;
     if (state->colors[idx] == IR_TOPO_GRAY) {
@@ -148,6 +178,8 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
                 bool boxed = td->type->enu.payload_is_boxed && td->type->enu.payload_is_boxed[j] &&
                              td->type->enu.payload_is_boxed[j][k];
                 if (boxed) continue;
+                if (td->type->enu.variant_payload_types && td->type->enu.variant_payload_types[j])
+                    ir_topo_visit_type(state, idx, td->type->enu.variant_payload_types[j][k]);
                 int dep = find_ir_type_decl_idx(state->module, ta->name);
                 if (dep >= 0 && dep != idx) ir_topo_visit(state, dep);
             }
@@ -182,6 +214,7 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
              * `T?` field holds T inline (Iron_Optional_T), so it depends
              * on T like a plain field. */
             if (!ta->name || ta->is_rc || ta->is_weak_rc || ta->is_pointer) continue;
+            if (!ta->is_array) ir_topo_visit_type(state, idx, f->resolved_type);
             int dep = find_ir_type_decl_idx(state->module, ta->name);
             if (dep >= 0 && dep != idx) ir_topo_visit(state, dep);
         }

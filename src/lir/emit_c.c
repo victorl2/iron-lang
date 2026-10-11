@@ -1672,6 +1672,14 @@ static void emit_shift_expr(Iron_StrBuf *sb, IronLIR_Instr *instr, IronLIR_Func 
     const char *sfx = "i64"; int width = 64; const char *ucty = "uint64_t";
     if (strcmp(cty, "int32_t") == 0) { sfx = "i32"; width = 32; ucty = "uint32_t"; }
     else if (strcmp(cty, "uint64_t") == 0) { sfx = "u64"; }
+    /* A narrower type: the plain operator only for a count inside its own
+     * width (`x >> 33` on a uint32_t is undefined C and printed garbage);
+     * any other count goes through the 64-bit helper on the widened value,
+     * whose result truncated to the type is the defined one (0, or the
+     * sign for a signed `>>`). */
+    else if (strcmp(cty, "uint32_t") == 0) width = 32;
+    else if (strcmp(cty, "int16_t") == 0 || strcmp(cty, "uint16_t") == 0) width = 16;
+    else if (strcmp(cty, "int8_t") == 0 || strcmp(cty, "uint8_t") == 0) width = 8;
     int64_t k = 0;
     if (emit_divisor_const_int(fn, instr->binop.right, &k) && k >= 0 && k < width) {
         if (shl) {
@@ -1775,13 +1783,17 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
      * result is not wrapped to its width until it is stored: `(a + a) < 0`
      * with a = 100 : Int8 compared 200, and `~u % 4` with u = 221 : UInt8
      * took -222 % 4 (#342). Truncate the inlined result to its type. */
+    /* The same holds for 32 bit values computed by a 64-bit helper
+     * (iron_idiv64, iron_shl_i64, ...): `~(31 / d)` on UInt32 complemented
+     * the int64_t quotient. */
     if (!narrow_wrapped && instr->type &&
         (instr->type->kind == IRON_TYPE_INT8 || instr->type->kind == IRON_TYPE_INT16 ||
-         instr->type->kind == IRON_TYPE_UINT8 || instr->type->kind == IRON_TYPE_UINT16)) {
+         instr->type->kind == IRON_TYPE_UINT8 || instr->type->kind == IRON_TYPE_UINT16 ||
+         instr->type->kind == IRON_TYPE_INT32 || instr->type->kind == IRON_TYPE_UINT32)) {
         switch ((int)instr->kind) {
         case IRON_LIR_ADD: case IRON_LIR_SUB: case IRON_LIR_MUL:
         case IRON_LIR_DIV: case IRON_LIR_NEG: case IRON_LIR_BNOT:
-        case IRON_LIR_SHL:
+        case IRON_LIR_SHL: case IRON_LIR_MOD: case IRON_LIR_SHR:
             iron_strbuf_appendf(sb, "((%s)", emit_type_to_c(instr->type, ctx));
             ctx->narrow_wrapped = true;
             emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, depth);
@@ -1863,9 +1875,12 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         bool mod_is_unsigned = strcmp(mod_cty, "uint64_t") == 0;
         int64_t mod_k = 0;
         if (strcmp(mod_cty, "double") == 0 || strcmp(mod_cty, "float") == 0) {
-            iron_strbuf_appendf(sb, "(");
+            /* C has no `%` on floats: the remainder truncated toward zero,
+             * like the integer one, is fmod (manual 3.2). */
+            iron_strbuf_appendf(sb, "%s(", strcmp(mod_cty, "float") == 0
+                                ? "__builtin_fmodf" : "__builtin_fmod");
             emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
-            iron_strbuf_appendf(sb, " %% ");
+            iron_strbuf_appendf(sb, ", ");
             emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
             iron_strbuf_appendf(sb, ")");
         } else if (emit_divisor_const_int(fn, instr->binop.right, &mod_k) &&
@@ -3007,11 +3022,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", mod_cty);
         emit_val(sb, instr->id);
         if (mod_is_float) {
-            iron_strbuf_appendf(sb, " = ");
+            iron_strbuf_appendf(sb, " = %s(", strcmp(mod_cty, "float") == 0
+                                ? "__builtin_fmodf" : "__builtin_fmod");
             emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
-            iron_strbuf_appendf(sb, " %% ");
+            iron_strbuf_appendf(sb, ", ");
             emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
-            iron_strbuf_appendf(sb, ";\n");
+            iron_strbuf_appendf(sb, ");\n");
         } else if (mod_k_const && mod_k != 0 && (mod_is_unsigned || mod_k != -1)) {
             iron_strbuf_appendf(sb, " = ");
             emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -4811,12 +4827,23 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < ");
                         emit_expr_to_buf(sb, instr->call.args[0], fn, ctx, ctx->current_block_id, 0);
                         iron_strbuf_appendf(sb, "; _fill_i++) {\n");
+                        /* Each element is a copy of the value with its own
+                         * owner (manual 9.1, "n copies of v"): pushing the
+                         * same list, string or handle n times shared one
+                         * buffer between every element and the argument
+                         * (use after free once any of them was dropped). */
+                        Iron_Type *fet = (instr->type && instr->type->kind == IRON_TYPE_ARRAY)
+                                         ? instr->type->array.elem : NULL;
+                        emit_indent(sb, ind + 1);
+                        iron_strbuf_appendf(sb, "%s _fill_v = ",
+                                            fet ? emit_type_to_c(fet, ctx) : "int64_t");
+                        emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+                        iron_strbuf_appendf(sb, ";\n");
+                        emit_copy_fixup_lvalue(sb, ind + 1, ctx, fet, "_fill_v");
                         emit_indent(sb, ind + 1);
                         iron_strbuf_appendf(sb, "%s_push(&", list_type);
                         emit_val(sb, instr->id);
-                        iron_strbuf_appendf(sb, ", ");
-                        emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
-                        iron_strbuf_appendf(sb, ");\n");
+                        iron_strbuf_appendf(sb, ", _fill_v);\n");
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "}\n");
                     }
@@ -8410,6 +8437,14 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 } else if (obj_ptr) {
                     emit_expr_to_buf(sb, obj, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, "->%s", tgt_def->field.field);
+                } else if (emit_vid_is_storage_path(fn, obj)) {
+                    /* The object is a binding (or a field chain rooted in
+                     * one): its value is usually a LOAD, a copy, and the
+                     * address of the copy's field loses every write made
+                     * through the pointer. Address the binding's storage. */
+                    iron_strbuf_appendf(sb, "(*");
+                    emit_receiver_addr(sb, fn, ctx, obj, ctx->current_block_id);
+                    iron_strbuf_appendf(sb, ").%s", tgt_def->field.field);
                 } else {
                     emit_expr_to_buf(sb, obj, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ".%s", tgt_def->field.field);

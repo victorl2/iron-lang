@@ -871,7 +871,11 @@ static const char *list_elem_suffix(HIR_to_LIR_Ctx *ctx, Iron_Type *elem) {
                  * INTERFACE elem types — without this case,
                  * any .method() call on an enum array
                  * mis-dispatches to Iron_List_int64_t_*. */
-                if (elem->enu.decl) {
+                if (elem->enu.mangled_name) {
+                    /* A generic enum instance: its C type, Iron_Opt_Int
+                     * (the decl name alone named Iron_List_Iron_Opt_push). */
+                    elem_suffix = elem->enu.mangled_name;
+                } else if (elem->enu.decl) {
                     size_t slen = 5 + strlen(elem->enu.decl->name) + 1;
                     char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
                     if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix enum");
@@ -1472,12 +1476,37 @@ typedef struct { char *key; bool value; } MonoEnumSeen;
 static void register_mono_enum(HIR_to_LIR_Ctx *ctx,
                                 MonoEnumSeen **seen,
                                 Iron_Type *type) {
+    /* An instance reached through another type (`Map[String, Opt[String]]`,
+     * `[Opt[Int]]`, `Opt[Int]?`, `rc ...`): used nowhere else, it was never
+     * declared and the table's glue named its missing drop. */
+    for (int guard = 0; type && guard < 16; guard++) {
+        if (type->kind == IRON_TYPE_ARRAY) { type = type->array.elem; continue; }
+        if (type->kind == IRON_TYPE_NULLABLE) { type = type->nullable.inner; continue; }
+        if (type->kind == IRON_TYPE_RC) { type = type->rc.inner; continue; }
+        if (type->kind == IRON_TYPE_OBJECT && type->object.elem) {
+            register_mono_enum(ctx, seen, type->object.elem2);
+            type = type->object.elem;
+            continue;
+        }
+        break;
+    }
     if (!type || type->kind != IRON_TYPE_ENUM) return;
     if (!type->enu.mangled_name) return;
     if (shgeti(*seen, type->enu.mangled_name) >= 0) return;
     shput(*seen, (char*)type->enu.mangled_name, true);
     iron_lir_module_add_type_decl(ctx->lir_module, IRON_LIR_TYPE_ENUM,
                                   type->enu.mangled_name, type);
+    /* Its payloads may be instances too (`Opt[Opt[String]]` declared
+     * Iron_Opt_Opt_String around an undeclared Iron_Opt_String). */
+    if (type->enu.decl && type->enu.variant_payload_types) {
+        Iron_EnumDecl *ed = type->enu.decl;
+        for (int j = 0; j < ed->variant_count; j++) {
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            if (!ev || !type->enu.variant_payload_types[j]) continue;
+            for (int k = 0; k < ev->payload_count; k++)
+                register_mono_enum(ctx, seen, type->enu.variant_payload_types[j][k]);
+        }
+    }
 }
 
 /* Recursive AST walker to collect monomorphized enum types from a node. */
@@ -1583,6 +1612,13 @@ static void collect_mono_enums_node(HIR_to_LIR_Ctx *ctx, MonoEnumSeen **seen,
             for (int i = 0; i < mat->case_count; i++)
                 collect_mono_enums_node(ctx, seen, mat->cases[i]);
             collect_mono_enums_node(ctx, seen, mat->else_body);
+            break;
+        }
+        case IRON_NODE_MATCH_CASE: {
+            /* An arm's body: an enum instance used only inside a match arm
+             * was never declared (C: undeclared Iron_Res_...). */
+            Iron_MatchCase *mc = (Iron_MatchCase *)node;
+            collect_mono_enums_node(ctx, seen, mc->body);
             break;
         }
         case IRON_NODE_ASSIGN: {
@@ -3973,6 +4009,27 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     case IRON_HIR_EXPR_ADDR_OF: {
         IronLIR_ValueId target = lower_expr(ctx, expr->addr_of.target);
         if (!ctx->current_block) return IRON_LIR_VALUE_INVALID;
+        /* `&b` of a `val b = a`: the val has no slot of its own, its value
+         * is the load of a's, so the emitter took the address of `a` and
+         * the pointer saw every later write to a. Give the pointer the
+         * val's own copy. */
+        if (expr->addr_of.target &&
+            expr->addr_of.target->kind == IRON_HIR_EXPR_IDENT &&
+            hmgeti(ctx->val_binding_map, expr->addr_of.target->ident.var_id) >= 0 &&
+            target != IRON_LIR_VALUE_INVALID &&
+            (ptrdiff_t)target < arrlen(ctx->current_func->value_table) &&
+            ctx->current_func->value_table[target] &&
+            (ctx->current_func->value_table[target]->kind == IRON_LIR_LOAD ||
+             ctx->current_func->value_table[target]->kind == IRON_LIR_GET_FIELD ||
+             ctx->current_func->value_table[target]->kind == IRON_LIR_GET_INDEX) &&
+            expr->addr_of.gen_source != IRON_HIR_GEN_HEAP) {
+            Iron_Type *vt = expr->addr_of.target->type;
+            if (vt && vt->kind != IRON_TYPE_RC && vt->kind != IRON_TYPE_PTR) {
+                IronLIR_ValueId slot = emit_alloca_in_entry(ctx, vt, "__val_view", span);
+                iron_lir_store(ctx->current_func, ctx->current_block, slot, target, span);
+                target = iron_lir_load(ctx->current_func, ctx->current_block, slot, vt, span)->id;
+            }
+        }
         IronLIR_GenSource gs =
             (expr->addr_of.gen_source == IRON_HIR_GEN_HEAP)
                 ? IRON_LIR_GEN_HEAP : IRON_LIR_GEN_STACK;

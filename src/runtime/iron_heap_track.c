@@ -34,8 +34,15 @@ iron_atomic_u64 iron_alloc_id_counter;
 /* Process-global generation source. Every allocation takes a generation no
  * earlier allocation ever had, so a pointer into a freed block stays stale
  * when the allocator hands the same address out again. gen=0 stays the
- * null / freed sentinel; the first generation issued is 1. */
-iron_atomic_u64 iron_heap_gen_counter = 1;
+ * null / freed sentinel.
+ *
+ * The generations start far from 0: once a block is freed its header is the
+ * allocator's, and macOS writes small integers there (free list bookkeeping,
+ * 6 or 7 for a 32 byte block), so with generations counted from 1 a stale
+ * read through a pointer whose generation happened to be that number passed
+ * the check and read zeroed memory. A value with high bits set is neither a
+ * small integer nor a user space address. */
+iron_atomic_u64 iron_heap_gen_counter = 0xA11C000000000001ULL;
 
 uint64_t iron_heap_next_gen(void) {
     uint64_t g = IRON_ATOMIC_U64_FETCH_ADD_RELAXED(iron_heap_gen_counter, 1);

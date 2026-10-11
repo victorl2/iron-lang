@@ -2290,11 +2290,18 @@ literals and arithmetic (`+ - * / %`, comparisons, `==` and `!=`, unary
 construction, the built-ins `len`, `range`, `fill` and `read_file(path)`
 (which reads a file relative to the source file and yields its contents),
 and calls to top-level functions whose bodies use only `val`, `var`,
-assignment, `if`, `while`, `for` and `return` over those values.
-Method calls, field access, string concatenation, interpolation,
-bitwise operators, lambdas, `match`, and `heap` or `rc` allocation are not
-available at compile time (`E0231`, `E0232`). Evaluation is limited to one
-million steps (`E0230`). The result is typically bound to a global `val`.
+assignment, `if`, `while`, `for` and `return` over those values. The
+evaluation computes what the same call computes at run time: Int
+arithmetic wraps, and `fill` makes independent copies. An object is
+built at compile time only when it has no `init` (positional
+construction). Method calls, field access, string concatenation,
+interpolation, bitwise operators and shifts, conversions such as
+`Float(n)`, reading a global, `break` and `continue`, lambdas, `match`,
+enum values, and `heap` or `rc` allocation are not available at compile
+time (`E0231`); an error while evaluating, such as a division by zero or
+an index out of range, is `E0232`. Evaluation is limited to one million
+steps and to calls nested 256 deep (`E0230`). The result is typically
+bound to a global `val`.
 
 ```iron
 val TABLE_SIZE = comptime (64 * 4)
@@ -2881,7 +2888,9 @@ Iron compiles to C and hands the C to a compiler it ships. The generated
 C is C17 with the GNU extensions clang accepts under `-std=gnu17`
 (statement expressions and `__builtin_*` intrinsics, `__attribute__`
 annotations, `_Static_assert`), compiled with `-fwrapv` (integer overflow
-wraps) and `-fno-strict-aliasing`. It includes only the runtime header,
+wraps), `-fno-strict-aliasing` and `-ffp-contract=off` (every float
+operation is rounded on its own; `a * b + c` is never fused into one
+multiply-add, so a float result is the same on every target). It includes only the runtime header,
 which itself depends only on the freestanding C headers (`stdint.h`,
 `stddef.h`, `stdbool.h`, `stdarg.h`, `stdatomic.h`); every fixture in the
 test suite also compiles with `-ffreestanding -nostdinc`.

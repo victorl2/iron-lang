@@ -1,0 +1,35 @@
+-- `val b = a` copies the object (manual 6.1); `&b` pointed at `a` instead
+-- (the val has no slot of its own, its value is the load of a's), so a
+-- write to `a` showed through the pointer to `b`, and through the
+-- automatic `&` of a binding passed to a `*T` parameter.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+func rd(p: *P) -> Int {
+    return p.hp
+}
+
+func opt(p: ?*P) -> Int {
+    if p != null {
+        return p.hp
+    }
+    return -1
+}
+
+func main() {
+    var a = P(0)
+    val b = a
+    a.hp += 5
+    println("{opt(&b)} {rd(&b)} {rd(b)} {b.hp} {a.hp}")
+    for i in [1, 2] {
+        a.hp += i
+        val c = a
+        val pc = &c
+        a.hp = 100
+        println("{pc.hp} {rd(c)}")
+    }
+}
