@@ -219,3 +219,54 @@ async def test_defer_free_snippet_with_other_candidates(lsp_binary, tmp_path):
             position=types.Position(line=2, character=9))), timeout=10.0)
     finally:
         await _stop(c)
+
+
+@pytest.mark.asyncio
+async def test_invalid_character_reported_once(lsp_binary, tmp_path):
+    # A non-ASCII character in code gave one E0002 per byte, and the parser
+    # then met one error token per byte: a match arm on 😀 reported the same
+    # "expected '->'" twice at the same position.
+    c = await _utf16_client(lsp_binary)
+    try:
+        uri = (tmp_path / "chars.iron").as_uri()
+        text = ("func main() {\n"
+                "    val y = 1 中 2\n"
+                "    val x = 1\n"
+                "    match x {\n"
+                "        😀 -> 1\n"
+                "        else -> 2\n"
+                "    }\n"
+                "}\n")
+        _open(c, uri, text)
+        diags = await _diagnostics_for_version(c, uri, 1)
+        keys = [(d.code, d.range.start.line, d.range.start.character, d.message) for d in diags]
+        assert len(keys) == len(set(keys)), keys
+        bad = [d for d in diags if d.code == "E0002"]
+        assert [(d.range.start.line, d.range.start.character, d.range.end.character)
+                for d in bad] == [(1, 14, 15), (4, 8, 10)], bad
+        assert all("IRON_TOK" not in d.message for d in diags), diags
+    finally:
+        await _stop(c)
+
+
+@pytest.mark.asyncio
+async def test_no_never_reassigned_warning_in_generic_function(client, tmp_path):
+    # The language server ran the passes after type checking on generic
+    # templates too: a `var` set mutated through a method in a generic
+    # function was "never reassigned; declare as 'val'" in the editor (and
+    # its quickfix would break the code); ironc check reports nothing.
+    uri = (tmp_path / "generic_var.iron").as_uri()
+    text = ("func distinct[K: Hashable](xs: [K]) -> Int {\n"
+            "    var s = Set[K]()\n"
+            "    for x in xs {\n"
+            "        s.add(x)\n"
+            "    }\n"
+            "    return s.len()\n"
+            "}\n"
+            "\n"
+            "func main() {\n"
+            "    println(\"{distinct([1, 2, 2])}\")\n"
+            "}\n")
+    _open(client, uri, text)
+    diags = await _diagnostics_for_version(client, uri, 1)
+    assert len(diags) == 0, diags
