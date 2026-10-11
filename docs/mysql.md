@@ -152,6 +152,7 @@ a column index:
 | Reader | Returns |
 |---|---|
 | `int`, `uint`, `float`, `bool` | `Int?`, `UInt?`, `Float?`, `Bool?` |
+| `int_or`, `uint_or`, `float_or`, `text_or`, `bool_or` | the value, or the fallback given as the third argument |
 | `text`, `bytes` | `String?`: any value as text (dates as `YYYY-MM-DD HH:MM:SS`), or the raw bytes |
 | `datetime`, `time` | `MysqlDateTime?`, `MysqlTime?` |
 | `value` | `MysqlValue` chosen from the column type |
@@ -159,7 +160,8 @@ a column index:
 
 The short readers return `null` for SQL NULL and for a value that does not
 convert (text to `Int`, `1.5` to `Int`, a BIGINT UNSIGNED over the `Int`
-range). The `get_` forms (`get_int`, `get_text`, ...) return the value with
+range); check them before use (`v != null and v > 0`), or read with an
+`_or` form when a default will do (`res.int_or(0, 1, 0)`). The `get_` forms (`get_int`, `get_text`, ...) return the value with
 a `MysqlError` that says which: `IRON_ERR_MYSQL_NULL` (7005),
 `IRON_ERR_MYSQL_CONVERSION` (7006) or `IRON_ERR_MYSQL_RANGE` (7007). The
 text and binary protocols read the same way: `text` of a DOUBLE or a
@@ -279,7 +281,7 @@ func handle(db: rc MysqlPool, connection: HttpConnection) -> Int {
             body = "\{\"error\":\"database\"\}"
         } elif res.row_count() == 1 {
             status = 200
-            body = "\{\"name\":\"{res.text(0, 0)}\"\}"
+            body = "\{\"name\":\"{res.text_or(0, 0, "")}\"\}"
         }
     }
     val response = Http.json_response(status, body)

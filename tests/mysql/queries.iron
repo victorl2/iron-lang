@@ -8,6 +8,26 @@ import os
 
 var failures = 0
 
+func is_int(v: Int?, want: Int) -> Bool {
+    return v != null and v == want
+}
+
+func is_uint(v: UInt?, want: UInt) -> Bool {
+    return v != null and v == want
+}
+
+func is_float(v: Float?, want: Float) -> Bool {
+    return v != null and v == want
+}
+
+func is_text(v: String?, want: String) -> Bool {
+    return v != null and v == want
+}
+
+func is_bool(v: Bool?, want: Bool) -> Bool {
+    return v != null and v == want
+}
+
 func check(cond: Bool, what: String) {
     if cond {
         println("ok   {what}")
@@ -59,7 +79,7 @@ func main() {
     check(bad_prep.error.code == 1146, "prepare of missing table 1146 (got {bad_prep.error.code})")
     check(conn.is_open(), "connection open after server errors")
     val after = conn.query("SELECT COUNT(*) FROM iron_q")
-    check(after.ok() and after.int(0, 0) == 3, "connection usable after errors")
+    check(after.ok() and is_int(after.int(0, 0), 3), "connection usable after errors")
 
     -- Parameter count mismatch is caught by the client.
     val pc = conn.exec("SELECT ? + ?", [MysqlValue.Int(1)])
@@ -69,15 +89,15 @@ func main() {
     var multi = conn.query("SELECT 1 AS a; SELECT 'x' AS b, 'y' AS c; UPDATE iron_q SET n = n WHERE id = 1; SELECT id FROM iron_q ORDER BY id")
     check(multi.ok(), "multi statement: {multi.error.message}")
     check(multi.result_count() == 4, "four result sets (got {multi.result_count()})")
-    check(multi.int(0, 0) == 1, "first set")
-    check(multi.next_result() and multi.text(0, 1) == "y" and multi.column_count() == 2, "second set")
+    check(is_int(multi.int(0, 0), 1), "first set")
+    check(multi.next_result() and is_text(multi.text(0, 1), "y") and multi.column_count() == 2, "second set")
     check(multi.next_result() and multi.column_count() == 0 and multi.affected_rows() == 0, "third set is an OK")
-    check(multi.next_result() and multi.row_count() == 3 and multi.int(2, 0) == 3, "fourth set")
+    check(multi.next_result() and multi.row_count() == 3 and is_int(multi.int(2, 0), 3), "fourth set")
     check(not multi.next_result(), "no fifth set")
     -- An error in the middle stops the batch; earlier sets remain.
     val mid = conn.query("SELECT 1; SELEC 2; SELECT 3")
-    check(mid.error.code == 1064 and mid.result_count() == 1 and mid.int(0, 0) == 1, "error mid-batch keeps earlier sets (sets {mid.result_count()}, err {mid.error.code})")
-    check(conn.query("SELECT 5").int(0, 0) == 5, "usable after a failed batch")
+    check(mid.error.code == 1064 and mid.result_count() == 1 and is_int(mid.int(0, 0), 1), "error mid-batch keeps earlier sets (sets {mid.result_count()}, err {mid.error.code})")
+    check(conn.query("SELECT 5").int_or(0, 0, -1) == 5, "usable after a failed batch")
 
     -- Stored procedure with two result sets, called as a prepared statement.
     conn.run("DROP PROCEDURE IF EXISTS iron_proc")
@@ -85,23 +105,23 @@ func main() {
     check(proc.ok(), "create procedure: {proc.message}")
     var call = conn.exec("CALL iron_proc(?)", [MysqlValue.Int(21)])
     check(call.ok(), "call procedure: {call.error.message}")
-    check(call.int(0, 0) == 21, "procedure first set")
-    check(call.next_result() and call.int(0, 0) == 42 and call.text(0, 1) == "z", "procedure second set")
-    check(conn.exec("SELECT ?", [MysqlValue.Int(7)]).int(0, 0) == 7, "usable after CALL")
+    check(is_int(call.int(0, 0), 21), "procedure first set")
+    check(call.next_result() and is_int(call.int(0, 0), 42) and is_text(call.text(0, 1), "z"), "procedure second set")
+    check(conn.exec("SELECT ?", [MysqlValue.Int(7)]).int_or(0, 0, -1) == 7, "usable after CALL")
     var tcall = conn.query("CALL iron_proc(3)")
-    check(tcall.ok() and tcall.int(0, 0) == 3 and tcall.next_result() and tcall.int(0, 0) == 6, "procedure through the text protocol")
+    check(tcall.ok() and is_int(tcall.int(0, 0), 3) and tcall.next_result() and is_int(tcall.int(0, 0), 6), "procedure through the text protocol")
     conn.run("DROP PROCEDURE iron_proc")
 
     -- Escaping round trip through the text protocol.
     val nasty = "a'b\"c\\d" + String.from_byte(0) + "e\nf\rg" + String.from_byte(26) + "h; DROP TABLE iron_q; --"
     val q = conn.query("SELECT {conn.quote(nasty)}")
-    check(q.ok() and q.text(0, 0) == nasty, "escaped literal round trips: {q.error.message}")
+    check(q.ok() and is_text(q.text(0, 0), nasty), "escaped literal round trips: {q.error.message}")
     check(Mysql.escape("it's") == "it\\'s", "Mysql.escape")
     check(Mysql.quote_identifier("we`ird") == "`we``ird`", "quote_identifier")
     conn.run("SET SESSION sql_mode = CONCAT(@@sql_mode, ',NO_BACKSLASH_ESCAPES')")
     check(conn.escape("a'b\\c") == "a''b\\c", "escape follows NO_BACKSLASH_ESCAPES: {conn.escape("a'b\\c")}")
     val nb = conn.query("SELECT {conn.quote("x\\'y")}")
-    check(nb.ok() and nb.text(0, 0) == "x\\'y", "literal round trips without backslash escapes: {nb.error.message}")
+    check(nb.ok() and is_text(nb.text(0, 0), "x\\'y"), "literal round trips without backslash escapes: {nb.error.message}")
     conn.run("SET SESSION sql_mode = DEFAULT")
 
     -- Explicit prepared statements.
@@ -144,7 +164,7 @@ func main() {
     var m = 0
     while m < 300 {
         val r = conn.exec("SELECT ? + {m}", [MysqlValue.Int(1)])
-        if r.int(0, 0) != m + 1 {
+        if not is_int(r.int(0, 0), m + 1) {
             distinct_ok = false
         }
         m += 1
@@ -167,12 +187,12 @@ func main() {
     -- Commands.
     check(conn.ping().ok(), "ping")
     conn.run("SET @iron_var = 5")
-    check(conn.query("SELECT @iron_var").int(0, 0) == 5, "session variable set")
+    check(conn.query("SELECT @iron_var").int_or(0, 0, -1) == 5, "session variable set")
     check(conn.reset().ok(), "COM_RESET_CONNECTION")
     check(conn.query("SELECT @iron_var").is_null(0, 0), "reset cleared session variables")
-    check(conn.exec("SELECT ? + 1", [MysqlValue.Int(1)]).int(0, 0) == 2, "statement cache rebuilt after reset")
+    check(conn.exec("SELECT ? + 1", [MysqlValue.Int(1)]).int_or(0, 0, -1) == 2, "statement cache rebuilt after reset")
     check(conn.select_db("mysql").ok(), "select_db mysql")
-    check(conn.query("SELECT DATABASE()").text(0, 0) == "mysql", "database switched")
+    check(conn.query("SELECT DATABASE()").text_or(0, 0, "") == "mysql", "database switched")
     check(conn.select_db("no_such_db_xyz").code == 1049, "select_db unknown is 1049")
     conn.select_db(base.database)
 
@@ -183,18 +203,18 @@ func main() {
     conn.exec("INSERT INTO iron_q (name, n) VALUES (?, ?)", [MysqlValue.Text("tx1"), MysqlValue.Int(1)])
     check(conn.rollback().ok(), "rollback")
     check(not conn.in_transaction(), "rollback ends the transaction")
-    check(conn.query("SELECT COUNT(*) FROM iron_q WHERE name = 'tx1'").int(0, 0) == 0, "rolled back insert is gone")
+    check(conn.query("SELECT COUNT(*) FROM iron_q WHERE name = 'tx1'").int_or(0, 0, -1) == 0, "rolled back insert is gone")
     conn.begin()
     conn.exec("INSERT INTO iron_q (name, n) VALUES (?, ?)", [MysqlValue.Text("tx2"), MysqlValue.Int(2)])
     check(conn.commit().ok(), "commit")
-    check(conn.query("SELECT COUNT(*) FROM iron_q WHERE name = 'tx2'").int(0, 0) == 1, "committed insert is visible")
+    check(conn.query("SELECT COUNT(*) FROM iron_q WHERE name = 'tx2'").int_or(0, 0, -1) == 1, "committed insert is visible")
     -- A second connection sees uncommitted work only after commit.
     var other = Mysql.connect(base)
     conn.begin()
     conn.exec("UPDATE iron_q SET n = 100 WHERE name = ?", [MysqlValue.Text("tx2")])
-    check(other.query("SELECT n FROM iron_q WHERE name = 'tx2'").int(0, 0) == 2, "isolation before commit")
+    check(other.query("SELECT n FROM iron_q WHERE name = 'tx2'").int_or(0, 0, -1) == 2, "isolation before commit")
     conn.commit()
-    check(other.query("SELECT n FROM iron_q WHERE name = 'tx2'").int(0, 0) == 100, "visible after commit")
+    check(other.query("SELECT n FROM iron_q WHERE name = 'tx2'").int_or(0, 0, -1) == 100, "visible after commit")
 
     -- A large result set.
     conn.run("DROP TABLE IF EXISTS iron_many")
@@ -205,9 +225,9 @@ func main() {
     check(fill.ok(), "fill 50000 rows: {fill.message}")
     val many = conn.query("SELECT id, v FROM iron_many ORDER BY id")
     check(many.ok() and many.row_count() == 50000, "50000 rows through the text protocol ({many.row_count()})")
-    check(many.text(49999, 1) == "value-50000", "last row")
+    check(is_text(many.text(49999, 1), "value-50000"), "last row")
     val many_b = conn.exec("SELECT id, v FROM iron_many WHERE id > ? ORDER BY id", [MysqlValue.Int(0)])
-    check(many_b.ok() and many_b.row_count() == 50000 and many_b.int(12345, 0) == 12346, "50000 rows through the binary protocol")
+    check(many_b.ok() and many_b.row_count() == 50000 and is_int(many_b.int(12345, 0), 12346), "50000 rows through the binary protocol")
     conn.run("DROP TABLE iron_many")
 
     conn.run("DROP TABLE iron_q")

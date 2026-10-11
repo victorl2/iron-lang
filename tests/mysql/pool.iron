@@ -9,6 +9,26 @@ import time
 
 var failures = 0
 
+func is_int(v: Int?, want: Int) -> Bool {
+    return v != null and v == want
+}
+
+func is_uint(v: UInt?, want: UInt) -> Bool {
+    return v != null and v == want
+}
+
+func is_float(v: Float?, want: Float) -> Bool {
+    return v != null and v == want
+}
+
+func is_text(v: String?, want: String) -> Bool {
+    return v != null and v == want
+}
+
+func is_bool(v: Bool?, want: Bool) -> Bool {
+    return v != null and v == want
+}
+
 func check(cond: Bool, what: String) {
     if cond {
         println("ok   {what}")
@@ -26,7 +46,7 @@ func worker(shared: rc MysqlPool, task: Int, rounds: Int) -> Int {
         val ins = shared.exec("INSERT INTO iron_pool (k, task) VALUES (?, ?)", [MysqlValue.Int(key), MysqlValue.Int(task)])
         if ins.ok() {
             val sel = shared.exec("SELECT task FROM iron_pool WHERE k = ?", [MysqlValue.Int(key)])
-            if sel.ok() and sel.int(0, 0) == task {
+            if sel.ok() and is_int(sel.int(0, 0), task) {
                 ok += 1
             }
         }
@@ -96,7 +116,7 @@ func main() {
     val done = (await t1) + (await t2) + (await t3) + (await t4) + (await t5) + (await t6) + (await t7) + (await t8) + (await t9) + (await t10) + (await t11) + (await t12) + (await t13) + (await t14) + (await t15) + (await t16)
     check(done == 16 * 150, "16 tasks x 150 insert+select on 8 connections ({done})")
     val count = shared.query("SELECT COUNT(*) FROM iron_pool")
-    check(count.int(0, 0) == 2400, "2400 rows inserted")
+    check(is_int(count.int(0, 0), 2400), "2400 rows inserted")
     check(shared.size() <= 8 and shared.in_use() == 0, "pool stayed within max ({shared.size()})")
 
     -- Concurrent transactions keep the invariant.
@@ -106,7 +126,7 @@ func main() {
     val x4 = spawn("x4") { return transfer(shared, 4) }
     val committed = (await x1) + (await x2) + (await x3) + (await x4)
     val sum = shared.query("SELECT SUM(balance), MAX(CASE WHEN id = 2 THEN balance END) FROM iron_acct")
-    check(committed == 4 and sum.int(0, 0) == 1000 and sum.int(0, 1) == 4, "concurrent transactions ({committed} committed)")
+    check(committed == 4 and is_int(sum.int(0, 0), 1000) and is_int(sum.int(0, 1), 4), "concurrent transactions ({committed} committed)")
 
     -- A connection released mid-transaction is rolled back.
     {
@@ -117,7 +137,7 @@ func main() {
         check(conn.in_transaction(), "in a transaction")
     }
     val gone = shared.query("SELECT COUNT(*) FROM iron_pool WHERE k = -1")
-    check(gone.int(0, 0) == 0, "uncommitted work rolled back on release")
+    check(is_int(gone.int(0, 0), 0), "uncommitted work rolled back on release")
 
     -- Acquire timeout.
     var one = MysqlPoolOptions(0, 1)

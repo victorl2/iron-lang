@@ -15,10 +15,30 @@ object Stats {
     val failed: Mutex[Int]
 }
 
+func is_int(v: Int?, want: Int) -> Bool {
+    return v != null and v == want
+}
+
+func is_uint(v: UInt?, want: UInt) -> Bool {
+    return v != null and v == want
+}
+
+func is_float(v: Float?, want: Float) -> Bool {
+    return v != null and v == want
+}
+
+func is_text(v: String?, want: String) -> Bool {
+    return v != null and v == want
+}
+
+func is_bool(v: Bool?, want: Bool) -> Bool {
+    return v != null and v == want
+}
+
 func hammer(db: rc MysqlPool, until_ms: Int, stats: rc Stats) -> Int {
     while Time.now_ms() < until_ms {
         val r = db.exec("SELECT ? + 1", [MysqlValue.Int(41)])
-        if r.ok() and r.int(0, 0) == 42 {
+        if r.ok() and is_int(r.int(0, 0), 42) {
             val g = stats.ok.lock()
             val v: Int = g.get()
             g.set(v + 1)

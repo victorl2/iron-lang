@@ -8,6 +8,26 @@ import os
 
 var failures = 0
 
+func is_int(v: Int?, want: Int) -> Bool {
+    return v != null and v == want
+}
+
+func is_uint(v: UInt?, want: UInt) -> Bool {
+    return v != null and v == want
+}
+
+func is_float(v: Float?, want: Float) -> Bool {
+    return v != null and v == want
+}
+
+func is_text(v: String?, want: String) -> Bool {
+    return v != null and v == want
+}
+
+func is_bool(v: Bool?, want: Bool) -> Bool {
+    return v != null and v == want
+}
+
 func check(cond: Bool, what: String) {
     if cond {
         println("ok   {what}")
@@ -63,10 +83,10 @@ func main() {
         val ins = conn.exec("INSERT INTO iron_blobs (id, data) VALUES (?, ?)", [MysqlValue.Int(id), MysqlValue.Bytes(data)])
         check(ins.ok(), "insert {size} bytes: {ins.error.message}")
         val bin = conn.exec("SELECT data, LENGTH(data) FROM iron_blobs WHERE id = ?", [MysqlValue.Int(id)])
-        check(bin.ok() and bin.int(0, 1) == size, "binary read length {size}: {bin.error.message}")
-        check(bin.bytes(0, 0) == data, "binary read content {size}")
+        check(bin.ok() and is_int(bin.int(0, 1), size), "binary read length {size}: {bin.error.message}")
+        check(is_text(bin.bytes(0, 0), data), "binary read content {size}")
         val txt = conn.query("SELECT data FROM iron_blobs WHERE id = {id}")
-        check(txt.ok() and txt.bytes(0, 0) == data, "text read content {size}: {txt.error.message}")
+        check(txt.ok() and is_text(txt.bytes(0, 0), data), "text read content {size}: {txt.error.message}")
     }
 
     -- Rows whose payload is exactly 0xFFFFFF bytes and one more: a 1-column
@@ -88,7 +108,7 @@ func main() {
     val fill = 16777215 - 1 - prefix.byte_len() - suffix.byte_len()
     val big_sql = prefix + "y".repeat(fill) + suffix
     val exact = conn.query(big_sql)
-    check(exact.ok() and exact.int(0, 0) == fill, "query payload of exactly 0xFFFFFF bytes: {exact.error.message}")
+    check(exact.ok() and is_int(exact.int(0, 0), fill), "query payload of exactly 0xFFFFFF bytes: {exact.error.message}")
 
     -- Over the server's max_allowed_packet: refused before sending, and the
     -- connection stays usable.

@@ -7,6 +7,26 @@ import os
 
 var failures = 0
 
+func is_int(v: Int?, want: Int) -> Bool {
+    return v != null and v == want
+}
+
+func is_uint(v: UInt?, want: UInt) -> Bool {
+    return v != null and v == want
+}
+
+func is_float(v: Float?, want: Float) -> Bool {
+    return v != null and v == want
+}
+
+func is_text(v: String?, want: String) -> Bool {
+    return v != null and v == want
+}
+
+func is_bool(v: Bool?, want: Bool) -> Bool {
+    return v != null and v == want
+}
+
 func check(cond: Bool, what: String) {
     if cond {
         println("ok   {what}")
@@ -81,32 +101,32 @@ func main() {
     check(true, "text and binary protocols agree on every cell")
 
     -- Typed reads, both protocols.
-    check(text.int(0, 1) == -128 and binr.int(0, 1) == -128, "TINYINT min")
-    check(text.int(0, 2) == 255 and binr.int(0, 2) == 255, "TINYINT UNSIGNED max")
-    check(text.int(0, 3) == -32768 and binr.int(0, 3) == -32768, "SMALLINT min")
-    check(text.int(0, 4) == -8388608 and binr.int(0, 4) == -8388608, "MEDIUMINT min")
-    check(text.int(0, 5) == -2147483648 and binr.int(0, 5) == -2147483648, "INT min")
-    check(text.int(0, 6) == 4294967295 and binr.int(0, 6) == 4294967295, "INT UNSIGNED max")
-    check(text.int(0, 7) == -9223372036854775807 - 1 and binr.int(0, 7) == -9223372036854775807 - 1, "BIGINT min")
-    check(text.uint(0, 8) == UMAX and binr.uint(0, 8) == UMAX, "BIGINT UNSIGNED max")
+    check(is_int(text.int(0, 1), -128) and is_int(binr.int(0, 1), -128), "TINYINT min")
+    check(is_int(text.int(0, 2), 255) and is_int(binr.int(0, 2), 255), "TINYINT UNSIGNED max")
+    check(is_int(text.int(0, 3), -32768) and is_int(binr.int(0, 3), -32768), "SMALLINT min")
+    check(is_int(text.int(0, 4), -8388608) and is_int(binr.int(0, 4), -8388608), "MEDIUMINT min")
+    check(is_int(text.int(0, 5), -2147483648) and is_int(binr.int(0, 5), -2147483648), "INT min")
+    check(is_int(text.int(0, 6), 4294967295) and is_int(binr.int(0, 6), 4294967295), "INT UNSIGNED max")
+    check(is_int(text.int(0, 7), -9223372036854775807 - 1) and is_int(binr.int(0, 7), -9223372036854775807 - 1), "BIGINT min")
+    check(is_uint(text.uint(0, 8), UMAX) and is_uint(binr.uint(0, 8), UMAX), "BIGINT UNSIGNED max")
     val (big_as_int, big_err) = binr.get_int(0, 8)
     check(big_err.code == 7006, "BIGINT UNSIGNED max does not fit Int (7006, got {big_err.code})")
-    check(text.int(2, 7) == 9223372036854775807 and binr.int(2, 7) == 9223372036854775807, "BIGINT max")
-    check(text.float(0, 9) == 1.5 and binr.float(0, 9) == 1.5, "FLOAT")
-    check(text.float(0, 10) == 3.141592653589793 and binr.float(0, 10) == 3.141592653589793, "DOUBLE")
-    check(binr.float(2, 10) == 100000000000000000000000000000.0 and text.float(2, 10) == 100000000000000000000000000000.0, "DOUBLE 1e29")
-    check(text.text(0, 11) == "12345678901234.123456" and binr.text(0, 11) == "12345678901234.123456", "DECIMAL as text")
-    check(text.text(2, 11) == "-0.000001", "DECIMAL small negative")
-    check(text.float(0, 11) == 12345678901234.123456, "DECIMAL as Float")
-    check(text.bool(0, 12) == true and binr.bool(0, 12) == true and binr.bool(2, 12) == false, "BOOL")
-    check(text.uint(0, 13) == UInt(165) and binr.uint(0, 13) == UInt(165), "BIT(8)")
+    check(is_int(text.int(2, 7), 9223372036854775807) and is_int(binr.int(2, 7), 9223372036854775807), "BIGINT max")
+    check(is_float(text.float(0, 9), 1.5) and is_float(binr.float(0, 9), 1.5), "FLOAT")
+    check(is_float(text.float(0, 10), 3.141592653589793) and is_float(binr.float(0, 10), 3.141592653589793), "DOUBLE")
+    check(is_float(binr.float(2, 10), 100000000000000000000000000000.0) and is_float(text.float(2, 10), 100000000000000000000000000000.0), "DOUBLE 1e29")
+    check(is_text(text.text(0, 11), "12345678901234.123456") and is_text(binr.text(0, 11), "12345678901234.123456"), "DECIMAL as text")
+    check(is_text(text.text(2, 11), "-0.000001"), "DECIMAL small negative")
+    check(is_float(text.float(0, 11), 12345678901234.123456), "DECIMAL as Float")
+    check(is_bool(text.bool(0, 12), true) and is_bool(binr.bool(0, 12), true) and is_bool(binr.bool(2, 12), false), "BOOL")
+    check(is_uint(text.uint(0, 13), UInt(165)) and is_uint(binr.uint(0, 13), UInt(165)), "BIT(8)")
     val d1 = binr.datetime(0, 14)
     if d1 != null {
         check(d1.year == 2024 and d1.month == 2 and d1.day == 29 and d1.hour == 0, "DATE binary")
     } else {
         check(false, "DATE binary")
     }
-    check(text.text(0, 14) == "2024-02-29" and binr.text(0, 14) == "2024-02-29", "DATE text")
+    check(is_text(text.text(0, 14), "2024-02-29") and is_text(binr.text(0, 14), "2024-02-29"), "DATE text")
     val t1 = text.datetime(0, 15)
     val b1 = binr.datetime(0, 15)
     if t1 != null {
@@ -119,8 +139,8 @@ func main() {
     } else {
         check(false, "DATETIME(6) binary")
     }
-    check(binr.text(0, 15) == "2024-02-29 13:45:30.123456", "DATETIME(6) as text: {binr.text(0, 15)}")
-    check(binr.text(0, 16) == "2024-01-01 00:00:00.500", "TIMESTAMP(3) as text: {binr.text(0, 16)}")
+    check(is_text(binr.text(0, 15), "2024-02-29 13:45:30.123456"), "DATETIME(6) as text: {binr.text(0, 15)}")
+    check(is_text(binr.text(0, 16), "2024-01-01 00:00:00.500"), "TIMESTAMP(3) as text: {binr.text(0, 16)}")
     val tm_t = text.time(0, 17)
     val tm_b = binr.time(0, 17)
     if tm_t != null {
@@ -133,24 +153,24 @@ func main() {
     } else {
         check(false, "TIME binary")
     }
-    check(binr.text(0, 17) == "-123:45:06.789000", "TIME as text: {binr.text(0, 17)}")
-    check(text.int(0, 18) == 2155 and binr.int(0, 18) == 2155, "YEAR")
-    check(text.text(0, 19) == "abc" and binr.text(0, 19) == "abc", "CHAR")
-    check(text.text(0, 20) == utf and binr.text(0, 20) == utf, "VARCHAR UTF-8")
-    check(text.text(0, 21) == long_text and binr.text(0, 21) == long_text, "TEXT 60 KB")
-    check(text.bytes(0, 22) == bin and binr.bytes(0, 22) == bin, "BLOB with zero bytes")
-    check(text.bytes(0, 23) == bin and binr.bytes(0, 23) == bin, "VARBINARY with zero bytes")
-    check(binr.bytes(2, 23) == String.from_byte(0), "VARBINARY single zero byte")
+    check(is_text(binr.text(0, 17), "-123:45:06.789000"), "TIME as text: {binr.text(0, 17)}")
+    check(is_int(text.int(0, 18), 2155) and is_int(binr.int(0, 18), 2155), "YEAR")
+    check(is_text(text.text(0, 19), "abc") and is_text(binr.text(0, 19), "abc"), "CHAR")
+    check(is_text(text.text(0, 20), utf) and is_text(binr.text(0, 20), utf), "VARCHAR UTF-8")
+    check(is_text(text.text(0, 21), long_text) and is_text(binr.text(0, 21), long_text), "TEXT 60 KB")
+    check(is_text(text.bytes(0, 22), bin) and is_text(binr.bytes(0, 22), bin), "BLOB with zero bytes")
+    check(is_text(text.bytes(0, 23), bin) and is_text(binr.bytes(0, 23), bin), "VARBINARY with zero bytes")
+    check(is_text(binr.bytes(2, 23), String.from_byte(0)), "VARBINARY single zero byte")
     val js = binr.text(0, 24)
     if js != null {
         check(js.contains("\"k\""), "JSON: {js}")
     } else {
         check(false, "JSON: {js}")
     }
-    check(text.text(0, 25) == "b" and binr.text(0, 25) == "b", "ENUM")
-    check(text.text(0, 26) == "x,y" and binr.text(0, 26) == "x,y", "SET")
-    check(binr.text(2, 20) == "it's \"quoted\" \\ back", "quotes and backslash through a parameter")
-    check(binr.text(2, 19) == "" and not binr.is_null(2, 19), "empty string is not NULL")
+    check(is_text(text.text(0, 25), "b") and is_text(binr.text(0, 25), "b"), "ENUM")
+    check(is_text(text.text(0, 26), "x,y") and is_text(binr.text(0, 26), "x,y"), "SET")
+    check(is_text(binr.text(2, 20), "it's \"quoted\" \\ back"), "quotes and backslash through a parameter")
+    check(is_text(binr.text(2, 19), "") and not binr.is_null(2, 19), "empty string is not NULL")
 
     -- NULL row.
     var c2 = 1
@@ -220,7 +240,7 @@ func main() {
     val (_, e5) = binr.get_int(0, binr.col("nope"))
     check(e5.code == 7007, "unknown column is 7007 (got {e5.code})")
     check(binr.int(0, 9) == null, "int() of FLOAT 1.5 is null")
-    check(binr.float(0, 5) == -2147483648.0, "INT read as Float")
+    check(is_float(binr.float(0, 5), -2147483648.0), "INT read as Float")
     check(text.int(0, 11) == null, "DECIMAL with a fraction does not read as Int")
 
     -- Column metadata.
@@ -236,7 +256,7 @@ func main() {
 
     -- Aliases and expressions.
     val e = conn.exec("SELECT ? + 1 AS n, CONCAT(?, '!') AS s, ? IS NULL AS isnull", [MysqlValue.Int(41), MysqlValue.Text("hi"), MysqlValue.Null])
-    check(e.ok() and e.int(0, e.col("n")) == 42 and e.text(0, e.col("s")) == "hi!" and e.bool(0, 2) == true, "expressions with parameters: {e.error.message}")
+    check(e.ok() and is_int(e.int(0, e.col("n")), 42) and is_text(e.text(0, e.col("s")), "hi!") and is_bool(e.bool(0, 2), true), "expressions with parameters: {e.error.message}")
 
     -- Out of range parameter values are rejected by the client.
     val bad = conn.exec("SELECT ?", [MysqlValue.DateTime(MysqlDateTime(2024, 13, 1, 0, 0, 0, 0))])

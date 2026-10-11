@@ -227,9 +227,9 @@ object MysqlColumn {
 --
 -- Typed readers take a row and a column index (see col() to find one by
 -- name). The short forms (`int`, `text`, ...) return null for SQL NULL
--- and for a value that does not convert; the `get_` forms return the
--- value with a MysqlError saying which (IRON_ERR_MYSQL_NULL 7005,
--- CONVERSION 7006, RANGE 7007).
+-- and for a value that does not convert; the `_or` forms return a
+-- fallback instead; the `get_` forms return the value with a MysqlError
+-- saying which (IRON_ERR_MYSQL_NULL 7005, CONVERSION 7006, RANGE 7007).
 nocopy object MysqlResult {
     val handle: Int
     val error: MysqlError
@@ -403,6 +403,48 @@ nocopy object MysqlResult {
         val (v, err) = MysqlNative.res_time(self.handle, row, col)
         if err.code != 0 {
             return null
+        }
+        return v
+    }
+
+    -- The value, or `fallback` for SQL NULL and for a value that does not
+    -- convert: `res.int_or(0, res.col("count"), 0)`.
+    readonly func int_or(row: Int, col: Int, fallback: Int) -> Int {
+        val (v, err) = MysqlNative.res_int(self.handle, row, col)
+        if err.code != 0 {
+            return fallback
+        }
+        return v
+    }
+
+    readonly func uint_or(row: Int, col: Int, fallback: UInt) -> UInt {
+        val (v, err) = MysqlNative.res_uint(self.handle, row, col)
+        if err.code != 0 {
+            return fallback
+        }
+        return v
+    }
+
+    readonly func float_or(row: Int, col: Int, fallback: Float) -> Float {
+        val (v, err) = MysqlNative.res_float(self.handle, row, col)
+        if err.code != 0 {
+            return fallback
+        }
+        return v
+    }
+
+    readonly func text_or(row: Int, col: Int, fallback: String) -> String {
+        val (v, err) = MysqlNative.res_text(self.handle, row, col)
+        if err.code != 0 {
+            return fallback
+        }
+        return v
+    }
+
+    readonly func bool_or(row: Int, col: Int, fallback: Bool) -> Bool {
+        val (v, err) = MysqlNative.res_bool(self.handle, row, col)
+        if err.code != 0 {
+            return fallback
         }
         return v
     }

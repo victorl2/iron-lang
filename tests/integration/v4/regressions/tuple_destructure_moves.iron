@@ -39,7 +39,7 @@ func main() {
     val h = make(1)
     val h2 = make(200)
     println("{h.msg.len()} {h2.code}")
-    println("{text(3)} {text(4) == "x"}")
+    println("{text(3)} {text(4) == null}")
     var i = 0
     while i < 3 {
         val (a, b) = pair(i)

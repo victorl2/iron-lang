@@ -10,6 +10,26 @@ import io
 
 var failures = 0
 
+func is_int(v: Int?, want: Int) -> Bool {
+    return v != null and v == want
+}
+
+func is_uint(v: UInt?, want: UInt) -> Bool {
+    return v != null and v == want
+}
+
+func is_float(v: Float?, want: Float) -> Bool {
+    return v != null and v == want
+}
+
+func is_text(v: String?, want: String) -> Bool {
+    return v != null and v == want
+}
+
+func is_bool(v: Bool?, want: Bool) -> Bool {
+    return v != null and v == want
+}
+
 func check(cond: Bool, what: String) {
     if cond {
         println("ok   {what}")
@@ -79,7 +99,7 @@ func main() {
             check(c.auth_plugin() == "mysql_native_password", "native plugin negotiated: {c.auth_plugin()}")
             check(c.is_tls() == (mode == MysqlTls.Required), "native tls state")
             val r = c.query("SELECT CURRENT_USER()")
-            check(r.ok() and r.text(0, 0) == "iron_native@%", "native session user")
+            check(r.ok() and is_text(r.text(0, 0), "iron_native@%"), "native session user")
         }
     }
 
