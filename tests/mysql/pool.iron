@@ -55,6 +55,29 @@ func worker(shared: rc MysqlPool, task: Int, rounds: Int) -> Int {
     return ok
 }
 
+func reader(shared: rc MysqlPool, rounds: Int) -> Int {
+    var ok = 0
+    for i in range(rounds) {
+        val res = shared.exec("SELECT ? + 1", [MysqlValue.Int(i)])
+        if res.ok() and is_int(res.int(0, 0), i + 1) {
+            ok += 1
+        }
+    }
+    return ok
+}
+
+-- n tasks of `rounds` statements each, all awaited; the statements that worked.
+func readers(shared: rc MysqlPool, n: Int, rounds: Int) -> Int {
+    if n == 0 {
+        return 0
+    }
+    val first = spawn("reader") {
+        return reader(shared, rounds)
+    }
+    val rest = readers(shared, n - 1, rounds)
+    return (await first) + rest
+}
+
 func transfer(shared: rc MysqlPool, task: Int) -> Int {
     var conn = shared.acquire()
     if conn.error.failed() {
@@ -205,6 +228,17 @@ func main() {
         var c = rp.acquire()
         check(c.query("SELECT @iron_pool_var").is_null(0, 0), "reset_on_release clears session state")
     }
+
+    -- More tasks than connections must reuse the connections, not churn
+    -- them: an unsigned clock difference used to see a just-returned idle
+    -- connection as idle for ages and close it, so most statements under
+    -- contention opened a new connection.
+    val before = admin.query("SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Connections'").int_or(0, 0, 0)
+    val cp = Mysql.open_pool(base, MysqlPoolOptions(0, 8))
+    val read_ok = readers(cp, 40, 500)
+    val after = admin.query("SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Connections'").int_or(0, 0, 0)
+    check(read_ok == 20000, "20000 statements from 40 tasks on 8 connections ({read_ok})")
+    check(after - before <= 8, "connections reused under contention ({after - before} opened, max 8)")
 
     -- init_command runs on every new connection and again after a reset.
     var icfg = base

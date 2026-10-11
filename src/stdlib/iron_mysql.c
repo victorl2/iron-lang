@@ -3054,8 +3054,9 @@ static MyConn *pool_take(MyPool *p, MyErr *e, int *reused) {
         while (p->nidle > 0) {
             MyConn *c = p->idle[--p->nidle];
             uint64_t now = Iron_monotonic_now_ms();
-            int expired = (p->max_lifetime > 0 && now - c->created_ms >= (uint64_t)p->max_lifetime) ||
-                          (p->idle_timeout > 0 && p->total > p->min &&
+            int expired = (p->max_lifetime > 0 && now >= c->created_ms &&
+                           now - c->created_ms >= (uint64_t)p->max_lifetime) ||
+                          (p->idle_timeout > 0 && p->total > p->min && now >= c->idle_since_ms &&
                            now - c->idle_since_ms >= (uint64_t)p->idle_timeout);
             p->in_use++;
             iron_mutex_unlock(&p->lock);
@@ -3063,7 +3064,8 @@ static MyConn *pool_take(MyPool *p, MyErr *e, int *reused) {
              * closed while it sat idle (KILL, wait_timeout, a restart) is
              * readable, and is replaced before the caller sees an error. */
             int ok = !expired && conn_alive(c);
-            if (ok && p->health_check > 0 && now - c->idle_since_ms >= (uint64_t)p->health_check) {
+            if (ok && p->health_check > 0 && now >= c->idle_since_ms &&
+                now - c->idle_since_ms >= (uint64_t)p->health_check) {
                 MyErr pe;
                 ok = simple_command(c, COM_PING, "", 0, &pe) == 0;
             }
@@ -3129,12 +3131,18 @@ static void pool_give_back(MyConn *c) {
         }
     }
     atomic_fetch_add(&c->gen, 1);
-    uint64_t now = Iron_monotonic_now_ms();
     MyConn *stale = NULL;
     iron_mutex_lock(&p->lock);
+    /* Read the clock under the lock: a `now` taken before it can be older
+     * than the idle_since_ms another thread just stored, and the unsigned
+     * difference below then wrapped to a huge age, closing a connection
+     * that had idled for microseconds (under load: a new connection, TLS
+     * handshake included, for most requests). */
+    uint64_t now = Iron_monotonic_now_ms();
     p->in_use--;
     int keep = !p->closing && c->open && !c->broken &&
-               !(p->max_lifetime > 0 && now - c->created_ms >= (uint64_t)p->max_lifetime);
+               !(p->max_lifetime > 0 && now >= c->created_ms &&
+                 now - c->created_ms >= (uint64_t)p->max_lifetime);
     if (keep) {
         c->idle_since_ms = now;
         p->idle[p->nidle++] = c;
@@ -3142,6 +3150,7 @@ static void pool_give_back(MyConn *c) {
         p->total--;
     }
     if (p->nidle > 1 && p->total > p->min && p->idle_timeout > 0 &&
+        now >= p->idle[0]->idle_since_ms &&
         now - p->idle[0]->idle_since_ms >= (uint64_t)p->idle_timeout) {
         stale = p->idle[0];
         memmove(p->idle, p->idle + 1, (size_t)(p->nidle - 1) * sizeof(MyConn *));
