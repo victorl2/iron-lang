@@ -1121,6 +1121,14 @@ add_test(NAME diag_arena_owned_fields
         -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/arena_owned_fields.expected_help
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/arena_owned_fields.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+# W0613 for a var assigned only in `in a { }` or a deferred block.
+add_test(NAME diag_var_assigned_in_arena_block
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/var_assigned_in_arena_block.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/var_assigned_in_arena_block.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/var_assigned_in_arena_block.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 add_test(NAME diag_index_non_indexable
     COMMAND ${CMAKE_COMMAND}
         -DIRONC=$<TARGET_FILE:ironc>
@@ -1541,6 +1549,16 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz)
     set_tests_properties(prog_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
+    # The same for concurrency (spawn / await, Mutex, channels, parallel
+    # for; outputs deterministic by construction) and for arenas.
+    add_test(NAME prog_fuzz_conc
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_conc conc)
+    set_tests_properties(prog_fuzz_conc PROPERTIES LABELS "codegen" TIMEOUT 900)
+    add_test(NAME prog_fuzz_arena
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_arena arena)
+    set_tests_properties(prog_fuzz_arena PROPERTIES LABELS "codegen" TIMEOUT 900)
 endif()
 # The standard library prelude, parsed by every compile, stays within the
 # section 13 grammar of the manual (#324).
