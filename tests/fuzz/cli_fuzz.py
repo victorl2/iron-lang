@@ -51,10 +51,12 @@ def files(work):
     """Inputs in work/: name -> path (created on demand)."""
     big = os.path.join(work, 'huge.iron')
     if not os.path.exists(big):
+        # 8 MB, mostly comments (a huge function body takes the C compiler
+        # minutes, which is not what this checks)
         with open(big, 'w') as f:
+            f.write(('-- ' + 'x' * 77 + '\n') * 100000)
             f.write('func main() {\n')
-            line = '    println("' + 'x' * 70 + '")\n'
-            f.write(line * 60000)
+            f.write('    println("' + 'x' * 70 + '")\n' * 200)
             f.write('}\n')
     specs = {
         'ok.iron': 'func main() {\n    println("ok")\n}\n',
