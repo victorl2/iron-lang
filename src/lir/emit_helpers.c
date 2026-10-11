@@ -479,13 +479,8 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
             if (t->object.decl && t->object.decl->name &&
                 strcmp(t->object.decl->name, "Box") == 0 && t->object.elem) {
                 emit_ensure_box(ctx, t->object.elem);
-                const char *elem_c = emit_type_to_c(t->object.elem, ctx);
                 Iron_StrBuf sb = iron_strbuf_create(64);
-                iron_strbuf_appendf(&sb, "Iron_Box_");
-                for (const char *p = elem_c; *p; p++) {
-                    if (*p == ' ' || *p == '*') iron_strbuf_appendf(&sb, "_");
-                    else { char ch[2] = { *p, '\0' }; iron_strbuf_appendf(&sb, "%s", ch); }
-                }
+                iron_strbuf_appendf(&sb, "Iron_Box_%s", emit_elem_c_escaped(ctx, t->object.elem));
                 const char *result = iron_arena_strdup(ctx->arena,
                                                         iron_strbuf_get(&sb), sb.len);
                 iron_strbuf_free(&sb);
@@ -910,6 +905,9 @@ static void emit_container_elem_ensure_dtor(EmitCtx *ctx, const Iron_Type *elem,
  *   No new diagnostic code allocated; the existing Phase 24 DROP-08 nocopy-
  *   copy violation fires at the rc allocation site because rc requires copy
  *   semantics (refcount-bump on each copy) which Box[T] forbids (nocopy). */
+static const char *res_elem_stmt(EmitCtx *ctx, const Iron_Type *et, const char *lv,
+                                 bool drop);
+
 void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
     if (!elem_type) return;
 
@@ -918,15 +916,7 @@ void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
 
     /* Build mangled name: Iron_Box_<elem_c> with space and * escaped to _ */
     Iron_StrBuf sb = iron_strbuf_create(64);
-    iron_strbuf_appendf(&sb, "Iron_Box_");
-    for (const char *p = elem_c; *p; p++) {
-        if (*p == ' ' || *p == '*') {
-            iron_strbuf_appendf(&sb, "_");
-        } else {
-            char ch[2] = { *p, '\0' };
-            iron_strbuf_appendf(&sb, "%s", ch);
-        }
-    }
+    iron_strbuf_appendf(&sb, "Iron_Box_%s", emit_elem_c_escaped(ctx, elem_type));
     const char *struct_name = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
     iron_strbuf_free(&sb);
     if (!struct_name) iron_oom_abort("emit_helpers.c:emit_ensure_box struct_name");
@@ -985,7 +975,25 @@ void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
         /* _is_null */ struct_name, struct_name,
         /* _null_val */ struct_name, struct_name,
         struct_name);
+    /* Any other owning element (a String, a closure, a weak rc handle, a
+     * list, an enum with payloads...): its drop statement, or "" when the
+     * element owns nothing. Box(v) took ownership of the value. */
+    const char *other_drop = "";
+    char elem_lv[512];
     if (!box_elem_drop) {
+        snprintf(elem_lv, sizeof(elem_lv), "(*(%s *)box->inner.addr)", elem_c);
+        other_drop = res_elem_stmt(ctx, elem_type, elem_lv, true);
+    }
+    if (!box_elem_drop && other_drop[0]) {
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "static void %s_free(%s *box) {\n"
+            "    if (box && box->inner.addr) {\n"
+            "%s"
+            "        iron_heap_free(box->inner); box->inner.addr = NULL;\n"
+            "    }\n"
+            "}\n\n",
+            struct_name, struct_name, other_drop);
+    } else if (!box_elem_drop) {
         iron_strbuf_appendf(&ctx->lifted_funcs,
             "static void %s_free(%s *box) {\n"
             "    /* Phase 26 (Plan 26-02): rc Box[T] rejected via E0286 -- "
@@ -1025,6 +1033,9 @@ const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem) {
     const char *elem_c = emit_type_to_c(elem, ctx);
     if (!elem_c) return NULL;
     Iron_StrBuf sb = iron_strbuf_create(32);
+    /* `weak rc T` has the C type of `rc T` but releases differently: its
+     * glue gets a name of its own (Box[weak rc T] was freed as Box[rc T]). */
+    if (elem && elem->kind == IRON_TYPE_WEAK_RC) iron_strbuf_appendf(&sb, "weak_");
     for (const char *p = elem_c; *p; p++) {
         if (*p == ' ' || *p == '*') iron_strbuf_appendf(&sb, "_");
         else { char ch[2] = { *p, '\0' }; iron_strbuf_appendf(&sb, "%s", ch); }
@@ -1305,7 +1316,7 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type) {
         /* wrunlock */  esc, esc);
 }
 
-/* hir_to_lir names the Mutex / RWLock / Channel glue it calls with a
+/* hir_to_lir names the Box / Mutex / RWLock / Channel glue it calls with a
  * format and the element type (func_ref.res_elem): only here are the C
  * names of every element type known (a list, a Map, a generic object). */
 void emit_resolve_resource_calls(EmitCtx *ctx) {
@@ -1320,7 +1331,9 @@ void emit_resolve_resource_calls(EmitCtx *ctx) {
                 continue;
             const Iron_Type *et = ref->func_ref.res_elem;
             const char *fmt = ref->func_ref.func_name;
-            if (strncmp(fmt, "Iron_Mutex", 10) == 0) emit_ensure_mutex(ctx, et);
+            if (strncmp(fmt, "Iron_Box_", 9) == 0) emit_ensure_box(ctx, et);
+            else if (strncmp(fmt, "Iron_RawPtr_of_", 15) == 0) emit_ensure_rawptr(ctx, et);
+            else if (strncmp(fmt, "Iron_Mutex", 10) == 0) emit_ensure_mutex(ctx, et);
             else if (strncmp(fmt, "Iron_Channel", 12) == 0) emit_ensure_channel(ctx, et);
             else emit_ensure_rwlock(ctx, et);
             const char *esc = emit_elem_c_escaped(ctx, et);
@@ -1384,15 +1397,8 @@ void emit_ensure_rawptr(EmitCtx *ctx, const Iron_Type *elem_type) {
     const char *elem_c = emit_type_to_c(elem_type, ctx);
     if (!elem_c) return;
 
-    /* Build escaped suffix: replace ` ` and `*` with `_`. */
-    Iron_StrBuf sb = iron_strbuf_create(48);
-    for (const char *p = elem_c; *p; p++) {
-        if (*p == ' ' || *p == '*') iron_strbuf_appendf(&sb, "_");
-        else { char ch[2] = { *p, '\0' }; iron_strbuf_appendf(&sb, "%s", ch); }
-    }
-    const char *esc = iron_arena_strdup(ctx->arena,
-                                         iron_strbuf_get(&sb), sb.len);
-    iron_strbuf_free(&sb);
+    /* Escaped suffix (` ` and `*` replaced with `_`), as the call names it. */
+    const char *esc = emit_elem_c_escaped(ctx, elem_type);
     if (!esc) iron_oom_abort("emit_helpers.c:emit_ensure_rawptr esc");
 
     /* Dedupe — Phase 25 emitted_boxes precedent. */
