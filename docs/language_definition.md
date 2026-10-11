@@ -603,8 +603,10 @@ Calling a primitive type name like a function converts a value:
 `Int(x)`, `Float(x)`, `Int32(x)`, `UInt8(x)` and so on. The source must be
 a numeric type or `Bool` (`E0310`; `Bool` itself is not a conversion
 target); float to integer truncates toward zero, and `Int(true)` is 1. A
-conversion to a narrower integer type warns (`W0601`) and a constant that
-does not fit is an error (`E0311`). Numbers are converted to strings with
+float outside the target's range converts to the type's largest or
+smallest value and NaN converts to 0 (`Int8(x)` with `x = 300.5` is 127).
+A conversion to a narrower integer type warns (`W0601`) and a constant that
+does not fit, integer or float, is an error (`E0311`). Numbers are converted to strings with
 `n.to_string()` or by interpolation; strings are parsed with `s.to_int()`
 and `s.to_float()`. There is no `String(x)`.
 
@@ -1923,7 +1925,10 @@ to a parameter of type `*T` takes its address automatically. A checked
 pointer carries the generation of the allocation it points to, and every
 dereference verifies it: reading through a pointer after the target was
 freed aborts with a "stale pointer dereference" message instead of reading
-garbage, even when the allocator has reused the address. Checked pointers
+garbage, even when the allocator has reused the address. A pointer to a
+local stays valid while the function that took it has not returned; read
+after that (kept in a closure or an object that outlived the call) it
+aborts with a "dangling stack pointer to frame" message. Checked pointers
 support no arithmetic (`E0268`, `E0295`); `&` cannot be applied to a
 temporary (`E0270`), a pointer to a local cannot be returned (`E0271`), `&`
 on an `rc` handle is rejected (`E0296`), and `&list[i]` on a growable list
@@ -2319,8 +2324,9 @@ construction). Method calls, field access, string concatenation,
 interpolation, bitwise operators and shifts, conversions such as
 `Float(n)`, reading a global, `break` and `continue`, lambdas, `match`,
 enum values, and `heap` or `rc` allocation are not available at compile
-time (`E0231`); an error while evaluating, such as a division by zero or
-an index out of range, is `E0232`. Evaluation is limited to one million
+time (`E0231`); an error while evaluating, such as an integer division by
+zero or an index out of range, is `E0232` (a float divided by zero is an
+infinity or NaN, as at run time). Evaluation is limited to one million
 steps and to calls nested 256 deep (`E0230`). The result is typically
 bound to a global `val`.
 

@@ -1,0 +1,17 @@
+-- `x <<= k` is `x = x << k`, whose count may have any integer type
+-- (manual 3.2, 4.3). The compound forms required the target's type and
+-- reported E0202. (#473)
+func pk(n: Int) -> Int {
+    return n
+}
+
+func main() {
+    var a: Int8 = Int8(pk(3))
+    a <<= UInt8(pk(2))
+    a >>= pk(1)
+    var b: UInt64 = UInt64(pk(1))
+    b <<= Int32(pk(63))
+    var c: Int32 = Int32(pk(-5))
+    c >>= UInt64(pk(-1))
+    println("{a} {b} {c}")
+}

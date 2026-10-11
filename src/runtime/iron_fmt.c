@@ -162,3 +162,53 @@ Iron_String iron_string_format(const char *fmt, ...) {
     free(buf);
     return s;
 }
+
+/* The interpolation formatter (see iron_runtime.h): two passes over the
+ * same conversions, the first measuring. %S copies the bytes of an
+ * Iron_String, so a string holding a zero byte is interpolated whole. */
+static size_t iron_interp_pass(char *out, const char *fmt, va_list ap) {
+    size_t n = 0;
+    char num[32];
+    for (const char *f = fmt; *f; f++) {
+        const char *piece = NULL;
+        size_t plen = 0;
+        if (f[0] != '%') {
+            piece = f; plen = 1;
+        } else if (f[1] == '%') {
+            piece = f + 1; plen = 1; f += 1;
+        } else if (f[1] == 'S') {
+            const Iron_String *s = va_arg(ap, const Iron_String *);
+            piece = iron_string_cstr(s); plen = iron_string_byte_len(s); f += 1;
+        } else if (f[1] == 's') {
+            piece = va_arg(ap, const char *);
+            if (!piece) piece = "(null)";
+            plen = strlen(piece); f += 1;
+        } else if (f[1] == 'l' && f[2] == 'l' && (f[3] == 'd' || f[3] == 'u')) {
+            int k = f[3] == 'd'
+                ? snprintf(num, sizeof num, "%lld", va_arg(ap, long long))
+                : snprintf(num, sizeof num, "%llu", va_arg(ap, unsigned long long));
+            piece = num; plen = k > 0 ? (size_t)k : 0; f += 3;
+        } else {
+            piece = f; plen = 1;   /* not produced by the emitter: kept as text */
+        }
+        if (out) memcpy(out + n, piece, plen);
+        n += plen;
+    }
+    return n;
+}
+
+Iron_String iron_string_interp(const char *fmt, ...) {
+    va_list ap, ap2;
+    va_start(ap, fmt);
+    va_copy(ap2, ap);
+    size_t n = iron_interp_pass(NULL, fmt, ap);
+    va_end(ap);
+    char *buf = (char *)malloc(n + 1);
+    if (!buf) iron_oom_abort("iron_string_interp");
+    iron_interp_pass(buf, fmt, ap2);
+    va_end(ap2);
+    buf[n] = '\0';
+    Iron_String s = iron_string_from_cstr(buf, n);
+    free(buf);
+    return s;
+}

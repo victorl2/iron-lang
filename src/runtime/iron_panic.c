@@ -100,10 +100,12 @@ void iron_panic_stale_stack_pointer(const char *deref_file,
          * tests/unit/test_runtime_stack_pointer_dangling.c */
         fputs("iron: dangling stack pointer to frame\n", stderr);
         fprintf(stderr, "  deref site: %s:%d\n", df, deref_line);
+        /* frame #id at depth d (iron_runtime.h, #471) */
         fprintf(stderr,
-                "  captured frame: #%llu (current frame: #%llu)\n",
-                (unsigned long long)captured_frame_gen,
-                (unsigned long long)iron_stack_gen);
+                "  captured frame: #%llu at depth %llu (current depth: %u)\n",
+                (unsigned long long)(captured_frame_gen & IRON_STACK_ID_MASK),
+                (unsigned long long)((captured_frame_gen >> 47) & 0xFFFF),
+                (unsigned)iron_stack_depth);
     }
     /* Buffered stdout dies with abort(); flush it so a panicking program
      * keeps every line it printed before the panic. */

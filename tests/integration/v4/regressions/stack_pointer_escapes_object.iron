@@ -1,0 +1,29 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A pointer to a local that leaves its frame inside an object is read
+-- later: the dangling stack pointer panic (manual 6.4), not stale stack
+-- memory. Reads through a pointer field were not checked. (#471)
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object View {
+    val p: *P
+}
+
+func wrap(p: *P) -> View {
+    return View(p)
+}
+
+func make() -> View {
+    val local = P(5)
+    return wrap(&local)
+}
+
+func main() {
+    val v = make()
+    println("made")
+    println("{v.p.hp}")
+}
