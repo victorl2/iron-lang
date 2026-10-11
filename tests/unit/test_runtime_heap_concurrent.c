@@ -123,6 +123,12 @@ static int run_consumer_in_fork(void (*child_fn)(void *), void *arg,
 
     int sigaborted = WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT;
     int matches    = strstr(buf, expected_substr) != NULL;
+    /* Say why a consumer did not count, e.g. a sanitizer report in place
+     * of the panic message. */
+    if (!(sigaborted && matches))
+        printf("consumer: status=0x%x signal=%d exit=%d stderr=[%s]\n", status,
+               WIFSIGNALED(status) ? WTERMSIG(status) : 0,
+               WIFEXITED(status) ? WEXITSTATUS(status) : -1, buf);
     return sigaborted && matches;
 }
 
@@ -165,20 +171,42 @@ void test_iron_heap_cross_thread_free_first_succeeds_rest_panic(void) {
 
 static void child_consumer_deref(void *arg) {
     Iron_FatPtr *fp = (Iron_FatPtr *)arg;
-    /* Do NOT re-init the runtime — see child_consumer_free comment.
-     * Stale fp; deref-check must panic. No zombie deref returning stale
-     * data — the acquire-load on hdr->gen synchronizes with the freeing
-     * thread's relaxed-fetch-add. */
+    /* Do NOT re-init the runtime: see child_consumer_free comment.
+     * Stale fp into a block that was freed and allocated again; the
+     * deref check must panic. No zombie deref returning the new block's
+     * data: its header carries a fresh generation. */
     iron_check_pointer_gen(*fp, __FILE__, __LINE__);
     _exit(99); /* should never reach */
 }
 
 void test_iron_heap_cross_thread_deref_after_free_panics(void) {
-    /* Single allocator allocates fp; parent frees the original; copies
-     * of fp distributed to forked consumers; each consumer's
-     * iron_check_pointer_gen call must panic deterministically. */
+    /* Single allocator allocates fp and frees it; copies of fp go to
+     * forked consumers; each consumer's iron_check_pointer_gen call must
+     * panic deterministically.
+     *
+     * Release builds give the block back to malloc, so the header of a
+     * freed block is not ours to read (ThreadSanitizer reports the read as
+     * a heap use after free). The check is defined once the address is in
+     * use again, which is also the case it exists for: a stale pointer into
+     * reused memory. So allocate until malloc hands the address back; the
+     * new block's header carries a fresh generation. */
     Iron_FatPtr fp = iron_heap_alloc(__FILE__, __LINE__, 64);
     iron_heap_free(fp);
+
+    enum { REUSE_TRIES = 64 };
+    Iron_FatPtr held[REUSE_TRIES];
+    int nheld = 0;
+    Iron_FatPtr reuse = { NULL, 0 };
+    while (nheld < REUSE_TRIES) {
+        Iron_FatPtr next = iron_heap_alloc(__FILE__, __LINE__, 64);
+        if (next.addr == fp.addr) { reuse = next; break; }
+        held[nheld++] = next;
+    }
+    for (int i = 0; i < nheld; i++) iron_heap_free(held[i]);
+    if (!reuse.addr) {
+        TEST_IGNORE_MESSAGE("malloc did not reuse the freed block's address");
+    }
+    TEST_ASSERT_TRUE(fp.gen != reuse.gen);
 
     int panic_count = 0;
     for (int i = 0; i < CROSS_THREAD_CONSUMERS; i++) {
@@ -187,6 +215,7 @@ void test_iron_heap_cross_thread_deref_after_free_panics(void) {
             panic_count++;
         }
     }
+    iron_heap_free(reuse);
     TEST_ASSERT_EQUAL_INT(CROSS_THREAD_CONSUMERS, panic_count);
 }
 
