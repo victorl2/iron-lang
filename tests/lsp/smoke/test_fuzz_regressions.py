@@ -336,3 +336,48 @@ async def test_close_clears_published_diagnostics(client, tmp_path):
             assert len(params.diagnostics) == 0
             return
     pytest.fail("no cleared publishDiagnostics after didClose")
+
+
+def _apply_utf16(text, edits):
+    lines = text.split("\n")
+    starts = [0]
+    for ln in lines:
+        starts.append(starts[-1] + len(ln) + 1)
+
+    def idx(p):
+        if p.line >= len(lines):
+            return len(text)
+        return min(starts[p.line] + p.character, starts[p.line] + len(lines[p.line]))
+    out = text
+    for e in sorted(edits, key=lambda e: (e.range.start.line, e.range.start.character),
+                    reverse=True):
+        out = out[:idx(e.range.start)] + e.new_text + out[idx(e.range.end):]
+    return out
+
+
+@pytest.mark.asyncio
+async def test_range_formatting_whole_crlf_document(lsp_binary, tmp_path):
+    # Range formatting only touched the declarations in the range (an
+    # indented comment between them stayed indented) and wrote LF lines
+    # into a CRLF document.
+    c = await _utf16_client(lsp_binary)
+    try:
+        uri = (tmp_path / "rangefmt.iron").as_uri()
+        text = ("   -- header\r\n"
+                "func main() {\r\n"
+                "        println(\"a\")\r\n"
+                "}\r\n")
+        _open(c, uri, text)
+        edits = await asyncio.wait_for(c.text_document_range_formatting_async(
+            types.DocumentRangeFormattingParams(
+                text_document=types.TextDocumentIdentifier(uri=uri),
+                range=types.Range(start=types.Position(line=0, character=0),
+                                  end=types.Position(line=4, character=0)),
+                options=types.FormattingOptions(tab_size=4, insert_spaces=True))),
+            timeout=10.0)
+        out = _apply_utf16(text, edits or [])
+        assert out.count("\n") == out.count("\r\n"), repr(out)
+        assert out.startswith("-- header\r\n"), repr(out)
+        assert "\r\n    println(\"a\")\r\n" in out, repr(out)
+    finally:
+        await _stop(c)
