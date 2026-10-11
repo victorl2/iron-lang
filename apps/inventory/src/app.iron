@@ -1,0 +1,62 @@
+-- Shared application state, handed to every request task as an rc App.
+import http
+import mysql
+
+val STATE_LOCK = Mutex(0)
+
+-- Lifecycle flags and the in-flight task count, guarded by STATE_LOCK.
+pub object ServiceState {
+    var db_ready: Bool
+    var draining: Bool
+    var tasks: Int
+
+    pub init() {
+        self.db_ready = false
+        self.draining = false
+        self.tasks = 0
+    }
+
+    pub readonly func is_db_ready() -> Bool {
+        val g = STATE_LOCK.lock()
+        return self.db_ready
+    }
+
+    pub func set_db_ready(v: Bool) {
+        val g = STATE_LOCK.lock()
+        self.db_ready = v
+    }
+
+    pub readonly func is_draining() -> Bool {
+        val g = STATE_LOCK.lock()
+        return self.draining
+    }
+
+    pub func start_draining() {
+        val g = STATE_LOCK.lock()
+        self.draining = true
+    }
+
+    pub func task_started() {
+        val g = STATE_LOCK.lock()
+        self.tasks += 1
+    }
+
+    pub func task_finished() {
+        val g = STATE_LOCK.lock()
+        self.tasks -= 1
+    }
+
+    pub readonly func running_tasks() -> Int {
+        val g = STATE_LOCK.lock()
+        return self.tasks
+    }
+}
+
+pub object App {
+    pub val cfg: Config
+    pub val db: rc MysqlPool
+    pub val rates: rc RateService
+    pub val metrics: rc Metrics
+    pub val state: rc ServiceState
+    pub val poller: HttpPoller
+}

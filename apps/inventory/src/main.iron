@@ -1,0 +1,133 @@
+-- inventory: an item and stock service with prices converted through an
+-- external exchange rate API. See README.md.
+--
+-- Usage: inventory [--config FILE] [--check-config] [--version]
+import http
+import io
+import mysql
+import os
+import time
+
+val VERSION = "0.1.0"
+
+func usage() {
+    IO.write_stderr("usage: inventory [--config FILE] [--check-config] [--version]\n")
+}
+
+func main(args: [String]) {
+    var config_path = OS.env_or("INVENTORY_CONFIG", "")
+    var check_only = false
+    var i = 0
+    while i < args.len() {
+        val a = args[i]
+        if a == "--config" and i + 1 < args.len() {
+            config_path = args[i + 1]
+            i += 1
+        } elif a == "--check-config" {
+            check_only = true
+        } elif a == "--version" {
+            IO.write_stdout("inventory {VERSION}\n")
+            return
+        } else {
+            usage()
+            OS.exit(2)
+        }
+        i += 1
+    }
+
+    val loaded = load_config(config_path)
+    val cfg = loaded.config
+    set_log_level(cfg.log_level)
+    if loaded.errors.len() > 0 {
+        for e in loaded.errors {
+            logger_error("invalid configuration").str("problem", e).emit()
+        }
+        OS.exit(2)
+    }
+    val (mysql_cfg, url_err) = Mysql.parse_url(cfg.mysql_url)
+    if url_err.failed() {
+        logger_error("invalid configuration").str("problem", "mysql_url: {url_err.message}").emit()
+        OS.exit(2)
+    }
+    if check_only {
+        IO.write_stdout("configuration ok ({cfg.source})\n")
+        return
+    }
+
+    OS.trap_shutdown_signals()
+    var db_cfg = mysql_cfg
+    db_cfg.timeout = cfg.db_timeout_ms
+    db_cfg.connect_timeout = min(cfg.db_timeout_ms, 5000)
+    var pool_opts = MysqlPoolOptions(cfg.db_pool_min, cfg.db_pool_max)
+    pool_opts.acquire_timeout = cfg.db_acquire_timeout_ms
+    pool_opts.health_check = 5000
+    val db = Mysql.open_pool(db_cfg, pool_opts)
+    if db.failed() {
+        logger_error("cannot open the database pool").int("code", db.error.code).str("error", db.error.message).emit()
+        OS.exit(1)
+    }
+
+    val listening = Http.listen(cfg.host, cfg.port)
+    if listening.error != 0 {
+        logger_error("cannot listen").str("host", cfg.host).int("port", cfg.port).str("error", listening.error_message).emit()
+        OS.exit(1)
+    }
+    val server = listening.server
+    val poller = Http.poller(server, cfg.idle_timeout_ms)
+    if not poller.ok() {
+        logger_error("cannot start the connection poller").str("error", poller.error_message).emit()
+        OS.exit(1)
+    }
+
+    val metrics = rc Metrics(Time.now_ms())
+    val rates = rc RateService(cfg.rates_url, cfg.rates_base, cfg.rates_ttl_ms, cfg.rates_timeout_ms,
+        cfg.rates_retries, cfg.rates_backoff_ms, cfg.breaker_threshold, cfg.breaker_cooldown_ms)
+    if not rates.client_ok {
+        logger_error("invalid rates_url").str("error", rates.client_error).emit()
+        OS.exit(2)
+    }
+    val state = rc ServiceState()
+    val app = rc App(cfg, db, rates, metrics, state, poller)
+
+    logger_info("listening").str("host", cfg.host).int("port", HttpServer.port(server))
+        .str("version", VERSION).str("config", cfg.source).int("pid", OS.pid()).emit()
+
+    -- Background work runs on threads of its own, not on the request pool.
+    val db_task = spawn("db-init") {
+        return init_database(app)
+    }
+    val refresher = spawn("rates-refresh") {
+        return refresh_loop(app)
+    }
+
+    while OS.shutdown_signal() == 0 {
+        val ready = poller.next(250)
+        if ready.error == 0 {
+            val connection = ready.connection
+            state.task_started()
+            spawn("request") {
+                return serve_one(app, connection)
+            }
+        } elif ready.error != 1004 {
+            logger_error("connection poller failed").int("code", ready.error).str("error", ready.error_message).emit()
+            Time.sleep(100)
+        }
+    }
+
+    -- Shutdown: stop accepting, finish what is in flight (answers now say
+    -- Connection: close), then release the database and the upstream pool.
+    logger_info("shutting down").int("signal", OS.shutdown_signal()).int("in_flight", state.running_tasks()).emit()
+    state.start_draining()
+    HttpServer.close(server)
+    poller.close()
+    val deadline = Time.now_ms() + cfg.shutdown_grace_ms
+    while state.running_tasks() > 0 and Time.now_ms() < deadline {
+        Time.sleep(10)
+    }
+    val left = state.running_tasks()
+    await db_task
+    await refresher
+    db.close()
+    HttpClient.close(rates.client)
+    logger_info("stopped").int("abandoned_requests", left).emit()
+}

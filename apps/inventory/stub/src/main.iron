@@ -1,0 +1,295 @@
+-- fxstub: a local stand-in for an exchange rate API (the shape of
+-- https://api.frankfurter.app/latest?from=USD), with fault injection for
+-- tests and benchmarks.
+--
+--   GET  /latest?from=USD   {"amount":1.0,"base":"USD","date":"...","rates":{...}}
+--   POST /_control          {"mode": "...", "count": N, "latency_ms": N, "status": N}
+--   GET  /_stats            {"requests": N, "faults": N, "mode": "..."}
+--   POST /_reset            back to mode ok, counters cleared
+--
+-- Modes: ok, error (status, default 503), malformed (truncated JSON),
+-- wrong_shape (valid JSON without rates), partial (Content-Length larger
+-- than the body, then close), slow (latency_ms before answering),
+-- slow_body (headers, latency_ms, then the body), hang (no answer for
+-- latency_ms, then close), close (close without answering). `count` limits
+-- the mode to the next N rate requests (-1: until changed). `latency_ms`
+-- also applies in mode ok.
+--
+-- Usage: fxstub [port]   (default 8090; port 0 picks a free one and the
+-- chosen port is printed as `listening <port>`).
+import http
+import io
+import json
+import net
+import os
+import time
+
+val STATE_LOCK = Mutex(0)
+
+object StubState {
+    var mode: String
+    var remaining: Int
+    var latency_ms: Int
+    var status: Int
+    var requests: Int
+    var faults: Int
+    var generation: Int
+
+    init() {
+        self.mode = "ok"
+        self.remaining = -1
+        self.latency_ms = 0
+        self.status = 503
+        self.requests = 0
+        self.faults = 0
+        self.generation = 0
+    }
+}
+
+object Plan {
+    val mode: String
+    val latency_ms: Int
+    val status: Int
+    val generation: Int
+}
+
+func crlf() -> String {
+    return String.from_byte(13) + "\n"
+}
+
+-- Decide what this rate request gets, consuming one unit of `count`.
+func take_plan(st: rc StubState) -> Plan {
+    val g = STATE_LOCK.lock()
+    st.requests += 1
+    var mode = st.mode
+    if mode != "ok" {
+        if st.remaining == 0 {
+            mode = "ok"
+        } else {
+            st.faults += 1
+            if st.remaining > 0 {
+                st.remaining -= 1
+            }
+        }
+    }
+    return Plan(mode, st.latency_ms, st.status, st.generation)
+}
+
+val CURRENCIES = ["EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "BRL", "CNY", "INR", "MXN", "SEK", "NOK"]
+val BASE_RATES = [0.9213, 0.7891, 149.32, 0.8812, 1.3651, 1.5302, 5.0412, 7.2981, 83.112, 17.214, 10.871, 10.693]
+
+func rates_body(base: String, generation: Int) -> String {
+    val w = JsonWriter.compact()
+    w.begin_object()
+    w.field_float("amount", 1.0)
+    w.field_string("base", base)
+    w.field_string("date", "2026-10-11")
+    w.key("rates")
+    w.begin_object()
+    -- A base other than USD is answered relative to it, so the numbers stay
+    -- consistent whatever the service is configured with.
+    var base_rate = 1.0
+    var i = 0
+    while i < CURRENCIES.len() {
+        if CURRENCIES[i] == base {
+            base_rate = BASE_RATES[i]
+        }
+        i += 1
+    }
+    if base != "USD" {
+        w.field_float("USD", 1.0 / base_rate)
+    }
+    i = 0
+    while i < CURRENCIES.len() {
+        if CURRENCIES[i] != base {
+            -- generation nudges the rates so a refresh is observable.
+            val r = BASE_RATES[i] / base_rate * (1.0 + Float(generation % 7) / 1000.0)
+            w.field_float(CURRENCIES[i], r)
+        }
+        i += 1
+    }
+    w.end_object()
+    w.end_object()
+    return w.finish()
+}
+
+func query_param(query: String, name: String) -> String {
+    for part in query.split("&") {
+        val eq = part.index_of("=")
+        if eq > 0 and part.substring(0, eq) == name {
+            return part.substring(eq + 1, part.len())
+        }
+    }
+    return ""
+}
+
+func raw_write(connection: HttpConnection, text: String) -> Bool {
+    val (n, err) = TcpSocket.write(TcpSocket(connection.fd), text, 5000)
+    return err.code == 0
+}
+
+-- Answer one /latest request according to the plan. Returns true when the
+-- connection may be kept.
+func serve_rates(connection: HttpConnection, request: HttpRequest, plan: Plan) -> Bool {
+    var base = query_param(request.query, "from").upper()
+    if base.len() == 0 {
+        base = "EUR"
+    }
+    if plan.latency_ms > 0 and plan.mode != "hang" and plan.mode != "slow_body" {
+        Time.sleep(plan.latency_ms)
+    }
+    val mode = plan.mode
+    if mode == "error" {
+        val sent = HttpConnection.send_response_keep_alive(connection,
+            Http.json_response(plan.status, "\{\"message\":\"injected failure\"}"), request.keep_alive, 5000)
+        return sent == 0 and request.keep_alive
+    }
+    if mode == "malformed" {
+        val sent = HttpConnection.send_response_keep_alive(connection,
+            Http.json_response(200, "\{\"amount\":1.0,\"base\":\"" + base + "\",\"rates\":\{\"EUR\":0.92,"), request.keep_alive, 5000)
+        return sent == 0 and request.keep_alive
+    }
+    if mode == "wrong_shape" {
+        val sent = HttpConnection.send_response_keep_alive(connection,
+            Http.json_response(200, "\{\"amount\":1.0,\"base\":\"" + base + "\",\"error\":\"no rates today\"}"), request.keep_alive, 5000)
+        return sent == 0 and request.keep_alive
+    }
+    if mode == "partial" {
+        val body = rates_body(base, plan.generation)
+        val head = "HTTP/1.1 200 OK" + crlf() + "Content-Type: application/json" + crlf() + "Content-Length: {body.byte_len() + 100}" + crlf() + crlf()
+        raw_write(connection, head + body.byte_slice(0, body.byte_len() / 2))
+        return false
+    }
+    if mode == "slow_body" {
+        val body = rates_body(base, plan.generation)
+        val head = "HTTP/1.1 200 OK" + crlf() + "Content-Type: application/json" + crlf() + "Content-Length: {body.byte_len()}" + crlf() + "Connection: close" + crlf() + crlf()
+        raw_write(connection, head + body.byte_slice(0, 10))
+        Time.sleep(plan.latency_ms)
+        raw_write(connection, body.byte_slice(10, body.byte_len()))
+        return false
+    }
+    if mode == "hang" {
+        Time.sleep(plan.latency_ms)
+        return false
+    }
+    if mode == "close" {
+        return false
+    }
+    val sent = HttpConnection.send_response_keep_alive(connection,
+        Http.json_response(200, rates_body(base, plan.generation)), request.keep_alive, 5000)
+    return sent == 0 and request.keep_alive
+}
+
+func control(st: rc StubState, body: String) -> String {
+    val parsed = Json.parse(body)
+    if parsed.error != 0 or not parsed.value.is_object() {
+        return ""
+    }
+    val v = parsed.value
+    val g = STATE_LOCK.lock()
+    val mode = v.get("mode").string_or("")
+    if mode.len() > 0 {
+        st.mode = mode
+        st.remaining = v.get("count").int_or(-1)
+    }
+    if v.has("latency_ms") {
+        st.latency_ms = v.get("latency_ms").int_or(0)
+    }
+    if v.has("status") {
+        st.status = v.get("status").int_or(503)
+    }
+    if v.get("bump").bool_or(false) {
+        st.generation += 1
+    }
+    return stats_json(st)
+}
+
+-- Caller holds STATE_LOCK.
+func stats_json(st: rc StubState) -> String {
+    val w = JsonWriter.compact()
+    w.begin_object()
+    w.field_int("requests", st.requests)
+    w.field_int("faults", st.faults)
+    w.field_string("mode", st.mode)
+    w.field_int("remaining", st.remaining)
+    w.field_int("latency_ms", st.latency_ms)
+    w.field_int("generation", st.generation)
+    w.end_object()
+    return w.finish()
+}
+
+func reset(st: rc StubState) {
+    val g = STATE_LOCK.lock()
+    st.mode = "ok"
+    st.remaining = -1
+    st.latency_ms = 0
+    st.status = 503
+    st.requests = 0
+    st.faults = 0
+}
+
+func serve_one(st: rc StubState, poller: HttpPoller, connection: HttpConnection) -> Int {
+    val request = HttpConnection.read_request(connection, 16384, 65536, 5000)
+    if request.error != 0 {
+        poller.discard(connection)
+        return 0
+    }
+    var keep = request.keep_alive
+    if request.path == "/latest" and request.method == "GET" {
+        keep = serve_rates(connection, request, take_plan(st))
+    } elif request.path == "/_control" and request.method == "POST" {
+        val out = control(st, request.body)
+        var response = Http.json_response(200, out)
+        if out.len() == 0 {
+            response = Http.json_response(400, "\{\"error\":\"expected a JSON object\"}")
+        }
+        keep = HttpConnection.send_response_keep_alive(connection, response, keep, 5000) == 0 and keep
+    } elif request.path == "/_stats" {
+        var out = ""
+        if true {
+            val g = STATE_LOCK.lock()
+            out = stats_json(st)
+        }
+        keep = HttpConnection.send_response_keep_alive(connection, Http.json_response(200, out), keep, 5000) == 0 and keep
+    } elif request.path == "/_reset" and request.method == "POST" {
+        reset(st)
+        keep = HttpConnection.send_response_keep_alive(connection, Http.json_response(200, "\{\"ok\":true}"), keep, 5000) == 0 and keep
+    } else {
+        keep = HttpConnection.send_response_keep_alive(connection,
+            Http.json_response(404, "\{\"error\":\"not found\"}"), keep, 5000) == 0 and keep
+    }
+    if keep {
+        poller.park(connection)
+    } else {
+        poller.discard(connection)
+    }
+    return 0
+}
+
+func main(args: [String]) {
+    var port = 8090
+    if args.len() > 0 {
+        port = args[0].to_int()
+    }
+    OS.trap_shutdown_signals()
+    val listening = Http.listen(OS.env_or("FXSTUB_HOST", "127.0.0.1"), port)
+    if listening.error != 0 {
+        println("fxstub: listen failed: {listening.error_message}")
+        return
+    }
+    val server = listening.server
+    IO.write_stdout("listening {HttpServer.port(server)}\n")
+    val st = rc StubState()
+    val poller = Http.poller(server, 30000)
+    while OS.shutdown_signal() == 0 {
+        val ready = poller.next(250)
+        if ready.error == 0 {
+            val c = ready.connection
+            spawn("stub-request") {
+                return serve_one(st, poller, c)
+            }
+        }
+    }
+    poller.close()
+    HttpServer.close(server)
+}
