@@ -2724,6 +2724,7 @@ size_t iron_mysql_escape_bytes(char *out, const char *in, size_t len,
 static Iron_String escape_string(Iron_String s, int no_backslash) {
     size_t len = iron_string_byte_len(&s);
     char stack[256];
+    stack[0] = '\0';
     char *buf = len * 2 + 1 <= sizeof(stack) ? stack : (char *)malloc(len * 2 + 1);
     if (!buf) return str_of("", 0);
     size_t n = iron_mysql_escape_bytes(buf, iron_string_cstr(&s), len, no_backslash != 0);
@@ -2744,6 +2745,7 @@ static int hexval(int ch) {
 /* Percent-decode s[0..n) into a new Iron string; 0 on a bad escape. */
 static int pct_decode(const char *s, size_t n, int plus_space, Iron_String *out) {
     char stack[256];
+    stack[0] = '\0';
     char *buf = n + 1 <= sizeof(stack) ? stack : (char *)malloc(n + 1);
     if (!buf) return 0;
     size_t o = 0;
