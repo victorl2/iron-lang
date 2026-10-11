@@ -4076,6 +4076,28 @@ static Iron_Type *check_hash_method(TypeCtx *ctx, Iron_MethodCallExpr *mc,
     return result ? result : iron_type_make_primitive(IRON_TYPE_ERROR);
 }
 
+/* The value argument of ch.send(v), guard.set(v) and write_guard.set(v):
+ * one argument of the element type (it was not checked, so a value of
+ * another type reached the C compiler). */
+static void check_resource_value_arg(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                     Iron_Type *elem) {
+    if (mc->arg_count != 1) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "'%s' expects 1 argument(s), got %d",
+                 mc->method, mc->arg_count);
+        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+        return;
+    }
+    Iron_Type *at = check_expr_with_expected(ctx, mc->args[0], elem);
+    if (elem && at && at->kind != IRON_TYPE_ERROR && elem->kind != IRON_TYPE_ERROR &&
+        !types_assignable(elem, at) && !is_int_literal_narrowing(elem, at, mc->args[0])) {
+        char msg[320];
+        snprintf(msg, sizeof(msg), "'%s' argument 1 expects '%s', got '%s'", mc->method,
+                 iron_type_to_string(elem, ctx->arena), iron_type_to_string(at, ctx->arena));
+        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->args[0]->span, msg, NULL);
+    }
+}
+
 /* ── User generics: instantiation at call sites (see generics.h) ──────── */
 
 /* A type written in expression position (`f[Int]`, `C[Int]`) as an
@@ -6753,12 +6775,14 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 }
                 if (strcmp(rn, "MutexGuard") == 0 &&
                     strcmp(mc->method, "set") == 0) {
+                    check_resource_value_arg(ctx, mc, elem);
                     result = iron_type_make_primitive(IRON_TYPE_VOID);
                     mc->resolved_type = result;
                     break;
                 }
                 if (strcmp(rn, "Channel") == 0 &&
                     strcmp(mc->method, "send") == 0) {
+                    check_resource_value_arg(ctx, mc, elem);
                     result = iron_type_make_primitive(IRON_TYPE_VOID);
                     mc->resolved_type = result;
                     break;
@@ -6807,6 +6831,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 }
                 if (strcmp(rn, "RWWriteGuard") == 0 &&
                     strcmp(mc->method, "set") == 0) {
+                    check_resource_value_arg(ctx, mc, elem);
                     result = iron_type_make_primitive(IRON_TYPE_VOID);
                     mc->resolved_type = result;
                     break;

@@ -1,0 +1,7 @@
+-- guard.set(v) on a Mutex or RWLock guard checks v against the element
+-- type (#619).
+func main() {
+    val l = RWLock[String]("a")
+    val w = l.write()
+    w.set(8)
+}

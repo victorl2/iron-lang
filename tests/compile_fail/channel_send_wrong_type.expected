@@ -1,0 +1,1 @@
+'send' argument 1 expects 'func(Int) -> Int', got 'Int'

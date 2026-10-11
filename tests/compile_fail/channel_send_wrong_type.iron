@@ -1,0 +1,6 @@
+-- ch.send(v) checks v against the element type (#619): a value of another
+-- type reached the C compiler.
+func main() {
+    val ch = Channel[func(Int) -> Int](4)
+    ch.send(5)
+}
