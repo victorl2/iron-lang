@@ -65,3 +65,21 @@ if(NOT WIN32)
             ${CMAKE_BINARY_DIR}/cg_check/bvec_pop_discard --no-optimize)
     set_tests_properties(cg_bvec_pop_discard PROPERTIES LABELS "codegen" TIMEOUT 120)
 endif()
+
+if(NOT WIN32)
+    # #596: warning free C for rc element list parameters and a hoisted weak
+    # upgrade; a split list's count read inline with copy propagation off.
+    foreach(_cg_t rc_list_param_const weak_upgrade_in_loop)
+        add_test(NAME cg_${_cg_t}
+            COMMAND ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_check.sh $<TARGET_FILE:ironc>
+                ${_cg_reg}/${_cg_t}.iron ${_cg_reg}/${_cg_t}.expected
+                ${CMAKE_BINARY_DIR}/cg_check/${_cg_t})
+        set_tests_properties(cg_${_cg_t} PROPERTIES LABELS "codegen" TIMEOUT 120)
+    endforeach()
+    add_test(NAME cg_interface_list_count
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_check.sh $<TARGET_FILE:ironc>
+            ${_cg_reg}/interface_list_count.iron ${_cg_reg}/interface_list_count.expected
+            ${CMAKE_BINARY_DIR}/cg_check/interface_list_count)
+    set_tests_properties(cg_interface_list_count PROPERTIES LABELS "codegen" TIMEOUT 120
+        ENVIRONMENT "IRON_LIR_SKIP=copyprop")
+endif()

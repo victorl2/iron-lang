@@ -2437,6 +2437,16 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
 
     /* GET_FIELD */
     case IRON_LIR_GET_FIELD: {
+        /* .count of a split collection is ._total_count, as in the
+         * statement form (inlined when the LIR passes left the read in an
+         * expression). */
+        if (instr->field.field && strcmp(instr->field.field, "count") == 0 &&
+            ctx->split_collection_ids &&
+            hmgeti(ctx->split_collection_ids, instr->field.object) >= 0) {
+            emit_val(sb, instr->field.object);
+            iron_strbuf_appendf(sb, "._total_count");
+            break;
+        }
         /* Phase 23 VEC-01: bounded vector .count in expression context → .len */
         {
             Iron_Type *bvec_expr_t = emit_get_value_type(fn, instr->field.object);
@@ -3701,7 +3711,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
             }
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s%s *", is_const_origin ? "const " : "", elem_c);
+            iron_strbuf_appendf(sb, "%s%s *", elem_c, is_const_origin ? " const" : "");
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, ";\n");
             /* Also emit companion length variable for this alloca */
@@ -3835,7 +3845,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
             }
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s%s *", is_const_origin ? "const " : "", elem_c);
+            iron_strbuf_appendf(sb, "%s%s *", elem_c, is_const_origin ? " const" : "");
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
             emit_val(sb, instr->load.ptr);
@@ -6997,12 +7007,14 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * never compiled (masked by the corpus' broken weak-rc fixtures). */
         if (instr->type && instr->type->kind == IRON_TYPE_NULLABLE) {
             const char *inner_c = emit_type_to_c(instr->type->nullable.inner, ctx);
-            emit_indent(sb, ind);
+            /* (a hoisted value is declared already: a bare `_vN;` was an
+             * unused expression statement) */
             if (!is_hoisted) {
+                emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "%s ", val_type);
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, ";\n");
             }
-            emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, ";\n");
             emit_indent(sb, ind);
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, ".value = (%s)iron_rc_upgrade((void *)", inner_c);
@@ -9102,7 +9114,7 @@ void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
                 ArrayParamMode pmode = emit_get_array_param_mode(ctx, fn->name, i);
                 if (pmode == ARRAY_PARAM_CONST_PTR) {
                     const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
-                    iron_strbuf_appendf(sb, "const %s *%s, int64_t %s_len",
+                    iron_strbuf_appendf(sb, "%s const *%s, int64_t %s_len",
                                         elem_c, emit_vname(param_val_id), emit_vname(param_val_id));
                 } else if (pmode == ARRAY_PARAM_MUT_PTR) {
                     const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
@@ -9158,7 +9170,7 @@ void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
             pmode = emit_get_array_param_mode(ctx, fn->name, i);
         if (pmode == ARRAY_PARAM_CONST_PTR) {
             const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
-            iron_strbuf_appendf(sb, "const %s *%s, int64_t %s_len",
+            iron_strbuf_appendf(sb, "%s const *%s, int64_t %s_len",
                                 elem_c, emit_vname(param_val_id), emit_vname(param_val_id));
         } else if (pmode == ARRAY_PARAM_MUT_PTR) {
             const char *elem_c = emit_type_to_c(pt->array.elem, ctx);

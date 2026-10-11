@@ -1,0 +1,26 @@
+-- A read-only list parameter of rc elements: the C element pointer is
+-- const, not the object it points to (warning free C, #596).
+object Pt {
+    val x: Int
+}
+
+func first_or[T](xs: [T], d: T) -> T {
+    if len(xs) == 0 {
+        return d
+    }
+    return xs[0]
+}
+
+func sum_x(ps: [rc Pt]) -> Int {
+    var t = 0
+    for p in ps {
+        t += p.x
+    }
+    return t
+}
+
+func main() {
+    val p = first_or([rc Pt(3)], rc Pt(4))
+    val q = first_or([rc Pt(5), rc Pt(6)], rc Pt(7))
+    println("{p.x} {q.x} {sum_x([rc Pt(1), rc Pt(2)])}")
+}
