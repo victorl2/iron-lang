@@ -597,7 +597,7 @@ class GenGen(Gen):
         c = r.random()
         if d <= 0 or c < 0.3:
             ie = self.int_expr(1, ctx)
-            return Ev(ie.src(PREC['+'] + 1), lambda m, f: ie.ev(m, f))
+            return Ev(ie.src(UNARY), lambda m, f: ie.ev(m, f))
         if c < 0.4:
             kt = r.choice(KEYS)
             xs = self.lexpr(kt, d - 1)
