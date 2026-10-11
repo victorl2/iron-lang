@@ -32,13 +32,18 @@ Areas:
               enums, lists and maps as type arguments, deep instances
     ptredge   pointer fields, pointers across frames and closures, heap and
               global pointers, RawPtr / Ptr; dangling and stale pointer panics
+    ptrlife   pointer lifetimes: pointers to locals of blocks, loop iterations
+              and frames (deep recursion included), heap, arena (save, restore,
+              reset), rc, field, receiver and list element pointers, kept in a
+              hub and read later, also from a spawned task; the model decides
+              exactly which dereference panics and with which message
     ctedge    comptime Float, String and list computation, read_file, comptime
               results as constants, E0230 / E0231 / E0232
     dropord   destruction order of objects, interfaces, lists, closures, rc;
               reference cycles
 
     prog_fuzz.py AREA IRONC OUTDIR SEED [COUNT] [--valgrind | --helgrind |
-                 --drd | --asan RTDIR | --tsan RTDIR] [--runs N]
+                 --drd | --asan RTDIR | --tsan RTDIR | --opts] [--runs N]
     prog_fuzz.py --suite IRONC OUTDIR [AREA...] (the fixed seeds ctest runs)
     prog_fuzz.py --gen AREA SEED               (print one program and its output)
     prog_fuzz.py AREA IRONC OUTDIR SEED --reduce
@@ -49,6 +54,11 @@ Areas:
 thread schedule that differs between runs can change the output). A run
 longer than PF_TIMEOUT seconds (default 120; lower it to reduce a hang)
 fails as a timeout.
+
+--opts builds every program three ways, with the default pipeline,
+--no-optimize (no IR passes) and --debug (C at -O0), and each binary must
+produce the expected outcome: a difference between them is an optimizer
+bug even where the model agrees with one of them.
 
 --asan RTDIR compiles the C that `ironc build --emit-c` writes with
 -fsanitize=address,undefined against a runtime built the same way into
@@ -80,7 +90,7 @@ sys.path.insert(0, HERE)
 from pf_lang import Bail, Expected  # noqa: E402
 
 AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime',
-         'numedge', 'genedge', 'ptredge', 'ctedge', 'strcoll', 'dropord')
+         'numedge', 'genedge', 'ptredge', 'ctedge', 'strcoll', 'dropord', 'ptrlife')
 
 
 def generator(area):
@@ -180,7 +190,7 @@ def check(ironc, outdir, area, seed, mode='plain', rtlib=None):
     return st, msg
 
 
-def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
+def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None, build_flags=()):
     """Returns (status, message, signature)."""
     os.makedirs(d, exist_ok=True)
     src = os.path.join(d, f'{name}.iron')
@@ -200,11 +210,17 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
             f.write('-- then panics: ' + panic + '\n')
     if os.path.exists(exe):
         os.remove(exe)
+    if mode == 'opts':
+        for flags in ([], ['--no-optimize'], ['--debug']):
+            st = check_text(ironc, d, name, src_text, expected, 'plain', rtlib, flags)
+            if st[0] != 'ok':
+                return (st[0], '[' + (' '.join(flags) or 'default') + '] ' + st[1], st[2])
+        return st
     if mode in ('asan', 'tsan'):
         b = asan_build(ironc, src, d, exe, rtlib, mode)
     else:
-        b = subprocess.run([ironc, 'build', src, '-o', exe], capture_output=True, text=True,
-                           encoding='utf-8', errors='replace')
+        b = subprocess.run([ironc, 'build'] + list(build_flags) + [src, '-o', exe],
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
     out = b.stdout + b.stderr
     if errors:
         codes = set(re.findall(r'error\[(E\d{4})\]', out))
@@ -256,12 +272,6 @@ def run_once(cmd, env, expected, panic, d, mode):
     if 'Sanitizer' in r.stderr or 'definitely lost' in r.stderr:
         err1 = next((l for l in r.stderr.splitlines() if 'Sanitizer' in l or 'lost' in l), err1)
     sig = ('rc' if r.returncode else 'ok', norm(err1))
-    if (panic and mode == 'asan' and 'heap-use-after-free' in r.stderr and
-            'iron_check_pointer_gen' in r.stderr):
-        # The stale pointer check reads the freed block's header (the
-        # release allocator has the block back); AddressSanitizer stops
-        # there, before the panic. Expected for a program that panics so.
-        return 'ok', '', ('ok',)
     if got != expected:
         sig = ('wrong',) + sig
         for i, (x, y) in enumerate(zip(expected, got)):
@@ -489,7 +499,8 @@ SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure'
          # the edge case areas: their first seeds found the bugs fixed with
          # them (#466 .. #505); about a minute per ctest entry
          'numedge': range(1, 49), 'strcoll': range(1, 49), 'genedge': range(1, 49),
-         'ptredge': range(1, 49), 'ctedge': range(1, 25), 'dropord': range(1, 25)}
+         'ptredge': range(1, 49), 'ctedge': range(1, 25), 'dropord': range(1, 25),
+         'ptrlife': range(1, 41)}
 # `--suite IRONC OUTDIR` runs these; the other areas have ctest entries of
 # their own (`--suite IRONC OUTDIR conc`, `... num generic ptr comptime`).
 SUITE_DEFAULT = ('stmt', 'coll', 'obj', 'closure')
@@ -526,7 +537,7 @@ def main(argv):
             i += 1
         elif argv[i].startswith('-j') and argv[i][2:].isdigit():
             jobs = int(argv[i][2:])
-        elif argv[i] in ('--valgrind', '--helgrind', '--drd'):
+        elif argv[i] in ('--valgrind', '--helgrind', '--drd', '--opts'):
             mode = argv[i][2:]
         elif argv[i] == '--runs':
             os.environ['PF_RUNS'] = argv[i + 1]
