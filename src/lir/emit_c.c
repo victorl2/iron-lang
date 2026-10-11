@@ -55,7 +55,16 @@ static bool debug_c_ident(const char *n);
 static bool spawn_result_fits_pointer(Iron_Type *t) {
     if (!t) return true;
     switch ((int)t->kind) {
-    case IRON_TYPE_BOOL: case IRON_TYPE_ENUM:
+    case IRON_TYPE_ENUM:
+        /* only a plain C enum: one with payload variants is a struct */
+        if (t->enu.decl) {
+            for (int i = 0; i < t->enu.decl->variant_count; i++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)t->enu.decl->variants[i];
+                if (ev && ev->payload_count > 0) return false;
+            }
+        }
+        return true;
+    case IRON_TYPE_BOOL:
     case IRON_TYPE_PTR: case IRON_TYPE_RC: case IRON_TYPE_WEAK_RC:
         return true;
     default:
