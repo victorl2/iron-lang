@@ -128,17 +128,29 @@ def build_asan_rt(rtdir, flavor='asan'):
     files = [f for f in glob.glob(os.path.join(src, 'runtime', 'iron_*.c'))
              if 'win_crt0' not in f and 'gencheck_count' not in f]
     files += [os.path.join(src, 'stdlib', f'iron_{n}.c') for n in
-              ('math', 'io', 'time', 'log', 'hint', 'net', 'http', 'tls', 'websocket')]
+              ('math', 'io', 'time', 'log', 'hint', 'net', 'http', 'tls', 'websocket',
+               'encoding', 'json', 'crypto')]
     files += [os.path.join(src, 'util', n) for n in ('stb_ds_impl.c', 'arena.c', 'strbuf.c')]
     objs = []
     for f in files:
         o = os.path.join(rtdir, os.path.basename(f)[:-2] + '.o')
-        subprocess.run(['clang', '-c'] + san + [f'-I{src}', f'-I{src}/vendor', f'-I{src}/stdlib',
-                        f, '-o', o], check=True)
+        subprocess.run(['clang', '-c'] + san + ssl_flags() + [f'-I{src}', f'-I{src}/vendor',
+                        f'-I{src}/stdlib', f, '-o', o], check=True)
         objs.append(o)
     subprocess.run(['ar', 'rcs', lib + '.tmp'] + objs, check=True)
     os.replace(lib + '.tmp', lib)
     return lib
+
+
+def ssl_flags():
+    """OpenSSL for the crypto, tls and https code of the sanitizer runtime,
+    when its headers are installed (as the compiler builds programs that
+    import crypto or http)."""
+    return ['-DIRON_HAVE_OPENSSL=1'] if os.path.exists('/usr/include/openssl/evp.h') else []
+
+
+def ssl_libs():
+    return ['-lssl', '-lcrypto'] if ssl_flags() else []
 
 
 def asan_build(ironc, src, workdir, exe, rtlib, flavor='asan'):
@@ -150,8 +162,9 @@ def asan_build(ironc, src, workdir, exe, rtlib, flavor='asan'):
     c = os.path.join(workdir, '.iron-build', name + '.c')
     s = os.path.normpath(os.path.join(HERE, '..', '..', 'src'))
     return subprocess.run(['clang'] + SAN_COMMON + SAN_FLAGS[flavor] +
-                          [f'-I{s}', f'-I{s}/vendor', f'-I{s}/stdlib', c, rtlib,
-                           '-lm', '-lpthread', '-o', exe], capture_output=True, text=True)
+                          ssl_flags() + [f'-I{s}', f'-I{s}/vendor', f'-I{s}/stdlib', c, rtlib,
+                                         '-lm', '-lpthread'] + ssl_libs() + ['-o', exe],
+                          capture_output=True, text=True)
 
 
 # ----------------------------------------------------------------- running
@@ -474,9 +487,12 @@ def run(ironc, outdir, area, seeds, mode='plain', rtlib=None, quiet=False, jobs=
 SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure': range(1, 9),
          'conc': range(1, 9), 'arena': range(1, 9),
          'num': range(1, 9), 'generic': range(1, 9), 'ptr': (1, 2, 3, 4, 5, 22, 26, 41),
-         'comptime': range(1, 9)}
+         'comptime': range(1, 9),
+         'sync': range(1, 9), 'arenax': range(1, 9), 'jsonp': range(1, 7), 'crypto': range(1, 7),
+         'http': range(1, 5)}
 # `--suite IRONC OUTDIR` runs these; the other areas have ctest entries of
-# their own (`--suite IRONC OUTDIR conc`, `... num generic ptr comptime`).
+# their own (`--suite IRONC OUTDIR conc`, `... num generic ptr comptime`,
+# `... sync arenax`, `... jsonp crypto http`).
 SUITE_DEFAULT = ('stmt', 'coll', 'obj', 'closure')
 
 
