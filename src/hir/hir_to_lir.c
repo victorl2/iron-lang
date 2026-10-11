@@ -962,8 +962,28 @@ static IronLIR_ValueId take_from_owned_temp(HIR_to_LIR_Ctx *ctx, TempOwned **tem
              * out of; that outer list is left to leak rather than freed
              * under the element. */
             if (!field || !(*temps)[0].is_slot) {
-                arrfree(*temps);
-                return v;
+                /* An element list of a temporary list (`grid()[i]`) has no
+                 * slot to move out of: the reader takes a copy and the
+                 * temporary is released (it was left to leak). */
+                if (!t->array.elem || t->array.elem->kind == IRON_TYPE_INTERFACE) {
+                    arrfree(*temps);
+                    return v;
+                }
+                const char *suffix = list_elem_suffix(ctx, t->array.elem);
+                size_t clen = strlen(suffix) + 32;
+                char *cname = (char *)iron_arena_alloc(ctx->lir_arena, clen, 1);
+                if (!cname) iron_oom_abort("hir_to_lir.c:take_from_owned_temp clone");
+                snprintf(cname, clen, "Iron_List_%s_clone", suffix);
+                IronLIR_ValueId *cargs = NULL;
+                arrput(cargs, v);
+                IronLIR_Instr *cref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
+                                                        cname, NULL, span);
+                IronLIR_Instr *ccall = iron_lir_call(ctx->current_func, ctx->current_block,
+                                                     NULL, cref->id, cargs, 1, t, span);
+                ccall->call.self_by_addr = true;
+                arrfree(cargs);
+                release_owned_temps(ctx, temps, span);
+                return ccall->id;
             }
             IronLIR_ValueId empty = iron_lir_array_lit(ctx->current_func, ctx->current_block,
                                                        t->array.elem, NULL, 0, t, span)->id;
