@@ -76,9 +76,10 @@ static Line *scan_lines(const char *src) {
                 i += 2;
                 continue;
             }
-            if (c == '/' && i + 2 < n && src[i + 1] == '/' && src[i + 2] == '/') {
+            if (c == '/' && i + 1 < n && src[i + 1] == '/') {
+                /* `//` (and its transitional `///` form) */
                 in_comment = true;
-                i += 3;
+                i += 2;
                 continue;
             }
             if (c == '"') {

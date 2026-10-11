@@ -348,8 +348,12 @@ int main(int argc, char **argv) {
         strcmp(cmd, "check") == 0 || strcmp(cmd, "fmt") == 0 ||
         strcmp(cmd, "test") == 0) {
 
-        /* If a .iron file argument is present, forward to ironc silently */
-        if (has_iron_file_arg(argc, argv)) {
+        /* If a .iron file argument is present, forward to ironc silently.
+         * `fmt --migrate-comments` takes directories too: ironc walks them. */
+        bool migrate = false;
+        for (int i = 2; i < argc; i++)
+            if (strcmp(argv[i], "--migrate-comments") == 0) migrate = true;
+        if (migrate || has_iron_file_arg(argc, argv)) {
             return forward_to_ironc(argc, argv);
         }
 

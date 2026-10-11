@@ -33,6 +33,10 @@ typedef struct {
      * prepend, leave at 0 (no real source line satisfies the carve-out
      * condition). */
     int                 user_source_start_line;
+    /* Set when the parser reads text the compiler printed from an AST it
+     * already parsed (generic instances, interface default copies): the
+     * `//iron:` hint warnings were reported on the original. */
+    bool                quiet_hints;
 } Iron_Parser;
 
 /* ── API ─────────────────────────────────────────────────────────────────── */

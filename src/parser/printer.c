@@ -42,6 +42,10 @@ typedef struct {
      * print at top level via the standalone METHOD_DECL arm. void* keeps
      * MethodOwnerArr private to printer.c. */
     void                 *method_index;  /* (MethodIndexEntry *) shmap or NULL */
+    /* A trailing directive of a declaration with a body, written after the
+     * body's opening brace by print_block. */
+    const Iron_Directive *pending_trailing;
+    int                   pending_trailing_count;
 } PrintCtx;
 
 /* ── Method index: build / lookup / free ─────────────────────────────────── */
@@ -134,6 +138,60 @@ static void print_indent(PrintCtx *ctx) {
         for (int i = 0; i < ctx->indent_level; i++) {
             for (int j = 0; j < width; j++) iron_strbuf_appendf(ctx->sb, " ");
         }
+    }
+}
+
+/* Documentation and directives (see Iron_Directive in ast.h). The caller
+ * has written the indent of the declaration's line: each comment line is
+ * written there, followed by a newline and the indent again. */
+static void print_leading_comments(PrintCtx *ctx, const char *doc,
+                                   const Iron_Directive *dirs, int count) {
+    if (doc) {
+        const char *line = doc;
+        for (;;) {
+            const char *nl = strchr(line, '\n');
+            int len = nl ? (int)(nl - line) : (int)strlen(line);
+            if (len > 0) iron_strbuf_appendf(ctx->sb, "// %.*s\n", len, line);
+            else         iron_strbuf_appendf(ctx->sb, "//\n");
+            print_indent(ctx);
+            if (!nl) break;
+            line = nl + 1;
+        }
+    }
+    for (int i = 0; i < count; i++) {
+        if (dirs[i].trailing) continue;
+        iron_strbuf_appendf(ctx->sb, "//%s:%s\n", dirs[i].key, dirs[i].value);
+        print_indent(ctx);
+    }
+}
+
+/* A function marked fusible by `@fusible` (and not by a `//iron:fusible`
+ * directive, printed with the others) is printed with the directive. */
+static void print_fusible_hint(PrintCtx *ctx, bool is_fusible,
+                               const Iron_Directive *dirs, int count) {
+    if (!is_fusible) return;
+    for (int i = 0; i < count; i++)
+        if (strcmp(dirs[i].key, "iron") == 0 && strcmp(dirs[i].value, "fusible") == 0)
+            return;
+    iron_strbuf_appendf(ctx->sb, "//iron:fusible\n");
+    print_indent(ctx);
+}
+
+/* Writes the trailing directive of a declaration at the end of its line. */
+static void print_trailing_directives(PrintCtx *ctx, const Iron_Directive *dirs,
+                                      int count) {
+    for (int i = 0; i < count; i++) {
+        if (dirs[i].trailing)
+            iron_strbuf_appendf(ctx->sb, "  //%s:%s", dirs[i].key, dirs[i].value);
+    }
+}
+
+/* Hands a declaration's trailing directive to the print_block of its body. */
+static void defer_trailing_directives(PrintCtx *ctx, const Iron_Directive *dirs,
+                                      int count, bool has_body) {
+    if (has_body) {
+        ctx->pending_trailing = dirs;
+        ctx->pending_trailing_count = count;
     }
 }
 
@@ -335,7 +393,15 @@ static void print_block(PrintCtx *ctx, Iron_Node *node) {
         return;
     }
     Iron_Block *blk = (Iron_Block *)node;
-    iron_strbuf_appendf(ctx->sb, "{\n");
+    iron_strbuf_appendf(ctx->sb, "{");
+    if (ctx->pending_trailing) {
+        const Iron_Directive *d = ctx->pending_trailing;
+        int dn = ctx->pending_trailing_count;
+        ctx->pending_trailing = NULL;
+        ctx->pending_trailing_count = 0;
+        print_trailing_directives(ctx, d, dn);
+    }
+    iron_strbuf_appendf(ctx->sb, "\n");
     ctx->indent_level++;
     for (int i = 0; i < blk->stmt_count; i++) {
         print_indent(ctx);
@@ -366,6 +432,9 @@ static void print_args(PrintCtx *ctx, Iron_Node **args, int count) {
  * param list to match the source shape (`func name(args)` not
  * `func name(self: T, args)`). */
 static void print_method_in_block(PrintCtx *ctx, Iron_MethodDecl *m) {
+    print_leading_comments(ctx, m->doc_comment, m->directives, m->directive_count);
+    print_fusible_hint(ctx, m->is_fusible, m->directives, m->directive_count);
+    defer_trailing_directives(ctx, m->directives, m->directive_count, m->body != NULL);
     if (m->is_private) iron_strbuf_appendf(ctx->sb, "private ");
     /* Init form precedes any tier modifier; tier modifiers on init are
      * rejected at parse time (parser.c:3219-3228), so this branch never
@@ -430,6 +499,8 @@ static void print_method_in_block(PrintCtx *ctx, Iron_MethodDecl *m) {
     if (m->body) {
         iron_strbuf_appendf(ctx->sb, " ");
         print_block(ctx, m->body);
+    } else {
+        print_trailing_directives(ctx, m->directives, m->directive_count);
     }
 }
 
@@ -470,13 +541,16 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
         /* ── Top-level declarations ── */
         case IRON_NODE_IMPORT_DECL: {
             Iron_ImportDecl *n = (Iron_ImportDecl *)node;
+            print_leading_comments(ctx, n->doc_comment, n->directives, n->directive_count);
             iron_strbuf_appendf(ctx->sb, "import %s", n->path);
             if (n->alias) iron_strbuf_appendf(ctx->sb, " as %s", n->alias);
+            print_trailing_directives(ctx, n->directives, n->directive_count);
             break;
         }
 
         case IRON_NODE_OBJECT_DECL: {
             Iron_ObjectDecl *n = (Iron_ObjectDecl *)node;
+            print_leading_comments(ctx, n->doc_comment, n->directives, n->directive_count);
             /* Emit `pub` and/or `patch` prefixes in Iron source order:
              * `pub patch object T`. n->name and n->target_type_name
              * reference the same arena strdup for patches so we can
@@ -496,11 +570,14 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                     iron_strbuf_appendf(ctx->sb, "%s", n->implements_names[i]);
                 }
             }
-            iron_strbuf_appendf(ctx->sb, " {\n");
+            iron_strbuf_appendf(ctx->sb, " {");
+            print_trailing_directives(ctx, n->directives, n->directive_count);
+            iron_strbuf_appendf(ctx->sb, "\n");
             ctx->indent_level++;
             for (int i = 0; i < n->field_count; i++) {
                 print_indent(ctx);
                 Iron_Field *f = (Iron_Field *)n->fields[i];
+                print_leading_comments(ctx, f->doc_comment, f->directives, f->directive_count);
                 /* Phase 9 Plan 09-02 D-10: pub prefix on field rendered
                  * inside an object body. Mirrors the standalone IRON_NODE_FIELD
                  * arm; this is the load-bearing path because that standalone
@@ -512,6 +589,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                     iron_strbuf_appendf(ctx->sb, ": ");
                     print_type_ann(ctx, f->type_ann);
                 }
+                print_trailing_directives(ctx, f->directives, f->directive_count);
                 iron_strbuf_appendf(ctx->sb, "\n");
             }
             /* Phase 9 Plan 09-02 D-10 Approach 1: re-merge receiver-form
@@ -542,17 +620,22 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_INTERFACE_DECL: {
             Iron_InterfaceDecl *n = (Iron_InterfaceDecl *)node;
-            iron_strbuf_appendf(ctx->sb, "interface %s {\n", n->name);
+            print_leading_comments(ctx, n->doc_comment, n->directives, n->directive_count);
+            iron_strbuf_appendf(ctx->sb, "interface %s {", n->name);
+            print_trailing_directives(ctx, n->directives, n->directive_count);
+            iron_strbuf_appendf(ctx->sb, "\n");
             ctx->indent_level++;
             for (int i = 0; i < n->method_count; i++) {
                 print_indent(ctx);
                 Iron_FuncDecl *sig = (Iron_FuncDecl *)n->method_sigs[i];
+                print_leading_comments(ctx, sig->doc_comment, sig->directives, sig->directive_count);
                 iron_strbuf_appendf(ctx->sb, "func %s", sig->name);
                 print_params(ctx, sig->params, sig->param_count);
                 if (sig->return_type) {
                     iron_strbuf_appendf(ctx->sb, " -> ");
                     print_type_ann(ctx, sig->return_type);
                 }
+                print_trailing_directives(ctx, sig->directives, sig->directive_count);
                 iron_strbuf_appendf(ctx->sb, "\n");
             }
             ctx->indent_level--;
@@ -563,14 +646,18 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_ENUM_DECL: {
             Iron_EnumDecl *n = (Iron_EnumDecl *)node;
+            print_leading_comments(ctx, n->doc_comment, n->directives, n->directive_count);
             if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             iron_strbuf_appendf(ctx->sb, "enum %s", n->name);
             print_generic_params(ctx, n->generic_params, n->generic_param_count);
-            iron_strbuf_appendf(ctx->sb, " {\n");
+            iron_strbuf_appendf(ctx->sb, " {");
+            print_trailing_directives(ctx, n->directives, n->directive_count);
+            iron_strbuf_appendf(ctx->sb, "\n");
             ctx->indent_level++;
             for (int i = 0; i < n->variant_count; i++) {
                 print_indent(ctx);
                 Iron_EnumVariant *ev = (Iron_EnumVariant *)n->variants[i];
+                print_leading_comments(ctx, ev->doc_comment, ev->directives, ev->directive_count);
                 iron_strbuf_appendf(ctx->sb, "%s", ev->name);
                 if (ev->payload_count > 0) {
                     iron_strbuf_appendf(ctx->sb, "(");
@@ -580,7 +667,9 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                     }
                     iron_strbuf_appendf(ctx->sb, ")");
                 }
-                iron_strbuf_appendf(ctx->sb, ",\n");
+                iron_strbuf_appendf(ctx->sb, ",");
+                print_trailing_directives(ctx, ev->directives, ev->directive_count);
+                iron_strbuf_appendf(ctx->sb, "\n");
             }
             ctx->indent_level--;
             print_indent(ctx);
@@ -590,6 +679,9 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FUNC_DECL: {
             Iron_FuncDecl *n = (Iron_FuncDecl *)node;
+            print_leading_comments(ctx, n->doc_comment, n->directives, n->directive_count);
+            print_fusible_hint(ctx, n->is_fusible, n->directives, n->directive_count);
+            defer_trailing_directives(ctx, n->directives, n->directive_count, n->body != NULL);
             if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             if (n->is_private) iron_strbuf_appendf(ctx->sb, "private ");
             /* Phase 9 Plan 09-02 D-10: tier modifier prefix in locked order
@@ -614,12 +706,17 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             if (n->body) {
                 iron_strbuf_appendf(ctx->sb, " ");
                 print_block(ctx, n->body);
+            } else {
+                print_trailing_directives(ctx, n->directives, n->directive_count);
             }
             break;
         }
 
         case IRON_NODE_METHOD_DECL: {
             Iron_MethodDecl *n = (Iron_MethodDecl *)node;
+            print_leading_comments(ctx, n->doc_comment, n->directives, n->directive_count);
+            print_fusible_hint(ctx, n->is_fusible, n->directives, n->directive_count);
+            defer_trailing_directives(ctx, n->directives, n->directive_count, n->body != NULL);
             if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             if (n->is_private) iron_strbuf_appendf(ctx->sb, "private ");
             /* Phase 9 Plan 09-02 D-10: tier modifier prefix on the standalone
@@ -668,6 +765,8 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             if (n->body) {
                 iron_strbuf_appendf(ctx->sb, " ");
                 print_block(ctx, n->body);
+            } else {
+                print_trailing_directives(ctx, n->directives, n->directive_count);
             }
             break;
         }
@@ -1097,6 +1196,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FIELD: {
             Iron_Field *f = (Iron_Field *)node;
+            print_leading_comments(ctx, f->doc_comment, f->directives, f->directive_count);
             /* Phase 9 Plan 09-02 D-10: pub prefix on field. Iron_Field is
              * the only ast node that carries is_pub on the v3 surface
              * (parser.c:3529); FuncDecl / MethodDecl have no equivalent
@@ -1107,6 +1207,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                 iron_strbuf_appendf(ctx->sb, ": ");
                 print_type_ann(ctx, f->type_ann);
             }
+            print_trailing_directives(ctx, f->directives, f->directive_count);
             break;
         }
 
@@ -1124,6 +1225,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_ENUM_VARIANT: {
             Iron_EnumVariant *ev = (Iron_EnumVariant *)node;
+            print_leading_comments(ctx, ev->doc_comment, ev->directives, ev->directive_count);
             iron_strbuf_appendf(ctx->sb, "%s", ev->name);
             if (ev->payload_count > 0) {
                 iron_strbuf_appendf(ctx->sb, "(");
@@ -1133,6 +1235,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                 }
                 iron_strbuf_appendf(ctx->sb, ")");
             }
+            print_trailing_directives(ctx, ev->directives, ev->directive_count);
             break;
         }
 
@@ -1192,7 +1295,7 @@ static MethodIndexEntry *build_print_index_for_root(Iron_Node *root) {
 char *iron_print_ast(Iron_Node *root, const IronFmtOptions *opts, Iron_Arena *arena) {
     Iron_StrBuf       sb  = iron_strbuf_create(512);
     MethodIndexEntry *idx = build_print_index_for_root(root);
-    PrintCtx          ctx = { &sb, 0, opts, idx };
+    PrintCtx          ctx = { &sb, 0, opts, idx, NULL, 0 };
     print_node(&ctx, root);
     method_index_free(idx);
 
@@ -1209,7 +1312,7 @@ char *iron_print_ast(Iron_Node *root, const IronFmtOptions *opts, Iron_Arena *ar
 void iron_print_ast_to_file(Iron_Node *root, const IronFmtOptions *opts, FILE *out) {
     Iron_StrBuf       sb  = iron_strbuf_create(512);
     MethodIndexEntry *idx = build_print_index_for_root(root);
-    PrintCtx          ctx = { &sb, 0, opts, idx };
+    PrintCtx          ctx = { &sb, 0, opts, idx, NULL, 0 };
     print_node(&ctx, root);
     method_index_free(idx);
     fprintf(out, "%s", iron_strbuf_get(&sb));

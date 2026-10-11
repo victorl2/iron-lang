@@ -338,6 +338,7 @@ add_library(iron_compiler STATIC
     # Single library entry point for both `iron fmt` CLI and `ironls` LSP.
     src/fmt/format.c
     src/fmt/layout.c
+    src/fmt/migrate.c
     src/fmt/options.c
     src/fmt/config_load.c
 )

@@ -1,6 +1,8 @@
 #ifndef IRON_CLI_FMT_H
 #define IRON_CLI_FMT_H
 
+#include <stdbool.h>
+
 /* Format a .iron source file in-place.
  * Parses the file, pretty-prints the AST, and atomically replaces the
  * original file.  Refuses to overwrite if the file has syntax errors.
@@ -14,5 +16,13 @@ int iron_fmt(const char *source_path);
  *   2  -- file has lexer/parser errors (refused; diags printed)
  *   3  -- I/O error (cannot open / read the file) */
 int iron_fmt_check(const char *source_path);
+
+/* `fmt --migrate-comments [--check] [paths...]`: rewrite `--` comments,
+ * `///` documentation lines and `@fusible` to the `//` forms in every
+ * .iron file under each path (a file or a directory; "." when none). With
+ * check, only list the files that would change. See fmt/migrate.h.
+ * Returns 0 when every file migrated (or, with check, none would change),
+ * 1 otherwise. */
+int iron_fmt_migrate_comments(const char *const *paths, int count, bool check);
 
 #endif /* IRON_CLI_FMT_H */

@@ -83,6 +83,7 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
 
     /* ── iron fmt ───────────────────────────────────────────────────────── */
     { "fmt", "--check", NULL, "off", "Check formatting without rewriting; exit 1 if the file would change" },
+    { "fmt", "--migrate-comments", NULL, "off", "Rewrite `--` and `///` comments and `@fusible` to `//` in the given files or directories (default .)" },
 
     /* ── iron init ──────────────────────────────────────────────────────── */
     { "init", "--lib", NULL, "off", "Scaffold a library package (type = \"lib\") instead of a binary" },

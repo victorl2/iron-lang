@@ -230,7 +230,8 @@ int main(int argc, char **argv) {
             run_arg_count = argc - i - 1;
             break;
         } else if (argv[i][0] == '-' && argv[i][1] != '\0' &&
-                   !(strcmp(cmd, "fmt") == 0 && strcmp(argv[i], "--check") == 0)) {
+                   !(strcmp(cmd, "fmt") == 0 && (strcmp(argv[i], "--check") == 0 ||
+                                                strcmp(argv[i], "--migrate-comments") == 0))) {
             /* Unknown flags were taken as the source path (before it) or
              * silently ignored (after it). */
             fprintf(stderr, "error: unknown flag '%s' for command '%s'\n",
@@ -332,6 +333,21 @@ int main(int argc, char **argv) {
          * Multi-file --check deferred to v1.x. */
         bool check_mode = false;
         const char *file_arg = NULL;
+        bool migrate = false;
+        for (int i = 2; i < argc; i++)
+            if (strcmp(argv[i], "--migrate-comments") == 0) migrate = true;
+        if (migrate) {
+            /* `fmt --migrate-comments [--check] [paths...]` (fmt/migrate.h). */
+            const char **paths = (const char **)calloc((size_t)argc, sizeof(char *));
+            int np = 0;
+            for (int i = 2; i < argc; i++) {
+                if (strcmp(argv[i], "--check") == 0) check_mode = true;
+                else if (strncmp(argv[i], "--", 2) != 0 && paths) paths[np++] = argv[i];
+            }
+            int rc = iron_fmt_migrate_comments(paths, np, check_mode);
+            free(paths);
+            return rc;
+        }
         for (int i = 2; i < argc; i++) {
             if (strcmp(argv[i], "--check") == 0) {
                 check_mode = true;

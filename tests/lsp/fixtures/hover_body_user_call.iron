@@ -1,6 +1,7 @@
 -- Hover on a call inside a function body shows the callee's signature.
 --
--- HOVER@9:13
+-- HOVER@10:13
+
 func area(w: Int, h: Int) -> Int {
     return w * h
 }
