@@ -4163,6 +4163,16 @@ static void unify_generic(Iron_Node *ann_node, Iron_Type *actual,
             unify_generic(ta->generic_args[i], t->enu.type_args[i], gps, ngp, bind);
         return;
     }
+    if (ta->generic_arg_count > 0 && t->kind == IRON_TYPE_OBJECT && t->object.decl &&
+        t->object.decl->name && t->object.elem && strcmp(t->object.decl->name, ta->name) == 0) {
+        /* A library generic (`Map[K, V]`, `Set[T]`, `Box[T]`) carries its
+         * arguments in elem / elem2, not as a template instance: a
+         * parameter `m: Map[K, V]` could not infer K and V. */
+        unify_generic(ta->generic_args[0], t->object.elem, gps, ngp, bind);
+        if (ta->generic_arg_count > 1 && t->object.elem2)
+            unify_generic(ta->generic_args[1], t->object.elem2, gps, ngp, bind);
+        return;
+    }
     if (ta->generic_arg_count > 0) {
         /* `Pair[T]` against an instance of Pair: unify each written type
          * argument with the instance's. */
@@ -8941,6 +8951,13 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
     }
 
     if (!result) result = iron_type_make_primitive(IRON_TYPE_ERROR);
+    /* A construct whose type arguments its other payloads fixed
+     * (`Tree.Node(Tree.Leaf, 1, Tree.Leaf)` is a Tree[Int]) gives them to
+     * the unit variants among its arguments, which were checked before the
+     * inference and left a Tree[unknown] (C that did not compile). */
+    if (node && node->kind == IRON_NODE_ENUM_CONSTRUCT && result->kind == IRON_TYPE_ENUM &&
+        result->enu.mangled_name && !strstr(result->enu.mangled_name, "_unknown"))
+        fill_open_payload_constructs(node, result, 0);
     return result;
 }
 
