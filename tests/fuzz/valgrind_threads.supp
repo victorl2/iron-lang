@@ -383,3 +383,18 @@
    ...
    fun:iron_heap_next_gen
 }
+# glibc's pthread_cond_wait signals its condition variable internally
+# (__condvar_cancel_waiting / spurious wake handling), which helgrind
+# reports as a signal without the associated lock held.
+{
+   helgrind-glibc-cond-wait-internal-signal
+   Helgrind:Misc
+   ...
+   fun:__pthread_cond_wait_common
+}
+{
+   drd-glibc-cond-wait-internal-signal
+   drd:CondErr
+   ...
+   fun:__pthread_cond_wait_common
+}
