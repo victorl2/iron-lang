@@ -375,6 +375,10 @@ void iron_comptime_set_package_root(const char *dir) {
     g_package_root = (dir && dir[0]) ? dir : NULL;
 }
 
+const char *iron_comptime_package_root(void) {
+    return g_package_root;
+}
+
 /* The directory of the file `node` comes from, into buf ("" for the
  * current directory). */
 static void comptime_file_dir(Iron_ComptimeCtx *ctx, Iron_Node *node, char *buf, size_t size) {

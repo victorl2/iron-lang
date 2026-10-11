@@ -94,4 +94,11 @@ printf 'pub func q() -> Int {\n    return 1\n}\n' > 'src/a"b.iron'
 if "${IRON}" build > q.log 2>&1; then fail "a file name with a double quote built"; fi
 grep -q 'may not contain a double quote' q.log || { cat q.log; fail "no message for the quoted file name"; }
 
+# a single-file package: import does not match directories above it (#603)
+mkdir -p "${WORK}/solo/src" && cd "${WORK}/solo"
+printf '[package]\nname = "solo"\nversion = "0.1.0"\n' > iron.toml
+printf 'import solo\n\nfunc main() {\n    println("x")\n}\n' > src/main.iron
+if "${IRON}" build > solo.log 2>&1; then fail "import solo matched the package directory"; fi
+grep -q 'E0209' solo.log || { cat solo.log; fail "import solo: no E0209"; }
+
 echo "package_modules_smoke OK"
