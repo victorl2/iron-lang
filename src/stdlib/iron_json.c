@@ -137,10 +137,24 @@ static inline void js_str(JsonScan *j, int64_t op, const char *s, size_t n) {
 static inline void js_ws(JsonScan *j) {
     const unsigned char *p = j->p;
     size_t i = j->pos, n = j->len;
+    /* Compact JSON has no whitespace: return at once. */
+    if (i < n && p[i] > ' ') return;
     while (i < n) {
         unsigned char c = p[i];
-        if (c == ' ' || c == '\n' || c == '\r' || c == '\t') i++;
-        else break;
+        if (c == ' ') {
+            i++;
+            /* Indentation: skip runs of spaces eight at a time. */
+            while (i + 8 <= n) {
+                uint64_t w;
+                memcpy(&w, p + i, 8);
+                if (w != 0x2020202020202020ULL) break;
+                i += 8;
+            }
+        } else if (c == '\n' || c == '\r' || c == '\t') {
+            i++;
+        } else {
+            break;
+        }
     }
     j->pos = i;
 }
@@ -576,8 +590,9 @@ Iron_JsonTape Iron_jsonnative_scan(Iron_String text, int64_t max_depth, int64_t 
     if (max_bytes >= 0 && (int64_t)j.len > max_bytes) {
         js_fail(&j, IRON_ERR_JSON_TOO_LARGE, 0, "input is larger than the size limit");
     } else {
-        /* Rough first reservation: one tape word per 6 input bytes. */
-        size_t guess = j.len / 6 + 16;
+        /* First reservation: one tape word per 4 input bytes covers most
+         * documents without a grow (a grow copies the whole tape). */
+        size_t guess = j.len / 4 + 16;
         j.ops = (int64_t *)json_grow(NULL, &j.capops, guess, sizeof(int64_t), "json tape");
         js_run(&j);
     }

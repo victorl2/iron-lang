@@ -114,8 +114,12 @@ def rand_value(rng, depth):
 
 
 def ws(rng):
-    if rng.random() < 0.7:
+    r = rng.random()
+    if r < 0.7:
         return ''
+    if r < 0.85:
+        # Indentation-like runs (the scanner skips spaces eight at a time).
+        return rng.choice(['\n', '\r\n', '']) + ' ' * rng.randint(1, 40) + rng.choice(['', '\t', ' '])
     return ''.join(rng.choice(' \t\n\r') for _ in range(rng.randint(1, 3)))
 
 
