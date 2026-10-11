@@ -286,6 +286,13 @@ int iron_stdlib_prepend(char **source_io, const char *source_path, const char *b
                                       line_markers);
     }
 
+    /* Mirrors build.c: `import atomic` prepends atomic.iron. */
+    if (iron_detect_import(*source_io, source_path, "atomic", &detect_arena)) {
+        stdlib_prepended_lines +=
+            check_prepend_marked_file(source_io, base_dir, "stdlib/atomic.iron",
+                                      line_markers);
+    }
+
     /* Mirrors build.c: `import os` prepends os.iron. */
     if (iron_detect_import(*source_io, source_path, "os", &detect_arena)) {
         stdlib_prepended_lines +=

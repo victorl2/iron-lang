@@ -1,0 +1,109 @@
+-- atomic.iron -- lock-free counters and flags shared between tasks.
+--
+--   import atomic
+--   val hits = AtomicInt.new(0)
+--   spawn("worker") { hits.add(1)  return 0 }
+--
+-- An AtomicInt or AtomicBool is a handle: copies (a capture by spawn, a
+-- field, an argument) refer to the same value, which is freed with the last
+-- copy. Every operation is sequentially consistent.
+
+object AtomicCell {
+    val handle: Int
+
+    drop {
+        AtomicNative.free(self.handle)
+    }
+}
+
+object AtomicInt {
+    val cell: rc AtomicCell
+}
+
+object AtomicBool {
+    val cell: rc AtomicCell
+}
+
+-- Native entry points (iron_threads.c). Not part of the public API.
+object AtomicNative {}
+func AtomicNative.new(v: Int) -> Int {}
+func AtomicNative.free(h: Int) {}
+func AtomicNative.load(h: Int) -> Int {}
+func AtomicNative.store(h: Int, v: Int) {}
+func AtomicNative.add(h: Int, d: Int) -> Int {}
+func AtomicNative.swap(h: Int, v: Int) -> Int {}
+func AtomicNative.cas(h: Int, expected: Int, desired: Int) -> Bool {}
+
+func AtomicInt.new(v: Int) -> AtomicInt {
+    return AtomicInt(rc AtomicCell(AtomicNative.new(v)))
+}
+
+func AtomicBool.new(v: Bool) -> AtomicBool {
+    var n = 0
+    if v {
+        n = 1
+    }
+    return AtomicBool(rc AtomicCell(AtomicNative.new(n)))
+}
+
+patch object AtomicInt {
+    -- The current value.
+    readonly func get() -> Int {
+        return AtomicNative.load(self.cell.handle)
+    }
+
+    readonly func set(v: Int) {
+        AtomicNative.store(self.cell.handle, v)
+    }
+
+    -- Add `d` (negative to subtract) and return the new value.
+    readonly func add(d: Int) -> Int {
+        return AtomicNative.add(self.cell.handle, d)
+    }
+
+    -- Store `v` and return the previous value.
+    readonly func swap(v: Int) -> Int {
+        return AtomicNative.swap(self.cell.handle, v)
+    }
+
+    -- Store `desired` if the value is `expected`; whether it did.
+    readonly func compare_and_set(expected: Int, desired: Int) -> Bool {
+        return AtomicNative.cas(self.cell.handle, expected, desired)
+    }
+}
+
+patch object AtomicBool {
+    readonly func get() -> Bool {
+        return AtomicNative.load(self.cell.handle) != 0
+    }
+
+    readonly func set(v: Bool) {
+        var n = 0
+        if v {
+            n = 1
+        }
+        AtomicNative.store(self.cell.handle, n)
+    }
+
+    -- Store `v` and return the previous value.
+    readonly func swap(v: Bool) -> Bool {
+        var n = 0
+        if v {
+            n = 1
+        }
+        return AtomicNative.swap(self.cell.handle, n) != 0
+    }
+
+    -- Store `desired` if the value is `expected`; whether it did.
+    readonly func compare_and_set(expected: Bool, desired: Bool) -> Bool {
+        var e = 0
+        if expected {
+            e = 1
+        }
+        var d = 0
+        if desired {
+            d = 1
+        }
+        return AtomicNative.cas(self.cell.handle, e, d)
+    }
+}

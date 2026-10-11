@@ -352,6 +352,7 @@ capitalized module object: `import io` then `IO.read_file(path)`,
 | `io` | `IO` | files and directories (`read_file`, `write_file`, `read_text`, `list_files`, ...), `write_stdout` / `write_stderr` |
 | `math` | `Math` | `sqrt`, `sin`, `pow`, `floor`, `random`, `PI`, ... |
 | `time` | `Time` | `now`, `unix_ms` (wall clock), `now_ms` and `now_ns` (monotonic), `sleep`, timers |
+| `atomic` | `AtomicInt`, `AtomicBool` | lock-free counters and flags shared by tasks (`add`, `get`, `set`, `swap`, `compare_and_set`) |
 | `os` | `OS` | environment (`env`, `env_or`), `trap_shutdown_signals` / `shutdown_signal`, `exit`, `pid`, `cpu_count` |
 | `log` | `Log` | `info`, `warn`, `error`, `debug`, `set_level` |
 | `net` | | TCP, UDP, DNS |

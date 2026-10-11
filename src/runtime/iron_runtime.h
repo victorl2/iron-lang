@@ -2093,6 +2093,14 @@ int64_t     Iron_os_shutdown_signal(void);
 int64_t     Iron_os_pid(void);
 void        Iron_os_exit(int64_t code);
 int64_t     Iron_os_cpu_count(void);
+/* atomic.iron (iron_threads.c): a heap int64 operated on atomically. */
+int64_t     Iron_atomicnative_new(int64_t v);
+void        Iron_atomicnative_free(int64_t h);
+int64_t     Iron_atomicnative_load(int64_t h);
+void        Iron_atomicnative_store(int64_t h, int64_t v);
+int64_t     Iron_atomicnative_add(int64_t h, int64_t d);
+int64_t     Iron_atomicnative_swap(int64_t h, int64_t v);
+bool        Iron_atomicnative_cas(int64_t h, int64_t expected, int64_t desired);
 IRON_LIST_DECL(Iron_Closure, Iron_Closure)
 /* Phase 68 (Plan 68-01): ABI-FLOAT32 + ABI-UINT8 primitive list types.
  * Suffix matches ironc's emit_type_to_c output (emit_helpers.c:151):

@@ -1707,7 +1707,7 @@ an unknown module is an error (`E0209`); an unused import warns (`W0611`).
 declarations are used by their own names.
 
 The modules that require an import are `math`, `io`, `time`, `log`,
-`hint`, `os`, `net`, `http`, `websocket`, `url`, `json`, `crypto`,
+`hint`, `os`, `atomic`, `net`, `http`, `websocket`, `url`, `json`, `crypto`,
 `encoding`, `mysql` and `raylib`; their functions are
 called on the capitalized module object (`import math`, then
 `Math.sqrt(x)`). Everything else in section 9 (strings, lists, `Box`,
@@ -2654,6 +2654,39 @@ func main(args: [String]) {
 ```output
 unset
 default 0
+```
+
+### 9.6.2 `atomic` (import)
+
+`AtomicInt.new(v)` and `AtomicBool.new(b)` make a value that tasks share
+without a lock. Copies of the handle (a spawn's capture, a field, an
+argument) refer to the same value, freed with the last copy. `get()`,
+`set(v)`, `swap(v)` (returns the previous value) and
+`compare_and_set(expected, desired)` (whether it stored) work on both;
+`AtomicInt.add(d)` adds and returns the new value. Every operation is
+sequentially consistent.
+
+```iron
+import atomic
+
+func main() {
+    val hits = AtomicInt.new(0)
+    val t = spawn("worker") {
+        for i in range(1000) {
+            hits.add(1)
+        }
+        return 0
+    }
+    for i in range(1000) {
+        hits.add(1)
+    }
+    await t
+    println("{hits.get()} {hits.compare_and_set(2000, 1)} {hits.get()}")
+}
+```
+
+```output
+2000 true 1
 ```
 
 ### 9.7 `log` (import)
