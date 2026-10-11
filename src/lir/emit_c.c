@@ -6809,7 +6809,35 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * fn-ptr for types with drop need; NULL for primitives / no-drop. */
         const char *drop_fn_arg = "NULL";
         char drop_fn_name_buf[256];
-        if (od && od_has_rc_drop_need(ctx, od)) {
+        /* `rc Mutex(v)` / `rc Channel[T](n)` / `rc RWLock(v)`: the last
+         * reference destroys the handle like a binding's scope exit does
+         * (it leaked the lock and its value). */
+        const char *res_kind = NULL;
+        if (od && od->name && instr->type->rc.inner->object.elem) {
+            if (strcmp(od->name, "Mutex") == 0) res_kind = "Mutex";
+            else if (strcmp(od->name, "Channel") == 0) res_kind = "Channel";
+            else if (strcmp(od->name, "RWLock") == 0) res_kind = "RWLock";
+        }
+        if (res_kind) {
+            const Iron_Type *re = instr->type->rc.inner->object.elem;
+            if (res_kind[0] == 'M') emit_ensure_mutex(ctx, re);
+            else if (res_kind[0] == 'C') emit_ensure_channel(ctx, re);
+            else emit_ensure_rwlock(ctx, re);
+            const char *esc = emit_elem_c_escaped(ctx, re);
+            int n = snprintf(drop_fn_name_buf, sizeof(drop_fn_name_buf),
+                             "Iron_%s_%s_rc_drop", res_kind, esc ? esc : "");
+            if (esc && n > 0 && (size_t)n < sizeof(drop_fn_name_buf)) {
+                if (shgeti(ctx->mono_registry, drop_fn_name_buf) < 0) {
+                    char *key = iron_arena_strdup(ctx->arena, drop_fn_name_buf, (size_t)n);
+                    if (!key) iron_oom_abort("emit_c RC_ALLOC rc_drop name");
+                    shput(ctx->mono_registry, key, true);
+                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                        "static void %s(void *p) { Iron_%s_%s_destroy((%s *)p); }\n",
+                        drop_fn_name_buf, res_kind, esc, val_type);
+                }
+                drop_fn_arg = drop_fn_name_buf;
+            }
+        } else if (od && od_has_rc_drop_need(ctx, od)) {
             emit_ensure_rc_drop(ctx, val_type, od);
             int n = snprintf(drop_fn_name_buf, sizeof(drop_fn_name_buf),
                              "%s_rc_drop", val_type);
