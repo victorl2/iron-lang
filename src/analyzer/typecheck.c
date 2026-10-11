@@ -456,6 +456,23 @@ static Iron_Symbol *tc_lookup(TypeCtx *ctx, const char *name) {
     return iron_scope_lookup(ctx->current_scope, name);
 }
 
+/* A type name where a value goes (`a * Int`, `val t = Int`, `"{String}"`):
+ * it has no value, and the C read an undeclared Iron_Int. A local named
+ * like a type shadows it. */
+static void reject_type_as_value(TypeCtx *ctx, Iron_Node *n) {
+    if (!n || n->kind != IRON_NODE_IDENT) return;
+    Iron_Ident *id = (Iron_Ident *)n;
+    if (!id->resolved_sym || !id->name ||
+        (id->resolved_sym->sym_kind != IRON_SYM_TYPE &&
+         id->resolved_sym->sym_kind != IRON_SYM_ENUM))
+        return;
+    Iron_Symbol *s = iron_scope_lookup(ctx->current_scope, id->name);
+    if (s && (s->sym_kind == IRON_SYM_VARIABLE || s->sym_kind == IRON_SYM_PARAM)) return;
+    char msg[256];
+    snprintf(msg, sizeof(msg), "'%s' is a type, not a value", id->name);
+    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, n->span, msg, NULL);
+}
+
 /* Phase 18 PARM-03: derive whether an argument expression yields a
  * mutable source.
  *
@@ -3165,7 +3182,23 @@ static Iron_Type *resolve_array_ext_method(TypeCtx *ctx,
         if (!ext->is_array_extension) continue;
         if (strcmp(ext->method_name, method) != 0) continue;
 
-        /* Found matching extension method. Resolve return type. */
+        /* Found matching extension method. Its argument count: `xs.sum(1.5)`
+         * was accepted and failed in the C compiler. */
+        {
+            int self_off = (ext->param_count > 0 && ext->params[0] &&
+                            ext->params[0]->kind == IRON_NODE_PARAM &&
+                            ((Iron_Param *)ext->params[0])->name &&
+                            strcmp(((Iron_Param *)ext->params[0])->name, "self") == 0) ? 1 : 0;
+            int want = ext->param_count - self_off;
+            if (want >= 0 && mc->arg_count != want) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "list method '%s' expects %d argument(s), got %d",
+                         method, want, mc->arg_count);
+                emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                return iron_type_make_primitive(IRON_TYPE_ERROR);
+            }
+        }
+        /* Resolve return type. */
 
         /* Type error: sum() on non-numeric arrays */
         if (strcmp(method, "sum") == 0 && elem_type) {
@@ -4539,6 +4572,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_INTERP_STRING: {
             Iron_InterpString *n = (Iron_InterpString *)node;
             for (int i = 0; i < n->part_count; i++) {
+                reject_type_as_value(ctx, n->parts[i]);
                 Iron_Type *part_type = check_expr(ctx, n->parts[i]);
                 /* Skip string literals -- they are always stringifiable */
                 if (n->parts[i]->kind == IRON_NODE_STRING_LIT || !part_type ||
@@ -4673,6 +4707,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_BINARY: {
             Iron_BinaryExpr *be = (Iron_BinaryExpr *)node;
+            reject_type_as_value(ctx, be->left);
+            reject_type_as_value(ctx, be->right);
             Iron_Type *lt = check_expr(ctx, be->left);
             Iron_Type *rt = NULL;
             if ((int)be->op == (int)IRON_TOK_AND || (int)be->op == (int)IRON_TOK_OR) {
@@ -4966,6 +5002,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_UNARY: {
             Iron_UnaryExpr *ue = (Iron_UnaryExpr *)node;
+            reject_type_as_value(ctx, ue->operand);
             if ((int)ue->op == IRON_TOK_MINUS && ue->operand &&
                 ue->operand->kind == IRON_NODE_INT_LIT)
                 ctx->int_lit_negated = true;
@@ -9428,6 +9465,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     /* Thread the annotation like VAR_DECL does, so
                      * `val xs: [T] = []` infers its element type instead of
                      * failing E0229 (W0613 tells users to write exactly this). */
+                    reject_type_as_value(ctx, vd->init);
                     init_type = check_expr_with_expected(ctx, vd->init, decl_type);
                 }
             }
@@ -9631,6 +9669,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     check_stmt(ctx, vd->init);
                     init_type = iron_type_make_primitive(IRON_TYPE_OBJECT);
                 } else {
+                    reject_type_as_value(ctx, vd->init);
                     init_type = check_expr_with_expected(ctx, vd->init, decl_type);
                 }
             }
@@ -10380,6 +10419,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_RETURN: {
             Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
+            reject_type_as_value(ctx, rs->value);
             Iron_Type *ret_type = NULL;
 
             /* A deferred body runs while its scope exits, possibly on a
