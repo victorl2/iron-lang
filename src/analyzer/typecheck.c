@@ -12394,8 +12394,11 @@ static void check_interface_completeness(TypeCtx *ctx, Iron_Program *program) {
                     if (!has_default_body) {
                         char msg[512];
                         snprintf(msg, sizeof(msg),
-                                 "object '%s' implements '%s' but is missing method '%s'",
-                                 od->name, iface_name, method_name);
+                                 "object '%s' implements '%s' but is missing %s '%s'",
+                                 od->name, iface_name,
+                                 ((Iron_FuncDecl *)sig_node)->is_static
+                                     ? "static function" : "method",
+                                 method_name);
                         emit_error(ctx, IRON_ERR_MISSING_IFACE_METHOD, od->span, msg, NULL);
                     }
                 }

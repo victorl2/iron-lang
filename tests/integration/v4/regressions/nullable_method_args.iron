@@ -43,7 +43,7 @@ object Tag {
         return "-"
     }
 
-    func blank(l: String?) -> Tag {
+    static func blank(l: String?) -> Tag {
         return Tag(l)
     }
 }
