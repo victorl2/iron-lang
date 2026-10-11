@@ -879,6 +879,13 @@ typedef struct {
      * container constructor (`Channel[Int](4)` becomes `Channel.new(4)`
      * internally). User code spelling the `.new` form is rejected. */
     bool               is_ctor_desugar;
+    /* Parsed from compiler-generated source (an interface default body
+     * copied into an implementor): may use the generated-code forms such
+     * as `T.__fields(...)` (#455). */
+    bool               is_generated;
+    /* Set by typecheck.c on a generated `T.__fields(v1, ..., vn)`: built
+     * from its field values in declaration order, without any init. */
+    bool               is_memberwise;
 } Iron_MethodCallExpr;
 
 typedef struct {
@@ -905,6 +912,9 @@ typedef struct {
      * f expects `*Int`). HIR lowering reads this bit at call sites to emit
      * the field-pointer fat-ptr literal. Default false. */
     bool               is_auto_address_target;
+    /* Parsed from compiler-generated source (see Iron_MethodCallExpr):
+     * may assign a `val` field of a local being built (#455). */
+    bool               is_generated;
 } Iron_FieldAccess;
 
 typedef struct {

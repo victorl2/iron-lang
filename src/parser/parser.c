@@ -205,6 +205,7 @@ Iron_Parser iron_parser_create(Iron_Token *tokens, int token_count,
     /* Default no-carve-out. build.c / check.c override after counting
      * prepended stdlib lines. */
     p.user_source_start_line = 0;
+    p.generated = false;
     return p;
 }
 
@@ -2300,6 +2301,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                         mc->arg_count = arg_count;
                         mc->generic_args      = m_type_args;
                         mc->generic_arg_count = m_type_arg_count;
+                        mc->is_generated      = p->generated;
                         left = (Iron_Node *)mc;
                     }
                 } else {
@@ -2319,6 +2321,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                     mc->arg_count = arg_count;
                     mc->generic_args      = m_type_args;
                     mc->generic_arg_count = m_type_arg_count;
+                    mc->is_generated      = p->generated;
                     left = (Iron_Node *)mc;
                 }
             } else {
@@ -2353,6 +2356,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                 /* Phase 83-02: defensive default; typecheck flips it for
                  * pub-field reads so HIR routes through synthesized getter. */
                 fa->is_pub_access = false;
+                fa->is_generated  = p->generated;
                 left = (Iron_Node *)fa;
             }
             continue;
@@ -3198,6 +3202,7 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                 Iron_Parser sub = iron_parser_create(expr_toks, tok_count,
                                                       expr_buf, interp_fname,
                                                       p->arena, p->diags);
+                sub.generated = p->generated;
                 int errors_before = p->diags->error_count;
                 Iron_Node *expr_node = iron_parse_expr_prec(&sub, PREC_NONE);
                 /* The sub-parser reported why (`{t.0}`): no generic error. */

@@ -3796,6 +3796,92 @@ static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
     }
 }
 
+/* ── Generated-code forms (#455) ──────────────────────────────────────────
+ * Code the compiler generates for a type that opted in (an interface
+ * default body copied into an implementor, and later the reflection
+ * expander's output) builds values of that type field by field, which the
+ * language does not let a program do:
+ *
+ *   T.__fields(v1, ..., vn)   T built from its field values in declaration
+ *                             order, without running any init (the
+ *                             positional construction of an init-less
+ *                             object, for any object);
+ *   v.f = x                   on a local `var v: T` of the type the
+ *                             generated method belongs to, even when f is
+ *                             a `val` field (filling a value being built).
+ *
+ * A decoder builds a T as `var v = T()` when T has a zero-argument init
+ * (its defaults are kept) and as `var v = T.__fields(<defaults>)`
+ * otherwise, then assigns the fields it decodes. Everything is resolved
+ * while compiling: the result is ordinary field stores. Elsewhere both
+ * forms are errors (E0356 and E0265). */
+static const char *const GENERATED_FIELDS_NAME = "__fields";
+
+static bool generated_val_field_write(TypeCtx *ctx, Iron_FieldAccess *tfa,
+                                      Iron_ObjectDecl *od) {
+    if (!tfa || !tfa->is_generated || !od || !od->name || !ctx->current_method_type)
+        return false;
+    if (strcmp(od->name, ctx->current_method_type) != 0) return false;
+    if (!tfa->object || tfa->object->kind != IRON_NODE_IDENT) return false;
+    Iron_Ident *root = (Iron_Ident *)tfa->object;
+    if (!root->name || strcmp(root->name, "self") == 0) return false;
+    Iron_Symbol *sym = root->resolved_sym ? root->resolved_sym
+                                          : iron_scope_lookup(ctx->current_scope, root->name);
+    return sym && sym->sym_kind == IRON_SYM_VARIABLE;
+}
+
+/* `T.__fields(args)`: returns the type (Error after a report), or NULL
+ * when the call is not that form. */
+static Iron_Type *check_generated_fields_call(TypeCtx *ctx, Iron_MethodCallExpr *mc) {
+    if (!mc->method || strcmp(mc->method, GENERATED_FIELDS_NAME) != 0) return NULL;
+    if (!mc->object || mc->object->kind != IRON_NODE_IDENT) return NULL;
+    Iron_Ident *tid = (Iron_Ident *)mc->object;
+    Iron_Symbol *ts = tid->resolved_sym ? tid->resolved_sym
+                    : (tid->name ? iron_scope_lookup(ctx->global_scope, tid->name) : NULL);
+    if (!ts || ts->sym_kind != IRON_SYM_TYPE || !ts->type ||
+        ts->type->kind != IRON_TYPE_OBJECT || !ts->type->object.decl)
+        return NULL;
+    Iron_ObjectDecl *od = ts->type->object.decl;
+    if (!mc->is_generated) {
+        emit_error(ctx, IRON_ERR_GENERATED_ONLY, mc->span,
+                   "'__fields' is reserved for code the compiler generates",
+                   "construct the object with its init, or derive the code from an "
+                   "interface default body");
+        for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    if (od->generic_param_count > 0 || mc->arg_count != od->field_count) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "'%s.__fields' takes one value per field (%d), got %d",
+                 od->name ? od->name : "?", od->field_count, mc->arg_count);
+        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+        for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    for (int i = 0; i < mc->arg_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        Iron_Type *ft = f ? (f->resolved_type ? f->resolved_type
+                                              : resolve_type_annotation(ctx, f->type_ann))
+                          : NULL;
+        Iron_Type *at = check_expr_with_expected(ctx, mc->args[i], ft);
+        if (at && ft && at->kind != IRON_TYPE_ERROR && ft->kind != IRON_TYPE_ERROR &&
+            !types_assignable(ft, at) && !is_int_literal_narrowing(ft, at, mc->args[i]) &&
+            !literal_range_error(ctx, ft, at, mc->args[i])) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "field '%s' is '%s', got '%s'",
+                     f->name ? f->name : "?", iron_type_to_string(ft, ctx->arena),
+                     iron_type_to_string(at, ctx->arena));
+            emit_error(ctx, IRON_ERR_ARG_TYPE, mc->args[i]->span, msg, NULL);
+        }
+        if (is_int_literal_narrowing(ft, at, mc->args[i]))
+            ((Iron_IntLit *)mc->args[i])->resolved_type = ft;
+    }
+    mc->is_memberwise = true;
+    tid->resolved_sym = ts;
+    tid->resolved_type = ts->type;
+    return ts->type;
+}
+
 /* Argument check for a call that resolved to method `md`.
  * via_type: the call names the type (`T.m(...)`). Lowering then treats
  * `T.m(x, ...)` as `x.m(...)` when the argument count covers the receiver
@@ -6568,6 +6654,14 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     self_recv0->name = ctx->enclosing_type_name;
                     self_recv0->resolved_sym = concrete0;
                     self_recv0->resolved_type = concrete0->type;
+                }
+            }
+            {
+                Iron_Type *mw = check_generated_fields_call(ctx, mc);
+                if (mw) {
+                    result = mw;
+                    mc->resolved_type = result;
+                    break;
                 }
             }
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
@@ -10217,36 +10311,45 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * mutually exclusive with the pub-val branch below — both
              * cannot fire on the same write. */
             if (!ctx->in_synth_accessor &&
-                !ctx->in_init_method &&
                 as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
                 Iron_FieldAccess *tfa = (Iron_FieldAccess *)as->target;
-                if (tfa->object && tfa->object->kind == IRON_NODE_IDENT) {
-                    Iron_Ident *rid = (Iron_Ident *)tfa->object;
-                    if (rid->name && strcmp(rid->name, "self") == 0 &&
-                        tfa->field && ctx->current_method_type) {
-                        Iron_Symbol *ts = iron_scope_lookup(
-                            ctx->global_scope, ctx->current_method_type);
-                        if (ts && ts->decl_node &&
-                            ts->decl_node->kind == IRON_NODE_OBJECT_DECL) {
-                            Iron_ObjectDecl *od = (Iron_ObjectDecl *)ts->decl_node;
-                            for (int fi = 0; fi < od->field_count; fi++) {
-                                Iron_Field *ff = (Iron_Field *)od->fields[fi];
-                                if (ff && ff->name &&
-                                    strcmp(ff->name, tfa->field) == 0 &&
-                                    !ff->is_var && !ff->is_pub) {
-                                    /* non-pub val field write outside init */
-                                    char msg[256];
-                                    snprintf(msg, sizeof(msg),
-                                             "cannot reassign 'val' field '%s' "
-                                             "after initialization",
-                                             tfa->field);
-                                    emit_error(ctx, IRON_ERR_VAL_FIELD_REASSIGN,
-                                               as->span, msg,
-                                               "declare field as 'var' to allow "
-                                               "reassignment after init");
-                                    break;
-                                }
-                            }
+                bool via_self = tfa->object && tfa->object->kind == IRON_NODE_IDENT &&
+                                ((Iron_Ident *)tfa->object)->name &&
+                                strcmp(((Iron_Ident *)tfa->object)->name, "self") == 0;
+                /* The receiver's object type: `self` in a method, or any
+                 * other value (`w.id = 3` on a local wrote a val field of a
+                 * var binding, #653). An init assigns its own fields. */
+                Iron_ObjectDecl *od = NULL;
+                if (via_self && ctx->current_method_type) {
+                    Iron_Symbol *ts = iron_scope_lookup(ctx->global_scope,
+                                                        ctx->current_method_type);
+                    if (ts && ts->decl_node && ts->decl_node->kind == IRON_NODE_OBJECT_DECL)
+                        od = (Iron_ObjectDecl *)ts->decl_node;
+                } else if (tfa->object) {
+                    Iron_Type *rt = ((Iron_ExprNode *)tfa->object)->resolved_type;
+                    if (rt && rt->kind == IRON_TYPE_RC && rt->rc.inner) rt = rt->rc.inner;
+                    if (rt && rt->kind == IRON_TYPE_PTR && rt->ptr.pointee) rt = rt->ptr.pointee;
+                    if (rt && rt->kind == IRON_TYPE_OBJECT) od = rt->object.decl;
+                }
+                bool own_init = via_self && ctx->in_init_method;
+                if (od && tfa->field && !own_init &&
+                    !generated_val_field_write(ctx, tfa, od)) {
+                    for (int fi = 0; fi < od->field_count; fi++) {
+                        Iron_Field *ff = (Iron_Field *)od->fields[fi];
+                        if (ff && ff->name &&
+                            strcmp(ff->name, tfa->field) == 0 &&
+                            !ff->is_var && !ff->is_pub) {
+                            /* non-pub val field write outside init */
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot reassign 'val' field '%s' "
+                                     "after initialization",
+                                     tfa->field);
+                            emit_error(ctx, IRON_ERR_VAL_FIELD_REASSIGN,
+                                       as->span, msg,
+                                       "declare field as 'var' to allow "
+                                       "reassignment after init");
+                            break;
                         }
                     }
                 }
@@ -10296,7 +10399,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         if (mf->is_var) {
                             /* pub var: route through synthesized setter. */
                             as->is_pub_setter = true;
-                        } else if (!ctx->in_init_method) {
+                        } else if (!(ctx->in_init_method && tfa->object &&
+                                     tfa->object->kind == IRON_NODE_IDENT &&
+                                     ((Iron_Ident *)tfa->object)->name &&
+                                     strcmp(((Iron_Ident *)tfa->object)->name, "self") == 0) &&
+                                   !generated_val_field_write(ctx, tfa, od)) {
                             /* pub val: read-only outside init — cannot be
                              * written.  Init bodies are the sole place where
                              * val fields may be populated (Phase 88 E0264
@@ -11978,6 +12085,11 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
         emit_error(ctx, IRON_ERR_ACCESSOR_NAME_RESERVED, md->span,
                    "a method cannot be named 'drop': it is the destructor",
                    "write `drop { ... }` for the destructor, or give the method another name");
+    }
+    if (md && md->method_name && strcmp(md->method_name, GENERATED_FIELDS_NAME) == 0) {
+        emit_error(ctx, IRON_ERR_GENERATED_ONLY, md->span,
+                   "'__fields' is reserved for code the compiler generates",
+                   "give the member another name");
     }
     bool saved = ctx->in_iface_default;
     ctx->in_iface_default = md && md->is_iface_default;

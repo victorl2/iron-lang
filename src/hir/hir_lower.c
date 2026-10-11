@@ -2405,6 +2405,22 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                               "$copy", NULL, 0,
                                               mc->resolved_type, span);
         }
+        if (mc->is_memberwise) {
+            /* Generated `T.__fields(v1, ..., vn)`: the positional
+             * construction of T, no init runs. */
+            Iron_Type *ty = mc->resolved_type;
+            const char  **names = NULL;
+            IronHIR_Expr **vals = NULL;
+            for (int i = 0; i < mc->arg_count; i++) {
+                const char *fname = NULL;
+                if (ty && ty->kind == IRON_TYPE_OBJECT && ty->object.decl &&
+                    i < ty->object.decl->field_count)
+                    fname = ((Iron_Field *)ty->object.decl->fields[i])->name;
+                arrput(names, fname);
+                arrput(vals, lower_expr_hir(ctx, mc->args[i]));
+            }
+            return iron_hir_expr_construct(mod, ty, names, vals, (int)arrlen(names), span);
+        }
         if (mc->is_builtin_to_string) {
             /* Numeric / Bool `x.to_string()`: the same code as "{x}". */
             IronHIR_Expr **parts = NULL;

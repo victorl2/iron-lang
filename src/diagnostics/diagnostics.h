@@ -572,6 +572,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_IFACE_SIGNATURE          353   /* implementor's parameters or result differ from the interface signature (Self = the implementor) */
 #define IRON_ERR_IFACE_VALUE_CALL         354   /* calling a static function, or a method taking `Self`, through an interface value */
 #define IRON_ERR_CONSTRAINT_NO_STATIC     355   /* `T.f()` on a type parameter whose constraint declares no static function f */
+#define IRON_ERR_GENERATED_ONLY           356   /* `T.__fields(...)` (memberwise construction) or a member named __fields outside compiler-generated code */
 
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400
