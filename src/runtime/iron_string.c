@@ -105,6 +105,49 @@ Iron_String iron_string_from_cstr(const char *cstr, size_t byte_len) {
     return s;
 }
 
+/* A string of `byte_len` bytes that the caller fills through `*bytes`
+ * before the value is used, so a producer (a digest, a cipher, a decoder)
+ * writes its output in place instead of into a scratch buffer that is then
+ * copied. `*s` must stay where it is until iron_string_seal_bytes: an
+ * inline string's bytes live inside the struct. */
+void iron_string_alloc_bytes(Iron_String *s, size_t byte_len, char **bytes) {
+    memset(s, 0, sizeof(*s));
+    if (byte_len <= IRON_STRING_SSO_MAX) {
+        s->sso.len = (uint8_t)byte_len;
+        *bytes = s->sso.data;
+        return;
+    }
+    char *buf = iron__str_alloc(byte_len, "iron_string.c:iron_string_alloc_bytes");
+    buf[byte_len] = '\0';
+    s->heap.data        = buf;
+    s->heap.byte_length = (uint32_t)byte_len;
+    s->heap.flags       = 0x01; /* is_heap */
+    *bytes = buf;
+}
+
+/* Finishes a string from iron_string_alloc_bytes once its bytes are
+ * written: keeps the first `byte_len` of them (no more than were
+ * allocated) and counts its characters. A heap string that shrank to the
+ * inline size moves inline, the form every short string has. */
+void iron_string_seal_bytes(Iron_String *s, size_t byte_len) {
+    if (s->heap.flags & 0x01) {
+        if (byte_len > s->heap.byte_length) byte_len = s->heap.byte_length;
+        if (byte_len <= IRON_STRING_SSO_MAX) {
+            Iron_String small = iron_string_from_cstr(s->heap.data, byte_len);
+            iron_string_release(s);
+            *s = small;
+            return;
+        }
+        s->heap.data[byte_len]  = '\0';
+        s->heap.byte_length     = (uint32_t)byte_len;
+        s->heap.codepoint_count = (uint32_t)count_codepoints(s->heap.data, byte_len);
+        return;
+    }
+    if (byte_len > s->sso.len) byte_len = s->sso.len;
+    s->sso.len = (uint8_t)byte_len;
+    s->sso.data[byte_len] = '\0';
+}
+
 Iron_String iron_string_from_literal(const char *lit, size_t byte_len) {
     Iron_String s = iron_string_from_cstr(lit, byte_len);
     return iron_string_intern(s);
@@ -917,6 +960,18 @@ int64_t Iron_string_byte_at(Iron_String self, int64_t i) {
     if (i < 0 || (size_t)i >= len) return -1;
     const char *s = iron_string_cstr(&self);
     return (int64_t)(unsigned char)s[i];
+}
+
+/* Bytes [start, end) of the string, the byte counterpart of substring for
+ * binary data (digests, ciphertexts, packets). Both ends are clamped to the
+ * string like substring's, so it never panics. */
+Iron_String Iron_string_byte_slice(Iron_String self, int64_t start, int64_t end_idx) {
+    size_t len = iron_string_byte_len(&self);
+    if (start < 0) start = 0;
+    if ((uint64_t)start > len) start = (int64_t)len;
+    if (end_idx < start) end_idx = start;
+    if ((uint64_t)end_idx > len) end_idx = (int64_t)len;
+    return iron_string_from_cstr(iron_string_cstr(&self) + start, (size_t)(end_idx - start));
 }
 
 /* Build a 1-byte string from the low 8 bits of `b`. Caller is responsible
