@@ -1,0 +1,7 @@
+first, through println's buffer
+second, written at once
+third: wrote 24 bytes
+unix_ms after 2024: true
+monotonic and wall clock differ: true
+cpus: true, pid: true
+no signal yet: 0

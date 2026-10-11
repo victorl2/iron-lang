@@ -108,4 +108,15 @@ for f in *; do
     exit 1
 done
 
+# iron build -o / --output (#523) writes the binary where it is told.
+"${IRON_BIN_ABS}" build -o "${WORK}/B/custom-out" > out.log 2>&1 || {
+    echo "FAIL B: iron build -o failed"
+    cat out.log
+    exit 1
+}
+test -x "${WORK}/B/custom-out" || { echo "FAIL B: iron build -o did not write custom-out"; exit 1; }
+"${IRON_BIN_ABS}" build --output "${WORK}/B/custom-out2" > out.log 2>&1 &&
+    test -x "${WORK}/B/custom-out2" || { echo "FAIL B: iron build --output"; cat out.log; exit 1; }
+rm -f "${WORK}/B/custom-out" "${WORK}/B/custom-out2"
+
 echo "run_cwd_clean_smoke OK"
