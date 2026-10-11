@@ -2534,6 +2534,18 @@ static const char *hash_key_eq_expr(EmitCtx *ctx, const Iron_Type *k, Iron_StrBu
     const char *tc = emit_type_to_c(k, ctx);
     const char *name = k->object.decl->name;
     const char *lower = hash_method_prefix(ctx, name);
+    /* A key type the program never constructs (a `Counter[Pt]()` whose
+     * table stays empty): its Hashable conversion is not emitted (dead
+     * implementor), so the comparison, which can never run, must not
+     * name it (undefined Iron_Hashable_from_Pt at link time). */
+    if (ctx->iface_reg) {
+        Iron_IfaceEntry *he = iron_iface_lookup(ctx->iface_reg, "Hashable");
+        bool alive = false;
+        for (int j = 0; he && j < he->impl_count; j++)
+            if (he->impls[j].is_alive && strcmp(he->impls[j].type_name, name) == 0)
+                alive = true;
+        if (he && !alive) return "((void)a, (void)b, false)";
+    }
     char ikey[512];
     snprintf(ikey, sizeof(ikey), "Iron_Hashable:%s", name);
     bool indirect = ctx->indirect_variants && shgeti(ctx->indirect_variants, ikey) >= 0;

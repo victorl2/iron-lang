@@ -175,6 +175,9 @@ PROLOGUE = '''object Pt impl Hashable {
     readonly func to_string() -> String {
         return "Pt({self.x},{self.y})"
     }
+    readonly func with[T](x: T) -> Pair[Pt, T] {
+        return Pair(self, x)
+    }
 }
 
 object Cell[T] {
@@ -190,6 +193,9 @@ object Cell[T] {
     }
     readonly func to_string() -> String {
         return "Cell({self.v})"
+    }
+    readonly func pair_with[U](u: U) -> Pair[T, U] {
+        return Pair(self.v, u)
     }
 }
 
@@ -530,6 +536,18 @@ class GenGen(Gen):
             ctor = 'Cell' if r.random() < 0.6 else f'Cell[{ts(t[1])}]'
             return Ev(f'{ctor}({e.src()})', lambda m, f: CellV(vcopy(e.ev(m, f))))
         if k == 'Pair':
+            # generic methods: Cell[A].pair_with(b), Pt.with(b)
+            if d > 0 and r.random() < 0.3 and ro_ok(t[2]):
+                cs = self.vars_where(lambda x: x == ('Cell', t[1]))
+                if cs:
+                    n, _, u = r.choice(cs)
+                    b = self.gexpr(t[2], d - 1)
+                    return Ev(f'{n}.pair_with({b.src()})',
+                              lambda m, f: PairV(vcopy(f.look(u).v.v), vcopy(b.ev(m, f))))
+                if t[1] == P:
+                    a, b = self.gexpr(P, d - 1), self.gexpr(t[2], d - 1)
+                    return Ev(f'{a.src(POSTFIX)}.with({b.src()})',
+                              lambda m, f: PairV(a.ev(m, f), vcopy(b.ev(m, f))))
             if d > 0 and r.random() < 0.2:
                 e = self.gexpr(('Pair', t[2], t[1]), d - 1)
                 return Ev(f'swap({e.src()})',
