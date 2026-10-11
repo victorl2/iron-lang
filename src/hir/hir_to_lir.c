@@ -98,7 +98,9 @@ static bool iface_lifecycle(Iron_Type *t, Iron_Program *program,
 
 /* A recursive enum keeps its recursive payloads in heap cells (#245 is the
  * fixed array story; this is the ADT one): dropping the value frees them
- * through the emitted <Enum>_free. Copies are not supported for them. */
+ * through the emitted <Enum>_free, and a copy (a payload bound by match and
+ * stored in a new value, a binding copied) gets cells of its own through
+ * <Enum>_copied; sharing them freed them twice. */
 static bool enum_has_boxed_payload(Iron_Type *t) {
     if (!t || t->kind != IRON_TYPE_ENUM || !t->enu.decl) return false;
     Iron_EnumDecl *ed = t->enu.decl;
@@ -149,7 +151,7 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
     if (t && t->kind == IRON_TYPE_INTERFACE)
         return iface_lifecycle(t, program, want_copy, depth);
     if (t && t->kind == IRON_TYPE_ENUM) {
-        if (!want_copy && enum_has_boxed_payload(t)) return true;
+        if (enum_has_boxed_payload(t)) return true;
         /* A payload that owns something (#258). */
         if (!t->enu.decl || !t->enu.variant_payload_types || depth > 16) return false;
         Iron_EnumDecl *ed = t->enu.decl;

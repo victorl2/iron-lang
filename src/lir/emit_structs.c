@@ -1189,6 +1189,16 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
                                 "        %s_free(v->data.%s._%d);\n"
                                 "        iron_mem_free(v->data.%s._%d);\n",
                                 mangled, ev2->name, k2, ev2->name, k2);
+                        } else {
+                            /* A copy owns its own boxes: the copy of a
+                             * recursive value shared them with the original
+                             * and both freed them. */
+                            iron_strbuf_appendf(&arm,
+                                "        { %s *nb = (%s *)iron_mem_alloc(sizeof(%s));\n"
+                                "          if (!nb) iron_oom_abort(\"enum copy\");\n"
+                                "          *nb = *v->data.%s._%d; %s_copied(nb); v->data.%s._%d = nb; }\n",
+                                mangled, mangled, mangled, ev2->name, k2, mangled,
+                                ev2->name, k2);
                         }
                         continue;
                     }
