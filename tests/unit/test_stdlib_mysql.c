@@ -46,7 +46,7 @@ static int str_eq(Iron_String s, const char *want) {
 }
 
 static void hex(const uint8_t *p, size_t n, char *out) {
-    for (size_t i = 0; i < n; i++) sprintf(out + 2 * i, "%02x", p[i]);
+    for (size_t i = 0; i < n; i++) snprintf(out + 2 * i, 3, "%02x", p[i]);
 }
 
 /* ── Pure helpers ───────────────────────────────────────────────────────── */
