@@ -1,0 +1,32 @@
+-- A readonly method may return a value that holds an rc handle (or the
+-- handle itself): the shared value is not part of self, and a readonly
+-- method could already change it through its own handle. This used to be
+-- E0280, which made objects with rc fields unreturnable from accessors.
+object Data {
+    var hits: Int
+    init() {
+        self.hits = 0
+    }
+}
+
+object View {
+    val data: rc Data
+    val label: String
+}
+
+object Doc {
+    val data: rc Data
+    readonly func view() -> View {
+        return View(self.data, "view")
+    }
+    readonly func handle() -> rc Data {
+        return self.data
+    }
+}
+
+func main() {
+    val d = Doc(rc Data())
+    val v = d.view()
+    v.data.hits = 2
+    println("{v.label} {d.handle().hits}")
+}
