@@ -1,0 +1,29 @@
+-- Lists of Int8, Int16, UInt16, UInt32 and UInt64 compile and work: the
+-- runtime instantiated only Int, Int32, Float, Float32, UInt8, Bool and
+-- String lists, so the C named undeclared types (#580). Integer literals
+-- take the element type in a list literal and in push (#676).
+func show8(xs: [Int8]) -> String {
+    return "{xs[0]} {xs[1]} {xs.len()}"
+}
+
+func main() {
+    var a: [Int8] = [-128, 127]
+    a.push(5)
+    var b: [Int16] = [300, -2]
+    b.sort()
+    var c: [UInt16] = [65535]
+    c.push(1)
+    var d: [UInt32] = [4000000000, 3]
+    d.push(7)
+    var e: [UInt64] = [18446744073709551615, 1]
+    e.push(2)
+    val f = e.copy()
+    println(show8(a))
+    println("{b[0]} {b[1]} {c[0]} {c[1]} {d[0]} {d.contains(7)}")
+    println("{e[0]} {f[2]} {f.len()}")
+    var t: UInt64 = 0
+    for x in d {
+        t += UInt64(x)
+    }
+    println("{t}")
+}

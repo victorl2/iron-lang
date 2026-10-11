@@ -195,6 +195,12 @@ void Iron_List_Iron_Closure_free(Iron_List_Iron_Closure *self) {
  * UInt8 → "uint8_t". */
 IRON_LIST_IMPL(float,       float)
 IRON_LIST_IMPL(uint8_t,     uint8_t)
+/* The other integer widths (#580). */
+IRON_LIST_IMPL(int8_t,      int8_t)
+IRON_LIST_IMPL(int16_t,     int16_t)
+IRON_LIST_IMPL(uint16_t,    uint16_t)
+IRON_LIST_IMPL(uint32_t,    uint32_t)
+IRON_LIST_IMPL(uint64_t,    uint64_t)
 
 /* ── Collection method implementations (map, filter, reduce, forEach, sum) ── */
 
@@ -207,6 +213,11 @@ IRON_LIST_COLL_IMPL(double,  double,  0.0)
  * surprise if users do. */
 IRON_LIST_COLL_IMPL(float,   float,   0.0f)
 IRON_LIST_COLL_IMPL(uint8_t, uint8_t, 0)
+IRON_LIST_COLL_IMPL(int8_t,   int8_t,   0)
+IRON_LIST_COLL_IMPL(int16_t,  int16_t,  0)
+IRON_LIST_COLL_IMPL(uint16_t, uint16_t, 0)
+IRON_LIST_COLL_IMPL(uint32_t, uint32_t, 0)
+IRON_LIST_COLL_IMPL(uint64_t, uint64_t, 0)
 
 /* ── Map[K, V] / Set[T] ──────────────────────────────────────────────────────
  * The hash tables are instantiated per concrete key/value type by the
