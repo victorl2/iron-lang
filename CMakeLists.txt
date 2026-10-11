@@ -1507,6 +1507,16 @@ if(NOT WIN32)
         PASS_REGULAR_EXPRESSION "vendor_smoke OK"
         ENVIRONMENT "PATH=$<TARGET_FILE_DIR:iron>:$<TARGET_FILE_DIR:ironc>:$ENV{PATH}"
     )
+    # Packages: nested src/ modules, read_file and globals across files,
+    # concurrent builds (tests/fuzz/mod_fuzz.py found these).
+    add_test(
+        NAME test_iron_package_modules_smoke
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/package_modules_smoke.sh $<TARGET_FILE:iron>
+    )
+    set_tests_properties(test_iron_package_modules_smoke PROPERTIES
+        PASS_REGULAR_EXPRESSION "package_modules_smoke OK"
+        TIMEOUT 600
+    )
 endif()
 
 # ── Benchmark rows (2026-07 realism split) ─────────────────────────────────

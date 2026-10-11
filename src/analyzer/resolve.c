@@ -1644,6 +1644,13 @@ static void validate_imports(ResolveCtx *ctx, Iron_Program *program) {
             if (!is_stub && iron_stdlib_origin_classify(o->span.filename) != 0) continue;
             found = file_matches_module(o->span.filename, imp->path);
         }
+        /* A package file without declarations (empty, or only imports and
+         * comments) still exists: its `-- @file:` marker named it. */
+        for (int j = 0; !found && iron_source_marker_get(j); j++) {
+            const char *mf = iron_source_marker_get(j);
+            if (iron_stdlib_origin_classify(mf) != 0) continue;
+            found = file_matches_module(mf, imp->path);
+        }
         if (found) continue;
         char msg[512];
         snprintf(msg, sizeof(msg), "module '%s' not found", imp->path);

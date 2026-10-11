@@ -300,11 +300,64 @@ static int append_file(FILE *out, const char *path) {
 /* `-- @file: "<rel>" @line: 1` ahead of each file in combined.iron, so the
  * lexer tags that file's tokens with its own path and 1-based lines:
  * diagnostics point at src/lib.iron:2 instead of target/combined.iron:40,
- * and cross-file visibility sees distinct files. A path the marker cannot
- * quote is left unmarked. */
+ * and cross-file visibility sees distinct files. */
 static void write_file_marker(FILE *combined, const char *rel_path) {
-    if (strpbrk(rel_path, "\"\n\r")) return;
     fprintf(combined, "-- @file: \"%s\" @line: 1\n", rel_path);
+}
+
+/* A path the marker cannot quote would be compiled as part of the file
+ * before it (its visibility and diagnostics); refuse it instead. */
+static bool check_marker_path(const char *rel_path, bool colors) {
+    if (!strpbrk(rel_path, "\"\n\r")) return true;
+    char msg[4300];
+    snprintf(msg, sizeof(msg), "cannot compile '%s': a source file name may not contain "
+             "a double quote or a line break", rel_path);
+    iron_print_error(colors, msg);
+    return false;
+}
+
+/* The generated sources (target/combined.iron, target/tests.iron) are
+ * written to a file of this process and renamed into place, so builds of
+ * the same package running at the same time never read one another's half
+ * written file. */
+static FILE *open_generated(const char *final_path, char *tmp, size_t tmp_size) {
+    /* <name>.<pid>.iron: still a .iron file, which ironc test requires */
+    size_t stem = strlen(final_path);
+    if (stem > 5 && strcmp(final_path + stem - 5, ".iron") == 0) stem -= 5;
+#ifdef _WIN32
+    snprintf(tmp, tmp_size, "%.*s.%lu.iron", (int)stem, final_path,
+             (unsigned long)GetCurrentProcessId());
+#else
+    snprintf(tmp, tmp_size, "%.*s.%ld.iron", (int)stem, final_path, (long)getpid());
+#endif
+    return fopen(tmp, "w");
+}
+
+/* Puts tmp in place of final_path; source_out receives the file to
+ * compile (final_path, or tmp itself when Windows refuses to replace a
+ * file another build has open). Returns false when neither works. */
+static bool publish_generated(const char *tmp, const char *final_path,
+                              char *source_out, size_t source_out_size) {
+#ifdef _WIN32
+    if (MoveFileExA(tmp, final_path, MOVEFILE_REPLACE_EXISTING)) {
+        snprintf(source_out, source_out_size, "%s", final_path);
+        return true;
+    }
+    snprintf(source_out, source_out_size, "%s", tmp);
+    return true;
+#else
+    if (rename(tmp, final_path) == 0) {
+        snprintf(source_out, source_out_size, "%s", final_path);
+        return true;
+    }
+    remove(tmp);
+    return false;
+#endif
+}
+
+/* Removes the temporary file publish_generated left to compile, if any. */
+static void unpublish_generated(const char *source, const char *final_path) {
+    if (strcmp(source, final_path) != 0) remove(source);
 }
 
 static int assemble_sources(const IronProject *proj, const char *proj_dir,
@@ -325,6 +378,18 @@ static int assemble_sources(const IronProject *proj, const char *proj_dir,
         return 0;
     }
 
+    size_t proj_prefix = strlen(proj_dir) + 1;  /* strip "<proj_dir>/" */
+    for (int g = 0; g < 2; g++) {
+        PathList *l = g ? &project_files : &vendor_files;
+        for (int i = 0; i < l->count; i++) {
+            if (!check_marker_path(l->items[i] + proj_prefix, colors)) {
+                path_list_free(&vendor_files);
+                path_list_free(&project_files);
+                return 1;
+            }
+        }
+    }
+
     char target_dir[4096];
     snprintf(target_dir, sizeof(target_dir), "%s/target", proj_dir);
 #ifdef _WIN32
@@ -340,8 +405,9 @@ static int assemble_sources(const IronProject *proj, const char *proj_dir,
     }
 #endif
 
-    snprintf(source_out, source_out_size, "%s/target/combined.iron", proj_dir);
-    FILE *combined = fopen(source_out, "w");
+    char final_path[4096], tmp_path[4200];
+    snprintf(final_path, sizeof(final_path), "%s/target/combined.iron", proj_dir);
+    FILE *combined = open_generated(final_path, tmp_path, sizeof(tmp_path));
     if (!combined) {
         iron_print_error(colors, "cannot create target/combined.iron");
         path_list_free(&vendor_files);
@@ -349,7 +415,6 @@ static int assemble_sources(const IronProject *proj, const char *proj_dir,
         return 1;
     }
 
-    size_t proj_prefix = strlen(proj_dir) + 1;  /* strip "<proj_dir>/" */
     int ret = 0;
     for (int i = 0; i < vendor_files.count && ret == 0; i++) {
         fprintf(combined, "-- vendor: %s\n", vendor_files.items[i] + proj_prefix);
@@ -364,13 +429,27 @@ static int assemble_sources(const IronProject *proj, const char *proj_dir,
     }
     if (ret == 0) {
         fprintf(combined, "-- project: %s\n", proj->name);
-        for (int i = 0; i < project_files.count; i++) {
+        for (int i = 0; i < project_files.count && ret == 0; i++) {
             write_file_marker(combined, project_files.items[i] + proj_prefix);
-            append_file(combined, project_files.items[i]);
+            if (append_file(combined, project_files.items[i]) != 0) {
+                char msg[4200];
+                snprintf(msg, sizeof(msg), "cannot read %s: %s",
+                         project_files.items[i] + proj_prefix, strerror(errno));
+                iron_print_error(colors, msg);
+                ret = 1;
+            }
         }
     }
 
-    fclose(combined);
+    if (fclose(combined) != 0 && ret == 0) {
+        iron_print_error(colors, "cannot write target/combined.iron");
+        ret = 1;
+    }
+    if (ret == 0 && !publish_generated(tmp_path, final_path, source_out, source_out_size)) {
+        iron_print_error(colors, "cannot create target/combined.iron");
+        ret = 1;
+    }
+    if (ret != 0) remove(tmp_path);
     path_list_free(&vendor_files);
     path_list_free(&project_files);
     return ret;
@@ -1326,6 +1405,11 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     double t_start = get_time_sec();
     int ret = spawn_and_wait(ironc, spawn_argv);
     double elapsed = get_time_sec() - t_start;
+    {
+        char combined_final[4200];
+        snprintf(combined_final, sizeof(combined_final), "%s/target/combined.iron", proj_dir);
+        if (strcmp(build_source, entry_path) != 0) unpublish_generated(build_source, combined_final);
+    }
 
     free(spawn_argv);
     path_list_free(&args);
@@ -1430,6 +1514,11 @@ static int cmd_check(int argc, char **argv) {
     char *ironc = find_ironc();
     char *spawn_argv[] = { ironc, "check", check_source, "--package-root", proj_dir, NULL };
     int ret = spawn_and_wait(ironc, spawn_argv);
+    {
+        char combined_final[4200];
+        snprintf(combined_final, sizeof(combined_final), "%s/target/combined.iron", proj_dir);
+        if (strcmp(check_source, entry_path) != 0) unpublish_generated(check_source, combined_final);
+    }
 
     if (ret == 0) {
         iron_print_status(colors, "Finished", "check completed");
@@ -1529,23 +1618,40 @@ static int cmd_test(int argc, char **argv) {
 #else
     mkdir(target_dir, 0755);
 #endif
-    snprintf(combined_path, sizeof(combined_path), "%s/target/tests.iron", proj_dir);
-    FILE *combined = fopen(combined_path, "w");
+    char tests_final[4096], tmp_path[4200];
+    snprintf(tests_final, sizeof(tests_final), "%s/target/tests.iron", proj_dir);
+    size_t proj_prefix = strlen(proj_dir) + 1;
+    PathList *groups[3] = { &vendor_files, &project_files, &test_files };
     int ret = 0;
+    for (int g = 0; g < 3 && ret == 0; g++)
+        for (int i = 0; i < groups[g]->count && ret == 0; i++)
+            if (!check_marker_path(groups[g]->items[i] + proj_prefix, colors)) ret = 1;
+    FILE *combined = ret ? NULL : open_generated(tests_final, tmp_path, sizeof(tmp_path));
     if (!combined) {
-        iron_print_error(colors, "cannot create target/tests.iron");
+        if (!ret) iron_print_error(colors, "cannot create target/tests.iron");
         ret = 1;
     } else {
-        size_t proj_prefix = strlen(proj_dir) + 1;
-        PathList *groups[3] = { &vendor_files, &project_files, &test_files };
-        for (int g = 0; g < 3; g++) {
-            for (int i = 0; i < groups[g]->count; i++) {
+        for (int g = 0; g < 3 && ret == 0; g++) {
+            for (int i = 0; i < groups[g]->count && ret == 0; i++) {
                 write_file_marker(combined, groups[g]->items[i] + proj_prefix);
-                append_file(combined, groups[g]->items[i]);
+                if (append_file(combined, groups[g]->items[i]) != 0) {
+                    char msg[4300];
+                    snprintf(msg, sizeof(msg), "cannot read %s: %s",
+                             groups[g]->items[i] + proj_prefix, strerror(errno));
+                    iron_print_error(colors, msg);
+                    ret = 1;
+                }
             }
         }
-        fclose(combined);
-
+        if (fclose(combined) != 0 && ret == 0) ret = 1;
+        if (ret == 0 && !publish_generated(tmp_path, tests_final, combined_path,
+                                           sizeof(combined_path))) {
+            iron_print_error(colors, "cannot create target/tests.iron");
+            ret = 1;
+        }
+        if (ret != 0) remove(tmp_path);
+    }
+    if (ret == 0) {
         char *ironc = find_ironc();
         char *spawn_argv[] = { ironc, "test", combined_path, "--package-root", proj_dir,
                                (char *)filter, NULL };
@@ -1556,6 +1662,7 @@ static int cmd_test(int argc, char **argv) {
             int lret = spawn_and_wait(ironc, legacy_argv);
             if (ret == 0) ret = lret;
         }
+        unpublish_generated(combined_path, tests_final);
         free(ironc);
     }
 
