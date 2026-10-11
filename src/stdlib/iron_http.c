@@ -983,7 +983,9 @@ static Iron_HttpRequest read_request_transport(HttpTransport transport,
         return out;
     }
     const char *data = (const char *)h.data;
-    size_t line_end = find_crlf(data, 0, h.marker);
+    /* The start line ends at the first CRLF, which is the one at the
+     * marker itself when the message has no header lines. */
+    size_t line_end = find_crlf(data, 0, h.marker + 2);
     if (line_end == SIZE_MAX) {
         http_request_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
         free(h.data);
@@ -1324,7 +1326,9 @@ static Iron_HttpResponse read_client_response(HttpTransport transport,
         return out;
     }
     const char *data = (const char *)h.data;
-    size_t line_end = find_crlf(data, 0, h.marker);
+    /* The start line ends at the first CRLF, which is the one at the
+     * marker itself when the message has no header lines. */
+    size_t line_end = find_crlf(data, 0, h.marker + 2);
     int response_version_11 = line_end != SIZE_MAX && line_end >= 8 &&
         ascii_ieq_n(data, 8, "HTTP/1.1", 8);
     int response_version_10 = line_end != SIZE_MAX && line_end >= 8 &&

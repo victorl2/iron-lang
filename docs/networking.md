@@ -435,7 +435,9 @@ client/session handles. See
 
 ## Framing and limits
 
-- Server requests require HTTP/1.1 and exactly one `Host` header.
+- Server requests are HTTP/1.1 with exactly one `Host` header, or HTTP/1.0
+  with at most one (an HTTP/1.0 request keeps the connection open only when
+  it asks for `Connection: keep-alive`).
 - Server request bodies accept one unambiguous `Content-Length` or bounded
   chunked transfer encoding, including validated bounded trailers.
 - Client responses accept HTTP/1.0 and HTTP/1.1, `Content-Length`, chunked
