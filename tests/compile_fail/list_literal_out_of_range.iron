@@ -1,0 +1,7 @@
+-- A list literal element out of the annotated element range is E0292 (#676).
+func main() {
+    var a: [UInt8] = [1, 2]
+    a.push(256)
+    val b: [Int8] = [1, -129]
+    println("{a[0]} {b[0]}")
+}
