@@ -241,6 +241,19 @@ int main(int argc, char **argv) {
         } else if (strcmp(cmd, "test") == 0 && !test_filter && argv[i][0] != '-') {
             /* `test <file> <filter>`: run the tests whose name contains it. */
             test_filter = argv[i];
+        } else if (strcmp(cmd, "build") == 0 || strcmp(cmd, "run") == 0 ||
+                   strcmp(cmd, "check") == 0) {
+            /* A second positional was silently dropped (#454): program
+             * arguments of `run` go after --. */
+            if (strcmp(cmd, "run") == 0)
+                fprintf(stderr,
+                        "error: unexpected argument '%s': program arguments go after --"
+                        " (run %s -- %s)\n",
+                        argv[i], source_file, argv[i]);
+            else
+                fprintf(stderr, "error: unexpected argument '%s' for command '%s'\n",
+                        argv[i], cmd);
+            return 1;
         }
     }
 

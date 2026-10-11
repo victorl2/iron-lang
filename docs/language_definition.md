@@ -2905,6 +2905,12 @@ picks the path), `ironc run file.iron` compiles and runs it, and
 file.iron` and `iron check file.iron` do the same. A single file may
 `import` only standard library modules.
 
+Program arguments go after `--`: `ironc run file.iron -- a b` runs the
+program with `args` holding `a` and `b` (section 5.1). Any other
+argument after the source file is an error ("unexpected argument"), as
+is an unknown flag, so a forgotten `--` is reported instead of silently
+dropping the arguments.
+
 ### 10.2 Packages
 
 `iron init name` (or `iron init --lib name`) creates a package: a
