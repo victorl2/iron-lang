@@ -2219,6 +2219,35 @@ static bool type_is_equatable(const Iron_Type *t, int depth) {
     }
 }
 
+/* The N of `[T; N]` / `[T; <=N]`: an integer literal, or the name of a
+ * global `val` whose initializer is one (a `comptime` result has been
+ * folded to a literal by then). Anything else was taken for "no size" and
+ * the annotation silently became a growable list; it is now an error. */
+static int array_size_value(TypeCtx *ctx, Iron_Node *n) {
+    if (n->kind == IRON_NODE_INT_LIT) {
+        Iron_IntLit *il = (Iron_IntLit *)n;
+        return il->value ? (int)strtol(il->value, NULL, 10) : -1;
+    }
+    if (n->kind == IRON_NODE_IDENT) {
+        Iron_Ident *id = (Iron_Ident *)n;
+        Iron_Symbol *sym = id->name ? iron_scope_lookup(ctx->global_scope, id->name) : NULL;
+        if (sym && sym->decl_node && sym->decl_node->kind == IRON_NODE_VAL_DECL) {
+            Iron_ValDecl *vd = (Iron_ValDecl *)sym->decl_node;
+            if (vd->init && vd->init->kind == IRON_NODE_INT_LIT) {
+                Iron_IntLit *il = (Iron_IntLit *)vd->init;
+                if (il->value) {
+                    long v = strtol(il->value, NULL, 10);
+                    if (v >= 0 && v <= 0x7fffffff) return (int)v;
+                }
+            }
+        }
+    }
+    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, n->span,
+               "the size of a fixed array or bounded vector must be an integer constant",
+               "write a literal or the name of a global val holding one (comptime results count)");
+    return -1;
+}
+
 static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     if (!ann_node) return iron_type_make_primitive(IRON_TYPE_VOID);
     /* HARD-05: cancel poll at type-annotation walker entry. */
@@ -2253,10 +2282,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
             return iron_type_make_primitive(IRON_TYPE_ERROR);
         }
         int size = -1;
-        if (ann->array_size && ann->array_size->kind == IRON_NODE_INT_LIT) {
-            Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
-            if (il->value) size = (int)strtol(il->value, NULL, 10);
-        }
+        if (ann->array_size) size = array_size_value(ctx, ann->array_size);
         Iron_Type *arr = iron_type_make_array(ctx->arena, elem, size, ann->bounded);
         if (!arr) return iron_type_make_primitive(IRON_TYPE_ERROR);
         arr->array.layout_hint  = ann->layout_hint;
@@ -2411,10 +2437,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         /* If this is an array-of-func, wrap in array type */
         if (ann->is_array) {
             int size = -1;
-            if (ann->array_size && ann->array_size->kind == IRON_NODE_INT_LIT) {
-                Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
-                if (il->value) size = (int)strtol(il->value, NULL, 10);
-            }
+            if (ann->array_size) size = array_size_value(ctx, ann->array_size);
             Iron_Type *arr = iron_type_make_array(ctx->arena, base, size, ann->bounded);
             /* HARD-09 CR-02: NULL-propagation fallback. */
             if (!arr) arr = iron_type_make_primitive(IRON_TYPE_ERROR);
@@ -2727,10 +2750,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     /* Wrap in array if needed */
     if (ann->is_array) {
         int size = -1;  /* dynamic by default */
-        if (ann->array_size && ann->array_size->kind == IRON_NODE_INT_LIT) {
-            Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
-            if (il->value) size = (int)strtol(il->value, NULL, 10);
-        }
+        if (ann->array_size) size = array_size_value(ctx, ann->array_size);
         Iron_Type *arr = iron_type_make_array(ctx->arena, base, size, ann->bounded);
         /* HARD-09 CR-02: NULL-propagation fallback. */
         if (!arr) arr = iron_type_make_primitive(IRON_TYPE_ERROR);
@@ -8458,11 +8478,20 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             {
                 int saved_depth = ctx->loop_depth;
                 int saved_defer = ctx->defer_depth;
+                /* A return in the lambda returns from the lambda, not from
+                 * the init or drop body it is written in (E0250 / E0252 /
+                 * E0288 were reported for `self.f = func() { return 0 }`). */
+                bool saved_init = ctx->in_init_method;
+                bool saved_drop = ctx->in_drop_method;
                 ctx->loop_depth = 0;
                 ctx->defer_depth = 0;
+                ctx->in_init_method = false;
+                ctx->in_drop_method = false;
                 if (le->body) check_stmt(ctx, le->body);
                 ctx->loop_depth = saved_depth;
                 ctx->defer_depth = saved_defer;
+                ctx->in_init_method = saved_init;
+                ctx->in_drop_method = saved_drop;
             }
             check_missing_return_body(ctx, ret_t, le->body, NULL);
             tc_pop_scope(ctx);
