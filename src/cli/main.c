@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <stdbool.h>
 #include "util/os.h"
 
@@ -236,11 +237,36 @@ int main(int argc, char **argv) {
             fprintf(stderr, "error: unknown flag '%s' for command '%s'\n",
                     argv[i], cmd);
             return 1;
+        } else if (strcmp(argv[i], "-") == 0) {
+            fprintf(stderr, "error: %s %s does not read a program from standard input; "
+                            "give a .iron file\n", IRON_BINARY_NAME, cmd);
+            return 1;
         } else if (!source_file && argv[i][0] != '-') {
             source_file = argv[i];
         } else if (strcmp(cmd, "test") == 0 && !test_filter && argv[i][0] != '-') {
             /* `test <file> <filter>`: run the tests whose name contains it. */
             test_filter = argv[i];
+        } else if (strcmp(cmd, "fmt") != 0) {
+            /* An extra argument used to be dropped without a word (#564). */
+            if (strcmp(cmd, "run") == 0)
+                fprintf(stderr, "error: unexpected argument '%s': program arguments go after "
+                                "`--` (%s run %s -- %s)\n", argv[i], IRON_BINARY_NAME,
+                        source_file ? source_file : "file.iron", argv[i]);
+            else
+                fprintf(stderr, "error: unexpected argument '%s' for command '%s' "
+                                "(one source file at a time)\n", argv[i], cmd);
+            return 1;
+        }
+    }
+
+    /* A directory is not a source file (it read as an empty program); `test`
+     * runs the test programs of a directory. */
+    if (source_file && strcmp(cmd, "test") != 0 && strcmp(cmd, "fmt") != 0) {
+        struct stat sst;
+        if (stat(source_file, &sst) == 0 && S_ISDIR(sst.st_mode)) {
+            fprintf(stderr, "error: '%s' is a directory: give a .iron file, or run "
+                            "`iron %s` inside a package\n", source_file, cmd);
+            return 1;
         }
     }
 
@@ -340,6 +366,10 @@ int main(int argc, char **argv) {
                 continue;
             } else if (file_arg == NULL) {
                 file_arg = argv[i];
+            } else {
+                fprintf(stderr, "error: unexpected argument '%s' for command 'fmt' "
+                                "(one file at a time)\n", argv[i]);
+                return 1;
             }
         }
         if (!file_arg) {
@@ -360,7 +390,9 @@ int main(int argc, char **argv) {
         return iron_test(path);
     }
 
-    fprintf(stderr, "%s: unknown command '%s'\n", IRON_BINARY_NAME, cmd);
-    print_usage();
+    /* A short error: the whole help after it scrolled the error away. */
+    fprintf(stderr, "%s: unknown command '%s' (commands: build, run, check, fmt, test, "
+                    "toolchain; see %s --help)\n", IRON_BINARY_NAME, cmd,
+            IRON_BINARY_NAME);
     return 1;
 }

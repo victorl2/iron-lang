@@ -1051,7 +1051,11 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * forwarded to ironc below; the Finished status line differentiates
      * "release [optimized]" from "dev [unoptimized]" based on the same flag. */
     static const char *const allowed[] = { "--verbose", "--release", "--debug", "--target=",
-                                           "-o", "--output", "--output=", NULL };
+                                           "--target", "-o", "--output", "--output=",
+                                           "--debug-build", "--emit-c", "--no-optimize",
+                                           "--force-comptime", "--dump-ir-passes",
+                                           "--warn-fusion-break", "--report-compression",
+                                           "--strict-v3", "--no-strict-v3", NULL };
     static const char *const allowed_debug[] = { "--verbose", "--gdb", "--lldb", NULL };
     if (reject_unknown_flags(g_debug_session ? "debug" : run_after ? "run" : "build", argc, argv,
                              g_debug_session ? allowed_debug : allowed) != 0)
@@ -1063,7 +1067,39 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     const char *output_override = NULL;  /* -o / --output (iron build only) */
     char **run_args = NULL;
     int run_arg_count = 0;
+    /* Flags handed to ironc as they are (the manual and `iron build --help`
+     * list them for package builds too, #564). */
+    const char *forward[16];
+    int forward_count = 0;
     for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--debug-build") == 0 || strcmp(argv[i], "--emit-c") == 0 ||
+            strcmp(argv[i], "--no-optimize") == 0 || strcmp(argv[i], "--force-comptime") == 0 ||
+            strcmp(argv[i], "--dump-ir-passes") == 0 || strcmp(argv[i], "--warn-fusion-break") == 0 ||
+            strcmp(argv[i], "--report-compression") == 0 || strcmp(argv[i], "--strict-v3") == 0 ||
+            strcmp(argv[i], "--no-strict-v3") == 0) {
+            if (forward_count < 16) forward[forward_count++] = argv[i];
+            continue;
+        }
+        if (strcmp(argv[i], "--target") == 0) {
+            if (i + 1 >= argc || strcmp(argv[i + 1], "--") == 0) {
+                iron_print_error(colors, "--target needs a value (native, web or a cross target)");
+                return 1;
+            }
+            target = argv[++i];
+            if (strcmp(target, "native") == 0) target = NULL;
+            continue;
+        }
+        if (strcmp(argv[i], "--") != 0 && argv[i][0] != '-') {
+            /* A file or name after `iron build` used to be ignored. */
+            char msg[512];
+            snprintf(msg, sizeof(msg),
+                     "unexpected argument '%s': `iron %s` builds the package around the current "
+                     "directory%s", argv[i], g_debug_session ? "debug" : run_after ? "run" : "build",
+                     run_after ? " (program arguments go after `--`)" :
+                     "; to compile a single file use `ironc build <file>`");
+            iron_print_error(colors, msg);
+            return 1;
+        }
         if (strcmp(argv[i], "--verbose") == 0) {
             verbose = true;
         } else if (strcmp(argv[i], "--release") == 0) {
@@ -1090,6 +1126,22 @@ static int cmd_build(bool run_after, int argc, char **argv) {
             run_args = &argv[i + 1];
             run_arg_count = argc - i - 1;
             break;
+        }
+    }
+
+    /* A target names a directory under target/: letters, digits and '-'
+     * only (`--target=../x` created a directory outside target/). ironc
+     * rejects targets it does not know. */
+    if (target) {
+        bool ok = target[0] != '\0';
+        for (const char *c = target; *c && ok; c++)
+            ok = (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') ||
+                 (*c >= '0' && *c <= '9') || *c == '-' || *c == '_';
+        if (!ok) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "unknown target '%s'", target);
+            iron_print_error(colors, msg);
+            return 1;
         }
     }
 
@@ -1310,6 +1362,7 @@ static int cmd_build(bool run_after, int argc, char **argv) {
         snprintf(tflag, sizeof(tflag), "--target=%s", target);
         path_list_add(&args, tflag);
     }
+    for (int fi = 0; fi < forward_count; fi++) path_list_add(&args, forward[fi]);
     /* Phase 94 LIB-01: lib builds go through ironc's archive emit path. */
     if (is_lib) {
         path_list_add(&args, "--emit-archive");
@@ -1390,6 +1443,15 @@ static int cmd_check(int argc, char **argv) {
     static const char *const allowed[] = { NULL };
     if (reject_unknown_flags("check", argc, argv, allowed) != 0) return 1;
     bool colors = iron_color_init();
+    for (int i = 2; i < argc; i++) {
+        if (argv[i][0] != '-') {
+            char msg[512];
+            snprintf(msg, sizeof(msg), "unexpected argument '%s': `iron check` checks the "
+                     "package; to check a single file use `ironc check <file>`", argv[i]);
+            iron_print_error(colors, msg);
+            return 1;
+        }
+    }
 
     char *toml_path = find_iron_toml();
     if (!toml_path) {
@@ -1491,8 +1553,23 @@ static int cmd_test(int argc, char **argv) {
     if (reject_unknown_flags("test", argc, argv, allowed) != 0) return 1;
     bool colors = iron_color_init();
     const char *filter = NULL;
-    for (int i = 2; i < argc; i++)
-        if (argv[i][0] != '-') { filter = argv[i]; break; }
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--") == 0) {
+            /* `iron test -- -name`: a filter that starts with '-'. */
+            if (i + 1 < argc) filter = argv[i + 1];
+            if (i + 2 < argc) {
+                iron_print_error(colors, "iron test takes one name filter");
+                return 1;
+            }
+            break;
+        }
+        if (argv[i][0] == '-') continue;
+        if (filter) {
+            iron_print_error(colors, "iron test takes one name filter");
+            return 1;
+        }
+        filter = argv[i];
+    }
 
     char *toml_path = find_iron_toml();
     if (!toml_path) {
