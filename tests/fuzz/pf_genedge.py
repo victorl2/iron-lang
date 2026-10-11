@@ -853,7 +853,8 @@ class GenEdgeGen(ProbeGen):
             n = self.fresh('i')
             return Probe([f'val {n}: Make = Ctr(1)', f'println("{{{n}.same(Ctr(1))}}")'], errors={'E0354'})
         if k == 'reserved':
-            return Probe(['println("{Ctr.__fields(1, \\"b\\", []).a}")'], errors={'E0356'})
+            n = self.fresh('r')
+            return Probe([f'val {n} = Ctr.__fields(1, "b", [])', f'println("{{{n}.a}}")'], errors={'E0356'})
         n = self.fresh('w')
         return Probe([f'var {n} = Ctr(1)', f'{n}.a = 5', f'println("{{{n}.a}}")'], errors={'E0265'})
 

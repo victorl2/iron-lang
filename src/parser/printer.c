@@ -18,6 +18,11 @@
  * owned by a single type. arrput'd; arrfree'd at teardown. */
 typedef struct {
     Iron_MethodDecl **methods;
+    /* Parallel to methods: the object or patch declaration of the printed
+     * program each method is printed in (the one whose body contains it,
+     * else the type's own declaration). Printing a type and a patch of it
+     * printed every method in both (#455). */
+    Iron_ObjectDecl **owners;
 } MethodOwnerArr;
 
 /* stb_ds shmap entry shape: shput(t, k, v) writes (t)[i].key=k and
@@ -81,6 +86,31 @@ static MethodIndexEntry *method_index_build(Iron_Program *prog) {
         if (map) shfree(map);
         return NULL;
     }
+    for (ptrdiff_t b = 0; b < shlen(map); b++) {
+        MethodOwnerArr *slot = &map[b].value;
+        for (ptrdiff_t k = 0; k < arrlen(slot->methods); k++) {
+            Iron_MethodDecl *md = slot->methods[k];
+            Iron_ObjectDecl *own = NULL, *first = NULL, *first_obj = NULL;
+            for (int i = 0; i < prog->decl_count; i++) {
+                Iron_Node *d = prog->decls[i];
+                if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+                Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+                const char *key = od->is_patch && od->target_type_name
+                                      ? od->target_type_name : od->name;
+                if (!key || strcmp(key, md->type_name) != 0) continue;
+                if (!first) first = od;
+                if (!first_obj && !od->is_patch) first_obj = od;
+                bool same_file = od->span.filename == md->span.filename ||
+                    (od->span.filename && md->span.filename &&
+                     strcmp(od->span.filename, md->span.filename) == 0);
+                if (!own && same_file && md->span.line >= od->span.line &&
+                    md->span.line <= od->span.end_line &&
+                    md->is_patch_member == od->is_patch)
+                    own = od;
+            }
+            arrput(slot->owners, own ? own : (first_obj ? first_obj : first));
+        }
+    }
     return map;
 }
 
@@ -110,6 +140,7 @@ static void method_index_free(MethodIndexEntry *map) {
     if (!map) return;
     for (ptrdiff_t i = 0; i < shlen(map); i++) {
         arrfree(map[i].value.methods);
+        arrfree(map[i].value.owners);
     }
     shfree(map);
 }
@@ -531,6 +562,8 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                 MethodOwnerArr *slot = method_index_lookup(map, key);
                 if (slot) {
                     for (ptrdiff_t i = 0; i < arrlen(slot->methods); i++) {
+                        if (slot->owners && i < arrlen(slot->owners) &&
+                            slot->owners[i] && slot->owners[i] != n) continue;
                         print_indent(ctx);
                         print_method_in_block(ctx, slot->methods[i]);
                         iron_strbuf_appendf(ctx->sb, "\n");
