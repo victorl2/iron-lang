@@ -1108,6 +1108,19 @@ static bool pool_shutdown_idle(Iron_Pool *pool) {
         pool->shutdown = true;
         pool->queue_count = 0;   /* never start what has not started */
         IRON_COND_BROADCAST(pool->work_ready);
+        /* Nobody joins the workers now: detach them, so the idle ones that
+         * return are not left as zombie (leaked) threads. */
+        if (pool->is_elastic) {
+            for (int i = 0; i < pool->thread_slots_cap; i++) {
+                if (pool->threads[i].handle != 0) {
+                    iron_thread_detach(pool->threads[i]);
+                    pool->threads[i].handle = 0;
+                }
+            }
+        } else if (pool->started) {
+            for (int i = 0; i < pool->thread_count; i++) iron_thread_detach(pool->threads[i]);
+            pool->started = false;
+        }
     }
     IRON_MUTEX_UNLOCK(pool->lock);
     return idle;

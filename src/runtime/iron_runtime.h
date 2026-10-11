@@ -144,6 +144,22 @@ typedef _Atomic uint64_t iron_atomic_u64;
                                           memory_order_relaxed)
 #define IRON_ATOMIC_FENCE_ACQUIRE() \
     atomic_thread_fence(memory_order_acquire)
+/* ThreadSanitizer does not model atomic_thread_fence, so the release /
+ * fence-acquire pairs above read as races on the freed object. Under TSan
+ * the decrement is acq_rel instead: the same guarantee, in a form TSan
+ * understands (the fence is then redundant). */
+#if defined(__SANITIZE_THREAD__)
+#define IRON_TSAN_BUILD 1
+#elif defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define IRON_TSAN_BUILD 1
+#endif
+#endif
+#ifdef IRON_TSAN_BUILD
+#undef IRON_ATOMIC_U64_FETCH_SUB_RELEASE
+#define IRON_ATOMIC_U64_FETCH_SUB_RELEASE(v, n) \
+    atomic_fetch_sub_explicit(&(v), (n), memory_order_acq_rel)
+#endif
 
 /* ── Phase 19: Generational pointer infrastructure (heap-only this phase) ──
  * Phase 20 surfaces *T / *var T to Iron source; Phase 19 lands the runtime
