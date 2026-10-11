@@ -2174,7 +2174,8 @@ handle can be awaited once (`E0325`). A spawn expression may only appear as
 the initializer of a `val` or `var`, or as a statement (its result is then
 discarded and the task is never awaited). A bound spawn (`val h = spawn`)
 runs on a new operating system thread. A spawn statement is a task for the
-runtime's worker pool, a fixed set of one thread per CPU core but one: a
+runtime's worker pool, a fixed set of one thread per CPU core but one (the
+environment variable `IRON_WORKERS` sets another size): a
 task that blocks (on a socket, a sleep or a database call) holds a worker
 until it returns, and tasks beyond the pool's size wait their turn. Run
 long-lived loops as bound spawns, and see `Http.poller` (networking guide)

@@ -1080,6 +1080,15 @@ void iron_threads_init(void) {
     int cpu_count = (int)sysconf(_SC_NPROCESSORS_ONLN);
 #endif
     int thread_count = (cpu_count > 1) ? (cpu_count - 1) : 1;
+    /* IRON_WORKERS sizes the pool that runs spawn statements and parallel
+     * loops (#547): a program whose tasks block (sockets, databases) wants
+     * more workers than cores, a container wants fewer than the host has. */
+    const char *env_workers = getenv("IRON_WORKERS");
+    if (env_workers && *env_workers) {
+        char *end = NULL;
+        long n = strtol(env_workers, &end, 10);
+        if (end && *end == '\0' && n >= 1 && n <= 4096) thread_count = (int)n;
+    }
 #ifdef __EMSCRIPTEN__
     /* WEB-RUNTIME-03: Cap worker count on web builds. See
      * IRON_WEB_MAX_WORKERS define near top of this file for rationale. */
