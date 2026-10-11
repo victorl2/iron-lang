@@ -1,0 +1,12 @@
+-- An explicit instance of a generic object against another expected
+-- instance (#626).
+object Stack[T] {
+    var items: [T]
+    init() {
+        self.items = []
+    }
+}
+
+func main() {
+    val s: Stack[Int] = Stack[String]()
+}

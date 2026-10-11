@@ -1,0 +1,1 @@
+write it explicitly, e.g. Channel[Int](4), or give the binding a type

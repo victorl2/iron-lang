@@ -1,0 +1,5 @@
+-- With no expected type the element type of a Channel cannot be inferred
+-- (#626); the help says how to give one.
+func main() {
+    val ch = Channel(4)
+}
