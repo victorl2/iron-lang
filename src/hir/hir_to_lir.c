@@ -5147,8 +5147,17 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
          * def-after-use hoisting concern as above; ALLOCA hoisting is the
          * one form emit_c handles for every instruction kind). */
         IronLIR_ValueId ret_slot = IRON_LIR_VALUE_INVALID;
-        if (has_value && ret_type) {
-            ret_slot = emit_alloca_in_entry(ctx, ret_type, "__ret_val", span);
+        /* The slot holds the value as returned: wrapped into the function's
+         * T? when that is the return type. Typing it with the expression's
+         * own type (T, or the null literal's type) reloaded an unwrapped
+         * value, and the RETURN failed LIR verification (E0905) whenever a
+         * T? function had a droppable local in scope. */
+        Iron_Type *slot_type = ret_type;
+        if (has_value && ctx->current_func->return_type &&
+            ctx->current_func->return_type->kind == IRON_TYPE_NULLABLE)
+            slot_type = ctx->current_func->return_type;
+        if (has_value && slot_type) {
+            ret_slot = emit_alloca_in_entry(ctx, slot_type, "__ret_val", span);
             iron_lir_store(ctx->current_func, ctx->current_block,
                            ret_slot, ret_val, span);
         }
@@ -5172,10 +5181,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 IronLIR_ValueId rv = ret_val;
                 if (ret_slot != IRON_LIR_VALUE_INVALID) {
                     rv = iron_lir_load(ctx->current_func, ctx->current_block,
-                                       ret_slot, ret_type, span)->id;
+                                       ret_slot, slot_type, span)->id;
                 }
                 iron_lir_return(ctx->current_func, ctx->current_block,
-                                rv, false, ret_type, span);
+                                rv, false, slot_type, span);
             } else {
                 iron_lir_return(ctx->current_func, ctx->current_block,
                                 IRON_LIR_VALUE_INVALID, true, NULL, span);
