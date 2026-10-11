@@ -945,6 +945,7 @@ static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
 }
 
 static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t);
+static bool fold_constant_u64(const Iron_Node *node, unsigned long long *out, int depth);
 static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *init_t,
                                      const Iron_Node *init_node);
 
@@ -1670,8 +1671,14 @@ static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *i
     }
     if (init_t->kind != IRON_TYPE_INT) return false;
     if (!is_integer_kind(decl_t) || decl_t->kind == IRON_TYPE_INT) return false;
+    if (init_node->kind == IRON_NODE_INT_LIT && ((const Iron_IntLit *)init_node)->exceeds_int)
+        return decl_t->kind == IRON_TYPE_UINT64 || decl_t->kind == IRON_TYPE_UINT;
     long long val;
-    if (!try_get_constant_int((Iron_Node *)init_node, &val)) return false;
+    if (!try_get_constant_int((Iron_Node *)init_node, &val)) {
+        unsigned long long uval;
+        return (decl_t->kind == IRON_TYPE_UINT64 || decl_t->kind == IRON_TYPE_UINT) &&
+               fold_constant_u64(init_node, &uval, 0);
+    }
     return value_fits_type(val, decl_t);
 }
 
@@ -1698,6 +1705,19 @@ static bool literal_range_error(TypeCtx *ctx, const Iron_Type *decl_t,
                                 const Iron_Type *init_t, Iron_Node *init_node) {
     if (!decl_t || !init_t || !init_node) return false;
     if (init_t->kind != IRON_TYPE_INT || !is_integer_kind(decl_t)) return false;
+    if (init_node->kind == IRON_NODE_INT_LIT && ((Iron_IntLit *)init_node)->exceeds_int &&
+        decl_t->kind != IRON_TYPE_UINT64 && decl_t->kind != IRON_TYPE_UINT) {
+        const char *range = integer_range_text(decl_t);
+        char msg[256];
+        snprintf(msg, sizeof(msg), "literal %s does not fit in %s%s%s%s",
+                 ((Iron_IntLit *)init_node)->value,
+                 iron_type_to_string((Iron_Type *)decl_t, ctx->arena),
+                 range ? " (" : "", range ? range : "", range ? ")" : "");
+        emit_error(ctx, IRON_ERR_TYPE_MISMATCH_LITERAL, init_node->span, msg,
+                   "use a value within the type's range or a wider type");
+        ((Iron_IntLit *)init_node)->exceeds_int = false;   /* reported */
+        return true;
+    }
     long long val;
     if (!try_get_constant_int(init_node, &val)) return false;
     if (value_fits_type(val, decl_t)) return false;
@@ -1783,6 +1803,47 @@ static bool fold_constant_int(Iron_Node *node, long long *out, int depth) {
 
 static bool try_get_constant_int(Iron_Node *node, long long *out) {
     return fold_constant_int(node, out, 0);
+}
+
+/* The value of an integer constant expression folded as UInt64 (for a
+ * constant that takes UInt64 or UInt and has a literal above the largest
+ * Int, `x / (18446744073709551614 | 1)`). Fails on a negative value,
+ * overflow, division by zero and out-of-range shifts. */
+static bool fold_constant_u64(const Iron_Node *node, unsigned long long *out, int depth) {
+    if (!node || depth > 64) return false;
+    if (node->kind == IRON_NODE_INT_LIT) {
+        const Iron_IntLit *lit = (const Iron_IntLit *)node;
+        if (!lit->value || lit->value[0] == '-') return false;
+        errno = 0;
+        unsigned long long v = strtoull(lit->value, NULL, 10);
+        if (errno) return false;
+        *out = v;
+        return true;
+    }
+    if (node->kind == IRON_NODE_BINARY) {
+        const Iron_BinaryExpr *be = (const Iron_BinaryExpr *)node;
+        unsigned long long a, b;
+        if (!fold_constant_u64(be->left, &a, depth + 1) ||
+            !fold_constant_u64(be->right, &b, depth + 1)) return false;
+        switch ((int)be->op) {
+            case IRON_TOK_PLUS:  return !__builtin_add_overflow(a, b, out);
+            case IRON_TOK_MINUS: return !__builtin_sub_overflow(a, b, out);
+            case IRON_TOK_STAR:  return !__builtin_mul_overflow(a, b, out);
+            case IRON_TOK_SLASH:   if (b == 0) return false; *out = a / b; return true;
+            case IRON_TOK_PERCENT: if (b == 0) return false; *out = a % b; return true;
+            case IRON_TOK_AMP:   *out = a & b; return true;
+            case IRON_TOK_PIPE:  *out = a | b; return true;
+            case IRON_TOK_CARET: *out = a ^ b; return true;
+            case IRON_TOK_SHL:
+                if (b > 63 || (b > 0 && (a >> (64 - b)) != 0)) return false;
+                *out = a << b;
+                return true;
+            case IRON_TOK_SHR:   if (b > 63) return false; *out = a >> b; return true;
+            /* -Wswitch-enum opt-out: no other operator yields an integer. */
+            default: return false;
+        }
+    }
+    return false;
 }
 
 /* Give an integer constant expression the type its context chose, down to
@@ -4257,7 +4318,14 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 if (errno == ERANGE) {
                     const char *d = n->value;
                     while (*d == '0' && d[1]) d++;
-                    if (!(negated && strcmp(d, "9223372036854775808") == 0)) {
+                    errno = 0;
+                    (void)strtoull(n->value, NULL, 10);
+                    if (!negated && errno == 0) {
+                        /* Above the largest Int, within 64 bits: valid where
+                         * the literal takes UInt64 or UInt (manual 1.4);
+                         * reported after checking if it never does. */
+                        n->exceeds_int = true;
+                    } else if (!(negated && strcmp(d, "9223372036854775808") == 0)) {
                         char msg[160];
                         snprintf(msg, sizeof(msg),
                                  "literal %s does not fit in Int "
@@ -11962,6 +12030,23 @@ static void check_top_level_binding_init(TypeCtx *ctx, Iron_Type *decl_type,
 
 /* ── Entry point ─────────────────────────────────────────────────────────── */
 
+static bool report_big_int_literal(Iron_Visitor *v, Iron_Node *node) {
+    if (node->kind != IRON_NODE_INT_LIT) return true;
+    Iron_IntLit *n = (Iron_IntLit *)node;
+    if (!n->exceeds_int) return true;
+    Iron_Type *t = n->resolved_type;
+    if (t && (t->kind == IRON_TYPE_UINT64 || t->kind == IRON_TYPE_UINT)) return true;
+    char msg[160];
+    snprintf(msg, sizeof(msg),
+             "literal %s does not fit in Int (-9223372036854775808..9223372036854775807)",
+             n->value);
+    emit_error((TypeCtx *)v->ctx, IRON_ERR_TYPE_MISMATCH_LITERAL, n->span, msg,
+               "a literal above the largest Int needs a UInt64 or UInt context, "
+               "e.g. val x: UInt64 = ...");
+    n->exceeds_int = false;
+    return true;
+}
+
 void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                     Iron_Arena *arena, Iron_DiagList *diags,
                     const _Atomic bool *cancel_flag) {
@@ -12450,4 +12535,10 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
      * completed (check_func_decl / check_method_decl / check_interface_
      * completeness are the only readers per grep at 715/2386). */
     shfree(ctx.mono_registry);
+
+    /* A literal above the largest Int that never took UInt64 or UInt. */
+    {
+        Iron_Visitor bv = { .ctx = &ctx, .visit_node = report_big_int_literal, .post_visit = NULL };
+        iron_ast_walk((Iron_Node *)program, &bv);
+    }
 }

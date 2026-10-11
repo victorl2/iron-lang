@@ -23,6 +23,7 @@
 #include "hir/stdlib_origin.h"
 #include "lexer/lexer.h"
 #include "vendor/stb_ds.h"
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -1958,7 +1959,11 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
          * here re-interpreted a leading zero as C octal: `val x = 010` became
          * 8 instead of 10. Overflow behavior is unchanged (strtoll saturates
          * identically in base 10; hex/binary are range-checked in the lexer). */
+        errno = 0;
         int64_t val = (int64_t)strtoll(lit->value, NULL, 10);
+        /* A UInt64 / UInt literal above the largest Int: its bit pattern. */
+        if (errno == ERANGE && lit->value[0] != '-')
+            val = (int64_t)strtoull(lit->value, NULL, 10);
         return iron_hir_expr_int_lit(mod, val, lit->resolved_type, span);
     }
 

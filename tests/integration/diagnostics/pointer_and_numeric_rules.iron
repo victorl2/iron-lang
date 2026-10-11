@@ -2,7 +2,8 @@
 -- binding holding a read-only `*T` or `?*T` wrote the pointee, even a
 -- `val` object. And there is no implicit numeric conversion (manual 2):
 -- an Int32 value went into an Int binding, parameter or compound
--- assignment silently, while the other direction was E0202.
+-- assignment silently, while the other direction was E0202. A literal
+-- above the largest Int is valid only where it takes UInt64 or UInt.
 object P {
     var hp: Int
     init(hp: Int) {
@@ -28,4 +29,8 @@ func main() {
     total *= small
     val wide: Int = small
     println("{take(small)} {wide} {total} {a.hp} {c.hp}")
+    -- a literal above the largest Int fits only UInt64 and UInt
+    val no_context = 18446744073709551615
+    val too_narrow: UInt32 = 18446744073709551615
+    println("{no_context} {too_narrow}")
 }

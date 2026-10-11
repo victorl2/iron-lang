@@ -34,9 +34,8 @@ INTS = {'Int': (64, True), 'Int8': (8, True), 'Int16': (16, True), 'Int32': (32,
         'UInt32': (32, False), 'UInt64': (64, False), 'UInt': (64, False)}
 FLOATS = ('Float', 'Float32')
 NUMS = tuple(INTS) + FLOATS
-# A UInt64 literal above the largest Int (manual 1.4 allows it) is rejected
-# with E0292: issue filed, kept out of the programs until it is fixed.
-BIG_U64 = False
+# UInt64 / UInt literals above the largest Int (manual 1.4; #448).
+BIG_U64 = True
 
 
 def wrapt(t, x):
@@ -434,7 +433,12 @@ class NumGen(Gen):
             else:
                 kt = r.choice([x for x in self.types if x not in FLOATS])
                 mask = 127 if lo_hi(kt)[1] >= 127 else 7
-                k = TBin('&', self.texpr(kt, d - 1), TLit(mask, kt), kt)
+                kin = self.texpr(kt, d - 1)
+                if is_const(kin):
+                    # a constant count is not the left operand's partner: it
+                    # keeps type Int, where a UInt64-only literal is E0292
+                    kin = self.opaque(kt)
+                k = TBin('&', kin, TLit(mask, kt), kt)
             a = self.texpr(t, d - 1)
             if is_const(a):
                 a = self.opaque(t)      # a literal shifted keeps type Int
@@ -452,7 +456,10 @@ class NumGen(Gen):
 
     def tcmp(self, d):
         t = self.r.choice(self.types)
-        return TBin(self.r.choice(CMP), self.texpr(t, d), self.texpr(t, d), 'Bool')
+        a, b = self.texpr(t, d), self.texpr(t, d)
+        if is_const(a) and is_const(b):
+            b = self.opaque(t)      # two literals compare as Int
+        return TBin(self.r.choice(CMP), a, b, 'Bool')
 
     def bool_expr(self, d, ctx):
         if self.r.random() < 0.4:

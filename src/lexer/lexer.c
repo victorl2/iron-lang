@@ -649,20 +649,22 @@ static Iron_Token iron_lex_number(Iron_Lexer *l) {
             memcpy(hexbuf, l->src + digits_start, copy_len);
             hexbuf[copy_len] = '\0';
             errno = 0;
-            long long v = strtoll(hexbuf, NULL, 16);
+            /* Hexadecimal literals must fit in 64 bits (manual 1.4), not in
+             * an Int: 0xFFFFFFFFFFFFFFFF is a UInt64 constant. */
+            unsigned long long v = strtoull(hexbuf, NULL, 16);
             if (errno == ERANGE) {
                 Iron_Span span = iron_span_make(l->filename, start_line, start_col,
                                                  l->line, l->col);
                 iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
                                IRON_ERR_INVALID_NUMBER, span,
-                               "hex literal out of range for int64",
+                               "hex literal does not fit in 64 bits",
                                NULL);
                 uint32_t bad_len = (uint32_t)(l->pos - start_pos);
                 return iron_make_token(l, IRON_TOK_ERROR, NULL,
                                        start_line, start_col, bad_len);
             }
             char decbuf[32];
-            snprintf(decbuf, sizeof(decbuf), "%lld", v);
+            snprintf(decbuf, sizeof(decbuf), "%llu", v);
             const char *value = iron_arena_strdup(l->arena, decbuf, strlen(decbuf));
             if (!value) {
                 /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_number hex value). */
@@ -706,20 +708,20 @@ static Iron_Token iron_lex_number(Iron_Lexer *l) {
             memcpy(binbuf, l->src + digits_start, copy_len);
             binbuf[copy_len] = '\0';
             errno = 0;
-            long long v = strtoll(binbuf, NULL, 2);
+            unsigned long long v = strtoull(binbuf, NULL, 2);
             if (errno == ERANGE) {
                 Iron_Span span = iron_span_make(l->filename, start_line, start_col,
                                                  l->line, l->col);
                 iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
                                IRON_ERR_INVALID_NUMBER, span,
-                               "binary literal out of range for int64",
+                               "binary literal does not fit in 64 bits",
                                NULL);
                 uint32_t bad_len = (uint32_t)(l->pos - start_pos);
                 return iron_make_token(l, IRON_TOK_ERROR, NULL,
                                        start_line, start_col, bad_len);
             }
             char decbuf[32];
-            snprintf(decbuf, sizeof(decbuf), "%lld", v);
+            snprintf(decbuf, sizeof(decbuf), "%llu", v);
             const char *value = iron_arena_strdup(l->arena, decbuf, strlen(decbuf));
             if (!value) {
                 /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_number binary value). */

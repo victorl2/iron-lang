@@ -739,6 +739,10 @@ typedef struct {
     Iron_NodeKind      kind;   /* IRON_NODE_INT_LIT */
     struct Iron_Type  *resolved_type;  /* set by type checker */
     const char        *value;
+    /* Set by the type checker: the value is above the largest Int but fits
+     * 64 bits unsigned, so the literal is valid only where it takes UInt64
+     * or UInt (manual 1.4). */
+    bool               exceeds_int;
 } Iron_IntLit;
 
 typedef struct {
