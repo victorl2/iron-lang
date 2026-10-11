@@ -36,6 +36,7 @@ extern char **environ;
 #include "project/color.h"
 #include "project/iron_project.h"
 #include "project/project_build.h"
+#include "cli/target.h"
 
 /* ── Platform timing ────────────────────────────────────────────────────── */
 
@@ -560,13 +561,60 @@ static int check_iron_version(const IronProject *proj, bool colors,
     return 1;
 }
 
+/* What iron.toml must hold for iron to use it: well-formed [package]
+ * strings, a name that is a single path component (the binary is
+ * target/<name>, the archive target/lib<name>.a), and a known type.
+ * Returns false after reporting the problem. */
+static bool manifest_usable(const IronProject *proj, bool colors) {
+    char msg[1200];
+    if (proj->error) {
+        snprintf(msg, sizeof(msg), "invalid iron.toml: %s", proj->error);
+        iron_print_error(colors, msg);
+        return false;
+    }
+    const char *n = proj->name;
+    bool ok = n && n[0] && strcmp(n, ".") != 0 && strcmp(n, "..") != 0;
+    for (const char *c = n; ok && *c; c++)
+        ok = (unsigned char)*c >= 0x20 && *c != 0x7f && !strchr("/\\:\"<>|?*", *c);
+    if (!ok) {
+        snprintf(msg, sizeof(msg), "invalid package name '%.200s' in iron.toml: it names the "
+                 "output file, so it may not be empty, '.' or '..', or contain / \\ : \" < > | ? * "
+                 "or control characters", n ? n : "");
+        iron_print_error(colors, msg);
+        return false;
+    }
+    if (proj->type && strcmp(proj->type, "bin") != 0 && strcmp(proj->type, "lib") != 0) {
+        snprintf(msg, sizeof(msg), "invalid package type '%.200s' in iron.toml: use \"bin\" or \"lib\"",
+                 proj->type);
+        iron_print_error(colors, msg);
+        return false;
+    }
+    return true;
+}
+
 /* Reject any flag in argv[2..] (up to a `--` separator) that is not in
- * allowed[] (NULL-terminated). Unknown flags used to be ignored silently. */
-static int reject_unknown_flags(const char *cmd, int argc, char **argv,
-                                const char *const *allowed) {
+ * allowed[] (NULL-terminated), and more than max_positional arguments
+ * that are not flags. Both used to be ignored silently. */
+static int reject_unknown_args(const char *cmd, int argc, char **argv,
+                               const char *const *allowed, int max_positional) {
+    int positional = 0;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--") == 0) break;
-        if (argv[i][0] != '-') continue;
+        if (argv[i][0] != '-' || argv[i][1] == '\0') {
+            if (++positional > max_positional) {
+                fprintf(stderr, "error: unexpected argument '%s' for 'iron %s'\n", argv[i], cmd);
+                if (strcmp(cmd, "run") == 0)
+                    fprintf(stderr, "  = help: pass arguments to the program after --: "
+                                    "iron run -- %s\n", argv[i]);
+                else if (strcmp(cmd, "test") != 0)
+                    fprintf(stderr, "  = help: in a package, `iron %s` takes no file; "
+                                    "pass a .iron file to %s one file\n", cmd, cmd);
+                return 1;
+            }
+            continue;
+        }
+        bool takes_value = strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0 ||
+                           strcmp(argv[i], "--target") == 0;
         bool ok = false;
         for (int k = 0; allowed[k]; k++) {
             size_t al = strlen(allowed[k]);
@@ -577,6 +625,13 @@ static int reject_unknown_flags(const char *cmd, int argc, char **argv,
         if (!ok) {
             fprintf(stderr, "error: unknown flag '%s' for 'iron %s'\n", argv[i], cmd);
             return 1;
+        }
+        if (takes_value) {
+            if (i + 1 >= argc || strcmp(argv[i + 1], "--") == 0) {
+                fprintf(stderr, "error: %s requires a value\n", argv[i]);
+                return 1;
+            }
+            i++;
         }
     }
     return 0;
@@ -1135,19 +1190,43 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * Phase 94 LIB-04: --release is parsed at the iron build CLI layer and
      * forwarded to ironc below; the Finished status line differentiates
      * "release [optimized]" from "dev [unoptimized]" based on the same flag. */
-    static const char *const allowed[] = { "--verbose", "--release", "--debug", "--target=", NULL };
+    /* The flags `iron build --help` and `iron run --help` list (manual
+     * 10.4); the ones iron does not act on itself go to ironc as given. */
+    static const char *const allowed_build[] = {
+        "--verbose", "--release", "--debug", "--target=", "--target", "-o", "--output",
+        "--debug-build", "--emit-c", "--test", "--no-optimize", "--strict-v3", "--no-strict-v3",
+        "--force-comptime", "--dump-ir-passes", "--report-compression", "--warn-fusion-break", NULL };
+    static const char *const allowed_run[] = {
+        "--verbose", "--release", "--debug", "--target=", "--target", "-o", "--output",
+        "--debug-build", "--no-optimize", "--strict-v3", "--no-strict-v3",
+        "--force-comptime", "--dump-ir-passes", "--report-compression", "--warn-fusion-break", NULL };
     static const char *const allowed_debug[] = { "--verbose", "--gdb", "--lldb", NULL };
-    if (reject_unknown_flags(g_debug_session ? "debug" : run_after ? "run" : "build", argc, argv,
-                             g_debug_session ? allowed_debug : allowed) != 0)
+    if (reject_unknown_args(g_debug_session ? "debug" : run_after ? "run" : "build", argc, argv,
+                            g_debug_session ? allowed_debug : run_after ? allowed_run : allowed_build,
+                            0) != 0)
         return 1;
     bool verbose = false;
     bool release = false;
     bool debug = g_debug_session; /* --debug: debug info on Iron lines (#312) */
     const char *target = NULL;   /* --target=<name>: web or a cross target, forwarded to ironc */
+    const char *output_override = NULL;   /* -o / --output */
+    const char *passthrough[16];
+    int passthrough_count = 0;
     char **run_args = NULL;
     int run_arg_count = 0;
     for (int i = 2; i < argc; i++) {
-        if (strcmp(argv[i], "--verbose") == 0) {
+        if (strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) {
+            output_override = argv[++i];
+        } else if (strcmp(argv[i], "--target") == 0) {
+            target = argv[++i];
+            if (strcmp(target, "native") == 0) target = NULL;
+        } else if (argv[i][0] == '-' && argv[i][1] == '-' && strcmp(argv[i], "--") != 0 &&
+                   strcmp(argv[i], "--verbose") != 0 && strcmp(argv[i], "--release") != 0 &&
+                   strcmp(argv[i], "--debug") != 0 && strcmp(argv[i], "--gdb") != 0 &&
+                   strcmp(argv[i], "--lldb") != 0 && strncmp(argv[i], "--target=", 9) != 0) {
+            if (passthrough_count < (int)(sizeof(passthrough) / sizeof(passthrough[0])))
+                passthrough[passthrough_count++] = argv[i];
+        } else if (strcmp(argv[i], "--verbose") == 0) {
             verbose = true;
         } else if (strcmp(argv[i], "--release") == 0) {
             release = true;
@@ -1167,6 +1246,15 @@ static int cmd_build(bool run_after, int argc, char **argv) {
         }
     }
 
+    /* The target names a directory under target/: check it before any
+     * directory is made (`--target=../x` made one outside the package). */
+    if (target && iron_target_is_host(target)) target = NULL;
+    if (target && strcmp(target, "web") != 0 && !iron_target_lookup(target)) {
+        fprintf(stderr, "error: unknown target '%s'. valid targets: native, web, %s\n",
+                target, iron_target_names());
+        return 1;
+    }
+
     /* 1. Find iron.toml */
     char *toml_path = find_iron_toml();
     if (!toml_path) {
@@ -1177,10 +1265,21 @@ static int cmd_build(bool run_after, int argc, char **argv) {
 
     /* 2. Parse iron.toml */
     IronProject *proj = iron_toml_parse(toml_path);
+    if (proj && proj->error) {
+        manifest_usable(proj, colors);
+        free(toml_path);
+        iron_toml_free(proj);
+        return 1;
+    }
     if (!proj || !proj->name || !proj->version) {
         iron_print_error(colors, "invalid iron.toml: missing required fields (name, version)");
         free(toml_path);
         if (proj) iron_toml_free(proj);
+        return 1;
+    }
+    if (!manifest_usable(proj, colors)) {
+        free(toml_path);
+        iron_toml_free(proj);
         return 1;
     }
 
@@ -1346,6 +1445,7 @@ static int cmd_build(bool run_after, int argc, char **argv) {
         snprintf(output_path, sizeof(output_path), "%s/target/%s/%s%s", proj_dir, target, proj->name,
                  strncmp(target, "windows-", 8) == 0 ? ".exe" : "");
     }
+    if (output_override) snprintf(output_path, sizeof(output_path), "%s", output_override);
 
     /* 6. Assemble sources: vendored files + project files, or just the
      * entry point for a single-file project with nothing vendored. */
@@ -1373,6 +1473,7 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * clang -c invocation. Applies to both type=bin and type=lib builds. */
     if (release) path_list_add(&args, "--release");
     if (debug) path_list_add(&args, "--debug");
+    for (int i = 0; i < passthrough_count; i++) path_list_add(&args, passthrough[i]);
     if (target) {
         char tflag[160];
         snprintf(tflag, sizeof(tflag), "--target=%s", target);
@@ -1461,7 +1562,7 @@ static int cmd_build(bool run_after, int argc, char **argv) {
 
 static int cmd_check(int argc, char **argv) {
     static const char *const allowed[] = { NULL };
-    if (reject_unknown_flags("check", argc, argv, allowed) != 0) return 1;
+    if (reject_unknown_args("check", argc, argv, allowed, 0) != 0) return 1;
     bool colors = iron_color_init();
 
     char *toml_path = find_iron_toml();
@@ -1471,10 +1572,15 @@ static int cmd_check(int argc, char **argv) {
     }
 
     IronProject *proj = iron_toml_parse(toml_path);
-    if (!proj || !proj->name) {
-        iron_print_error(colors, "invalid iron.toml");
+    if (!proj || (!proj->name && !proj->error)) {
+        iron_print_error(colors, "invalid iron.toml: missing required field (name)");
         free(toml_path);
         if (proj) iron_toml_free(proj);
+        return 1;
+    }
+    if (!manifest_usable(proj, colors)) {
+        free(toml_path);
+        iron_toml_free(proj);
         return 1;
     }
 
@@ -1560,11 +1666,22 @@ static bool defines_main(const char *path) {
  */
 static int cmd_test(int argc, char **argv) {
     static const char *const allowed[] = { NULL };
-    if (reject_unknown_flags("test", argc, argv, allowed) != 0) return 1;
+    if (reject_unknown_args("test", argc, argv, allowed, 1) != 0) return 1;
     bool colors = iron_color_init();
+    /* `iron test [filter]`, or `iron test -- <filter>` for a filter that
+     * starts with '-'. */
     const char *filter = NULL;
-    for (int i = 2; i < argc; i++)
-        if (argv[i][0] != '-') { filter = argv[i]; break; }
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--") == 0) {
+            if (i + 1 < argc && !filter) filter = argv[i + 1];
+            if (i + 2 < argc) {
+                fprintf(stderr, "error: unexpected argument '%s' for 'iron test'\n", argv[i + 2]);
+                return 1;
+            }
+            break;
+        }
+        if ((argv[i][0] != '-' || argv[i][1] == '\0') && !filter) filter = argv[i];
+    }
 
     char *toml_path = find_iron_toml();
     if (!toml_path) {
@@ -1572,10 +1689,15 @@ static int cmd_test(int argc, char **argv) {
         return 1;
     }
     IronProject *proj = iron_toml_parse(toml_path);
-    if (!proj || !proj->name) {
-        iron_print_error(colors, "invalid iron.toml");
+    if (!proj || (!proj->name && !proj->error)) {
+        iron_print_error(colors, "invalid iron.toml: missing required field (name)");
         free(toml_path);
         if (proj) iron_toml_free(proj);
+        return 1;
+    }
+    if (!manifest_usable(proj, colors)) {
+        free(toml_path);
+        iron_toml_free(proj);
         return 1;
     }
     char *proj_dir = get_project_dir(toml_path);
@@ -1654,7 +1776,7 @@ static int cmd_test(int argc, char **argv) {
     if (ret == 0) {
         char *ironc = find_ironc();
         char *spawn_argv[] = { ironc, "test", combined_path, "--package-root", proj_dir,
-                               (char *)filter, NULL };
+                               filter ? "--" : NULL, (char *)filter, NULL };
         ret = spawn_and_wait(ironc, spawn_argv);
         if (has_standalone) {
             /* Standalone programs run whole; the filter does not apply. */

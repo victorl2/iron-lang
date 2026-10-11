@@ -211,7 +211,7 @@ def read_tree(root):
         for fn in fns:
             p = os.path.join(dp, fn)
             rel = os.path.relpath(p, root).replace(os.sep, '/')
-            with open(p, encoding='utf-8') as f:
+            with open(p, encoding='utf-8', newline='') as f:
                 t[rel] = f.read()
     return t
 
@@ -239,9 +239,9 @@ def edit(rng, root, pk, step):
         return f'delete {p}'
     if r < 0.75:
         # change a constant: every `= <int>` global of the file
-        with open(full, encoding='utf-8') as f:
+        with open(full, encoding='utf-8', newline='') as f:
             txt = f.read()
-        new = re.sub(r'^((?:val|var) \w+ = )(\d+)$', lambda m: m.group(1) + str(int(m.group(2)) + step),
+        new = re.sub(r'^((?:val|var) \w+ = )(\d+)(?=\r?$)', lambda m: m.group(1) + str(int(m.group(2)) + step),
                      txt, flags=re.M)
         with open(full, 'w', encoding='utf-8', newline='\n') as f:
             f.write(new)

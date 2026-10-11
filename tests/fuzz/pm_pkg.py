@@ -67,6 +67,7 @@ class Pkg:
         self.extra = {}          # path -> raw file content (non-.iron files)
         self.negative = None
         self.removable = []      # (path) files nothing else uses (incr mode)
+        self.styles = {}         # path -> how the file is written (encode_style)
 
     def nid(self, prefix):
         self.ids += 1
@@ -110,7 +111,7 @@ class Pkg:
                 t[f'{vp}/iron.toml'] = (f'[package]\nname = "{vp.split("/")[1]}"\n'
                                         'version = "1.0.0"\ntype = "lib"\n')
         for p in self.files:
-            t[p] = self.render_file(p)
+            t[p] = encode_style(self.render_file(p), self.styles.get(p, 'lf'))
         t.update(self.extra)
         return t
 
@@ -139,6 +140,25 @@ class Pkg:
 
 
 STDLIB = ('math', 'time', 'os', 'hint', 'log')
+
+STYLES = ('lf', 'lf', 'lf', 'crlf', 'bom', 'nonl', 'comment_end', 'bom_crlf', 'tabs')
+
+
+def encode_style(text, style):
+    """A file's text written one of the ways editors write files: CRLF
+    line ends, a UTF-8 byte order mark, no final newline, a final comment
+    without a newline, tab indentation."""
+    if style == 'tabs':
+        text = text.replace('    ', '\t')
+    if style in ('nonl', 'comment_end'):
+        text = text.rstrip('\n')
+        if style == 'comment_end':
+            text += '\n-- the end, no newline'
+    if style in ('crlf', 'bom_crlf'):
+        text = text.replace('\n', '\r\n')
+    if style in ('bom', 'bom_crlf'):
+        text = '\ufeff' + text
+    return text
 
 
 # ------------------------------------------------------------- features
@@ -424,6 +444,7 @@ def layout(pk):
     # ambiguous; keep it, imports only document
     for p in sorted(paths):
         pk.files[p] = []
+        pk.styles[p] = rng.choice(STYLES)
     # vendored packages with iron.toml compile only src/: a loose file
     # put directly in such a package directory would be skipped
     for p in list(pk.files):
