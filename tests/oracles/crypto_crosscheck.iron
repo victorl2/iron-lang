@@ -1,0 +1,125 @@
+-- Driver for tests/oracles/crypto_crosscheck.py: reads one case per line
+-- ("op|hex arg|hex arg|..."), runs it through the crypto and encoding
+-- modules and prints one result per line (hex, true/false or ERR<code>).
+import crypto
+import encoding
+import io
+
+func arg(fields: [String], i: Int) -> String {
+    val d = Hex.decode(fields[i])
+    assert(d.error == 0, "bad hex in case file")
+    return d.data
+}
+
+func hash_alg(name: String) -> HashAlgorithm {
+    if name == "sha1" {
+        return HashAlgorithm.Sha1
+    } elif name == "sha224" {
+        return HashAlgorithm.Sha224
+    } elif name == "sha256" {
+        return HashAlgorithm.Sha256
+    } elif name == "sha384" {
+        return HashAlgorithm.Sha384
+    } elif name == "sha512" {
+        return HashAlgorithm.Sha512
+    } elif name == "sha3_256" {
+        return HashAlgorithm.Sha3_256
+    } elif name == "sha3_512" {
+        return HashAlgorithm.Sha3_512
+    }
+    return HashAlgorithm.Md5
+}
+
+func aead_alg(name: String) -> AeadAlgorithm {
+    if name == "chacha" {
+        return AeadAlgorithm.ChaCha20Poly1305
+    }
+    return AeadAlgorithm.Aes256Gcm
+}
+
+func result(r: CryptoResult) -> String {
+    if r.error != 0 {
+        return "ERR{r.error}"
+    }
+    return Hex.encode(r.data)
+}
+
+func decoded(r: DecodeResult) -> String {
+    if r.error != 0 {
+        return "ERR{r.error}"
+    }
+    return Hex.encode(r.data)
+}
+
+func run(line: String) -> String {
+    val f = line.split("|")
+    val op = f[0]
+    val kind = op.split(":")
+    if kind[0] == "hash" {
+        return Hex.encode(Crypto.hash(hash_alg(kind[1]), arg(f, 1)))
+    } elif kind[0] == "hmac" {
+        return Hex.encode(Crypto.hmac(hash_alg(kind[1]), arg(f, 1), arg(f, 2)))
+    } elif kind[0] == "stream" {
+        -- data, then the sizes of the pieces to feed it in
+        val data = arg(f, 1)
+        var h = Hasher.new(hash_alg(kind[1]))
+        var at = 0
+        for size in f[2].split(",") {
+            h.update(data.byte_slice(at, at + size.to_int()))
+            at += size.to_int()
+        }
+        h.update(data.byte_slice(at, data.byte_len()))
+        return Hex.encode(h.finish())
+    } elif kind[0] == "hmacstream" {
+        val data = arg(f, 2)
+        var h = Hasher.hmac(hash_alg(kind[1]), arg(f, 1))
+        var at = 0
+        for size in f[3].split(",") {
+            h.update(data.byte_slice(at, at + size.to_int()))
+            at += size.to_int()
+        }
+        h.update(data.byte_slice(at, data.byte_len()))
+        return Hex.encode(h.finish())
+    } elif kind[0] == "hkdf" {
+        return result(Crypto.hkdf(hash_alg(kind[1]), arg(f, 1), arg(f, 2), arg(f, 3), f[4].to_int()))
+    } elif kind[0] == "pbkdf2" {
+        return result(Crypto.pbkdf2(hash_alg(kind[1]), arg(f, 1), arg(f, 2), f[3].to_int(), f[4].to_int()))
+    } elif kind[0] == "scrypt" {
+        return result(Crypto.scrypt(arg(f, 1), arg(f, 2), f[3].to_int(), f[4].to_int(), f[5].to_int(), f[6].to_int()))
+    } elif kind[0] == "seal" {
+        return result(Crypto.seal(aead_alg(kind[1]), arg(f, 1), arg(f, 2), arg(f, 3), arg(f, 4)))
+    } elif kind[0] == "open" {
+        return result(Crypto.open(aead_alg(kind[1]), arg(f, 1), arg(f, 2), arg(f, 3), arg(f, 4)))
+    } elif kind[0] == "decrypt" {
+        return result(Crypto.decrypt(aead_alg(kind[1]), arg(f, 1), arg(f, 2), arg(f, 3)))
+    } elif op == "verify" {
+        return "{Crypto.verify_password(arg(f, 1), arg(f, 2))}"
+    } elif op == "cteq" {
+        return "{Crypto.constant_time_equal(arg(f, 1), arg(f, 2))}"
+    } elif op == "xor" {
+        return Hex.encode(Crypto.xor(arg(f, 1), arg(f, 2)))
+    } elif op == "hexenc" {
+        return Hex.encode(Hex.encode(arg(f, 1)))
+    } elif op == "b64enc" {
+        return Hex.encode(Base64.encode(arg(f, 1)))
+    } elif op == "b64urlenc" {
+        return Hex.encode(Base64.url_encode(arg(f, 1)))
+    } elif op == "hexdec" {
+        return decoded(Hex.decode(arg(f, 1)))
+    } elif op == "b64dec" {
+        return decoded(Base64.decode(arg(f, 1)))
+    } elif op == "b64urldec" {
+        return decoded(Base64.url_decode(arg(f, 1)))
+    }
+    return "unknown op {op}"
+}
+
+func main(args: [String]) {
+    val input = IO.read_text(args[0], 1 << 30)
+    assert(input.error == 0, "cannot read the case file")
+    for line in input.data.split("\n") {
+        if line.byte_len() > 0 {
+            println(run(line))
+        }
+    }
+}
