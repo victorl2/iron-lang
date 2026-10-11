@@ -44,6 +44,17 @@ Get-ChildItem -Path $Corpus -Recurse -Filter *.iron | Sort-Object FullName | For
         $fail++; Write-Output ("[FAIL] " + $name + " (output)")
         Write-Output ("  want: " + (($want.TrimEnd() -split "`n" | Select-Object -First 2) -join " | "))
         Write-Output ("  got:  " + (($out.TrimEnd() -split "`n" | Select-Object -First 2) -join " | "))
+        # The first two lines can match while a later one differs: name the
+        # first differing line so the failure is never invisible.
+        $wl = $want.TrimEnd() -split "`n"; $ol = $out.TrimEnd() -split "`n"
+        for ($i = 0; $i -lt [Math]::Max($wl.Count, $ol.Count); $i++) {
+            $w = if ($i -lt $wl.Count) { $wl[$i] } else { "<missing>" }
+            $o = if ($i -lt $ol.Count) { $ol[$i] } else { "<missing>" }
+            if ($w -cne $o) {
+                Write-Output ("  first difference, line " + ($i + 1) + ": want '" + $w + "' got '" + $o + "'")
+                break
+            }
+        }
     }
 }
 Write-Output ("PASS=" + $pass + " FAIL=" + $fail + " SKIPPED=" + $skip)
