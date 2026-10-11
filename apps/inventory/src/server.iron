@@ -81,6 +81,40 @@ pub func serve_one(app: rc App, connection: HttpConnection) -> Int {
     return 0
 }
 
+-- One serving thread: take a connection whose request has arrived, serve
+-- it, repeat, until the poller closes. Several of these share the poller.
+func serve_loop(app: rc App) -> Int {
+    var served = 0
+    while true {
+        val ready = app.poller.next(1000)
+        if ready.error == 0 {
+            app.state.task_started()
+            serve_one(app, ready.connection)
+            served += 1
+        } elif ready.error == 1013 {
+            return served
+        } elif ready.error != 1004 {
+            logger_error("connection poller failed").int("code", ready.error).str("error", ready.error_message).emit()
+            Time.sleep(100)
+        }
+    }
+    return served
+}
+
+-- Run `n` serving threads and wait for all of them (they end when the
+-- poller is closed). Returns the requests they served.
+pub func run_workers(app: rc App, n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    val first = spawn("http-worker") {
+        return serve_loop(app)
+    }
+    val rest = run_workers(app, n - 1)
+    val mine = await first
+    return mine + rest
+}
+
 -- Open the database: wait for MySQL, apply migrations and load the stored
 -- exchange rates. Retries with backoff until it succeeds or shutdown.
 pub func init_database(app: rc App) -> Int {

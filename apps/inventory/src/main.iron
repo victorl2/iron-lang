@@ -104,18 +104,19 @@ func main(args: [String]) {
         return refresh_loop(app)
     }
 
+    -- The serving threads take ready connections from the poller and
+    -- serve them in place; a request that waits on MySQL or the upstream
+    -- holds only its own thread.
+    var workers = cfg.workers
+    if workers == 0 {
+        workers = OS.cpu_count() + cfg.db_pool_max
+    }
+    val serving = spawn("http-workers") {
+        return run_workers(app, workers)
+    }
+    logger_info("serving").int("workers", workers).int("cpus", OS.cpu_count()).emit()
     while OS.shutdown_signal() == 0 {
-        val ready = poller.next(100)
-        if ready.error == 0 {
-            val connection = ready.connection
-            state.task_started()
-            spawn("request") {
-                return serve_one(app, connection)
-            }
-        } elif ready.error != 1004 {
-            logger_error("connection poller failed").int("code", ready.error).str("error", ready.error_message).emit()
-            Time.sleep(100)
-        }
+        Time.sleep(50)
     }
 
     -- Shutdown: stop accepting, finish what is in flight (answers now say
@@ -129,9 +130,10 @@ func main(args: [String]) {
         Time.sleep(10)
     }
     val left = state.running_tasks()
+    val served = await serving
     await db_task
     await refresher
     db.close()
     HttpClient.close(rates.client)
-    logger_info("stopped").int("abandoned_requests", left).emit()
+    logger_info("stopped").int("abandoned_requests", left).int("requests_served", served).emit()
 }
