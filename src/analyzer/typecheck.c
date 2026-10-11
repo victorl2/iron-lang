@@ -13040,6 +13040,48 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         if (iron_generics_is_template(program, decl)) continue;
         Iron_ObjectDecl *od = (Iron_ObjectDecl *)decl;
 
+        /* Two methods (or static functions) of the same name in one object
+         * body reached lowering as two C functions of one name ("function
+         * body is NULL", #673). A type with patches is covered by the
+         * patch conflict scan above. */
+        if (!od->is_patch && od->name) {
+            bool has_patch = false;
+            for (int pj = 0; pj < program->decl_count && !has_patch; pj++) {
+                Iron_Node *dj = program->decls[pj];
+                if (!dj || dj->kind != IRON_NODE_OBJECT_DECL) continue;
+                Iron_ObjectDecl *odj = (Iron_ObjectDecl *)dj;
+                const char *tj = odj->target_type_name ? odj->target_type_name : odj->name;
+                if (odj->is_patch && tj && strcmp(tj, od->name) == 0) has_patch = true;
+            }
+            for (int ma = 0; ma < program->decl_count && !has_patch; ma++) {
+                Iron_Node *na = program->decls[ma];
+                if (!na || na->kind != IRON_NODE_METHOD_DECL) continue;
+                Iron_MethodDecl *a = (Iron_MethodDecl *)na;
+                if (!a->type_name || !a->method_name || strcmp(a->type_name, od->name) != 0 ||
+                    a->is_init || a->is_drop || a->is_copy || a->is_synth_accessor ||
+                    a->is_iface_default)
+                    continue;
+                for (int mb = ma + 1; mb < program->decl_count; mb++) {
+                    Iron_Node *nb = program->decls[mb];
+                    if (!nb || nb->kind != IRON_NODE_METHOD_DECL) continue;
+                    Iron_MethodDecl *b = (Iron_MethodDecl *)nb;
+                    if (!b->type_name || !b->method_name ||
+                        strcmp(b->type_name, od->name) != 0 ||
+                        strcmp(b->method_name, a->method_name) != 0 ||
+                        b->is_init || b->is_drop || b->is_copy || b->is_synth_accessor ||
+                        b->is_iface_default)
+                        continue;
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "'%s' declares '%s' twice", od->name,
+                             a->method_name);
+                    emit_error(&ctx, IRON_ERR_DUPLICATE_DECL, b->span, msg,
+                               "methods and static functions cannot be overloaded: "
+                               "rename one of them");
+                    break;
+                }
+            }
+        }
+
         /* Duplicate drop/copy detection.
          * Methods are NOT stored on Iron_ObjectDecl (Plan 86 layout) — scan
          * program->decls for IRON_NODE_METHOD_DECL nodes whose type_name == od->name. */
@@ -13106,6 +13148,20 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                 Iron_MethodDecl *tmd = (Iron_MethodDecl *)decl;
                 check_template_static_calls(&ctx, tmd->generic_params,
                                             tmd->generic_param_count, tmd->body);
+                /* A static function of a generic object has no value to
+                 * fix the type arguments, and `Box[Int].f()` is not an
+                 * expression. */
+                Iron_Symbol *ots = tmd->is_static && tmd->type_name
+                    ? iron_scope_lookup(ctx.global_scope, tmd->type_name) : NULL;
+                if (ots && ots->decl_node && ots->decl_node->kind == IRON_NODE_OBJECT_DECL &&
+                    ((Iron_ObjectDecl *)ots->decl_node)->generic_param_count > 0) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "static function '%s' of generic object '%s' is not supported",
+                             tmd->method_name ? tmd->method_name : "?", tmd->type_name);
+                    emit_error(&ctx, IRON_ERR_TIER_MODIFIER_PLACEMENT, tmd->span, msg,
+                               "write a top-level generic function, or a named init");
+                }
             }
             continue;
         }

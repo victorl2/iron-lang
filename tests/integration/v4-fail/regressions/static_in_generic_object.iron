@@ -1,0 +1,12 @@
+-- A static function of a generic object has no value to fix its type
+-- arguments, and Holder[Int].of(3) is not an expression (#455).
+object Holder[T] {
+    val v: T
+    static func of(x: T) -> Self {
+        return Holder(x)
+    }
+}
+
+func main() {
+    println("{Holder.of(3).v}")
+}

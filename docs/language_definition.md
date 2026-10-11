@@ -1373,7 +1373,9 @@ its body is `E0210`), takes no tier modifier (`E0245`), and is called on the
 type, `Name.name(args)`. Calling it on a value is `E0350`; calling a method
 through the type name, `Name.method(args)`, is `E0351`, because there is no
 value for `self`. A static function may be `pub`, may take type parameters,
-and may be added by a `patch object`.
+and may be added by a `patch object`. A generic object cannot declare one
+(`E0245`): no value fixes its type arguments. Two members of one name,
+methods or static functions, are `E0201`.
 
 **`self` and `Self`.** Inside a method `self` is the receiver;
 outside a method it is an error (`E0210`). The identifier `Self` names the
