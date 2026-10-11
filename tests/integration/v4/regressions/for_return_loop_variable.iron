@@ -1,0 +1,58 @@
+-- Returning the loop variable of `for x in list` from inside the loop moved
+-- the element out of a list that is still dropped at function exit: with a
+-- named list the caller got a freed string (use after free), and with a
+-- temporary list (`for p in s.split(",")`) the list leaked on that return.
+-- The loop variable borrows its element, so returning it returns a copy,
+-- and a temporary iterable is dropped on every exit of the loop.
+func first_with(parts: [String], prefix: String) -> String {
+    for p in parts {
+        if p.starts_with(prefix) {
+            return p
+        }
+    }
+    return ""
+}
+
+func first_named(text: String, prefix: String) -> String {
+    val parts = text.split(",")
+    for p in parts {
+        if p.starts_with(prefix) {
+            return p
+        }
+    }
+    return ""
+}
+
+func first_temporary(text: String, prefix: String) -> String {
+    for p in text.split(",") {
+        if p.starts_with(prefix) {
+            return p
+        }
+    }
+    return ""
+}
+
+func count_before(text: String, stop: String) -> Int {
+    var n = 0
+    for p in text.split(",") {
+        if p == stop {
+            break
+        }
+        n += 1
+    }
+    return n
+}
+
+func main() {
+    val text = "alpha,beta and a tail long enough to live on the heap,gamma"
+    var total = 0
+    for i in range(200) {
+        total += first_named(text, "beta").len()
+        total += first_temporary(text, "gamma").len()
+        total += count_before(text, "gamma")
+    }
+    val owned = ["one", "two and a tail long enough to live on the heap"]
+    val got = first_with(owned, "two")
+    println("{total} {got.len()} {owned[1].len()}")
+    println(first_named(text, "beta"))
+}
