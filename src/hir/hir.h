@@ -357,7 +357,7 @@ struct IronHIR_Expr {
         struct { double value; } float_lit;
 
         /* IRON_HIR_EXPR_STRING_LIT */
-        struct { const char *value; } string_lit;
+        struct { const char *value; size_t len; } string_lit;   /* len 0: strlen(value) */
 
         /* IRON_HIR_EXPR_INTERP_STRING */
         struct {

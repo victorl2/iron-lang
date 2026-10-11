@@ -73,6 +73,24 @@ val s = "\u{e9} \{x\}"
       (escape_sequence)
       (escape_sequence))))
 
+==========
+byte, zero and carriage return escapes
+==========
+
+val s = "\x41\x7f\r\n\0"
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    value: (string_literal
+      (escape_sequence)
+      (escape_sequence)
+      (escape_sequence)
+      (escape_sequence)
+      (escape_sequence))))
+
 ================================================================================
 A string holding a closing brace inside a nested interpolation
 ================================================================================

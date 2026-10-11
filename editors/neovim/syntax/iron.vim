@@ -34,7 +34,7 @@ syn match   ironNumber      /\<0[bB][01_]\+\>/
 syn match   ironNumber      /\<\d[0-9_]*\>/
 syn match   ironFloat       /\<\d[0-9_]*\.\d[0-9_]*\([eE][+-]\=\d\+\)\=\>/
 
-syn match   ironEscape      contained /\\\(u{\x\{1,6}}\|.\)/
+syn match   ironEscape      contained /\\\(u{\x\{1,6}}\|x\x\x\|.\)/
 syn region  ironInterp      contained matchgroup=ironInterpDelim start=/{/ end=/}/ contains=TOP
 syn region  ironString      start=/"/ skip=/\\\\\|\\"/ end=/"/ contains=ironEscape,ironInterp
 
