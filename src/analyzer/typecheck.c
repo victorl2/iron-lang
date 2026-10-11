@@ -4389,7 +4389,24 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                         (iron_type_is_float(lt) && iron_type_is_float(rt)) ||
                         types_assignable(lt, rt) ||
                         types_assignable(rt, lt);
-                    if (!comparable) {
+                    const Iron_Type *opt_side =
+                        lt->kind == IRON_TYPE_NULLABLE ? lt
+                        : rt->kind == IRON_TYPE_NULLABLE ? rt : NULL;
+                    const Iron_Type *opt_inner = opt_side ? opt_side->nullable.inner : NULL;
+                    if (comparable && opt_side && lt->kind != IRON_TYPE_NULL &&
+                        rt->kind != IRON_TYPE_NULL && opt_inner &&
+                        opt_inner->kind != IRON_TYPE_PTR && opt_inner->kind != IRON_TYPE_RC &&
+                        opt_inner->kind != IRON_TYPE_WEAK_RC) {
+                        /* A T? operand has no value to compare until it is
+                         * checked; this used to reach the C compiler. */
+                        char msg[512];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot compare '%s' with '%s': the nullable side may be null",
+                                 iron_type_to_string(lt, ctx->arena),
+                                 iron_type_to_string(rt, ctx->arena));
+                        emit_error(ctx, IRON_ERR_NULLABLE_ACCESS, be->span, msg,
+                                   "check it first: `x != null and x == v`");
+                    } else if (!comparable) {
                         char msg[512];
                         snprintf(msg, sizeof(msg),
                                  "cannot compare '%s' with '%s'",
