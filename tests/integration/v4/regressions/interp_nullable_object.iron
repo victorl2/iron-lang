@@ -1,0 +1,50 @@
+-- A T? of an object with to_string() interpolates as "null" or the text of
+-- to_string() (issue 451; manual 3.3 allows it), and so does an rc T?. The
+-- value is evaluated once, only a non-null value calls to_string(), and an
+-- owned temporary (a call result with heap fields) is released after.
+object P {
+    val x: Int
+    val name: String
+    readonly func to_string() -> String {
+        return "P{self.x}:{self.name}"
+    }
+}
+
+object Holder {
+    val p: P?
+}
+
+var calls = 0
+
+func find(n: Int) -> P? {
+    calls += 1
+    if n > 0 {
+        return P(n, "name " + "{n}" + " long enough to live on the heap")
+    }
+    return null
+}
+
+func main() {
+    println("{find(1)} {find(0)}")
+    val a = find(2)
+    val b: P? = null
+    println("[{a}] [{b}] {calls}")
+    val h = Holder(find(5))
+    val e = Holder(null)
+    println("{h.p} | {e.p}")
+    val f = func(n: Int) -> String { return "<{find(n)}>" }
+    println("{f(3)} {f(0)}")
+    val skipped = e.p != null and "{find(7)}" == "x"
+    println("{skipped} {calls}")
+    val xs: [P?] = [find(1), null]
+    for x in xs {
+        print("{x};")
+    }
+    println("")
+    val strong = rc P(9, "shared")
+    val w = strong.downgrade()
+    var maybe: rc P? = null
+    println("{w.upgrade()} {maybe}")
+    maybe = strong
+    println("{maybe}")
+}
