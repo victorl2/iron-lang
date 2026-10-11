@@ -258,3 +258,55 @@ func TypeName.method(mut p: Int) { p = 0 }
       (assignment_statement
         target: (identifier)
         value: (integer_literal)))))
+
+==========
+static func in object and interface
+==========
+
+interface Zero {
+  static func zero() -> Self
+  static func pair() -> Int { return 2 }
+}
+
+object P {
+  pub static func make(x: Int) -> P { return P(x) }
+}
+
+---
+
+(source_file
+  (interface_declaration
+    name: (identifier)
+    (method_signature
+      (static_modifier)
+      name: (identifier)
+      parameters: (parameter_list)
+      return_type: (type_identifier
+        (identifier)))
+    (method_signature
+      (static_modifier)
+      name: (identifier)
+      parameters: (parameter_list)
+      return_type: (type_identifier
+        (identifier))
+      body: (block
+        (return_statement
+          value: (integer_literal)))))
+  (object_declaration
+    name: (identifier)
+    (block_method_declaration
+      (visibility_modifier)
+      (static_modifier)
+      name: (identifier)
+      parameters: (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_identifier
+            (identifier))))
+      return_type: (type_identifier
+        (identifier))
+      body: (block
+        (return_statement
+          value: (call_expression
+            function: (identifier)
+            (identifier)))))))

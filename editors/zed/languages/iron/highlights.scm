@@ -104,6 +104,7 @@
 
 (visibility_modifier)    @keyword.modifier
 (mutation_tier_modifier) @keyword.modifier
+(static_modifier) @keyword.modifier
 (param_mut_modifier)     @keyword.modifier
 (nocopy_modifier)        @keyword.modifier
 (func_declaration "@" @attribute "fusible" @attribute)
