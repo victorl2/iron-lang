@@ -5777,6 +5777,16 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
      * Route through defer cleanup chain if defers are pending. */
     if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
         Iron_Span zero_span = {0};
+        /* --debug: the return itself is on the closing `}`. Without a line
+         * it took the last statement's, which clang also gives to stray
+         * instructions (padding copies) in earlier statements, so a
+         * breakpoint on the last line could stop in the middle of an
+         * earlier one. */
+        Iron_Span end_span = {0};
+        if (iron_lir_emit_debug_build() && hir_func->end_line > 0 && hir_func->end_file) {
+            end_span.filename = hir_func->end_file;
+            end_span.line = end_span.end_line = hir_func->end_line;
+        }
         if (ctx->defer_stacks && ctx->defer_depth > 0) {
             /* Create exit block for the actual RETURN */
             IronLIR_Block *exit_block = new_block(ctx, make_label(ctx, "return_exit"));
@@ -5785,12 +5795,12 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
             emit_var_param_writebacks(ctx, zero_span);
             if (!block_is_terminated(ctx->current_block)) {
                 iron_lir_return(lir_func, ctx->current_block,
-                                IRON_LIR_VALUE_INVALID, true, NULL, zero_span);
+                                IRON_LIR_VALUE_INVALID, true, NULL, end_span);
             }
         } else {
             emit_var_param_writebacks(ctx, zero_span);
             iron_lir_return(lir_func, ctx->current_block,
-                            IRON_LIR_VALUE_INVALID, true, NULL, zero_span);
+                            IRON_LIR_VALUE_INVALID, true, NULL, end_span);
         }
     }
     pop_defer_scope(ctx);

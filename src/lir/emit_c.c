@@ -2937,6 +2937,31 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
 }
 
+/* --debug: a constant the optimizer placed ahead of its statement (a
+ * `false` for an `and` after a loop, emitted before the loop): its own
+ * line would put that later statement's line in the middle of earlier
+ * code, where a breakpoint on it stopped too soon and stepping visited it
+ * early. True when neither the line before it nor the next instruction's
+ * in its block is the constant's. */
+static bool emit_const_moved(IronLIR_Func *fn, EmitCtx *ctx, IronLIR_Instr *instr) {
+    if (instr->kind < IRON_LIR_CONST_INT || instr->kind > IRON_LIR_CONST_NULL) return false;
+    if ((unsigned)instr->span.line == g_line_fn_last) return false;
+    IronLIR_Block *b = NULL;
+    for (int bi = 0; bi < fn->block_count; bi++)
+        if (fn->blocks[bi]->id == ctx->current_block_id) { b = fn->blocks[bi]; break; }
+    if (!b) return false;
+    int i = 0;
+    while (i < b->instr_count && b->instrs[i] != instr) i++;
+    for (i++; i < b->instr_count; i++) {
+        IronLIR_Instr *n = b->instrs[i];
+        if (n->kind == IRON_LIR_ALLOCA || n->span.line <= 0) continue;
+        if (n->kind >= IRON_LIR_CONST_INT && n->kind <= IRON_LIR_CONST_NULL &&
+            n->span.line == instr->span.line) continue;
+        return n->span.line != instr->span.line;
+    }
+    return false;
+}
+
 static void emit_line_directive(Iron_StrBuf *sb, unsigned line, const char *file) {
     iron_strbuf_appendf(sb, "#line %u \"", line);
     for (const char *c = file; *c; c++) {
@@ -3002,6 +3027,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
         if (instr->kind == IRON_LIR_ALLOCA) line = g_line_fn_first;
+        else if (emit_const_moved(fn, ctx, instr) && g_line_fn_last > 0)
+            line = g_line_fn_last;   /* a constant placed ahead of its statement */
         else g_line_fn_last = line;
         emit_line_directive(sb, line, instr->span.filename);
     }

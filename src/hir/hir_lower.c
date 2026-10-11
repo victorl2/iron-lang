@@ -2953,6 +2953,10 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             IronHIR_Func *f = iron_hir_func_create(mod, fd->name,
                                                      params, fd->param_count,
                                                      ret_ty);
+            if (fd->body) {
+                f->end_file = fd->body->span.filename;
+                f->end_line = fd->body->span.end_line;
+            }
             f->is_extern    = fd->is_extern;
             f->extern_c_name = fd->extern_c_name;
             f->is_runtime_stub =
@@ -3236,6 +3240,10 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
 
             IronHIR_Func *f = iron_hir_func_create(mod, mname, params,
                                                      total_params, ret_ty);
+            if (md->body) {
+                f->end_file = md->body->span.filename;
+                f->end_line = md->body->span.end_line;
+            }
             f->is_runtime_stub = is_stub;
             /* Phase 80 MUT-07: propagate receiver mut-ness to the HIR func so
              * HIR→LIR can fire self_by_addr at call sites. Gated on

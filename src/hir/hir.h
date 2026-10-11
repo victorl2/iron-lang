@@ -573,6 +573,10 @@ struct IronHIR_Expr {
 
 struct IronHIR_Func {
     const char        *name;
+    /* The closing `}` of the body (0 when unknown): --debug gives the
+     * implicit return at the end of the function this line. */
+    const char        *end_file;
+    uint32_t           end_line;
     Iron_Type         *return_type;
     IronHIR_Param     *params;         /* stb_ds array */
     int                param_count;
