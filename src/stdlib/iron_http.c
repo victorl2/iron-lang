@@ -1264,19 +1264,33 @@ static int64_t send_response_transport(HttpTransport transport,
         (long long)response.status, (int)reason_len, reason, body_len,
         keep_alive ? "keep-alive" : "close");
     if (fixed_len < 0 || (size_t)fixed_len >= sizeof(fixed)) return IRON_ERR_HTTP_INVALID_ARGUMENT;
-    int64_t err = send_all(transport, (const uint8_t *)fixed, (size_t)fixed_len, deadline);
-    if (err) return err;
+    /* One write for the whole message: separate small writes for the status
+     * line, headers and body meet Nagle's algorithm and the peer's delayed
+     * ACK on a keep-alive connection and stall each response by ~40 ms. */
+    int headers_need_crlf = headers_len &&
+        (headers_len < 2 || headers[headers_len - 2] != '\r' || headers[headers_len - 1] != '\n');
+    size_t total = (size_t)fixed_len + headers_len + (headers_need_crlf ? 2 : 0) + 2;
+    if (body_len > SIZE_MAX - total) return IRON_ERR_HTTP_INVALID_ARGUMENT;
+    total += body_len;
+    uint8_t stack_buf[16384];
+    uint8_t *msg = total <= sizeof(stack_buf) ? stack_buf : (uint8_t *)malloc(total);
+    if (!msg) return IRON_ERR_NET_NO_MEMORY;
+    size_t at = 0;
+    memcpy(msg + at, fixed, (size_t)fixed_len);
+    at += (size_t)fixed_len;
     if (headers_len) {
-        err = send_all(transport, (const uint8_t *)headers, headers_len, deadline);
-        if (err) return err;
-        if (headers_len < 2 || headers[headers_len - 2] != '\r' || headers[headers_len - 1] != '\n') {
-            err = send_all(transport, (const uint8_t *)"\r\n", 2, deadline);
-            if (err) return err;
+        memcpy(msg + at, headers, headers_len);
+        at += headers_len;
+        if (headers_need_crlf) {
+            memcpy(msg + at, "\r\n", 2);
+            at += 2;
         }
     }
-    err = send_all(transport, (const uint8_t *)"\r\n", 2, deadline);
-    if (err) return err;
-    if (body_len) err = send_all(transport, (const uint8_t *)body, body_len, deadline);
+    memcpy(msg + at, "\r\n", 2);
+    at += 2;
+    if (body_len) memcpy(msg + at, body, body_len);
+    int64_t err = send_all(transport, msg, total, deadline);
+    if (msg != stack_buf) free(msg);
     return err;
 }
 
@@ -1900,4 +1914,644 @@ void Iron_httpclient_close(Iron_HttpClient handle) {
     free(client->slots);
     free(client->ca_file);
     free(client);
+}
+
+/* ── HttpPoller: readiness-driven keep-alive serving ───────────────────────
+ *
+ * A server that hands each connection to a pool worker for its whole life
+ * can serve only as many keep-alive clients as it has workers: the rest wait
+ * in the queue while idle connections hold their workers in read_request.
+ * The poller keeps idle connections out of the workers. It owns accepting
+ * (non-blocking, TCP_NODELAY) and watches new and parked connections with
+ * epoll (Linux), kqueue (macOS and the BSDs) or poll (elsewhere); next()
+ * returns one connection whose request bytes have arrived. The worker reads
+ * that request, answers it and parks the connection again, or closes it.
+ *
+ * Slot states: WAITING (accepted, no bytes yet), PARKED (between requests),
+ * ACTIVE (handed out by next(), owned by a worker). Only WAITING and PARKED
+ * connections are watched and expire after idle_timeout milliseconds; an
+ * ACTIVE connection is the worker's to park, discard or close. Interest is
+ * one-shot, so an fd is returned once per park.
+ *
+ * Thread safety: any thread may park or discard; next() is meant for one
+ * accept loop but tolerates several callers. The state lives until the last
+ * Iron reference drops (HttpPollerCore's drop calls free), so a worker that
+ * parks after close() only has its connection closed. */
+
+#if defined(__linux__)
+  #define HTTP_POLLER_EPOLL 1
+  #include <sys/epoll.h>
+  #include <sys/eventfd.h>
+  #include <netinet/tcp.h>
+  #include <unistd.h>
+  #include <fcntl.h>
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+  #define HTTP_POLLER_KQUEUE 1
+  #include <sys/event.h>
+  #include <netinet/tcp.h>
+  #include <unistd.h>
+  #include <fcntl.h>
+#else
+  #define HTTP_POLLER_POLL 1
+  #ifndef _WIN32
+    #include <poll.h>
+    #include <netinet/tcp.h>
+    #include <unistd.h>
+    #include <fcntl.h>
+  #endif
+#endif
+
+enum {
+    HTTP_POLL_WAITING = 1,
+    HTTP_POLL_PARKED = 2,
+    HTTP_POLL_ACTIVE = 3,
+    HTTP_POLL_EVENTS = 256,
+    HTTP_POLL_ACCEPT_BURST = 256
+};
+
+typedef struct HttpPollSlot {
+    int64_t fd;
+    uint64_t since_ms;
+    int state;
+    int registered;
+} HttpPollSlot;
+
+typedef struct HttpPollerState {
+    int64_t listen_fd;
+    int64_t idle_timeout;
+    int closed;
+#if defined(HTTP_POLLER_EPOLL)
+    int ep;
+    int wake_fd;
+#elif defined(HTTP_POLLER_KQUEUE)
+    int kq;
+#endif
+#ifdef _WIN32
+    CRITICAL_SECTION lock;
+#else
+    pthread_mutex_t lock;
+#endif
+    HttpPollSlot *slots;
+    size_t count, cap;
+#ifndef _WIN32
+    int32_t *pos_by_fd;     /* fd -> index in slots, -1 when absent */
+    size_t pos_cap;
+#endif
+    int64_t *ready;         /* ring of fds handed out by next() */
+    size_t ready_head, ready_count, ready_cap;
+    uint64_t last_sweep_ms;
+    int64_t accepted, expired;
+} HttpPollerState;
+
+static void http_poller_lock(HttpPollerState *st) {
+#ifdef _WIN32
+    EnterCriticalSection(&st->lock);
+#else
+    pthread_mutex_lock(&st->lock);
+#endif
+}
+
+static void http_poller_unlock(HttpPollerState *st) {
+#ifdef _WIN32
+    LeaveCriticalSection(&st->lock);
+#else
+    pthread_mutex_unlock(&st->lock);
+#endif
+}
+
+static void http_poller_close_fd(int64_t fd) {
+    Iron_TcpSocket s = { fd };
+    Iron_tcpsocket_close(s);
+}
+
+static long http_poller_find(HttpPollerState *st, int64_t fd) {
+#ifdef _WIN32
+    for (size_t i = 0; i < st->count; i++)
+        if (st->slots[i].fd == fd) return (long)i;
+    return -1;
+#else
+    if (fd < 0 || (size_t)fd >= st->pos_cap) return -1;
+    return st->pos_by_fd[fd];
+#endif
+}
+
+static HttpPollSlot *http_poller_add(HttpPollerState *st, int64_t fd, int state,
+                                     uint64_t now) {
+    long existing = http_poller_find(st, fd);
+    if (existing >= 0) {
+        /* The fd number was closed by its owner and reused by the kernel:
+         * whatever registration it had went with the old descriptor. */
+        HttpPollSlot *slot = &st->slots[existing];
+        slot->state = state;
+        slot->since_ms = now;
+        slot->registered = 0;
+        return slot;
+    }
+    if (st->count == st->cap) {
+        size_t cap = st->cap ? st->cap * 2 : 64;
+        HttpPollSlot *grown = (HttpPollSlot *)realloc(st->slots, cap * sizeof(*grown));
+        if (!grown) return NULL;
+        st->slots = grown;
+        st->cap = cap;
+    }
+#ifndef _WIN32
+    if (fd < 0) return NULL;
+    if ((size_t)fd >= st->pos_cap) {
+        size_t cap = st->pos_cap ? st->pos_cap : 256;
+        while (cap <= (size_t)fd) cap *= 2;
+        int32_t *grown = (int32_t *)realloc(st->pos_by_fd, cap * sizeof(*grown));
+        if (!grown) return NULL;
+        for (size_t i = st->pos_cap; i < cap; i++) grown[i] = -1;
+        st->pos_by_fd = grown;
+        st->pos_cap = cap;
+    }
+    st->pos_by_fd[fd] = (int32_t)st->count;
+#endif
+    HttpPollSlot *slot = &st->slots[st->count++];
+    slot->fd = fd;
+    slot->since_ms = now;
+    slot->state = state;
+    slot->registered = 0;
+    return slot;
+}
+
+static void http_poller_remove_at(HttpPollerState *st, size_t i) {
+#ifndef _WIN32
+    st->pos_by_fd[st->slots[i].fd] = -1;
+#endif
+    st->count--;
+    if (i != st->count) {
+        st->slots[i] = st->slots[st->count];
+#ifndef _WIN32
+        st->pos_by_fd[st->slots[i].fd] = (int32_t)i;
+#endif
+    }
+}
+
+static int http_poller_push_ready(HttpPollerState *st, int64_t fd) {
+    if (st->ready_count == st->ready_cap) {
+        size_t cap = st->ready_cap ? st->ready_cap * 2 : 64;
+        int64_t *grown = (int64_t *)malloc(cap * sizeof(*grown));
+        if (!grown) return 0;
+        for (size_t i = 0; i < st->ready_count; i++)
+            grown[i] = st->ready[(st->ready_head + i) % st->ready_cap];
+        free(st->ready);
+        st->ready = grown;
+        st->ready_cap = cap;
+        st->ready_head = 0;
+    }
+    st->ready[(st->ready_head + st->ready_count) % st->ready_cap] = fd;
+    st->ready_count++;
+    return 1;
+}
+
+/* Watch the slot's fd for one readable event. 0 on failure. */
+static int http_poller_arm(HttpPollerState *st, HttpPollSlot *slot) {
+#if defined(HTTP_POLLER_EPOLL)
+    struct epoll_event ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT;
+    ev.data.fd = (int)slot->fd;
+    if (slot->registered) {
+        if (epoll_ctl(st->ep, EPOLL_CTL_MOD, (int)slot->fd, &ev) == 0) return 1;
+        if (errno != ENOENT) return 0;
+    }
+    if (epoll_ctl(st->ep, EPOLL_CTL_ADD, (int)slot->fd, &ev) != 0) {
+        if (errno != EEXIST ||
+            epoll_ctl(st->ep, EPOLL_CTL_MOD, (int)slot->fd, &ev) != 0) return 0;
+    }
+    slot->registered = 1;
+    return 1;
+#elif defined(HTTP_POLLER_KQUEUE)
+    struct kevent ev;
+    EV_SET(&ev, (uintptr_t)slot->fd, EVFILT_READ, EV_ADD | EV_ENABLE | EV_ONESHOT,
+           0, 0, NULL);
+    if (kevent(st->kq, &ev, 1, NULL, 0, NULL) != 0) return 0;
+    slot->registered = 1;
+    return 1;
+#else
+    (void)st;
+    slot->registered = 1;   /* the poll set is rebuilt from the slots */
+    return 1;
+#endif
+}
+
+static void http_poller_forget(HttpPollerState *st, HttpPollSlot *slot) {
+#if defined(HTTP_POLLER_EPOLL)
+    if (slot->registered) epoll_ctl(st->ep, EPOLL_CTL_DEL, (int)slot->fd, NULL);
+#else
+    (void)st;
+#endif
+    slot->registered = 0;
+}
+
+static void http_poller_wake(HttpPollerState *st) {
+#if defined(HTTP_POLLER_EPOLL)
+    uint64_t one = 1;
+    ssize_t w = write(st->wake_fd, &one, sizeof(one));
+    (void)w;
+#elif defined(HTTP_POLLER_KQUEUE)
+    struct kevent ev;
+    EV_SET(&ev, 1, EVFILT_USER, 0, NOTE_TRIGGER, 0, NULL);
+    kevent(st->kq, &ev, 1, NULL, 0, NULL);
+#else
+    (void)st;   /* poll waits in short slices and sees `closed` */
+#endif
+}
+
+static void http_poller_set_socket_options(int64_t fd) {
+    int one = 1;
+    setsockopt((
+#ifdef _WIN32
+        SOCKET
+#else
+        int
+#endif
+        )fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof(one));
+}
+
+static int64_t http_poller_accept_one(int64_t listen_fd) {
+#if defined(__linux__)
+    int fd = accept4((int)listen_fd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
+    if (fd < 0) return -1;
+    return fd;
+#elif defined(_WIN32)
+    SOCKET fd = accept((SOCKET)listen_fd, NULL, NULL);
+    if (fd == INVALID_SOCKET) return -1;
+    u_long mode = 1;
+    ioctlsocket(fd, FIONBIO, &mode);
+    return (int64_t)fd;
+#else
+    int fd = accept((int)listen_fd, NULL, NULL);
+    if (fd < 0) return -1;
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    fcntl(fd, F_SETFD, FD_CLOEXEC);
+    return fd;
+#endif
+}
+
+/* Accept what the listen queue holds (bounded per wakeup) and watch each. */
+static void http_poller_accept_burst(HttpPollerState *st, uint64_t now) {
+    for (int i = 0; i < HTTP_POLL_ACCEPT_BURST; i++) {
+        int64_t fd = http_poller_accept_one(st->listen_fd);
+        if (fd < 0) return;
+        http_poller_set_socket_options(fd);
+        HttpPollSlot *slot = http_poller_add(st, fd, HTTP_POLL_WAITING, now);
+        if (!slot || !http_poller_arm(st, slot)) {
+            long at = http_poller_find(st, fd);
+            if (at >= 0) http_poller_remove_at(st, (size_t)at);
+            http_poller_close_fd(fd);
+            continue;
+        }
+        st->accepted++;
+    }
+}
+
+/* True when a peer that signalled hang-up has nothing left to read. */
+static int http_poller_peer_gone(int64_t fd) {
+    char b;
+#ifdef _WIN32
+    int n = recv((SOCKET)fd, &b, 1, MSG_PEEK);
+    return n == 0;
+#else
+    ssize_t n = recv((int)fd, &b, 1, MSG_PEEK | MSG_DONTWAIT);
+    return n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR);
+#endif
+}
+
+/* A watched connection became readable (or hung up). */
+static void http_poller_on_ready(HttpPollerState *st, int64_t fd, int hangup) {
+    long at = http_poller_find(st, fd);
+    if (at < 0) return;
+    HttpPollSlot *slot = &st->slots[at];
+    if (slot->state != HTTP_POLL_WAITING && slot->state != HTTP_POLL_PARKED) return;
+    if (hangup && http_poller_peer_gone(fd)) {
+        http_poller_forget(st, slot);
+        http_poller_remove_at(st, (size_t)at);
+        http_poller_close_fd(fd);
+        return;
+    }
+    slot->state = HTTP_POLL_ACTIVE;
+    if (!http_poller_push_ready(st, fd)) {
+        http_poller_forget(st, slot);
+        http_poller_remove_at(st, (size_t)at);
+        http_poller_close_fd(fd);
+    }
+}
+
+static void http_poller_sweep(HttpPollerState *st, uint64_t now) {
+    st->last_sweep_ms = now;
+    if (st->idle_timeout <= 0) return;
+    size_t i = st->count;
+    while (i > 0) {
+        i--;
+        HttpPollSlot *slot = &st->slots[i];
+        if ((slot->state == HTTP_POLL_WAITING || slot->state == HTTP_POLL_PARKED) &&
+            now - slot->since_ms >= (uint64_t)st->idle_timeout) {
+            int64_t fd = slot->fd;
+            http_poller_forget(st, slot);
+            http_poller_remove_at(st, i);
+            http_poller_close_fd(fd);
+            st->expired++;
+        }
+    }
+}
+
+int64_t Iron_httppollernative_open(int64_t listen_fd, int64_t idle_timeout) {
+    if (listen_fd < 0 || idle_timeout < 0) return -IRON_ERR_HTTP_INVALID_ARGUMENT;
+    HttpPollerState *st = (HttpPollerState *)calloc(1, sizeof(*st));
+    if (!st) return -IRON_ERR_NET_NO_MEMORY;
+    st->listen_fd = listen_fd;
+    st->idle_timeout = idle_timeout;
+    st->last_sweep_ms = Iron_monotonic_now_ms();
+#if defined(HTTP_POLLER_EPOLL)
+    st->ep = epoll_create1(EPOLL_CLOEXEC);
+    st->wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (st->ep < 0 || st->wake_fd < 0) goto fail;
+    struct epoll_event ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.events = EPOLLIN;
+    ev.data.fd = (int)listen_fd;
+    if (epoll_ctl(st->ep, EPOLL_CTL_ADD, (int)listen_fd, &ev) != 0) goto fail;
+    ev.data.fd = st->wake_fd;
+    if (epoll_ctl(st->ep, EPOLL_CTL_ADD, st->wake_fd, &ev) != 0) goto fail;
+#elif defined(HTTP_POLLER_KQUEUE)
+    st->kq = kqueue();
+    if (st->kq < 0) goto fail;
+    fcntl(st->kq, F_SETFD, FD_CLOEXEC);
+    struct kevent evs[2];
+    EV_SET(&evs[0], (uintptr_t)listen_fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+    EV_SET(&evs[1], 1, EVFILT_USER, EV_ADD | EV_CLEAR, 0, 0, NULL);
+    if (kevent(st->kq, evs, 2, NULL, 0, NULL) != 0) goto fail;
+#endif
+#ifdef _WIN32
+    InitializeCriticalSection(&st->lock);
+#else
+    if (pthread_mutex_init(&st->lock, NULL) != 0) goto fail;
+#endif
+    return (int64_t)(intptr_t)st;
+#if !defined(HTTP_POLLER_POLL) || !defined(_WIN32)
+fail:
+#if defined(HTTP_POLLER_EPOLL)
+    if (st->ep >= 0) close(st->ep);
+    if (st->wake_fd >= 0) close(st->wake_fd);
+#elif defined(HTTP_POLLER_KQUEUE)
+    if (st->kq >= 0) close(st->kq);
+#endif
+    free(st);
+    return -IRON_ERR_NET_UNKNOWN;
+#endif
+}
+
+/* Wait for readiness for at most `wait_ms` with the lock released, then
+ * process the events with the lock held again. */
+static void http_poller_wait(HttpPollerState *st, int wait_ms) {
+    uint64_t now;
+#if defined(HTTP_POLLER_EPOLL)
+    struct epoll_event evs[HTTP_POLL_EVENTS];
+    http_poller_unlock(st);
+    int n = epoll_wait(st->ep, evs, HTTP_POLL_EVENTS, wait_ms);
+    http_poller_lock(st);
+    if (n <= 0 || st->closed) return;
+    now = Iron_monotonic_now_ms();
+    for (int i = 0; i < n; i++) {
+        int fd = evs[i].data.fd;
+        if (fd == (int)st->listen_fd) {
+            http_poller_accept_burst(st, now);
+        } else if (fd == st->wake_fd) {
+            uint64_t v;
+            ssize_t r = read(st->wake_fd, &v, sizeof(v));
+            (void)r;
+        } else {
+            int hangup = (evs[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)) != 0;
+            http_poller_on_ready(st, fd, hangup);
+        }
+    }
+#elif defined(HTTP_POLLER_KQUEUE)
+    struct kevent evs[HTTP_POLL_EVENTS];
+    struct timespec ts;
+    ts.tv_sec = wait_ms / 1000;
+    ts.tv_nsec = (long)(wait_ms % 1000) * 1000000L;
+    http_poller_unlock(st);
+    int n = kevent(st->kq, NULL, 0, evs, HTTP_POLL_EVENTS, wait_ms < 0 ? NULL : &ts);
+    http_poller_lock(st);
+    if (n <= 0 || st->closed) return;
+    now = Iron_monotonic_now_ms();
+    for (int i = 0; i < n; i++) {
+        if (evs[i].filter == EVFILT_USER) continue;
+        int64_t fd = (int64_t)evs[i].ident;
+        if (fd == st->listen_fd) {
+            http_poller_accept_burst(st, now);
+        } else {
+            int hangup = (evs[i].flags & (EV_EOF | EV_ERROR)) != 0;
+            http_poller_on_ready(st, fd, hangup);
+        }
+    }
+#else
+    /* poll(): the set is rebuilt from the watched slots each round and the
+     * wait is sliced so close() is noticed without a wake-up primitive. */
+    size_t watched = 0;
+    for (size_t i = 0; i < st->count; i++)
+        if (st->slots[i].state == HTTP_POLL_WAITING || st->slots[i].state == HTTP_POLL_PARKED)
+            watched++;
+#ifdef _WIN32
+    WSAPOLLFD *pfds = (WSAPOLLFD *)malloc((watched + 1) * sizeof(*pfds));
+#else
+    struct pollfd *pfds = (struct pollfd *)malloc((watched + 1) * sizeof(*pfds));
+#endif
+    if (!pfds) return;
+    size_t np = 0;
+    pfds[np].fd = st->listen_fd;
+    pfds[np].events = POLLIN;
+    pfds[np].revents = 0;
+    np++;
+    for (size_t i = 0; i < st->count; i++) {
+        if (st->slots[i].state != HTTP_POLL_WAITING && st->slots[i].state != HTTP_POLL_PARKED) continue;
+        pfds[np].fd = st->slots[i].fd;
+        pfds[np].events = POLLIN;
+        pfds[np].revents = 0;
+        np++;
+    }
+    int slice = wait_ms < 0 || wait_ms > 50 ? 50 : wait_ms;
+    http_poller_unlock(st);
+#ifdef _WIN32
+    int n = WSAPoll(pfds, (ULONG)np, slice);
+#else
+    int n = poll(pfds, (nfds_t)np, slice);
+#endif
+    http_poller_lock(st);
+    if (n > 0 && !st->closed) {
+        now = Iron_monotonic_now_ms();
+        for (size_t i = 1; i < np; i++) {
+            if (!pfds[i].revents) continue;
+            int hangup = (pfds[i].revents & (POLLHUP | POLLERR)) != 0;
+            http_poller_on_ready(st, (int64_t)pfds[i].fd, hangup);
+        }
+        if (pfds[0].revents) http_poller_accept_burst(st, now);
+    }
+    free(pfds);
+#endif
+    (void)now;
+}
+
+int64_t Iron_httppollernative_next(int64_t h, int64_t timeout) {
+    HttpPollerState *st = (HttpPollerState *)(intptr_t)h;
+    if (!st || timeout < 0) return -IRON_ERR_HTTP_INVALID_ARGUMENT;
+    Iron_Deadline deadline = Iron_deadline_from_timeout_ms(timeout);
+    http_poller_lock(st);
+    for (;;) {
+        if (st->closed) {
+            http_poller_unlock(st);
+            return -IRON_ERR_NET_CLOSED;
+        }
+        if (st->ready_count) {
+            int64_t fd = st->ready[st->ready_head];
+            st->ready_head = (st->ready_head + 1) % st->ready_cap;
+            st->ready_count--;
+            http_poller_unlock(st);
+            return fd;
+        }
+        uint64_t now = Iron_monotonic_now_ms();
+        uint64_t sweep_every = st->idle_timeout > 0 && st->idle_timeout < 2000
+            ? (uint64_t)st->idle_timeout / 2 + 1 : 1000;
+        if (now - st->last_sweep_ms >= sweep_every) http_poller_sweep(st, now);
+        int remaining = Iron_deadline_remaining_ms(deadline);
+        if (remaining <= 0 && timeout > 0) {
+            http_poller_unlock(st);
+            return -IRON_ERR_NET_TIMEOUT;
+        }
+        int wait = remaining;
+        if ((uint64_t)wait > sweep_every) wait = (int)sweep_every;
+        http_poller_wait(st, wait);
+        if (timeout == 0 && !st->ready_count && !st->closed) {
+            http_poller_unlock(st);
+            return -IRON_ERR_NET_TIMEOUT;
+        }
+    }
+}
+
+void Iron_httppollernative_park(int64_t h, int64_t fd) {
+    HttpPollerState *st = (HttpPollerState *)(intptr_t)h;
+    if (fd < 0) return;
+    if (!st) {
+        http_poller_close_fd(fd);
+        return;
+    }
+    http_poller_lock(st);
+    if (st->closed) {
+        long at = http_poller_find(st, fd);
+        if (at >= 0) http_poller_remove_at(st, (size_t)at);
+        http_poller_unlock(st);
+        http_poller_close_fd(fd);
+        return;
+    }
+    uint64_t now = Iron_monotonic_now_ms();
+    long at = http_poller_find(st, fd);
+    HttpPollSlot *slot;
+    if (at >= 0) {
+        slot = &st->slots[at];
+        slot->state = HTTP_POLL_PARKED;
+        slot->since_ms = now;
+    } else {
+        http_poller_set_socket_options(fd);
+        slot = http_poller_add(st, fd, HTTP_POLL_PARKED, now);
+    }
+    if (!slot || !http_poller_arm(st, slot)) {
+        at = http_poller_find(st, fd);
+        if (at >= 0) http_poller_remove_at(st, (size_t)at);
+        http_poller_unlock(st);
+        http_poller_close_fd(fd);
+        return;
+    }
+    http_poller_unlock(st);
+}
+
+void Iron_httppollernative_discard(int64_t h, int64_t fd) {
+    HttpPollerState *st = (HttpPollerState *)(intptr_t)h;
+    if (fd < 0) return;
+    if (st) {
+        http_poller_lock(st);
+        long at = http_poller_find(st, fd);
+        if (at >= 0) {
+            http_poller_forget(st, &st->slots[at]);
+            http_poller_remove_at(st, (size_t)at);
+        }
+        http_poller_unlock(st);
+    }
+    http_poller_close_fd(fd);
+}
+
+void Iron_httppollernative_close(int64_t h) {
+    HttpPollerState *st = (HttpPollerState *)(intptr_t)h;
+    if (!st) return;
+    http_poller_lock(st);
+    if (!st->closed) {
+        st->closed = 1;
+        size_t i = st->count;
+        while (i > 0) {
+            i--;
+            HttpPollSlot *slot = &st->slots[i];
+            if (slot->state == HTTP_POLL_ACTIVE) continue;
+            int64_t fd = slot->fd;
+            http_poller_forget(st, slot);
+            http_poller_remove_at(st, i);
+            http_poller_close_fd(fd);
+        }
+        /* Handed out by the poll but never taken by next(). */
+        while (st->ready_count) {
+            int64_t fd = st->ready[st->ready_head];
+            st->ready_head = (st->ready_head + 1) % st->ready_cap;
+            st->ready_count--;
+            long at = http_poller_find(st, fd);
+            if (at >= 0) http_poller_remove_at(st, (size_t)at);
+            http_poller_close_fd(fd);
+        }
+        http_poller_wake(st);
+    }
+    http_poller_unlock(st);
+}
+
+void Iron_httppollernative_free(int64_t h) {
+    HttpPollerState *st = (HttpPollerState *)(intptr_t)h;
+    if (!st) return;
+    Iron_httppollernative_close(h);
+    /* Connections still ACTIVE belong to their workers; only forget them. */
+#if defined(HTTP_POLLER_EPOLL)
+    close(st->ep);
+    close(st->wake_fd);
+#elif defined(HTTP_POLLER_KQUEUE)
+    close(st->kq);
+#endif
+#ifdef _WIN32
+    DeleteCriticalSection(&st->lock);
+#else
+    pthread_mutex_destroy(&st->lock);
+    free(st->pos_by_fd);
+#endif
+    free(st->slots);
+    free(st->ready);
+    free(st);
+}
+
+/* 0 parked, 1 waiting for a first request, 2 handed out (active),
+ * 3 accepted in total, 4 closed for idleness in total. */
+int64_t Iron_httppollernative_count(int64_t h, int64_t what) {
+    HttpPollerState *st = (HttpPollerState *)(intptr_t)h;
+    if (!st) return 0;
+    int64_t n = 0;
+    http_poller_lock(st);
+    if (what == 3) n = st->accepted;
+    else if (what == 4) n = st->expired;
+    else {
+        int want = what == 0 ? HTTP_POLL_PARKED : what == 1 ? HTTP_POLL_WAITING : HTTP_POLL_ACTIVE;
+        for (size_t i = 0; i < st->count; i++)
+            if (st->slots[i].state == want) n++;
+    }
+    http_poller_unlock(st);
+    return n;
+}
+
+Iron_String Iron_httppollernative_error_message(int64_t code) {
+    return http_str(http_error_message(code));
 }
