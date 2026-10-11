@@ -936,24 +936,29 @@ class ExprGen:
         return self.bool_expr()
 
     def error_exprs(self):
-        """(text, wanted error) for expressions that fail at the stop."""
+        """Expressions meant to fail at the stop (Ex whose model raises);
+        value_program keeps those that fail at every hit, with the error."""
         out = []
         r = self.r
+        t_int = T("int", name="Int")
         ints = self.of_kind(lambda v: isinstance(v, VInt))
         if ints:
             n, v = r.choice(ints)
-            out.append(("%s / 0" % n, "integer division by zero"))
-            out.append(("%s %% (%s - %s)" % (n, n, n), "integer division by zero"))
+
+            def div0(env):
+                raise EvalErr("integer division by zero")
+            out.append(Ex("%s / 0" % n, v.t, div0))
+            out.append(Ex("%s %% (%s - %s)" % (n, n, n), v.t, div0))
         for n, v in self.scope.items():
-            if isinstance(v, VList):
+            if isinstance(v, VList) and v.t.args[0].kind in ("int", "str", "bool"):
                 i = len(v.items) + r.randint(0, 3)
-                out.append(("%s[%d]" % (n, i), "index out of bounds (index %d, bound %d)"
-                            % (i, len(v.items))))
-            if isinstance(v, VMap) and v.t.args[0].kind == "str":
-                missing = "no such key ☃"
-                if not any(k.v == missing for k, _ in v.d):
-                    out.append(("%s.get(%s)" % (n, iron_lit(missing)), "key not found in map"))
-        out.append(("nosuch_binding_%d" % r.randint(0, 99), "no variable `nosuch_binding_"))
+                out.append(Ex("%s[%d]" % (n, i), v.t.args[0],
+                              lambda env, n=n, i=i: idx(env.get(n).items, i).v))
+            if isinstance(v, VMap) and v.t.args[0].kind == "str" and \
+                    v.t.args[1].kind in ("int", "str", "bool"):
+                missing = VStr("no such key \u2603")
+                out.append(Ex("%s.get(%s)" % (n, missing.src()), v.t.args[1],
+                              lambda env, n=n, k=missing: mapget(env.get(n), k).v))
         return out
 
 
@@ -1173,9 +1178,10 @@ class ValueProgram(Gen):
                 exprs.append(eg.any_expr())
             except (IndexError, KeyError):
                 pass
-        p.exprs = exprs
         if self.nexprs:
-            p.errors = eg.error_exprs()
+            exprs += eg.error_exprs()
+            p.errors = [("nosuch_binding_%d" % self.r.randint(0, 99), "no variable `nosuch_binding_")]
+        p.exprs = exprs
         self.probes.append(p)
         return ProbeSt(p, exprs)
 

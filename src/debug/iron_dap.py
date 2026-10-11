@@ -613,8 +613,10 @@ def split_interpolation(body):
     while i < len(body):
         c = body[i]
         if c == "\\" and i + 1 < len(body):
-            buf.append(body[i:i + 2])
-            i += 2
+            m = re.match(r"\\u\{[0-9a-fA-F]{1,6}\}", body[i:])
+            n = len(m.group(0)) if m else 2
+            buf.append(body[i:i + n])
+            i += n
             continue
         if c == "{":
             depth, j = 1, i + 1
@@ -719,6 +721,11 @@ class Parser:
                 self.i += 1
                 args = self.args()
                 return ("call", t[1], args)
+            if t[1] == "String" and self.peek(value=".") and \
+                    self.i + 2 < len(self.toks) and self.toks[self.i + 1] == ("name", "from_byte") \
+                    and self.toks[self.i + 2] == ("op", "("):
+                self.i += 3
+                return ("call", "String.from_byte", self.args())
             if t[1][:1].isupper() and self.peek(value=".") and \
                     self.i + 1 < len(self.toks) and self.toks[self.i + 1][0] == "name" and \
                     self.toks[self.i + 1][1][:1].isupper():
@@ -789,7 +796,7 @@ class Ref:
         self.path, self.text, self.ref, self.type = path, text, ref, type_name
 
 
-SIZE = re.compile(r"\bsize=(\d+)|^(?:Map|Set)?\[(\d+)\]$")   # lldb, gdb
+SIZE = re.compile(r"\bsize=(\d+)|^(?:Map|Set)\[(\d+)\]$")   # lldb, gdb
 CONVERSIONS = {"Int": INT64, "Int64": ("Int64", 64, True), "Int32": ("Int32", 32, True),
                "Int16": ("Int16", 16, True), "Int8": ("Int8", 8, True),
                "UInt": ("UInt", 64, False), "UInt64": ("UInt64", 64, False),
@@ -885,6 +892,14 @@ class IronEval:
             if isinstance(n, int):
                 return n
         if base.text.startswith("["):
+            # A list shows its first elements: its length is the struct's count.
+            if re.fullmatch(r"[A-Za-z_][\w.]*", base.path or ""):
+                try:
+                    n = self.fetch(base.path + ".count")
+                    if isinstance(n, int) and not isinstance(n, bool) and n >= 0:
+                        return n
+                except IronEvalError:
+                    pass
             return len(self.children(base))
         return None
 
@@ -951,6 +966,9 @@ class IronEval:
             args = [self.ev(a) for a in e[2]]
             if e[1] == "len" and len(args) == 1:
                 return self.length(args[0])
+            if e[1] == "String.from_byte" and len(args) == 1 and isinstance(args[0], int):
+                b = int(args[0]) & 0xff
+                return chr(b) if b < 0x80 else "\ufffd"
             if len(args) == 1 and e[1] in CONVERSIONS:
                 v = args[0]
                 if isinstance(v, float):
