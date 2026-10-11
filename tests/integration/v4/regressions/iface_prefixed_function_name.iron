@@ -1,0 +1,19 @@
+-- A function named like an interface's dispatchers (shape_twice next to
+-- interface Shape) had its object arguments wrapped into the interface (#672).
+interface Shape {
+    readonly func area() -> Int
+}
+object Sq impl Shape {
+    val s: Int
+    readonly func area() -> Int {
+        return self.s * self.s
+    }
+}
+func shape_twice(x: Sq) -> Int {
+    return x.area() * 2
+}
+func main() {
+    println("{shape_twice(Sq(3))}")
+    val s: Shape = Sq(2)
+    println("{s.area()}")
+}
