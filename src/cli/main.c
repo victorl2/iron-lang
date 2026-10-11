@@ -12,6 +12,7 @@
 #include "cli/version.h"
 #include "cli/help_registry.h"
 #include "cli/toolchain.h"
+#include "comptime/comptime.h"
 
 #ifndef IRON_GIT_HASH
 #define IRON_GIT_HASH "unknown"
@@ -196,6 +197,15 @@ int main(int argc, char **argv) {
                 pkg_name_arg = argv[++i];
             } else {
                 fprintf(stderr, "%s: --pkg-name requires a value\n", IRON_BINARY_NAME);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--package-root") == 0) {
+            /* Internal (iron): the directory the `-- @file:` paths of a
+             * combined package source are relative to. */
+            if (i + 1 < argc) {
+                iron_comptime_set_package_root(argv[++i]);
+            } else {
+                fprintf(stderr, "%s: --package-root requires a value\n", IRON_BINARY_NAME);
                 return 1;
             }
         } else if (strcmp(argv[i], "--pkg-version") == 0) {

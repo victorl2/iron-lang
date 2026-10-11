@@ -316,6 +316,11 @@ static int materialize_one(Iron_Program *program, GenInst *gi, Iron_Arena *arena
             Iron_Node *d = program->decls[i];
             if (!d || d == gi->decl || d->kind != IRON_NODE_METHOD_DECL) continue;
             Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+            /* The accessors of pub fields are synthesized again when the
+             * instance is parsed: printed, they collided with those
+             * (E0237), and the getter's retrofitted tiers printed as
+             * `readonly pure` (E0245). */
+            if (md->is_synth_accessor) continue;
             if (md->type_name && strcmp(md->type_name, oname) == 0) arrput(decls, d);
         }
     }

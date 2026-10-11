@@ -226,40 +226,43 @@ static void collect_vendor_dir(const char *dir, PathList *out) {
 
 /* ── Project sources ────────────────────────────────────────────────────── */
 
+/* The .iron files under `dir` (sorted, depth first), hidden directories
+ * skipped. At the top of src/, lib.iron and main.iron are left out: the
+ * caller places them. */
+static void collect_src_dir(const char *dir, bool top, PathList *out) {
+    PathList names = {0};
+    if (list_dir_sorted(dir, &names) != 0) return;
+    char path[4096];
+    for (int i = 0; i < names.count; i++) {
+        const char *n = names.items[i];
+        if (n[0] == '.') continue;
+        snprintf(path, sizeof(path), "%s/%s", dir, n);
+        if (is_dir(path)) {
+            collect_src_dir(path, false, out);
+            continue;
+        }
+        if (!has_iron_ext(n)) continue;
+        if (top && (strcmp(n, "lib.iron") == 0 || strcmp(n, "main.iron") == 0)) continue;
+        if (is_file(path)) path_list_add(out, path);
+    }
+    path_list_free(&names);
+}
+
 /*
- * Collect the project's own .iron files from src/ (top level only):
- * lib.iron first (if present), the rest alphabetically, main.iron last.
+ * Collect the project's own .iron files: every one under src/ (manual
+ * 10.2; subdirectories hold the modules `import a.b` names), lib.iron
+ * first (if present), the rest sorted depth first, main.iron last.
  */
 static void collect_project_sources(const char *proj_dir, PathList *out) {
     char src_dir[4096];
     snprintf(src_dir, sizeof(src_dir), "%s/src", proj_dir);
 
-    PathList names = {0};
-    if (list_dir_sorted(src_dir, &names) != 0) return;
-
-    bool has_lib = false, has_main = false;
-    for (int i = 0; i < names.count; i++) {
-        if (strcmp(names.items[i], "lib.iron") == 0)  has_lib = true;
-        if (strcmp(names.items[i], "main.iron") == 0) has_main = true;
-    }
-
     char path[4096];
-    if (has_lib) {
-        snprintf(path, sizeof(path), "%s/lib.iron", src_dir);
-        path_list_add(out, path);
-    }
-    for (int i = 0; i < names.count; i++) {
-        const char *n = names.items[i];
-        if (!has_iron_ext(n)) continue;
-        if (strcmp(n, "lib.iron") == 0 || strcmp(n, "main.iron") == 0) continue;
-        snprintf(path, sizeof(path), "%s/%s", src_dir, n);
-        if (is_file(path)) path_list_add(out, path);
-    }
-    if (has_main) {
-        snprintf(path, sizeof(path), "%s/main.iron", src_dir);
-        path_list_add(out, path);
-    }
-    path_list_free(&names);
+    snprintf(path, sizeof(path), "%s/lib.iron", src_dir);
+    if (is_file(path)) path_list_add(out, path);
+    collect_src_dir(src_dir, true, out);
+    snprintf(path, sizeof(path), "%s/main.iron", src_dir);
+    if (is_file(path)) path_list_add(out, path);
 }
 
 /* ── Source assembly ────────────────────────────────────────────────────── */
@@ -1280,6 +1283,8 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     path_list_add(&args, build_source);
     path_list_add(&args, "--output");
     path_list_add(&args, output_path);
+    path_list_add(&args, "--package-root");
+    path_list_add(&args, proj_dir);
     if (verbose) path_list_add(&args, "--verbose");
     /* Phase 94 LIB-04: forward --release from iron build CLI to ironc so
      * native -O2 (and web -Oz -flto) optimization tiers reach the underlying
@@ -1420,7 +1425,7 @@ static int cmd_check(int argc, char **argv) {
     iron_print_status(colors, "Checking", detail);
 
     char *ironc = find_ironc();
-    char *spawn_argv[] = { ironc, "check", check_source, NULL };
+    char *spawn_argv[] = { ironc, "check", check_source, "--package-root", proj_dir, NULL };
     int ret = spawn_and_wait(ironc, spawn_argv);
 
     if (ret == 0) {
@@ -1539,7 +1544,8 @@ static int cmd_test(int argc, char **argv) {
         fclose(combined);
 
         char *ironc = find_ironc();
-        char *spawn_argv[] = { ironc, "test", combined_path, (char *)filter, NULL };
+        char *spawn_argv[] = { ironc, "test", combined_path, "--package-root", proj_dir,
+                               (char *)filter, NULL };
         ret = spawn_and_wait(ironc, spawn_argv);
         if (has_standalone) {
             /* Standalone programs run whole; the filter does not apply. */
