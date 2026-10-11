@@ -12236,6 +12236,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     /* Map / Set tables (#193): resolve the symbolic callee names and emit
      * each instantiation after the object structs it stores. */
     emit_resolve_hash_calls(&ctx);
+    emit_resolve_resource_calls(&ctx);
 
     /* ── Phase 3: Function prototypes ────────────────────────────────────── */
     for (int i = 0; i < module->func_count; i++) {

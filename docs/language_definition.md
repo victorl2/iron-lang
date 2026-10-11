@@ -2200,7 +2200,11 @@ argument carries it.
 `ch.send(v)` blocks while the channel is full and `ch.recv()` blocks while
 it is empty. Channels are `nocopy` and are closed when their
 owner goes out of scope; there is no explicit close and no non-blocking
-receive.
+receive. A channel owns the items it holds as a map owns its values
+(section 9.10): `send` takes its argument like `put` (a list, map or set
+binding, or an object holding one, is `E0328`: send `xs.copy()` or
+`xs.take()`), `recv` moves the item out, and items still queued when the
+channel goes away are dropped.
 
 ### 7.3 `Mutex[T]` and `RWLock[T]`
 
@@ -2209,7 +2213,11 @@ receive.
 `g.get()` and `g.set(v)` to read and write the protected value. `RWLock(value)` is the
 reader-writer variant: `l.read()` returns an `RWReadGuard[T]` with `get()`,
 and `l.write()` an `RWWriteGuard[T]` with `get()` and `set(v)`. All of
-these are `nocopy`.
+these are `nocopy`. A lock owns its value: `Mutex(v)`, `RWLock(v)` and
+`set(v)` take their argument as `Map.put` does (a list, map or set binding,
+or an object holding one, is `E0328`), `get()` hands out a copy the caller
+owns, `set` drops the value it replaces, and the value is dropped with the
+lock.
 
 ```iron
 func main() {
