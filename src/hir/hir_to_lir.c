@@ -4410,7 +4410,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
             }
 
-            if (!stmt->let.init && !boxed && type &&
+            if (!stmt->let.init && !boxed && !var_is_capture(ctx, vid) && type &&
                 (type_needs_drop(type, ctx->program) || type_is_rc_like(type) ||
                  type->kind == IRON_TYPE_FUNC ||
                  resource_destroy_helper(type, &(const Iron_Type *){NULL})) &&
