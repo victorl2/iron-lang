@@ -305,8 +305,25 @@ class Shapes(ProbeGen):
         return Probe(pre + [f'val {x}: {self.syn(t)} = {e}', f'println({sh}({x}))'],
                      [self.show(t, v)])
 
+    def holds_list(self, t, seen=()):
+        """A value of t owns a list or map (ident would duplicate it: E0328)."""
+        k = t[0]
+        if k in ('List', 'Map'):
+            return True
+        if k in BASE:
+            return False
+        if k == 'Obj':
+            return t[1] not in seen and any(self.holds_list(f, seen + (t[1],))
+                                            for f in self.objs[t[1]])
+        if k == 'Enum':
+            return t[1] not in seen and any(self.holds_list(p, seen + (t[1],))
+                                            for _, ps in self.enums[t[1]] for p in ps)
+        return any(self.holds_list(x, seen) for x in t[1:])
+
     def p_ident(self):
         t = self.fresh_t()
+        if self.holds_list(t):
+            return self.p_bind()
         v = self.rand_val(t)
         pre = []
         e = self.expr(t, v, pre)

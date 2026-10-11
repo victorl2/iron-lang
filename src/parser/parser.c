@@ -945,6 +945,9 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         }
 
         iron_expect(p, IRON_TOK_RBRACKET);
+        /* `[T]?`: a nullable list (manual 2.2: `T?` for any non-pointer
+         * type); the `?` was left unparsed. */
+        if (!ann->is_nullable) ann->is_nullable = iron_match(p, IRON_TOK_QUESTION);
         ann->span = iron_span_merge(iron_token_span(p, start),
                                     iron_prev_token_span(p, iron_token_span(p, start)));
         return (Iron_Node *)ann;

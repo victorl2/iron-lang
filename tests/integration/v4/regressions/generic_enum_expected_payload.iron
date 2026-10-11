@@ -1,0 +1,42 @@
+-- A generic enum payload takes its type from the expected instance, and a
+-- tuple type argument is accepted in an explicit generic call (#621).
+enum Mb[T] {
+    No,
+    So(T),
+}
+
+object Gb[T] {
+    val v: T
+}
+
+func ident[T](x: T) -> T {
+    return x
+}
+
+func shg(x: Mb[Gb[Int]?]) -> String {
+    match x {
+        Mb.No -> return "No"
+        Mb.So(v) -> {
+            if v != null {
+                return "So({v.v})"
+            }
+            return "So(N)"
+        }
+    }
+    return ""
+}
+
+func main() {
+    val a: Mb[[[String]]] = Mb.So([[""], []])
+    match a {
+        Mb.So(l) -> println("{len(l)}")
+        Mb.No -> println("no")
+    }
+    val b: Mb[Gb[Int]?] = Mb.So(null)
+    println("{shg(b)} {shg(Mb.So(Gb[Int](4)))} {shg(Mb.No)}")
+    val (i, m) = ident[(Int, Mb[Int])]((1, Mb.So(2)))
+    match m {
+        Mb.So(v) -> println("{i} {v}")
+        Mb.No -> println("no")
+    }
+}

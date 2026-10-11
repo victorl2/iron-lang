@@ -142,6 +142,12 @@ typedef struct {
      * the seven INIT error codes (E0246..E0252). Saved/restored around every
      * method body in check_method_decl (mirrors in_synth_accessor). */
     bool               in_init_method;
+    /* The generic enum instance a construct is expected to produce (an
+     * annotation, a return, an argument): its payload arguments are checked
+     * against the instance's payload types, so `null`, `[]` and nested
+     * open constructs take their types from it. Consumed (cleared) by the
+     * construct it was set for. */
+    Iron_Type         *enum_construct_expected;
     /* Phase 24 DROP-01/06 (Plan 24-02): true when the enclosing method is a
      * drop or copy block respectively. Saved/restored around every method body
      * in check_method_decl (mirrors in_init_method pattern). Used to gate
@@ -2754,8 +2760,9 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
 
     if (!base) base = iron_type_make_primitive(IRON_TYPE_ERROR);
 
-    /* Wrap in nullable if needed */
-    if (ann->is_nullable) {
+    /* Wrap in nullable if needed (on a list annotation, `[Int]?`, the `?`
+     * is the list's: the parser routes `[Int?]` through array_elem_ann) */
+    if (ann->is_nullable && !ann->is_array) {
         Iron_Type *nb = iron_type_make_nullable(ctx->arena, base);
         /* HARD-09 CR-02: NULL-propagation fallback. */
         base = nb ? nb : iron_type_make_primitive(IRON_TYPE_ERROR);
@@ -2776,6 +2783,10 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
             base->array.is_unordered = ann->is_unordered;
             /* Phase 23 VEC-01: propagate bounded flag from annotation to type */
             base->array.is_bounded   = ann->bounded;
+        }
+        if (ann->is_nullable && base && base->kind == IRON_TYPE_ARRAY) {
+            Iron_Type *nb = iron_type_make_nullable(ctx->arena, base);
+            base = nb ? nb : iron_type_make_primitive(IRON_TYPE_ERROR);
         }
     }
 
@@ -4124,6 +4135,26 @@ static Iron_Node *type_ann_from_expr(TypeCtx *ctx, Iron_Node *n) {
         ta->span = n->span;
         ta->is_rc = true;
         ta->rc_inner = inner;
+        return (Iron_Node *)ta;
+    }
+    if (n->kind == IRON_NODE_ARRAY_LIT && ((Iron_ArrayLit *)n)->type_ann &&
+        ((Iron_ArrayLit *)n)->type_ann->kind == IRON_NODE_TYPE_ANNOTATION &&
+        ((Iron_TypeAnnotation *)((Iron_ArrayLit *)n)->type_ann)->is_tuple) {
+        /* `(Int, String)` written as a type argument: a tuple type
+         * (`ident[(Int, [String])](t)`). */
+        Iron_ArrayLit *al = (Iron_ArrayLit *)n;
+        Iron_TypeAnnotation *ta = ARENA_ALLOC(ctx->arena, Iron_TypeAnnotation);
+        if (!ta) return NULL;
+        memset(ta, 0, sizeof(*ta));
+        ta->kind = IRON_NODE_TYPE_ANNOTATION;
+        ta->span = n->span;
+        ta->is_tuple = true;
+        for (int i = 0; i < al->element_count; i++) {
+            Iron_Node *e = type_ann_from_expr(ctx, al->elements[i]);
+            if (!e) return NULL;
+            IRON_ARENA_ARR_PUSH(ctx->arena, ta->tuple_elems, ta->tuple_elem_count, e);
+            ta->tuple_elem_count++;
+        }
         return (Iron_Node *)ta;
     }
     if (n->kind == IRON_NODE_ARRAY_LIT) {
@@ -8752,9 +8783,22 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 }
                 ctx->global_scope = gen_scope;
 
+                Iron_Type *exp_inst = ctx->enum_construct_expected;
+                ctx->enum_construct_expected = NULL;
+                bool use_exp = exp_inst && exp_inst->kind == IRON_TYPE_ENUM &&
+                    exp_inst->enu.decl == ed && exp_inst->enu.type_args &&
+                    exp_inst->enu.type_arg_count == ed->generic_param_count &&
+                    exp_inst->enu.variant_payload_types &&
+                    exp_inst->enu.variant_payload_types[vi];
+                bool exp_fits = use_exp;
                 /* Type-check args and infer generic type params */
                 for (int j = 0; j < ec->arg_count; j++) {
-                    Iron_Type *arg_t = check_expr(ctx, ec->args[j]);
+                    Iron_Type *ept = use_exp ? exp_inst->enu.variant_payload_types[vi][j] : NULL;
+                    Iron_Type *arg_t = ept ? check_expr_with_expected(ctx, ec->args[j], ept)
+                                           : check_expr(ctx, ec->args[j]);
+                    if (use_exp && (!ept || !arg_t || arg_t->kind == IRON_TYPE_ERROR ||
+                                    !types_assignable(ept, arg_t)))
+                        exp_fits = false;
                     Iron_Type *expected = resolve_type_annotation(
                         ctx, ev->payload_type_anns[j]);
                     /* If expected is GENERIC_PARAM, map it to arg_t */
@@ -8803,6 +8847,12 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     }
                 }
                 ctx->global_scope = saved_gen;
+                /* Every argument fits the expected instance's payload: it is
+                 * that instance (`Mb.So(null)` where an Mb[Int?] is expected,
+                 * not an Mb[Null]). */
+                if (exp_fits)
+                    for (int gi = 0; gi < ed->generic_param_count; gi++)
+                        inferred_args[gi] = exp_inst->enu.type_args[gi];
 
                 /* Build mangled name from inferred args.
                  * Use type_mangle_component to ensure C-identifier-safe names
@@ -9039,13 +9089,22 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
         expected->kind == IRON_TYPE_FUNC) {
         ctx->lambda_expected_type = expected;
     }
+    /* A literal where a T? is expected is typed as a T (then wrapped):
+     * `f([["a"], []])` for a `[[String]]?` parameter, `Mb.So(null)` for an
+     * `Mb[Int?]?`. */
+    if (node && expected && expected->kind == IRON_TYPE_NULLABLE &&
+        expected->nullable.inner &&
+        (node->kind == IRON_NODE_ARRAY_LIT || node->kind == IRON_NODE_ENUM_CONSTRUCT))
+        expected = expected->nullable.inner;
     /* A generic enum construct whose payload leaves type arguments open
      * (`Maybe.Nothing`, `Result.Ok(1)`) takes them from the expected type
      * of a return, an argument or an assignment, as an annotated `val`
      * initializer does. Arguments the payload did fix must agree. */
     if (node && node->kind == IRON_NODE_ENUM_CONSTRUCT && expected &&
         expected->kind == IRON_TYPE_ENUM && expected->enu.mangled_name) {
+        ctx->enum_construct_expected = expected;
         Iron_Type *t = check_expr(ctx, node);
+        ctx->enum_construct_expected = NULL;
         if (t && t->kind == IRON_TYPE_ENUM && t->enu.decl == expected->enu.decl &&
             t != expected) {
             bool open = !t->enu.type_args ||

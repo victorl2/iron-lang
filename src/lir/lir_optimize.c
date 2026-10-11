@@ -746,6 +746,24 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
                         }
                     }
                 }
+                /* A list wrapped into an optional (`return [1, 2]` from a
+                 * function returning [Int]?) is an Iron_List inside the
+                 * optional: never a stack array (the C stored the array's
+                 * address as the list's items with count 0, and returned
+                 * stack memory). */
+                if (instr->kind == IRON_LIR_CAST) {
+                    ptrdiff_t vi = hmgeti(sa_map, instr->cast.value);
+                    if (vi >= 0) {
+                        IronLIR_ValueId orig = sa_map[vi].value;
+                        if (orig < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                            fn->value_table[orig]) {
+                            if (fn->value_table[orig]->kind == IRON_LIR_ARRAY_LIT)
+                                fn->value_table[orig]->array_lit.use_stack_repr = false;
+                            else
+                                hmput(info->revoked_fill_ids, orig, true);
+                        }
+                    }
+                }
                 /* A literal that is an element of another list literal is
                  * owned by that list (lists of lists, #176): never a stack
                  * array. */

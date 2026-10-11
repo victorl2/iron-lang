@@ -453,13 +453,17 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
         }
     }
 
-    if (ta->is_nullable && base) {
+    /* On a list annotation (`[Int]?`) the `?` is the list's (the parser
+     * routes `[Int?]` through array_elem_ann). */
+    if (ta->is_nullable && !ta->is_array && base) {
         base = iron_type_make_nullable(ctx->module->arena, base);
     }
     if (ta->is_array && base) {
         int size = -1;
         /* size node not used here for simplicity */
         base = iron_type_make_array(ctx->module->arena, base, size, false);
+        if (ta->is_nullable && base)
+            base = iron_type_make_nullable(ctx->module->arena, base);
     }
     return base;
 }
