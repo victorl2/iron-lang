@@ -404,3 +404,15 @@
    ...
    fun:__pthread_cond_wait_common
 }
+{
+   helgrind-atomic-iron_once
+   Helgrind:Race
+   ...
+   fun:iron_once
+}
+{
+   drd-atomic-iron_once
+   drd:ConflictingAccess
+   ...
+   fun:iron_once
+}
