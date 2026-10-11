@@ -4155,6 +4155,14 @@ static void unify_generic(Iron_Node *ann_node, Iron_Type *actual,
         return;
     }
     Iron_Type *t = actual;
+    if (ta->is_pointer) {
+        /* `*T`, `*var Cell[T]`, `?*T` against a pointer argument (an
+         * auto-addressed binding has its own type): the pointee carries T. */
+        if (t->kind == IRON_TYPE_NULLABLE && t->nullable.inner) t = t->nullable.inner;
+        if (t->kind == IRON_TYPE_PTR && t->ptr.pointee) t = t->ptr.pointee;
+        if (ta->pointer_pointee) unify_generic(ta->pointer_pointee, t, gps, ngp, bind);
+        return;
+    }
     if (ta->is_nullable && t->kind == IRON_TYPE_NULLABLE) t = t->nullable.inner;
     if (ta->is_array) {
         if (t->kind != IRON_TYPE_ARRAY) return;

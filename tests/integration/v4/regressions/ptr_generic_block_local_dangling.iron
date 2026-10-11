@@ -1,0 +1,32 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A generic container keeping a pointer to a block local (#537, #539).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+object Cell[T] {
+    var p: ?*T
+    init() {
+        self.p = null
+    }
+}
+func put[T](c: *var Cell[T], v: *T) {
+    c.p = v
+}
+func main() {
+    var c = Cell[P]()
+    {
+        val x = P(7)
+        put[P](&c, &x)
+        val q = c.p
+        if q != null {
+            println("inside {q.hp}")
+        }
+    }
+    val q = c.p
+    if q != null {
+        println("{q.hp}")
+    }
+}

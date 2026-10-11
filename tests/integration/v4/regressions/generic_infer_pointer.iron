@@ -1,0 +1,25 @@
+-- Type arguments are inferred through pointer parameters (*T, *var Cell[T]),
+-- also from an auto-addressed argument; it was E0202. (#612)
+object Cell[T] {
+    var v: T
+    init(v: T) {
+        self.v = v
+    }
+}
+func show[T](p: *T) -> String {
+    return "{p}"
+}
+func peek[T](c: *Cell[T]) -> T {
+    return c.v
+}
+func put[T](c: *var Cell[T], v: T) {
+    c.v = v
+}
+func main() {
+    val n = 3
+    println(show(&n))
+    var c = Cell[Int](4)
+    println("{peek(&c)}")
+    put(&c, 9)
+    println("{peek(c)}")
+}

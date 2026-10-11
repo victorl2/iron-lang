@@ -1,0 +1,33 @@
+-- @expect-panic: dangling stack pointer to frame
+-- An interface value holding a pointer to a block local, read through a
+-- method after the block (#537, #539).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+interface G {
+    readonly func get() -> Int
+}
+object H impl G {
+    val p: *P
+    readonly func get() -> Int {
+        return self.p.hp
+    }
+}
+func main() {
+    var g: G? = null
+    {
+        val x = P(6)
+        g = H(&x)
+        val gg = g
+        if gg != null {
+            println("inside {gg.get()}")
+        }
+    }
+    val gg = g
+    if gg != null {
+        println("{gg.get()}")
+    }
+}

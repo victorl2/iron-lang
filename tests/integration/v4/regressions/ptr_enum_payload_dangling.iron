@@ -1,0 +1,24 @@
+-- @expect-panic: dangling stack pointer to frame
+-- An enum payload holding a pointer to a block local, matched after the
+-- block (#537, #539).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+enum R {
+    Some(*P),
+    Nothing
+}
+func main() {
+    var r = R.Nothing
+    {
+        val x = P(8)
+        r = R.Some(&x)
+    }
+    match r {
+        R.Some(p) -> println("{p.hp}")
+        R.Nothing -> println("none")
+    }
+}

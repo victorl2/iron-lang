@@ -1,0 +1,20 @@
+-- Pointers to locals of outer frames stay valid in deep recursion, across
+-- calls that come and go at the same depths (#471, #541).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+func walk(n: Int, p: *P) -> Int {
+    val loc = P(n)
+    val q = &loc
+    if n == 0 {
+        return p.hp + q.hp
+    }
+    return walk(n - 1, p) + walk(0, q)
+}
+func main() {
+    val root = P(1)
+    println("{walk(200, &root)}")
+}
