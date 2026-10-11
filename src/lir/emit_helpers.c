@@ -1895,11 +1895,59 @@ static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
         if (emit_type_is_bvec(ft) && bvec_needs_glue(ctx, ft, want_copy)) return true;
         if (ft->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, ft, want_copy)) return true;
         if (ft->kind == IRON_TYPE_ENUM && enum_needs_glue(ctx, ft, want_copy)) return true;
+        if (ft->kind == IRON_TYPE_TUPLE && tuple_needs_glue(ctx, ft, want_copy)) return true;
         if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
             od_lifecycle_rec(ctx, ft->object.decl, want_copy, depth + 1))
             return true;
     }
     return false;
+}
+
+/* A tuple whose elements own something (#450): drop and copy glue apply
+ * each element's, as an object's apply its fields'. */
+bool tuple_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
+    if (!t || t->kind != IRON_TYPE_TUPLE) return false;
+    for (int i = 0; i < t->tuple.elem_count; i++) {
+        const Iron_Type *et = t->tuple.elem_types ? t->tuple.elem_types[i] : NULL;
+        if (!et) continue;
+        if (emit_type_is_rc_like(et) || emit_field_is_owned_list(et)) return true;
+        if (emit_type_is_string_like(et)) return true;
+        if (!want_copy && emit_field_is_box(et)) return true;
+        if (et->kind == IRON_TYPE_FUNC) return true;
+        if (et->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, et, want_copy)) return true;
+        if (emit_type_is_bvec(et) && bvec_needs_glue(ctx, et, want_copy)) return true;
+        if (et->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, et, want_copy)) return true;
+        if (et->kind == IRON_TYPE_ENUM && enum_needs_glue(ctx, et, want_copy)) return true;
+        if (et->kind == IRON_TYPE_TUPLE && tuple_needs_glue(ctx, et, want_copy)) return true;
+        if (et->kind == IRON_TYPE_OBJECT && et->object.decl &&
+            od_lifecycle_rec(ctx, et->object.decl, want_copy, 1))
+            return true;
+    }
+    return false;
+}
+
+void emit_ensure_tuple_glue(EmitCtx *ctx, const Iron_Type *t, bool drop) {
+    if (!ctx || !tuple_needs_glue(ctx, t, !drop)) return;
+    const char *tc = emit_type_to_c((Iron_Type *)t, ctx);
+    char **done = drop ? ctx->emitted_drops : ctx->emitted_copy_fixups;
+    for (int i = 0; i < (int)arrlen(done); i++)
+        if (strcmp(done[i], tc) == 0) return;
+    char *name_copy = iron_arena_strdup(ctx->arena, tc, strlen(tc));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_tuple_glue");
+    if (drop) arrput(ctx->emitted_drops, name_copy);
+    else      arrput(ctx->emitted_copy_fixups, name_copy);
+    Iron_StrBuf body = iron_strbuf_create(128);
+    for (int i = 0; i < t->tuple.elem_count; i++) {
+        char lv[32];
+        snprintf(lv, sizeof(lv), "self->v%d", i);
+        emit_elem_lifecycle_stmt(ctx, &body, t->tuple.elem_types[i], lv, drop);
+    }
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static void %s_%s(%s *self) {\n"
+        "%s"
+        "}\n\n",
+        tc, drop ? "drop" : "copied", tc, iron_strbuf_get(&body));
+    iron_strbuf_free(&body);
 }
 
 bool bvec_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
@@ -1962,6 +2010,11 @@ void emit_elem_lifecycle_stmt(EmitCtx *ctx, Iron_StrBuf *sb, const Iron_Type *et
     } else if (et->kind == IRON_TYPE_NULLABLE) {
         if (!optional_needs_glue(ctx, et, !drop)) return;
         emit_ensure_optional_glue(ctx, et, drop);
+        iron_strbuf_appendf(sb, "        %s_%s(&%s);\n", emit_type_to_c((Iron_Type *)et, ctx),
+                            drop ? "drop" : "copied", lv);
+    } else if (et->kind == IRON_TYPE_TUPLE) {
+        if (!tuple_needs_glue(ctx, et, !drop)) return;
+        emit_ensure_tuple_glue(ctx, et, drop);
         iron_strbuf_appendf(sb, "        %s_%s(&%s);\n", emit_type_to_c((Iron_Type *)et, ctx),
                             drop ? "drop" : "copied", lv);
     } else if (et->kind == IRON_TYPE_ENUM) {

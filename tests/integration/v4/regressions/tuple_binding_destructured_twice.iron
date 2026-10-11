@@ -1,7 +1,7 @@
--- @leaks-by-design: a tuple binding is never dropped (issue 450)
 -- Destructuring a tuple binding twice. Its elements are copied into the
 -- bindings, as the fields of any place are; moving them out (as for a
--- call's tuple) freed each string twice.
+-- call's tuple) freed each string twice. The binding itself is dropped once
+-- at scope exit (issue 450).
 func trio(n: Int) -> (String, Int, String) {
     return ("first heap string {n} zzzzzzzzzzzzzzzzzzzzzz", n, "third heap string {n} wwwwwwwwwwwwwwwwwwwwww")
 }

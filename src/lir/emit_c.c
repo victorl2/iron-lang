@@ -357,6 +357,10 @@ void emit_copy_fixup_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
     } else if (t->kind == IRON_TYPE_ENUM && enum_needs_glue(ctx, t, true)) {
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "%s_copied(&%s);\n", emit_type_to_c(t, ctx), lv);
+    } else if (t->kind == IRON_TYPE_TUPLE && tuple_needs_glue(ctx, t, true)) {
+        emit_ensure_tuple_glue(ctx, t, false);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s_copied(&%s);\n", emit_type_to_c(t, ctx), lv);
     }
 }
 
@@ -383,6 +387,10 @@ void emit_drop_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx, Iron_Type *t, cons
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "%s_drop(&%s);\n", emit_type_to_c(t, ctx), lv);
     } else if (t->kind == IRON_TYPE_ENUM && enum_needs_glue(ctx, t, false)) {
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s_drop(&%s);\n", emit_type_to_c(t, ctx), lv);
+    } else if (t->kind == IRON_TYPE_TUPLE && tuple_needs_glue(ctx, t, false)) {
+        emit_ensure_tuple_glue(ctx, t, true);
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "%s_drop(&%s);\n", emit_type_to_c(t, ctx), lv);
     }
@@ -4827,6 +4835,20 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     }
                     break;
                 }
+                /* A copy of a list gets a buffer of its own (a list element
+                 * of a tuple binding, #450). */
+                if (!is_drop && gt && gt->kind == IRON_TYPE_ARRAY &&
+                    gt->array.size < 0 && !gt->array.is_bounded &&
+                    strcmp(gname, "$copy") == 0) {
+                    const char *lc = emit_type_to_c(gt, ctx);
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "*(");
+                    emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
+                    iron_strbuf_appendf(sb, ") = %s_clone(", lc);
+                    emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
+                    iron_strbuf_appendf(sb, ");\n");
+                    break;
+                }
                 /* An enum frees its boxed payloads and destroys / fixes up
                  * the payload fields that own something (#231, #258). */
                 if (gt && gt->kind == IRON_TYPE_ENUM) {
@@ -4890,6 +4912,18 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (gt && gt->kind == IRON_TYPE_ARRAY && gt->array.is_bounded) {
                     if (bvec_needs_glue(ctx, gt, !is_drop)) {
                         emit_ensure_bvec_glue(ctx, gt, is_drop);
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "%s_%s(", emit_type_to_c(gt, ctx),
+                                            is_drop ? "drop" : "copied");
+                        emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
+                        iron_strbuf_appendf(sb, ");\n");
+                    }
+                    break;
+                }
+                /* A tuple whose elements own something (#450). */
+                if (gt && gt->kind == IRON_TYPE_TUPLE) {
+                    if (tuple_needs_glue(ctx, gt, !is_drop)) {
+                        emit_ensure_tuple_glue(ctx, gt, is_drop);
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "%s_%s(", emit_type_to_c(gt, ctx),
                                             is_drop ? "drop" : "copied");

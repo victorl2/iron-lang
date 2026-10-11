@@ -542,7 +542,11 @@ dot1 dot3 square2
 `(T1, T2, ...)` with at least two element types is a tuple type. A tuple
 value is written `(a, b)`. Tuples are used to return several values; they
 are taken apart with a destructuring `val` (section 4.2) and have no other
-operations (there is no positional access).
+operations (there is no positional access). A tuple owns its elements like
+an object its fields: a tuple binding releases them when it goes out of
+scope, destructuring a call's result moves the elements into the new
+bindings, and destructuring a tuple binding copies them (a list element
+gets a copy of its own), so the binding can be taken apart again.
 
 ```iron
 func divmod(a: Int, b: Int) -> (Int, Int) {

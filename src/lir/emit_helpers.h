@@ -329,6 +329,8 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
  * own anything (want_copy false: to drop; true: to fix up on a copy), and
  * emit `<BVec>_drop` / `<BVec>_copied`, loops over data[0 .. len). */
 bool bvec_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy);
+bool tuple_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy);
+void emit_ensure_tuple_glue(EmitCtx *ctx, const Iron_Type *t, bool drop);
 void emit_ensure_bvec_glue(EmitCtx *ctx, const Iron_Type *t, bool drop);
 /* `T?` glue: `<Iron_Optional_T>_drop` / `_copied` apply T's glue to
  * .value when has_value (objects, interfaces, vectors, closures, lists). */

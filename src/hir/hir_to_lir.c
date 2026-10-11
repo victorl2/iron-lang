@@ -138,6 +138,19 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
                                bool want_copy, int depth) {
     if (t && t->kind == IRON_TYPE_ARRAY && t->array.is_bounded && t->array.size >= 0)
         return bvec_lifecycle(t, program, want_copy, depth);
+    /* A tuple owns its elements like an object its fields (#450): it
+     * needs glue when one of them does. */
+    if (t && t->kind == IRON_TYPE_TUPLE && depth <= 16) {
+        for (int i = 0; i < t->tuple.elem_count; i++) {
+            Iron_Type *et = t->tuple.elem_types ? t->tuple.elem_types[i] : NULL;
+            if (!et) continue;
+            if (type_is_rc_like(et) || type_is_owned_list(et) || type_is_counted_string(et) ||
+                et->kind == IRON_TYPE_FUNC)
+                return true;
+            if (type_lifecycle_rec(et, program, want_copy, depth + 1)) return true;
+        }
+        return false;
+    }
     /* `T?` of an owning T (object, interface, vector, closure, list) needs
      * T's glue on its value; String? and rc T? have their own paths. */
     if (t && t->kind == IRON_TYPE_NULLABLE && t->nullable.inner && depth <= 16) {
@@ -208,6 +221,7 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
          * `object W { val node: N }` binding was never dropped. */
         if ((ft->kind == IRON_TYPE_OBJECT || ft->kind == IRON_TYPE_INTERFACE ||
              ft->kind == IRON_TYPE_NULLABLE || ft->kind == IRON_TYPE_ENUM ||
+             ft->kind == IRON_TYPE_TUPLE ||
              (ft->kind == IRON_TYPE_ARRAY && ft->array.is_bounded)) &&
             type_lifecycle_rec(ft, program, want_copy, depth + 1))
             return true;
@@ -698,6 +712,13 @@ static void emit_copy_fixup_at(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *src,
                                Iron_Span span) {
     if (hir_expr_is_place(src) && type_needs_copy_fixup(t, ctx->program))
         emit_lifecycle_glue_call(ctx, "$copy", slot, span);
+    /* A list element of a tuple binding (`val (s, xs) = t`): t keeps its
+     * list and drops it (#450), so the binding gets a copy of its own. */
+    else if (type_is_owned_list(t) && src && src->kind == IRON_HIR_EXPR_FIELD_ACCESS &&
+             src->field_access.object && src->field_access.object->type &&
+             src->field_access.object->type->kind == IRON_TYPE_TUPLE &&
+             hir_expr_is_place(src))
+        emit_lifecycle_glue_call(ctx, "$copy", slot, span);
 }
 
 /* A value about to be owned by a new holder (field, element, return
@@ -1122,6 +1143,13 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
         }
         /* `T?` of an owning T drops its value, if any. */
         if (entry->object_type->kind == IRON_TYPE_NULLABLE) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            if (entry->alloca_id == ctx->moved_slot) continue;
+            emit_drop_glue_call(ctx, entry->alloca_id, span);
+            continue;
+        }
+        /* A tuple drops its elements (#450) unless `return` moved it out. */
+        if (entry->object_type->kind == IRON_TYPE_TUPLE) {
             if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
             if (entry->alloca_id == ctx->moved_slot) continue;
             emit_drop_glue_call(ctx, entry->alloca_id, span);
@@ -4547,7 +4575,12 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
              * arm's end, so the next match on the subject, or its own drop,
              * freed the buffer again. */
             bool pattern_borrows = stmt->let.borrows && hir_type_owns_list(type, 0);
-            bool needs_drop_alloca = stmt->let.init &&
+            /* The temporary of `val (a, b) = f()`: its elements move into
+             * the bindings, which drop them; the temporary is not dropped. */
+            const char *let_name = iron_hir_var_name(ctx->hir, vid);
+            bool tuple_moved = type && type->kind == IRON_TYPE_TUPLE && let_name &&
+                               strncmp(let_name, "__tuple_mv_", 11) == 0;
+            bool needs_drop_alloca = stmt->let.init && !tuple_moved &&
                                      !init_is_heap_or_rc && !enum_borrows && !pattern_borrows &&
                                      type_needs_drop(type, ctx->program) &&
                                      ctx->defer_depth > 0 &&
