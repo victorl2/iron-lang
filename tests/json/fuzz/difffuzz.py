@@ -23,7 +23,8 @@ references, build jcanon.iron against each and pass both, e.g.
 Comparison rules ("careful" numbers, Iron's documented policy):
   * accept vs reject differs: mismatch. Error codes are not compared.
   * a reference result that Iron's policy rejects counts as a reject: nesting
-    deeper than 512, a number that is infinite or NaN;
+    deeper than 512, a number that is infinite or NaN, a document that
+    starts with a UTF-8 byte order mark (simdjson skips it);
   * values compare structurally, members in document order (duplicates kept);
   * numbers: two integers must be equal; two doubles must be bit-identical
     (so -0.0 differs from 0.0); an integer against a double compares the
@@ -186,8 +187,10 @@ def diff(a, b, path="$"):
     return None
 
 
-def interpret(line, policy):
+def interpret(line, policy, doc=""):
     """('reject', why) | ('accept', tree) | ('skip', why)."""
+    if policy and doc.startswith("efbbbf") and line.startswith("OK"):
+        return ("reject", "leading byte order mark (Iron policy)")
     if line.startswith("ERR"):
         if "BIGINT" in line.upper() or "big integer" in line.lower():
             return ("skip", "reference cannot hold a big integer")
@@ -246,7 +249,7 @@ def main():
         agree = bad = skipped = acc = 0
         for i, doc in enumerate(docs):
             s = interpret(results[subject][i], policy=False)
-            r = interpret(results[name][i], policy=True)
+            r = interpret(results[name][i], policy=True, doc=doc)
             if r[0] == "skip" or s[0] == "skip":
                 skipped += 1
                 continue
