@@ -3569,8 +3569,17 @@ static bool method_may_change_self(Iron_MethodDecl *md) {
  * looks mutating: declared without `readonly` but no implementation changes
  * self (`func area() -> Float { return self.s * self.s }`). Declaring it
  * readonly is then the fix, not `var`. NULL when that is not known. */
+static bool is_readonly_compatible_type(const Iron_Type *t, TypeCtx *ctx);
+
 static const char *readonly_hint(TypeCtx *ctx, Iron_Type *t, const char *method) {
     if (!ctx->program || !t || !method) return NULL;
+    /* An instance of a generic method (`pick__Int`): the help names the
+     * method as declared (it suggested `readonly func pick[Int](...)`). */
+    const char *shown = method;
+    Iron_Node *gdecl = iron_generics_instance_of(method, NULL, NULL);
+    if (gdecl && gdecl->kind == IRON_NODE_METHOD_DECL &&
+        ((Iron_MethodDecl *)gdecl)->method_name)
+        shown = ((Iron_MethodDecl *)gdecl)->method_name;
     if (t->kind == IRON_TYPE_NULLABLE) t = t->nullable.inner;
     if (!t) return NULL;
     const char *iface_name = NULL;
@@ -3604,6 +3613,12 @@ static const char *readonly_hint(TypeCtx *ctx, Iron_Type *t, const char *method)
                 strcmp(md->method_name, method) != 0) continue;
             if (md->is_readonly || md->is_pure) continue;
             if (method_may_change_self(md)) return NULL;
+            /* A readonly method could not return this type (E0280): the
+             * fix is `var`, not `readonly`. */
+            if (md->resolved_return_type &&
+                md->resolved_return_type->kind != IRON_TYPE_VOID &&
+                !is_readonly_compatible_type(md->resolved_return_type, ctx))
+                return NULL;
             seen++;
         }
     }
@@ -3613,11 +3628,11 @@ static const char *readonly_hint(TypeCtx *ctx, Iron_Type *t, const char *method)
         snprintf(buf, sizeof(buf),
                  "'%s' does not change self in any implementation: declare it "
                  "`readonly func %s(...)` in '%s' and its implementations",
-                 method, method, iface_name);
+                 shown, shown, iface_name);
     else
         snprintf(buf, sizeof(buf),
                  "'%s' does not change self: declare it `readonly func %s(...)`",
-                 method, method);
+                 shown, shown);
     return iron_arena_strdup(ctx->arena, buf, strlen(buf));
 }
 
@@ -11921,10 +11936,13 @@ static void check_method_decl_inner(TypeCtx *ctx, Iron_MethodDecl *md) {
         !is_readonly_compatible_type(ret_type, ctx)) {
         const char *ts = iron_type_to_string(ret_type, ctx->arena);
         char msg[256];
+        /* An instance of a generic method is shown as written. */
+        const char *mname = md->method_name ? md->method_name : "?";
+        const char *pretty = iron_generics_prettify(mname, ctx->arena);
         snprintf(msg, sizeof(msg),
                  "readonly method '%s.%s' return type '%s' is not readonly-compatible",
                  md->type_name ? md->type_name : "?",
-                 md->method_name ? md->method_name : "?",
+                 pretty ? pretty : mname,
                  ts ? ts : "?");
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                        IRON_ERR_READONLY_RETURN_TYPE, md->span, msg,
