@@ -2004,6 +2004,18 @@ static IronLIR_ValueId lower_optional_equality(HIR_to_LIR_Ctx *ctx,
     return phi->id;
 }
 
+/* `val (a, b) = f()`: hir_lower binds each element of a call's tuple from a
+ * `__tuple_mv_` temporary that nothing else owns, so the element moves into
+ * its binding instead of being copied. */
+static bool init_moves_from_tuple(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *init) {
+    if (!init || init->kind != IRON_HIR_EXPR_FIELD_ACCESS) return false;
+    IronHIR_Expr *obj = init->field_access.object;
+    if (!obj || obj->kind != IRON_HIR_EXPR_IDENT || !obj->type ||
+        obj->type->kind != IRON_TYPE_TUPLE) return false;
+    const char *name = iron_hir_var_name(ctx->hir, obj->ident.var_id);
+    return name && strncmp(name, "__tuple_mv_", 11) == 0;
+}
+
 /* ── Pass 1: Expression lowering ─────────────────────────────────────────── */
 
 /* Phase 33 OQ-02 (Plan 33-07): build the `Iron_Box_<elemC>` mangled prefix for
@@ -4434,14 +4446,16 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                     iron_lir_store(ctx->current_func, ctx->current_block,
                                    alloca_id, init_val, span);
                 }
-                emit_copy_fixup_at(ctx, stmt->let.init, type, alloca_id, span);
+                if (!init_moves_from_tuple(ctx, stmt->let.init))
+                    emit_copy_fixup_at(ctx, stmt->let.init, type, alloca_id, span);
                 /* Push drop entry using alloca_id (is_direct_value=false → &alloca) */
                 IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
             } else {
                 if (stmt->let.init) {
                     IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
-                    if (!init_is_heap_or_rc && !pattern_borrows)
+                    bool moved_in = init_moves_from_tuple(ctx, stmt->let.init);
+                    if (!init_is_heap_or_rc && !pattern_borrows && !moved_in)
                         init_val = copy_for_new_owner(ctx, stmt->let.init,
                                                       init_val, type, span);
                     hmput(ctx->val_binding_map, vid, init_val);
@@ -4473,7 +4487,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                         ctx->defer_depth > 0 &&
                         ctx->drop_stacks &&
                         ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
-                        if (!rc_expr_transfers_ownership(stmt->let.init)) {
+                        if (!rc_expr_transfers_ownership(stmt->let.init) && !moved_in) {
                             emit_rc_retain_for_type(ctx, type, init_val, span);
                         }
                         IronLIR_DropEntry de = { init_val, type, true, false, NULL, false };

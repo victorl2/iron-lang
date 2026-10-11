@@ -962,9 +962,19 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 return NULL;
             }
 
-            /* Create tmp var for the tuple init. */
+            /* Create tmp var for the tuple init. A tuple a call returns is
+             * owned by nothing else: its elements move into the bindings
+             * (hir_to_lir skips the copy for a `__tuple_mv_` source), and a
+             * wildcard element goes to a hidden binding that drops it. The
+             * tuple itself is never dropped, so copying the elements out
+             * leaked one reference to each. */
+            bool moves = init_expr &&
+                         (init_expr->kind == IRON_HIR_EXPR_CALL ||
+                          init_expr->kind == IRON_HIR_EXPR_METHOD_CALL ||
+                          init_expr->kind == IRON_HIR_EXPR_AWAIT);
             char tmp_name[64];
-            snprintf(tmp_name, sizeof(tmp_name), "__tuple_tmp_%d",
+            snprintf(tmp_name, sizeof(tmp_name), "%s%d",
+                     moves ? "__tuple_mv_" : "__tuple_tmp_",
                      ctx->lift_counter++);
             IronHIR_VarId tmp_id = iron_hir_alloc_var(mod, tmp_name,
                                                        tuple_ty, false);
@@ -972,16 +982,24 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 iron_hir_stmt_let(mod, tmp_id, tuple_ty, init_expr,
                                   false, span));
 
-            /* Emit one let per binding (skip wildcards). */
+            /* Emit one let per binding (wildcards only when moving). */
             for (int i = 0; i < vd->binding_count; i++) {
                 const char *binding = vd->binding_names[i];
-                if (!binding) continue;  /* wildcard */
+                if (!binding && !moves) continue;  /* wildcard */
                 Iron_Type *elem_ty = (i < tuple_ty->tuple.elem_count)
                     ? tuple_ty->tuple.elem_types[i]
                     : iron_type_make_primitive(IRON_TYPE_ERROR);
-                IronHIR_VarId bind_id = iron_hir_alloc_var(mod, hir_local_name(ctx, binding),
-                                                            elem_ty, false);
-                declare_var(ctx, binding, bind_id);
+                IronHIR_VarId bind_id;
+                if (binding) {
+                    bind_id = iron_hir_alloc_var(mod, hir_local_name(ctx, binding),
+                                                 elem_ty, false);
+                    declare_var(ctx, binding, bind_id);
+                } else {
+                    char discard[64];
+                    snprintf(discard, sizeof(discard), "__tuple_discard_%d",
+                             ctx->lift_counter++);
+                    bind_id = iron_hir_alloc_var(mod, discard, elem_ty, false);
+                }
 
                 char field_name[12];
                 snprintf(field_name, sizeof(field_name), "v%d", i);
