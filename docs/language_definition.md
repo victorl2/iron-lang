@@ -1638,6 +1638,15 @@ functions); a global `var` is a mutable variable shared by the whole
 program (and by all threads, without synchronization). Globals cannot be
 `pub`. A `pure` method may not read a global `var` (`E0241`).
 
+Globals are initialized before `main`, every one of them whether or not
+anything reads it, and each after the globals its initializer reads:
+directly, or through the functions, methods and initializers it calls.
+Globals that do not depend on each other are initialized in declaration
+order; in a package that is the order `iron` compiles its files (section
+10.2). A global whose initializer depends on the global itself is an
+initialization cycle (`E0345`). A global cannot name a later global
+directly (`E0200`).
+
 ```iron
 val LIMIT = 10
 val ANSWER = compute()
@@ -1716,7 +1725,9 @@ Every top-level declaration is private to its file unless marked `pub`.
 global binding). Using a private declaration from another file of the
 package is an error (`E0320`). Object members are private to the declaring
 file unless marked `pub` (section 5.3). The word `private` is not accepted
-(`E0101`).
+(`E0101`). Visibility does not make names local: all files of a package
+share one namespace, so two files may not declare the same top-level name,
+whether or not either is `pub` (`E0201`).
 
 ---
 
@@ -2909,7 +2920,10 @@ runs the package's `test "name" { ... }` blocks (section 10.2.1) and every
 (`--check` only reports). All files of a package share one namespace: a
 `pub` declaration in one file is visible in every other file, and a
 private one only in its own (`E0320`). `import` of a package file is
-optional and documents the dependency.
+optional and documents the dependency. The files are compiled in this
+order, which is the order of their globals' initialization where those do
+not depend on each other (section 5.7): the vendored files, `src/lib.iron`,
+the other files under `src/` sorted by path, `src/main.iron`.
 
 ```toml
 [package]
@@ -3135,6 +3149,7 @@ codes cited in this manual:
 | E0335 | `break` / `continue` outside a loop, in a lambda, `defer` or `spawn` body inside one, or in a `parallel` loop |
 | E0336 | `return` inside a `defer` body |
 | E0331, E0332, E0333, E0334 | list extension with a body; refutable nested pattern; `Channel.new(4)` and the other `.new` constructor spellings; interpolating a value with no text form |
+| E0345 | initialization cycle between globals |
 | E0501 | `await` on the web target |
 | E0700 to E0703 | web main loop rules |
 | W0601, W0604, W0605, W0606 | narrowing cast; spawn data race; arena skips `drop`; heap value never freed |

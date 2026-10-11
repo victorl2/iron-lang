@@ -306,6 +306,7 @@ add_library(iron_compiler STATIC
     src/analyzer/web_await_check.c
     src/analyzer/web_top_level_loader_check.c
     src/analyzer/init_check.c
+    src/analyzer/global_order.c
     src/analyzer/list_ownership.c
     src/analyzer/unused_var.c
     src/analyzer/effects.c

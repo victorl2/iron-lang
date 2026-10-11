@@ -226,8 +226,7 @@ static void collect_vendor_dir(const char *dir, PathList *out) {
 
 /* ── Project sources ────────────────────────────────────────────────────── */
 
-/* The .iron files under `dir` (sorted, depth first), hidden directories
- * skipped. At the top of src/, lib.iron and main.iron are left out: the
+/* The .iron files under `dir`, hidden directories skipped. At the top of src/, lib.iron and main.iron are left out: the
  * caller places them. */
 static void collect_src_dir(const char *dir, bool top, PathList *out) {
     PathList names = {0};
@@ -251,7 +250,7 @@ static void collect_src_dir(const char *dir, bool top, PathList *out) {
 /*
  * Collect the project's own .iron files: every one under src/ (manual
  * 10.2; subdirectories hold the modules `import a.b` names), lib.iron
- * first (if present), the rest sorted depth first, main.iron last.
+ * first (if present), the rest sorted by path, main.iron last.
  */
 static void collect_project_sources(const char *proj_dir, PathList *out) {
     char src_dir[4096];
@@ -260,7 +259,11 @@ static void collect_project_sources(const char *proj_dir, PathList *out) {
     char path[4096];
     snprintf(path, sizeof(path), "%s/lib.iron", src_dir);
     if (is_file(path)) path_list_add(out, path);
+    int first = out->count;
     collect_src_dir(src_dir, true, out);
+    /* sorted by path (the manual's order), not directory by directory */
+    if (out->count - first > 1)
+        qsort(out->items + first, (size_t)(out->count - first), sizeof(char *), path_cmp);
     snprintf(path, sizeof(path), "%s/main.iron", src_dir);
     if (is_file(path)) path_list_add(out, path);
 }
