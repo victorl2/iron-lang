@@ -1,0 +1,14 @@
+-- A list parameter as an enum payload is an implicit duplicate (E0328, #618):
+-- the payload kept the caller's buffer, freed after the call.
+enum Mb[T] {
+    So(T),
+}
+
+func so(x: [[String]]) -> Mb[[[String]]] {
+    return Mb.So(x)
+}
+
+func main() {
+    var l9: [Mb[[[String]]]] = [so([[""], []])]
+    println("{len(l9)}")
+}

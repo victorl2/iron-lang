@@ -277,8 +277,8 @@ class Shapes(ProbeGen):
         if k == 'Gb':
             return f'Gb[{self.syn(t[1])}](' + self.expr(t[1], v[1], pre) + ')'
         if k == 'Mb':
-            so, no = self.mb_helpers(t[1])
-            return f'{no}()' if v[0] == 'No' else f'{so}(' + self.expr(t[1], v[1], pre) + ')'
+            # in a typed position: the expected type fills Mb's argument
+            return 'Mb.No' if v[0] == 'No' else 'Mb.So(' + self.expr(t[1], v[1], pre) + ')'
         if k == 'Obj':
             fields = self.objs[t[1]]
             return t[1] + '(' + ', '.join(self.expr(ft, x, pre) for ft, x in zip(fields, v[1:])) + ')'

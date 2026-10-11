@@ -298,6 +298,14 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
                 require_fresh(c, al->elements[i]);
             break;
         }
+        /* An enum payload is owned by the enum like a field by its object:
+         * a list place in it is a duplicate (the payload kept the borrowed
+         * parameter's buffer, freed by the caller, #618). */
+        case IRON_NODE_ENUM_CONSTRUCT: {
+            Iron_EnumConstruct *ec = (Iron_EnumConstruct *)n;
+            for (int i = 0; i < ec->arg_count; i++) require_fresh(c, ec->args[i]);
+            break;
+        }
         case IRON_NODE_CONSTRUCT: {
             Iron_ConstructExpr *ce = (Iron_ConstructExpr *)n;
             check_field_args(c, ce->type_name, ce->args, ce->arg_count);
