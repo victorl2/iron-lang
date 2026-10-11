@@ -83,6 +83,7 @@ class Model:
         self.next = 0
         self.cslot = [None] * NC
         self.islot = [None] * NI
+        self.fslot = None         # the storage the hub's closure reads, or None
         self.seq = 0
         self.marks = []
         self.rc = {}
@@ -509,6 +510,53 @@ class SpawnRead(Stmt):
         m.out.append(f'{self.tag} {v}')
 
 
+class CaptureC(Stmt):
+    """A closure kept in the hub captures a pointer to a binding and reads
+    through it when called, possibly after the binding's block ended."""
+
+    def __init__(self, name, pname):
+        self.name, self.pname = name, pname
+
+    def lines(self, ind):
+        return [f'{ind}val {self.pname} = &{self.name}',
+                f'{ind}h.f = func() -> Int {{ return {self.pname}.v }}']
+
+    def run(self, m, sc):
+        m.fslot = target_sid(m, sc, self.name)
+
+
+class CallF(Stmt):
+    def __init__(self, tag):
+        self.tag = tag
+
+    def lines(self, ind):
+        return [f'{ind}println("{self.tag} {{h.f()}}")']
+
+    def run(self, m, sc):
+        v = -1 if m.fslot is None else m.deref(m.fslot).value
+        m.out.append(f'{self.tag} {v}')
+
+
+class WithReset(Stmt):
+    """A method of a binding runs a lambda that resets the arena: an arena
+    receiver is pinned for the call, so the reset panics (#650); any other
+    receiver goes on, and the reset takes effect."""
+
+    def __init__(self, name):
+        self.name = name
+
+    def lines(self, ind):
+        return [f'{ind}{self.name}.with(func() {{', f'{ind}    ar.reset()', f'{ind}}})']
+
+    def run(self, m, sc):
+        sid = target_sid(m, sc, self.name)
+        st = m.deref(sid)
+        if st.kind == 'arena':
+            raise Panic('an arena value was reset while one of its methods is running')
+        ArenaReset().run(m, sc)
+        st.value += 1
+
+
 class DeepCall(Stmt):
     """deep(h, n, at, rd): frame `at` (counted down from n) stores &c into
     the deep slot, frame `rd` reads it, then every frame returns."""
@@ -566,14 +614,20 @@ DECLS = '''object Cell {
     func pin(h: *var Hub, k: Int) {
 %PIN%
     }
+    func with(f: func()) {
+        f()
+        self.v += 1
+    }
 }
 
 object Hub {
 %SLOTS%
     var keep: [rc Cell]
+    var f: func() -> Int
     init() {
 %INIT%
         self.keep = []
+        self.f = func() -> Int { return -1 }
     }
 }
 
@@ -702,6 +756,13 @@ class PtrLifeGen:
                 out.append(ElemWrite(r.randrange(len(self.xs_init)), r.randint(1, 999)))
             elif x < 0.985:
                 out.append(SpawnRead(r.randrange(NC), self.fresh('s')))
+            elif x < 0.9875 and vis:
+                out.append(CaptureC(r.choice([v for v in vis if v[1] != 'rc'] +
+                                             [('gcell', 'global')])[0], self.fresh('p')))
+            elif x < 0.989:
+                out.append(CallF(self.fresh('f')))
+            elif x < 0.9895 and vis:
+                out.append(WithReset(r.choice(vis)[0]))
             elif x < 0.99 and ctx['fidx'] is None and depth == 0 and self.panic_budget:
                 self.panic_budget -= 1
                 out.append(ElemGrow(r.randrange(len(self.xs_init))))
