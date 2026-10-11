@@ -1,0 +1,66 @@
+-- Builtin nocopy types borrowed by a lambda passed directly and by an
+-- awaited spawn (#512): a Hasher's native state and a FileHandle's
+-- descriptor are released once, by their bindings (it was a double free
+-- and a double close). rc Mutex / rc Channel / rc RWLock destroy the lock
+-- and its value with the last reference (#636), and a match arm reads a
+-- nocopy payload without copying it (#642).
+import crypto
+import encoding
+import io
+
+object Tag {
+    val id: Int
+    drop {
+        println("drop tag {self.id}")
+    }
+}
+
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop res {self.id}")
+    }
+}
+
+enum Slot {
+    Empty,
+    Full(Res)
+}
+
+func twice(f: func() -> Int) -> Int {
+    return f() + f()
+}
+
+func main() {
+    val h = Hasher.new(HashAlgorithm.Sha256)
+    val t = spawn("t") {
+        return h.handle * 0
+    }
+    println("{await t}")
+    println("{twice(func() -> Int { return h.handle * 0 })}")
+    var hv = Hasher.new(HashAlgorithm.Sha256)
+    val n = [1, 2].map(func(x: Int) -> Int {
+        hv.update("ab")
+        return x
+    })
+    println(Hex.encode(hv.finish()))
+
+    val path = "/tmp/iron_nocopy_capture_stdlib.txt"
+    IO.write_file(path, "hello")
+    val fh = FileHandle.open(path)
+    println("{twice(func() -> Int { return fh.fd * 0 })}")
+    val ft = spawn("ft") {
+        return fh.fd * 0
+    }
+    println("{await ft}")
+
+    val m = rc Mutex(Tag(1))
+    val c = rc Channel[Tag](2)
+    val l = rc RWLock(Tag(2))
+    val s = Slot.Full(Res(3))
+    match s {
+        Slot.Full(x) -> println("slot {x.id}")
+        Slot.Empty -> println("empty")
+    }
+    println("end")
+}

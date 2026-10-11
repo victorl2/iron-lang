@@ -1,0 +1,45 @@
+-- The rc form of a nocopy value is what a stored or returned closure, or a
+-- task that may outlive the block, captures (#512): each holds its own
+-- reference and the value is dropped once, by the last holder. A captured
+-- var shares its cell, and the runtime's shared handles keep working.
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+
+object Button {
+    val on_click: func() -> Int
+}
+
+func make(id: Int) -> func() -> Int {
+    val r = rc Res(id)
+    return func() -> Int { return r.id }
+}
+
+func main() {
+    val a = rc Res(1)
+    val get = func() -> Int { return a.id }
+    val b = Button(func() -> Int { return a.id * 2 })
+    var handlers: [func() -> Int] = []
+    handlers.push(func() -> Int { return a.id * 3 })
+    println("{get()} {b.on_click()} {handlers[0]()}")
+    val m = make(2)
+    println("{m()}")
+    var v = Res(3)
+    val read_v = func() -> Int { return v.id }
+    println("{read_v()}")
+    val shared = Mutex(rc Res(4))
+    val c = Channel[Int](1)
+    val worker = spawn("worker") {
+        val g = shared.lock()
+        val r: rc Res = g.get()
+        c.send(r.id + a.id)
+        return 0
+    }
+    val got: Int = c.recv()
+    await worker
+    println("{got}")
+    println("end")
+}

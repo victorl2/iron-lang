@@ -260,6 +260,22 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             TIMEOUT 60
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
 
+        # A labeled diagnostic (a nocopy capture, #512) reaches the editor in
+        # full: note and help in the message, the declaration as related info.
+        add_test(
+            NAME lsp_nocopy_capture_full_message
+            COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_did_publish_nocopy_capture.py
+                --lsp-binary=$<TARGET_FILE:ironls>
+                --no-header
+                -p no:cacheprovider
+                -v
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(lsp_nocopy_capture_full_message PROPERTIES
+            LABELS "smoke;lsp_smoke"
+            TIMEOUT 60
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+
         # Phase 25 Plan 25-03 closeout: PTR-02/03 (E0289) + PTR-05 (E0294) +
         # UNCK-06 (E0295) publishDiagnostics regression-anchor smoke. NOT a
         # Wave 0 RED gate — by the time this test runs, Plans 25-01/02 have

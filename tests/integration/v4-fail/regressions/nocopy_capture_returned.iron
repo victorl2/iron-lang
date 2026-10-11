@@ -1,0 +1,15 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- A returned closure cannot capture a nocopy value (#512).
+func mk() -> func() -> Int {
+    val r = Res(1)
+    return func() -> Int { return r.id }
+}
+func main() {
+    println("{mk()()}")
+}

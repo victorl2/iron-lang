@@ -1,0 +1,10 @@
+error[E0286]: closure captures the nocopy value `h`, but the closure can outlive it
+`h` is declared here; Res is nocopy, so it has a single owner
+captured here by a closure that is stored in `reader`
+note: a nocopy value can only be borrowed by a lambda passed directly as a call argument, or by a spawn awaited in the same block
+help: to share it with a closure that is stored, returned or outlives this block, make it reference counted:
+    val h = rc open_res("data.txt")
+the closure then holds its own reference, and the value is dropped once, when the last holder is gone
+error[E0286]: spawn captures the nocopy value `h`, but the task can outlive it
+captured here by a spawn whose handle is discarded, so it is never awaited
+    val h = Mutex(rc open_res("data.txt"))

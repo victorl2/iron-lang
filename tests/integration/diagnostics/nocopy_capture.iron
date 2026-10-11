@@ -1,0 +1,19 @@
+-- A capture of a nocopy value that is not a borrow (#512): the error
+-- labels the capture and the declaration, and the help shows the rc
+-- rewrite of the binding (and a Mutex for a spawn).
+nocopy object Res {
+    val id: Int
+}
+
+func open_res(path: String) -> Res {
+    return Res(path.len())
+}
+
+func main() {
+    val h = open_res("data.txt")
+    val reader = func() -> Int { return h.id }
+    println("{reader()}")
+    spawn("t") {
+        return h.id
+    }
+}

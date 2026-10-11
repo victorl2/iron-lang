@@ -756,6 +756,14 @@ are visible outside, and the closure may outlive the function that
 declared the `var` (a counter closure keeps its count). A lambda may
 capture a list only when it is passed directly as a call argument
 (`E0328` otherwise); to share a list with a stored closure use `rc [T]`.
+A `nocopy` value follows the same borrow rule (6.7): a lambda may capture
+one only when it is passed directly as an argument to a callee that just
+calls it during the call; it then reads the caller's binding, and the
+value is dropped once, by that binding (`E0286` otherwise). A callee
+keeps the closure, and the capture is rejected, when it stores the
+parameter, returns it, hands it to a callee that keeps it, or is a
+constructor, `push`, `insert` or a function without an Iron body; the
+list methods `map`, `filter`, `reduce` and `forEach` only call it.
 The environment of a closure is reference counted, so a closure may be
 returned, stored in a field or list, and copied. A recursive lambda is
 written by assigning it to the `var` it calls through
@@ -2083,7 +2091,26 @@ list cleared), with `self` bound to the dying value. It may contain a
 cloning its list fields). An object declared `nocopy object` cannot be
 copied at all: assigning it to another binding, passing it by value or
 storing it is an error (`E0286`), which is how `Box`, `Channel`, `Mutex`,
-`RWLock` and `FileHandle` guarantee a single owner. Each object has at most
+`RWLock` and `FileHandle` guarantee a single owner.
+
+A closure or a thread can only borrow a `nocopy` value, as it borrows a
+list (6.8): a lambda passed directly as an argument to a callee that only
+calls it (3.7), or a `spawn` surely awaited in the block that starts it
+(7.1), reads the value through its binding and never copies or drops it.
+Any other capture, by a lambda bound to a `val` or `var`, returned, stored
+in a field, list or map, passed to a callee that keeps it, or by a spawn
+that is not surely awaited, is `E0286`. The rule covers a `val` binding or
+parameter whose type is a `nocopy` object or holds one by value (in a
+field, a fixed array, an optional, a tuple or an enum payload). It does not
+cover a `var` binding, which a closure shares through its counted cell
+(3.7), a `heap` binding, `rc` values and pointers, or `Mutex`, `Channel`,
+`RWLock` and `Arena`: these are reference counted handles, and a closure or
+thread holds its own reference to them (7.1). To share a `nocopy` value
+with a closure that is stored or returned, or with a thread that may
+outlive the block, make it reference counted, `val h = rc FileHandle.open(p)`:
+each closure then holds its own reference and the value is dropped once,
+when the last holder is gone. Two threads that both use it guard the
+reference with a lock, `Mutex(rc Hasher.new(alg))`. Each object has at most
 one `drop` and one `copy` block (`E0284`, `E0285`); `drop` may not be
 `readonly` (`E0287`) and may not `return` early (`E0288`).
 
@@ -2129,6 +2156,56 @@ func main() {
 }
 ```
 
+```iron
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+
+func twice(f: func() -> Int) -> Int {
+    return f() + f()
+}
+
+func reader(r: rc Res) -> func() -> Int {
+    return func() -> Int { return r.id }
+}
+
+func main() {
+    val a = Res(1)
+    println("{twice(func() -> Int { return a.id })}")
+    val t = spawn("t") {
+        return a.id * 10
+    }
+    println("{await t}")
+    val b = rc Res(2)
+    val get = reader(b)
+    println("{get()}")
+}
+```
+
+```output
+2
+10
+2
+drop 2
+drop 1
+```
+
+<!-- doctest-expect-error: E0286 -->
+```iron
+nocopy object Res {
+    val id: Int
+}
+
+func main() {
+    val a = Res(1)
+    val get = func() -> Int { return a.id }
+    println("{get()}")
+}
+```
+
 ### 6.8 List ownership
 
 Lists are the one kind of value that is never copied implicitly. The
@@ -2169,12 +2246,19 @@ handle can be awaited once (`E0325`). A spawn expression may only appear as
 the initializer of a `val` or `var`, or as a statement (its result is then
 discarded and the thread is never awaited). The body may read `val` bindings of the enclosing
 function and use `Mutex`, `Channel` and `rc` values; a list captured by a
-spawn must be awaited in the same block (`E0328`). Writing a captured
+spawn must be awaited in the same block (`E0328`), and so must a `nocopy`
+value (or a value holding one), which the thread borrows from its binding
+without copying or dropping it (`E0286`, 6.7). For a `nocopy` value the
+await must be sure: a later statement of the same block that always runs,
+with no `return`, `break` or `continue` before it that could leave the
+block; to hand one to a thread that may outlive the block, make it `rc`
+(and guard it with a `Mutex` when both threads use it). Writing a captured
 `var` from a thread is a data race and warns (`W0604`). A thread keeps what
 it captured alive until it finishes, even when the block that declared it
 ends first (always possible for a spawn that is never awaited): it holds its
 own reference to each captured `Mutex`, `Channel`, `RWLock`, `Arena`, `rc`
-value and `var`, and its own copy of the other values. A thread that is still
+value and `var`, borrows a captured list or `nocopy` value (which is why
+such a spawn must be awaited), and keeps its own copy of the other values. A thread that is still
 running when the program ends is stopped with it. Named thread pools
 are not implemented: `spawn("name", pool)` is rejected (`E0326`).
 
@@ -3131,7 +3215,7 @@ codes cited in this manual:
 | E0268, E0270, E0271, E0294, E0295, E0296 | pointer arithmetic; address of a temporary; escaping stack reference; regime errors; `&` on an `rc` |
 | E0273, E0274, E0297, E0298 | `heap`/`rc`/`pool` in an invalid position |
 | E0278 | I/O in a `readonly` method |
-| E0284 to E0288 | duplicate `drop`/`copy`; copy of a `nocopy` value; `readonly drop`; early return in `drop` |
+| E0284 to E0288 | duplicate `drop`/`copy`; copy of a `nocopy` value (also a capture that is not a borrow, 6.7); `readonly drop`; early return in `drop` |
 | E0289 | checked/unchecked pointer mismatch |
 | E0293 | missing return |
 | E0299, E0301 | dereferencing a `weak rc`; `rc` inside an arena block |

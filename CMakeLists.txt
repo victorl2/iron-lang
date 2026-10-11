@@ -1049,6 +1049,14 @@ add_test(NAME diag_error_receiver
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/error_receiver.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 
+# A nocopy capture that is not a borrow (#512): labels, note and the rc help.
+add_test(NAME diag_nocopy_capture
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/nocopy_capture.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/nocopy_capture.expected_help
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+
 # A mutating call on a val suggests `readonly` when the method never
 # changes self.
 add_test(NAME diag_readonly_hint
@@ -1593,6 +1601,12 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_sync sync arenax)
     set_tests_properties(prog_fuzz_sync PROPERTIES LABELS "codegen" TIMEOUT 900)
+    # Closures and spawns borrowing nocopy values, each dropped exactly once,
+    # and the captures rejected with E0286 (#512).
+    add_test(NAME prog_fuzz_nocopy
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_nocopy nocopy)
+    set_tests_properties(prog_fuzz_nocopy PROPERTIES LABELS "codegen" TIMEOUT 900)
     # Programs using the json, crypto, encoding and http modules (a server
     # and its clients in one program on 127.0.0.1).
     add_test(NAME prog_fuzz_stdlib

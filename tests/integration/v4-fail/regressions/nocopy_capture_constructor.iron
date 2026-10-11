@@ -1,0 +1,16 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- A closure stored in a field by a constructor cannot capture a nocopy value (#512).
+object B {
+    val f: func() -> Int
+}
+func main() {
+    val r = Res(1)
+    val b = B(func() -> Int { return r.id })
+    println("{b.f()}")
+}
