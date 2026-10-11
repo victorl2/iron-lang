@@ -656,10 +656,29 @@ Iron_String Iron_string_trim(Iron_String self) {
     return iron_string_from_cstr(s + start, end - start);
 }
 
+/* The first occurrence of needle[0..nlen) in hay[0..hlen), or NULL. A
+ * String may hold zero bytes, so the search goes by length (strstr stopped
+ * at a zero byte in the text and matched an empty needle when the needle
+ * began with one, walking past the end of the text). nlen > 0. */
+static const char *iron_bytes_find(const char *hay, size_t hlen,
+                                   const char *needle, size_t nlen) {
+    if (nlen == 0 || nlen > hlen) return NULL;
+    const char *end = hay + (hlen - nlen) + 1;
+    const char *p = hay;
+    while (p < end) {
+        const char *q = (const char *)memchr(p, (unsigned char)needle[0], (size_t)(end - p));
+        if (!q) return NULL;
+        if (memcmp(q, needle, nlen) == 0) return q;
+        p = q + 1;
+    }
+    return NULL;
+}
+
 bool Iron_string_contains(Iron_String self, Iron_String sub) {
-    const char *s = iron_string_cstr(&self);
-    const char *d = iron_string_cstr(&sub);
-    return strstr(s, d) != NULL;
+    size_t dlen = iron_string_byte_len(&sub);
+    if (dlen == 0) return true;
+    return iron_bytes_find(iron_string_cstr(&self), iron_string_byte_len(&self),
+                           iron_string_cstr(&sub), dlen) != NULL;
 }
 
 bool Iron_string_starts_with(Iron_String self, Iron_String prefix) {
@@ -681,9 +700,11 @@ bool Iron_string_ends_with(Iron_String self, Iron_String suffix) {
 }
 
 int64_t Iron_string_index_of(Iron_String self, Iron_String sub) {
-    const char *s   = iron_string_cstr(&self);
-    const char *d   = iron_string_cstr(&sub);
-    const char *hit = strstr(s, d);
+    const char *s    = iron_string_cstr(&self);
+    size_t      dlen = iron_string_byte_len(&sub);
+    if (dlen == 0) return 0;
+    const char *hit = iron_bytes_find(s, iron_string_byte_len(&self),
+                                      iron_string_cstr(&sub), dlen);
     if (!hit) return -1;
     return utf8_byte_to_cp(s, (size_t)(hit - s));
 }
@@ -715,9 +736,11 @@ int64_t Iron_string_count(Iron_String self, Iron_String sub) {
     const char *d    = iron_string_cstr(&sub);
     size_t      dlen = iron_string_byte_len(&sub);
     if (dlen == 0) return 0;
+    size_t      slen = iron_string_byte_len(&self);
+    const char *end  = s + slen;
     int64_t cnt = 0;
     const char *p = s;
-    while ((p = strstr(p, d)) != NULL) { cnt++; p += dlen; }
+    while ((p = iron_bytes_find(p, (size_t)(end - p), d, dlen)) != NULL) { cnt++; p += dlen; }
     return cnt;
 }
 
@@ -754,7 +777,7 @@ Iron_List_Iron_String Iron_string_split(Iron_String self, Iron_String sep) {
     const char *cur = s;
     const char *end = s + slen;
     while (cur <= end) {
-        const char *hit = (cur < end) ? strstr(cur, d) : NULL;
+        const char *hit = (cur < end) ? iron_bytes_find(cur, (size_t)(end - cur), d, dlen) : NULL;
         if (!hit) hit = end;
         Iron_String part = iron_string_from_cstr(cur, (size_t)(hit - cur));
         Iron_List_Iron_String_push(&result, part);
@@ -805,9 +828,10 @@ Iron_String Iron_string_replace(Iron_String self, Iron_String old_s, Iron_String
     if (oldlen == 0) { iron_string_retain(&self); return self; } /* no-op: empty old pattern */
 
     /* First pass: count occurrences to size the output buffer */
+    const char *send = s + slen;
     size_t count = 0;
     const char *p = s;
-    while ((p = strstr(p, oldc)) != NULL) { count++; p += oldlen; }
+    while ((p = iron_bytes_find(p, (size_t)(send - p), oldc, oldlen)) != NULL) { count++; p += oldlen; }
 
     size_t total = slen + count * (newlen - oldlen);
     /* FIX-02: replace silent self-return fallback with iron_oom_abort. */
@@ -817,7 +841,7 @@ Iron_String Iron_string_replace(Iron_String self, Iron_String old_s, Iron_String
     char *out = buf;
     const char *cur = s;
     while (1) {
-        const char *hit = strstr(cur, oldc);
+        const char *hit = iron_bytes_find(cur, (size_t)(send - cur), oldc, oldlen);
         if (!hit) {
             /* copy remainder */
             size_t tail = (size_t)((s + slen) - cur);
