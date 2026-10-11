@@ -313,7 +313,7 @@ def reduce_program(ironc, outdir, area, seed, mode='plain', rtlib=None, jobs=8):
             # the blocks still in the program, outermost first; a block
             # whose statement was deleted is gone with it
             blocks = []
-            child_blocks([g.mainblock] + [fd.body for fd, _ in g.funcs], blocks, set())
+            child_blocks([g.mainblock] + [fe[0].body for fe in g.funcs], blocks, set())
             blk = next((b for b in blocks if id(b) not in done), None)
             if blk is None:
                 break

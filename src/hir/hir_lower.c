@@ -1376,6 +1376,17 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 end_expr   = lower_expr_hir(ctx, fs->iterable);
             }
 
+            /* The bound is evaluated once, before the first iteration
+             * (manual 4.6: the integers 0 to n - 1): re-reading it in the
+             * condition made `for i in range(n)` stop early when the body
+             * changed n. */
+            if (end_expr && end_expr->kind != IRON_HIR_EXPR_INT_LIT) {
+                IronHIR_VarId end_var = iron_hir_alloc_var(mod, "__range_end", int_ty, false);
+                iron_hir_block_add_stmt(blk, iron_hir_stmt_let(mod, end_var, int_ty,
+                                                               end_expr, false, s0));
+                end_expr = iron_hir_expr_ident(mod, end_var, "__range_end", int_ty, s0);
+            }
+
             /* STMT_LET i = start, mutable */
             IronHIR_Stmt *init_stmt = iron_hir_stmt_let(mod, loop_var, int_ty,
                                                           start_expr, true, s0);
