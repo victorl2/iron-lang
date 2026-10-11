@@ -76,7 +76,7 @@ typedef struct Iron_Arena_RT {
     iron_atomic_u64  gen;           /* shared live generation; bumped on reset/restore */
     bool             threadsafe;    /* ARENA-02 selects atomic vs plain bump */
     const char      *name;          /* arena-specific panic message (ARENA-10) */
-    struct Iron_Arena_RT *prev;     /* TLS intrusive active-arena stack link (ARENA-11) */
+    struct Iron_Arena_RT *prev;     /* unused: the active-arena stack keeps its own array (ARENA-11) */
 } Iron_Arena_RT;
 
 /* ── Save point (GA1) ───────────────────────────────────────────────────────

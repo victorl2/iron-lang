@@ -275,6 +275,11 @@ def reduce_program(ironc, outdir, area, seed, mode='plain', rtlib=None, jobs=8):
     first one in program order that still fails is kept."""
     from concurrent.futures import ThreadPoolExecutor
     g = make_gen(area, seed)
+    # A candidate with a deleted send or await blocks the threaded model
+    # (pf_conc) until its timeout: keep that short while reducing.
+    mod = sys.modules.get('pf_' + area)
+    if hasattr(mod, 'TIMEOUT'):
+        mod.TIMEOUT = 2
     d = os.path.join(outdir, f'reduce_{area}_{seed}')
     name = f'{area}_{seed}'
     st, msg, base = check_text(ironc, d, name, g.render(), expected_of(g), mode, rtlib)
