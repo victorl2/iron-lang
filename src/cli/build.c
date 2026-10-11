@@ -780,6 +780,10 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         argv_buf[ai++] = "libcrypto.lib";
 #endif
         argv_buf[ai++] = "crypt32.lib";   /* trusted roots from the system store */
+        /* A static libcrypto also needs these (entropy, the service and
+         * fatal-error helpers); import libraries pull them in on their own. */
+        argv_buf[ai++] = "advapi32.lib";
+        argv_buf[ai++] = "user32.lib";
     }
     /* Output flag for clang-cl */
     {
