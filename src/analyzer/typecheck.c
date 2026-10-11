@@ -1846,6 +1846,63 @@ static bool fold_constant_u64(const Iron_Node *node, unsigned long long *out, in
     return false;
 }
 
+/* A float constant expression (float literals combined with unary `-` and
+ * `+ - * /`): its value, for the range check of a conversion to an integer
+ * type (E0311). */
+static bool fold_constant_float(const Iron_Node *node, double *out, int depth) {
+    if (!node || depth > 64) return false;
+    if (node->kind == IRON_NODE_FLOAT_LIT) {
+        const Iron_FloatLit *lit = (const Iron_FloatLit *)node;
+        if (!lit->value) return false;
+        *out = strtod(lit->value, NULL);
+        return true;
+    }
+    if (node->kind == IRON_NODE_UNARY) {
+        const Iron_UnaryExpr *ue = (const Iron_UnaryExpr *)node;
+        double v;
+        if (ue->op != IRON_TOK_MINUS || !fold_constant_float(ue->operand, &v, depth + 1))
+            return false;
+        *out = -v;
+        return true;
+    }
+    if (node->kind == IRON_NODE_BINARY) {
+        const Iron_BinaryExpr *be = (const Iron_BinaryExpr *)node;
+        double a, b;
+        if (!fold_constant_float(be->left, &a, depth + 1) ||
+            !fold_constant_float(be->right, &b, depth + 1)) return false;
+        switch ((int)be->op) {
+            case IRON_TOK_PLUS:  *out = a + b; return true;
+            case IRON_TOK_MINUS: *out = a - b; return true;
+            case IRON_TOK_STAR:  *out = a * b; return true;
+            case IRON_TOK_SLASH: *out = a / b; return true;
+            default: return false;
+        }
+    }
+    return false;
+}
+
+/* Whether the float v, truncated toward zero, is a value of the integer
+ * type t (NaN and infinities are not). */
+static bool float_fits_int_type(double v, const Iron_Type *t) {
+    if (v != v) return false;
+    double lo, hi;   /* the open interval (lo, hi) truncates into t */
+    switch ((int)t->kind) {
+        case IRON_TYPE_INT8:   lo = -129.0; hi = 128.0; break;
+        case IRON_TYPE_INT16:  lo = -32769.0; hi = 32768.0; break;
+        case IRON_TYPE_INT32:  lo = -2147483649.0; hi = 2147483648.0; break;
+        case IRON_TYPE_UINT8:  lo = -1.0; hi = 256.0; break;
+        case IRON_TYPE_UINT16: lo = -1.0; hi = 65536.0; break;
+        case IRON_TYPE_UINT32: lo = -1.0; hi = 4294967296.0; break;
+        case IRON_TYPE_UINT:
+        case IRON_TYPE_UINT64: lo = -1.0; hi = 18446744073709551616.0; break;
+        default:
+            /* Int, Int64: -2^63 itself is a value; the next double below
+             * is not */
+            return v >= -9223372036854775808.0 && v < 9223372036854775808.0;
+    }
+    return v > lo && v < hi;
+}
+
 /* Give an integer constant expression the type its context chose, down to
  * its literals, so `a + (2 + 3)` with `a: Int8` is Int8 throughout. */
 static void retype_int_constant(Iron_Node *node, Iron_Type *t, int depth) {
@@ -5243,6 +5300,24 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                              "cannot cast integer to Bool");
                                     emit_error(ctx, IRON_ERR_INVALID_CAST, ce->span, msg,
                                                "use 'x != 0' instead");
+                                }
+                                /* A float constant converted to an integer
+                                 * type must fit it, like an integer constant
+                                 * narrowed (manual 2.9): Int8(300.5) is E0311,
+                                 * not the saturated 127 a run-time value gets. */
+                                else if (iron_type_is_float(src_type) &&
+                                         iron_type_is_integer(target_t) &&
+                                         (fold_constant_float(ce->args[0], &(double){0}, 0))) {
+                                    double fv = 0;
+                                    (void)fold_constant_float(ce->args[0], &fv, 0);
+                                    if (!float_fits_int_type(fv, target_t)) {
+                                        char msg[256];
+                                        snprintf(msg, sizeof(msg),
+                                                 "the constant %.17g does not fit in %s",
+                                                 fv, iron_type_to_string(target_t, ctx->arena));
+                                        emit_error(ctx, IRON_ERR_CAST_OVERFLOW, ce->span,
+                                                   msg, NULL);
+                                    }
                                 }
                                 /* Narrowing check: wider integer -> narrower integer */
                                 else if (iron_type_is_integer(src_type) &&

@@ -1736,6 +1736,27 @@ static void emit_enum_payload_value(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *
     emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, depth);
 }
 
+/* A float converted to an integer type goes through the saturating
+ * helpers of iron_runtime.h (iron_f2i_*): the plain C cast is undefined
+ * for NaN and for values outside the target's range. NULL for any other
+ * conversion. */
+static const char *emit_float_to_int_helper(IronLIR_Func *fn, IronLIR_Instr *instr,
+                                            EmitCtx *ctx) {
+    Iron_Type *st = emit_get_value_type(fn, instr->cast.value);
+    Iron_Type *dt = instr->cast.target_type;
+    if (!st || !dt || !iron_type_is_float(st) || !iron_type_is_integer(dt)) return NULL;
+    const char *c = emit_type_to_c(dt, ctx);
+    static const char *const names[][2] = {
+        {"int8_t", "iron_f2i_i8"},   {"int16_t", "iron_f2i_i16"},
+        {"int32_t", "iron_f2i_i32"}, {"int64_t", "iron_f2i_i64"},
+        {"uint8_t", "iron_f2i_u8"},  {"uint16_t", "iron_f2i_u16"},
+        {"uint32_t", "iron_f2i_u32"}, {"uint64_t", "iron_f2i_u64"},
+    };
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+        if (strcmp(c, names[i][0]) == 0) return names[i][1];
+    return NULL;
+}
+
 /* `<<` / `>>` through the defined-shift helpers of iron_runtime.h. A
  * constant count inside the width keeps the plain operator (on unsigned
  * bits for <<). */
@@ -1770,7 +1791,13 @@ static void emit_shift_expr(Iron_StrBuf *sb, IronLIR_Instr *instr, IronLIR_Func 
     iron_strbuf_appendf(sb, "iron_%s_%s(", shl ? "shl" : "shr", sfx);
     emit_expr_to_buf(sb, instr->binop.left, fn, ctx, use_block_id, depth+1);
     iron_strbuf_appendf(sb, ", ");
+    /* The helpers take the count as int64_t: a UInt64 count of 2^63 or more
+     * arrived negative and panicked as a negative shift. */
+    Iron_Type *kt = emit_get_value_type(fn, instr->binop.right);
+    bool ucount = kt && (kt->kind == IRON_TYPE_UINT64 || kt->kind == IRON_TYPE_UINT);
+    if (ucount) iron_strbuf_appendf(sb, "iron_shift_count_u64(");
     emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+    if (ucount) iron_strbuf_appendf(sb, ")");
     iron_strbuf_appendf(sb, ", IRON_SITE)");
 }
 
@@ -2291,6 +2318,13 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         const char *src_t = emit_type_to_c(instr->type, ctx);  /* type of input is cast.value's type */
         const char *dst_t = emit_type_to_c(instr->cast.target_type, ctx);
         (void)src_t; /* comment just uses type names — keep dst */
+        const char *f2i = emit_float_to_int_helper(fn, instr, ctx);
+        if (f2i) {
+            iron_strbuf_appendf(sb, "%s(", f2i);
+            emit_expr_to_buf(sb, instr->cast.value, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, ")");
+            break;
+        }
         iron_strbuf_appendf(sb, "(/* cast */ (%s)", dst_t);
         emit_expr_to_buf(sb, instr->cast.value, fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, ")");
@@ -6645,8 +6679,15 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         if (!emit_optional_cast(sb, instr, fn, ctx, ctx->current_block_id, 0)) {
-            iron_strbuf_appendf(sb, "(%s)", target_c);
-            emit_expr_to_buf(sb, instr->cast.value, fn, ctx, ctx->current_block_id, 0);
+            const char *f2i = emit_float_to_int_helper(fn, instr, ctx);
+            if (f2i) {
+                iron_strbuf_appendf(sb, "%s(", f2i);
+                emit_expr_to_buf(sb, instr->cast.value, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ")");
+            } else {
+                iron_strbuf_appendf(sb, "(%s)", target_c);
+                emit_expr_to_buf(sb, instr->cast.value, fn, ctx, ctx->current_block_id, 0);
+            }
         }
         iron_strbuf_appendf(sb, ";\n");
         break;

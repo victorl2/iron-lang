@@ -591,11 +591,39 @@ IRON_CHECK_FN uint64_t iron_umod64(uint64_t a, uint64_t b,
     return a % b;
 }
 
+/* Float to integer conversions. In C a value outside the target's range
+ * (or NaN) is undefined: Int(1.0 / 0.0) printed whatever the optimizer
+ * left in a register. Iron saturates: NaN converts to 0, a value above the
+ * largest (below the smallest) value of the type to that largest
+ * (smallest) value, anything else truncates toward zero (manual 2.9). */
+#define IRON_F2I_SAT(name, T, lo, hi, lo_d, hi_d)                         \
+    IRON_CHECK_FN T name(double x) {                                      \
+        if (x != x) return 0;                                             \
+        if (x >= (hi_d)) return (hi);                                     \
+        if (x <= (lo_d)) return (lo);                                     \
+        return (T)x;                                                      \
+    }
+IRON_F2I_SAT(iron_f2i_i8,  int8_t,   INT8_MIN,  INT8_MAX,  -128.0, 127.0)
+IRON_F2I_SAT(iron_f2i_i16, int16_t,  INT16_MIN, INT16_MAX, -32768.0, 32767.0)
+IRON_F2I_SAT(iron_f2i_i32, int32_t,  INT32_MIN, INT32_MAX, -2147483648.0, 2147483647.0)
+IRON_F2I_SAT(iron_f2i_i64, int64_t,  INT64_MIN, INT64_MAX,
+             -9223372036854775808.0, 9223372036854775808.0)
+IRON_F2I_SAT(iron_f2i_u8,  uint8_t,  0, UINT8_MAX,  0.0, 255.0)
+IRON_F2I_SAT(iron_f2i_u16, uint16_t, 0, UINT16_MAX, 0.0, 65535.0)
+IRON_F2I_SAT(iron_f2i_u32, uint32_t, 0, UINT32_MAX, 0.0, 4294967295.0)
+IRON_F2I_SAT(iron_f2i_u64, uint64_t, 0, UINT64_MAX, 0.0, 18446744073709551616.0)
+#undef IRON_F2I_SAT
+
 /* Shifts. In C a count outside 0..width-1, or a left shift of a negative
  * value, is undefined (it gave garbage, e.g. 1 << 65). Iron defines them:
  * a count of the width or more gives 0 for <<, and for >> the sign fill
  * (0 or -1); a negative count panics. Left shifts work on the unsigned
  * bits, so -1 << 3 is -8. */
+/* A UInt64 / UInt count above the largest Int is a count past the width,
+ * not a negative one: clamp it before it reaches the int64_t parameter. */
+IRON_CHECK_FN int64_t iron_shift_count_u64(uint64_t n) {
+    return n > (uint64_t)INT64_MAX ? INT64_MAX : (int64_t)n;
+}
 IRON_CHECK_FN int64_t iron_shl_i64(int64_t a, int64_t n, const char *site_file, int site_line) {
     if (n < 0) iron_panic_negative_shift(site_file, site_line, n);
     if (n >= 64) return 0;
