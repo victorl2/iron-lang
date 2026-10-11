@@ -1,0 +1,14 @@
+object Point {
+    val x: Int
+}
+
+func place(at: Int) -> Int {
+    var points = [Point(1), Point(2)]
+    points.insert(at, Point(3))
+    return points.len()
+}
+
+func main() {
+    println("{place(2)}")
+    println("{place(9)}")
+}

@@ -66,7 +66,9 @@ PANIC_FUNCTIONS = ("abort", "__abort", "raise", "__pthread_kill", "pthread_kill"
 # LLDB's answer to `command script import` when it was built without Python.
 NO_SCRIPTING = re.compile(r"does not support importing modules|"
                           r"built without scripting language support")
-PANIC_LINE = re.compile(r"^(panic|assertion failed|error: index|.*out of bounds)", re.I)
+# The runtime's own panics print "iron: <what happened>" (out of memory, an
+# arena full, a missing map key...).
+PANIC_LINE = re.compile(r"^(panic|assertion failed|error: index|iron: |.*out of bounds)", re.I)
 
 
 # ── DAP framing ───────────────────────────────────────────────────────────────
