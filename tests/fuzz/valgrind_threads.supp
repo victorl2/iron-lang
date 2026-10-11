@@ -398,3 +398,9 @@
    ...
    fun:__pthread_cond_wait_common
 }
+{
+   helgrind-glibc-cond-wait-internal-signal-dubious
+   Helgrind:Dubious
+   ...
+   fun:__pthread_cond_wait_common
+}
