@@ -10080,7 +10080,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
-            if (target_type && value_type &&
+            /* `x <<= k` is `x = x << k`: the count may have any integer
+             * type, as for the operator (manual 3.2, 4.3). */
+            bool shift_count = (as->op == IRON_TOK_SHL_ASSIGN || as->op == IRON_TOK_SHR_ASSIGN) &&
+                               target_type && value_type &&
+                               iron_type_is_integer(target_type) && iron_type_is_integer(value_type);
+            if (target_type && value_type && !shift_count &&
                 target_type->kind != IRON_TYPE_ERROR &&
                 value_type->kind  != IRON_TYPE_ERROR &&
                 !types_assignable(target_type, value_type) &&
@@ -10089,7 +10094,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 emit_type_mismatch(ctx, as->span, target_type, value_type);
             }
             /* Narrow literal in assignment (e.g., x = 42 where x: Int32) */
-            if (is_int_literal_narrowing(target_type, value_type, as->value)) {
+            if (!shift_count && is_int_literal_narrowing(target_type, value_type, as->value)) {
                 ((Iron_IntLit *)as->value)->resolved_type = target_type;
             }
             /* A compound assignment applies its operator to the target:
