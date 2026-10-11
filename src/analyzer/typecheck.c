@@ -4112,6 +4112,20 @@ static Iron_Node *type_ann_from_expr(TypeCtx *ctx, Iron_Node *n) {
         ta->rc_inner = inner;
         return (Iron_Node *)ta;
     }
+    if (n->kind == IRON_NODE_WEAK_RC_NULL && ((Iron_WeakRcNullExpr *)n)->is_alloc_form) {
+        /* `weak rc T` in a list literal written as a type argument
+         * (`Map[String, [weak rc T]]()`). */
+        Iron_Node *inner = type_ann_from_expr(ctx, ((Iron_WeakRcNullExpr *)n)->alloc_inner);
+        if (!inner) return NULL;
+        Iron_TypeAnnotation *ta = ARENA_ALLOC(ctx->arena, Iron_TypeAnnotation);
+        if (!ta) return NULL;
+        memset(ta, 0, sizeof(*ta));
+        ta->kind = IRON_NODE_TYPE_ANNOTATION;
+        ta->span = n->span;
+        ta->is_weak_rc = true;
+        ta->weak_rc_inner = inner;
+        return (Iron_Node *)ta;
+    }
     if (n->kind == IRON_NODE_ARRAY_LIT) {
         /* `[Int]` written as a type argument: a list of the element type;
          * `[Int; 2]` a fixed-size array of it. */
