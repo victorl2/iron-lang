@@ -1,0 +1,24 @@
+-- Type arguments are inferred from a Map or Set parameter (manual 2.8):
+-- `m: Map[K, V]` reported E0202 "cannot infer the type arguments". (#484)
+func keys_of[K: Hashable, V](m: Map[K, V]) -> Int {
+    return m.len()
+}
+
+func get_or_zero[V](m: Map[String, V], k: String, z: V) -> V {
+    return m.get_or(k, z)
+}
+
+func size[T: Hashable](s: Set[T]) -> Int {
+    return s.len()
+}
+
+func main() {
+    var m = Map[Int, [Int]]()
+    m.put(1, [1])
+    m.put(2, [2, 2])
+    var w = Map[String, Float]()
+    w.put("pi", 3.25)
+    var s = Set[String]()
+    s.add("x")
+    println("{keys_of(m)} {get_or_zero(w, "pi", 0.0)} {get_or_zero(w, "e", 0.0)} {size(s)}")
+}

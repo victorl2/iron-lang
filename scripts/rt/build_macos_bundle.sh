@@ -185,7 +185,7 @@ cat > "$work/smoke.c" <<'SMOKE'
 #include "runtime/iron_runtime.h"
 int main(int argc, char **argv) {
     /* A _Thread_local with an initializer (dyld's thread-local variables). */
-    if (iron_stack_gen != 1) return 3;
+    if (iron_stack_gen != IRON_STACK_GEN_INIT) return 3;
     iron_runtime_init(argc, argv);
     Iron_println(iron_string_from_literal("bundle ok", 9));
     return 0;

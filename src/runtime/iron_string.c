@@ -580,6 +580,23 @@ static size_t utf8_encode(uint32_t cp, char *out) {
 
 /* Simple (one-to-one) case mapping for ASCII, Latin-1, Latin Extended-A,
  * Greek and Cyrillic. Characters outside those blocks are unchanged. */
+/* The first occurrence of needle[0..nlen) in hay[0..hlen), or NULL. A
+ * string may hold zero bytes (String.from_byte(0), manual 1.4): strstr
+ * stopped at the first one, and an empty C needle ("\0x") matched at
+ * every position, so count() ran past the end of the string. */
+static const char *iron__memfind(const char *hay, size_t hlen,
+                                 const char *needle, size_t nlen) {
+    if (nlen == 0) return hay;
+    if (nlen > hlen) return NULL;
+    const char *last = hay + (hlen - nlen);
+    for (const char *p = hay; p <= last; p++) {
+        p = (const char *)memchr(p, (unsigned char)needle[0], (size_t)(last - p) + 1);
+        if (!p) return NULL;
+        if (memcmp(p, needle, nlen) == 0) return p;
+    }
+    return NULL;
+}
+
 static uint32_t cp_to_upper(uint32_t c) {
     if (c >= 'a' && c <= 'z') return c - 32;
     if (c < 0x80) return c;
@@ -653,34 +670,19 @@ Iron_String Iron_string_trim(Iron_String self) {
     const char *s   = iron_string_cstr(&self);
     size_t      len = iron_string_byte_len(&self);
     size_t start = 0, end = len;
-    while (start < end && (unsigned char)s[start] <= ' ') start++;
-    while (end > start && (unsigned char)s[end-1] <= ' ') end--;
+    /* The ASCII whitespace to_int and to_float skip; a zero byte or another
+     * control character is not whitespace. */
+#define IRON_TRIM_WS(c) ((c) == ' ' || (c) == '\t' || (c) == '\n' || (c) == '\r' || \
+                         (c) == '\v' || (c) == '\f')
+    while (start < end && IRON_TRIM_WS(s[start])) start++;
+    while (end > start && IRON_TRIM_WS(s[end-1])) end--;
+#undef IRON_TRIM_WS
     return iron_string_from_cstr(s + start, end - start);
 }
 
-/* The first occurrence of needle[0..nlen) in hay[0..hlen), or NULL. A
- * String may hold zero bytes, so the search goes by length (strstr stopped
- * at a zero byte in the text and matched an empty needle when the needle
- * began with one, walking past the end of the text). nlen > 0. */
-static const char *iron_bytes_find(const char *hay, size_t hlen,
-                                   const char *needle, size_t nlen) {
-    if (nlen == 0 || nlen > hlen) return NULL;
-    const char *end = hay + (hlen - nlen) + 1;
-    const char *p = hay;
-    while (p < end) {
-        const char *q = (const char *)memchr(p, (unsigned char)needle[0], (size_t)(end - p));
-        if (!q) return NULL;
-        if (memcmp(q, needle, nlen) == 0) return q;
-        p = q + 1;
-    }
-    return NULL;
-}
-
 bool Iron_string_contains(Iron_String self, Iron_String sub) {
-    size_t dlen = iron_string_byte_len(&sub);
-    if (dlen == 0) return true;
-    return iron_bytes_find(iron_string_cstr(&self), iron_string_byte_len(&self),
-                           iron_string_cstr(&sub), dlen) != NULL;
+    return iron__memfind(iron_string_cstr(&self), iron_string_byte_len(&self),
+                         iron_string_cstr(&sub), iron_string_byte_len(&sub)) != NULL;
 }
 
 bool Iron_string_starts_with(Iron_String self, Iron_String prefix) {
@@ -702,11 +704,9 @@ bool Iron_string_ends_with(Iron_String self, Iron_String suffix) {
 }
 
 int64_t Iron_string_index_of(Iron_String self, Iron_String sub) {
-    const char *s    = iron_string_cstr(&self);
-    size_t      dlen = iron_string_byte_len(&sub);
-    if (dlen == 0) return 0;
-    const char *hit = iron_bytes_find(s, iron_string_byte_len(&self),
-                                      iron_string_cstr(&sub), dlen);
+    const char *s   = iron_string_cstr(&self);
+    const char *hit = iron__memfind(s, iron_string_byte_len(&self),
+                                    iron_string_cstr(&sub), iron_string_byte_len(&sub));
     if (!hit) return -1;
     return utf8_byte_to_cp(s, (size_t)(hit - s));
 }
@@ -735,14 +735,13 @@ int64_t Iron_string_byte_len(Iron_String self) {
 
 int64_t Iron_string_count(Iron_String self, Iron_String sub) {
     const char *s    = iron_string_cstr(&self);
+    size_t      slen = iron_string_byte_len(&self);
     const char *d    = iron_string_cstr(&sub);
     size_t      dlen = iron_string_byte_len(&sub);
     if (dlen == 0) return 0;
-    size_t      slen = iron_string_byte_len(&self);
-    const char *end  = s + slen;
     int64_t cnt = 0;
-    const char *p = s;
-    while ((p = iron_bytes_find(p, (size_t)(end - p), d, dlen)) != NULL) { cnt++; p += dlen; }
+    const char *p = s, *end = s + slen;
+    while ((p = iron__memfind(p, (size_t)(end - p), d, dlen)) != NULL) { cnt++; p += dlen; }
     return cnt;
 }
 
@@ -779,7 +778,7 @@ Iron_List_Iron_String Iron_string_split(Iron_String self, Iron_String sep) {
     const char *cur = s;
     const char *end = s + slen;
     while (cur <= end) {
-        const char *hit = (cur < end) ? iron_bytes_find(cur, (size_t)(end - cur), d, dlen) : NULL;
+        const char *hit = (cur < end) ? iron__memfind(cur, (size_t)(end - cur), d, dlen) : NULL;
         if (!hit) hit = end;
         Iron_String part = iron_string_from_cstr(cur, (size_t)(hit - cur));
         Iron_List_Iron_String_push(&result, part);
@@ -830,10 +829,9 @@ Iron_String Iron_string_replace(Iron_String self, Iron_String old_s, Iron_String
     if (oldlen == 0) { iron_string_retain(&self); return self; } /* no-op: empty old pattern */
 
     /* First pass: count occurrences to size the output buffer */
-    const char *send = s + slen;
     size_t count = 0;
-    const char *p = s;
-    while ((p = iron_bytes_find(p, (size_t)(send - p), oldc, oldlen)) != NULL) { count++; p += oldlen; }
+    const char *p = s, *send = s + slen;
+    while ((p = iron__memfind(p, (size_t)(send - p), oldc, oldlen)) != NULL) { count++; p += oldlen; }
 
     size_t total = slen + count * (newlen - oldlen);
     /* FIX-02: replace silent self-return fallback with iron_oom_abort. */
@@ -843,7 +841,7 @@ Iron_String Iron_string_replace(Iron_String self, Iron_String old_s, Iron_String
     char *out = buf;
     const char *cur = s;
     while (1) {
-        const char *hit = iron_bytes_find(cur, (size_t)(send - cur), oldc, oldlen);
+        const char *hit = iron__memfind(cur, (size_t)(send - cur), oldc, oldlen);
         if (!hit) {
             /* copy remainder */
             size_t tail = (size_t)((s + slen) - cur);
@@ -878,9 +876,9 @@ Iron_String Iron_string_substring(Iron_String self, int64_t start, int64_t end_i
 /* Only surrounding whitespace may follow a number: "42 " and " 42\n" are
  * 42, while "3x", "4 5" and "" are not numbers (the manual: 0 when not a
  * number). An Int that does not fit in 64 bits is not a number either. */
-static bool iron_rest_is_space(const char *p) {
-    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || *p == '\v' || *p == '\f') p++;
-    return *p == '\0';
+static bool iron_rest_is_space(const char *p, const char *end) {
+    while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || *p == '\v' || *p == '\f')) p++;
+    return p == end;   /* a zero byte inside the text is not the end */
 }
 
 int64_t Iron_string_to_int(Iron_String self) {
@@ -888,7 +886,8 @@ int64_t Iron_string_to_int(Iron_String self) {
     char *end;
     errno = 0;
     int64_t v = (int64_t)strtoll(s, &end, 10);
-    if (end == s || errno == ERANGE || !iron_rest_is_space(end)) return 0;
+    if (end == s || errno == ERANGE ||
+        !iron_rest_is_space(end, s + iron_string_byte_len(&self))) return 0;
     return v;
 }
 
@@ -896,7 +895,7 @@ double Iron_string_to_float(Iron_String self) {
     const char *s = iron_string_cstr(&self);
     char *end;
     double v = strtod(s, &end);
-    if (end == s || !iron_rest_is_space(end)) return 0.0;
+    if (end == s || !iron_rest_is_space(end, s + iron_string_byte_len(&self))) return 0.0;
     return v;
 }
 

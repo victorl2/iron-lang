@@ -1,0 +1,24 @@
+-- A return inside a lambda written in an init (or a drop block) returns
+-- from the lambda: it was reported as E0252 / E0250 (E0288 in drop). (#501)
+object Cb {
+    val name: String
+    var f: func(Int) -> Int
+    init(name: String) {
+        self.name = name
+        self.f = func(n: Int) -> Int {
+            if n > 3 {
+                return n
+            }
+            return 0
+        }
+    }
+    drop {
+        val g = func() -> Int { return 1 }
+        println("drop {self.name} {g()}")
+    }
+}
+
+func main() {
+    val c = Cb("c")
+    println("{c.f(5)} {c.f(1)}")
+}

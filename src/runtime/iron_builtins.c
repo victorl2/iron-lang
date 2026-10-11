@@ -6,17 +6,14 @@
 
 /* ── print / println ─────────────────────────────────────────────────────── */
 
-/* Every byte of the string, a zero byte included (strings hold arbitrary
- * bytes; printf("%s") stopped at the first zero). */
+/* The whole string, zero bytes included (printf %s stopped at the first). */
 void Iron_print(Iron_String s) {
-    const char *cstr = iron_string_cstr(&s);
-    fwrite(cstr, 1, iron_string_byte_len(&s), stdout);
+    fwrite(iron_string_cstr(&s), 1, iron_string_byte_len(&s), stdout);
 }
 
 void Iron_println(Iron_String s) {
-    const char *cstr = iron_string_cstr(&s);
-    fwrite(cstr, 1, iron_string_byte_len(&s), stdout);
-    putchar('\n');
+    fwrite(iron_string_cstr(&s), 1, iron_string_byte_len(&s), stdout);
+    fputc('\n', stdout);
 }
 
 /* ── len ─────────────────────────────────────────────────────────────────── */

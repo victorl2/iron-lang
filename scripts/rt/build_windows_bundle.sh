@@ -230,7 +230,7 @@ cat > "$work/smoke.c" <<'SMOKE'
 int main(int argc, char **argv) {
     /* A _Thread_local with an initializer: the TLS template from the entry
      * object's _tls_used must reach every thread. */
-    if (iron_stack_gen != 1) return 3;
+    if (iron_stack_gen != IRON_STACK_GEN_INIT) return 3;
     iron_runtime_init(argc, argv);
     Iron_println(iron_string_from_literal("bundle ok", 9));
     return 0;

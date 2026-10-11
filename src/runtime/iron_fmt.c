@@ -147,63 +147,68 @@ char *iron_cstr_format(const char *fmt, ...) {
     return buf;
 }
 
-/* String interpolation (the emitter is the only caller). The format holds
- * literal text and the conversions %lld, %llu, %s (a C string) and %S (an
- * Iron_String *, written with every byte: a String may hold a zero byte,
- * which %s stopped at). */
-static void fmt_put(char **buf, size_t *n, size_t *cap, const char *s, size_t len) {
-    if (*n + len + 1 > *cap) {
-        size_t nc = *cap ? *cap : 64;
-        while (nc < *n + len + 1) nc *= 2;
-        char *nb = (char *)realloc(*buf, nc);
-        if (!nb) iron_oom_abort("iron_string_format");
-        *buf = nb;
-        *cap = nc;
-    }
-    memcpy(*buf + *n, s, len);
-    *n += len;
+Iron_String iron_string_format(const char *fmt, ...) {
+    va_list ap, ap2;
+    va_start(ap, fmt);
+    va_copy(ap2, ap);
+    int n = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+    if (n < 0) n = 0;
+    char *buf = (char *)malloc((size_t)n + 1);
+    if (!buf) iron_oom_abort("iron_string_format");
+    vsnprintf(buf, (size_t)n + 1, fmt, ap2);
+    va_end(ap2);
+    Iron_String s = iron_string_from_cstr(buf, (size_t)n);
+    free(buf);
+    return s;
 }
 
-Iron_String iron_string_format(const char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    char *buf = NULL;
-    size_t n = 0, cap = 0;
-    const char *p = fmt;
-    while (*p) {
-        const char *q = p;
-        while (*q && *q != '%') q++;
-        if (q > p) fmt_put(&buf, &n, &cap, p, (size_t)(q - p));
-        p = q;
-        if (!*p) break;
-        char tmp[32];
-        if (p[1] == 'S') {
+/* The interpolation formatter (see iron_runtime.h): two passes over the
+ * same conversions, the first measuring. %S copies the bytes of an
+ * Iron_String, so a string holding a zero byte is interpolated whole. */
+static size_t iron_interp_pass(char *out, const char *fmt, va_list ap) {
+    size_t n = 0;
+    char num[32];
+    for (const char *f = fmt; *f; f++) {
+        const char *piece = NULL;
+        size_t plen = 0;
+        if (f[0] != '%') {
+            piece = f; plen = 1;
+        } else if (f[1] == '%') {
+            piece = f + 1; plen = 1; f += 1;
+        } else if (f[1] == 'S') {
             const Iron_String *s = va_arg(ap, const Iron_String *);
-            fmt_put(&buf, &n, &cap, iron_string_cstr(s), iron_string_byte_len(s));
-            p += 2;
-        } else if (p[1] == 's') {
-            const char *s = va_arg(ap, const char *);
-            if (!s) s = "(null)";
-            fmt_put(&buf, &n, &cap, s, strlen(s));
-            p += 2;
-        } else if (p[1] == 'l' && p[2] == 'l' && p[3] == 'd') {
-            int k = snprintf(tmp, sizeof tmp, "%lld", va_arg(ap, long long));
-            fmt_put(&buf, &n, &cap, tmp, (size_t)k);
-            p += 4;
-        } else if (p[1] == 'l' && p[2] == 'l' && p[3] == 'u') {
-            int k = snprintf(tmp, sizeof tmp, "%llu", va_arg(ap, unsigned long long));
-            fmt_put(&buf, &n, &cap, tmp, (size_t)k);
-            p += 4;
-        } else if (p[1] == '%') {
-            fmt_put(&buf, &n, &cap, "%", 1);
-            p += 2;
+            piece = iron_string_cstr(s); plen = iron_string_byte_len(s); f += 1;
+        } else if (f[1] == 's') {
+            piece = va_arg(ap, const char *);
+            if (!piece) piece = "(null)";
+            plen = strlen(piece); f += 1;
+        } else if (f[1] == 'l' && f[2] == 'l' && (f[3] == 'd' || f[3] == 'u')) {
+            int k = f[3] == 'd'
+                ? snprintf(num, sizeof num, "%lld", va_arg(ap, long long))
+                : snprintf(num, sizeof num, "%llu", va_arg(ap, unsigned long long));
+            piece = num; plen = k > 0 ? (size_t)k : 0; f += 3;
         } else {
-            fmt_put(&buf, &n, &cap, p, 1);
-            p += 1;
+            piece = f; plen = 1;   /* not produced by the emitter: kept as text */
         }
+        if (out) memcpy(out + n, piece, plen);
+        n += plen;
     }
+    return n;
+}
+
+Iron_String iron_string_interp(const char *fmt, ...) {
+    va_list ap, ap2;
+    va_start(ap, fmt);
+    va_copy(ap2, ap);
+    size_t n = iron_interp_pass(NULL, fmt, ap);
     va_end(ap);
-    Iron_String s = iron_string_from_cstr(buf ? buf : "", n);
+    char *buf = (char *)malloc(n + 1);
+    if (!buf) iron_oom_abort("iron_string_interp");
+    iron_interp_pass(buf, fmt, ap2);
+    va_end(ap2);
+    buf[n] = '\0';
+    Iron_String s = iron_string_from_cstr(buf, n);
     free(buf);
     return s;
 }

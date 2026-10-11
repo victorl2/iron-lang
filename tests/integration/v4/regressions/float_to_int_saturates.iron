@@ -1,0 +1,17 @@
+-- A float converted to an integer type at run time saturates: NaN gives
+-- 0, a value past the type's range gives its largest or smallest value,
+-- anything else truncates toward zero (manual 2.9). The conversion was a
+-- plain C cast, undefined for these values, and printed garbage. (#466)
+func pkf(x: Float) -> Float {
+    return x
+}
+
+func main() {
+    val z = pkf(0.0)
+    val nan = z / z
+    val inf = 1.0 / z
+    println("{Int(nan)} {Int(inf)} {Int(-inf)} {Int(pkf(-3.99))}")
+    println("{Int8(pkf(300.5))} {Int8(pkf(-300.5))} {UInt8(pkf(-1.5))} {UInt8(pkf(255.9))}")
+    println("{Int32(pkf(3000000000.0))} {UInt32(inf)} {UInt(pkf(-5.0))} {UInt64(nan)}")
+    println("{Int16(Float32(inf))} {UInt16(pkf(65535.5))} {Int64(pkf(-0.5))}")
+}

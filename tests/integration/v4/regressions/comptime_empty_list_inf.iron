@@ -1,0 +1,24 @@
+-- Compile-time evaluation computes what the call computes at run time
+-- (manual 8): an empty list is a constant (it was "cannot be kept as a
+-- constant"), and a float divided by zero is an infinity or NaN (it was
+-- E0232). (#502)
+val E = comptime mk(0)
+val I = comptime inv(0.0)
+val M = comptime inv(-0.0)
+val Z = comptime nan(0.0)
+
+func mk(n: Int) -> [Int] {
+    return fill(n, 0)
+}
+
+func inv(x: Float) -> Float {
+    return 1.0 / x
+}
+
+func nan(x: Float) -> Float {
+    return x / x
+}
+
+func main() {
+    println("{E.len()} {I} {M} {Z} {Z == Z} {inv(0.0)}")
+}

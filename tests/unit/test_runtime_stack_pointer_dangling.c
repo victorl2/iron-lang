@@ -89,32 +89,37 @@ static void run_panic_case(void (*child_fn)(void *),
 
 /* ── Child workloads — reference Plan 20-02b runtime symbols ──────────── */
 
-/* Single-thread: capture &local in fp; bump iron_stack_gen twice (entry
- * + exit), then deref must panic with "dangling stack pointer to frame". */
+/* Single-thread: a frame takes &local, then returns (iron_stack_leave);
+ * a deref afterwards must panic with "dangling stack pointer to frame". */
 static void child_single_thread_dangling(void *unused) {
     (void)unused;
     iron_runtime_init(0, NULL);
     int local = 42;
+    uint64_t saved = iron_stack_enter();
     Iron_FatPtr fp = (Iron_FatPtr){ &local, iron_stack_gen };
-    /* Simulate function return: bump TLS counter twice (entry + exit). */
-    iron_stack_gen += 1;
-    iron_stack_gen += 1;
-    /* Now fp.gen != iron_stack_gen → check must panic. */
+    iron_stack_leave(saved);
     iron_check_stack_pointer_gen(fp, "stack_test.c", 4242);
     /* Unreachable. */
 }
 
-/* Recursive bump (OQ-E): outer-frame captures &local, inner-frame bumps
- * iron_stack_gen, deref of fp inside inner-frame panics. */
+/* A frame at the same depth entered again after the pointer's frame
+ * returned (#471: per-frame ids): the old pointer is dangling. A pointer
+ * to the outer frame stays valid inside an inner frame; the program then
+ * aborts on purpose after the stale deref panics. */
 static void child_recursive_bump_dangling(void *unused) {
     (void)unused;
     iron_runtime_init(0, NULL);
     int outer_local = 7;
-    Iron_FatPtr fp = (Iron_FatPtr){ &outer_local, iron_stack_gen };
-    /* Simulate inner frame entry: TLS counter bump. */
-    iron_stack_gen += 1;
-    /* Deref from inside inner-frame's view: panic expected. */
-    iron_check_stack_pointer_gen(fp, "recurse.c", 9999);
+    uint64_t s0 = iron_stack_enter();
+    Iron_FatPtr outer = (Iron_FatPtr){ &outer_local, iron_stack_gen };
+    uint64_t s1 = iron_stack_enter();
+    Iron_FatPtr inner = (Iron_FatPtr){ &outer_local, iron_stack_gen };
+    iron_check_stack_pointer_gen(outer, "recurse.c", 1);   /* outer frame live */
+    iron_stack_leave(s1);
+    uint64_t s2 = iron_stack_enter();                     /* same depth, new frame */
+    iron_check_stack_pointer_gen(outer, "recurse.c", 2);
+    iron_check_stack_pointer_gen(inner, "recurse.c", 9999);
+    (void)s0; (void)s2;
     /* Unreachable. */
 }
 
@@ -153,7 +158,9 @@ void test_stack_pointer_panic_inside_recursive_inner_frame(void) {
     int  status = 0;
     run_panic_case(child_recursive_bump_dangling, NULL, buf, sizeof(buf), &status);
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "dangling stack pointer to frame"),
-                                 "recursive inner-frame deref must panic");
+                                 "a pointer into a returned frame must panic");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "recurse.c:9999"),
+                                 "only the pointer into the returned frame panics");
 }
 
 void test_stack_pointer_no_panic_when_no_bump(void) {

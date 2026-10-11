@@ -1599,6 +1599,20 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_stdlib jsonp crypto http)
     set_tests_properties(prog_fuzz_stdlib PROPERTIES LABELS "stdlib" TIMEOUT 900)
+    # The edge case areas (NaN and conversions, strings and collections,
+    # generics, pointers and frames, comptime, destruction order).
+    add_test(NAME prog_fuzz_edges_num
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_edges_num numedge strcoll)
+    set_tests_properties(prog_fuzz_edges_num PROPERTIES LABELS "codegen" TIMEOUT 900)
+    add_test(NAME prog_fuzz_edges_types
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_edges_types genedge ptredge)
+    set_tests_properties(prog_fuzz_edges_types PROPERTIES LABELS "codegen" TIMEOUT 900)
+    add_test(NAME prog_fuzz_edges_mem
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_edges_mem ctedge dropord)
+    set_tests_properties(prog_fuzz_edges_mem PROPERTIES LABELS "codegen" TIMEOUT 900)
     # The json module against Python's json on random and corrupted
     # documents (tests/fuzz/json_fuzz.py). Fixed seeds.
     add_test(NAME json_fuzz
