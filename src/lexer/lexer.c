@@ -272,8 +272,12 @@ static void iron_skip_whitespace(Iron_Lexer *l) {
                    (unsigned char)l->src[l->pos + 2] == 0xBF) {
             /* A UTF-8 byte-order mark, which Notepad and PowerShell's
              * `Set-Content -Encoding UTF8` write at the start of a file
-             * (in a build, after the prepended standard library). */
+             * (in a build, after the prepended standard library). Columns
+             * count bytes: the mark is three of them (it counted none, so
+             * every span after it on the line pointed three bytes early,
+             * into the middle of characters). */
             l->pos += 3;
+            l->col += 3;
         } else {
             break;
         }

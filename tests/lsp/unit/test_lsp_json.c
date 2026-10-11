@@ -142,12 +142,41 @@ static void test_alc_ctx_is_arena(void) {
     TEST_ASSERT_NOT_NULL(alc.free);
 }
 
+/* Invalid UTF-8 in a string value (text taken from a document, a slice
+ * that cut a character) made the write fail, and the response was dropped:
+ * the client waited forever. The bad bytes become U+FFFD. */
+static void test_write_invalid_utf8(void) {
+    yyjson_alc alc = ilsp_json_alc(&g_arena);
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(&alc);
+    TEST_ASSERT_NOT_NULL(doc);
+    yyjson_mut_val *root = yyjson_mut_obj(doc);
+    yyjson_mut_val *arr = yyjson_mut_arr(doc);
+    yyjson_mut_val *item = yyjson_mut_obj(doc);
+    yyjson_mut_obj_add_strcpy(doc, item, "title", "Insert '\xbb\xbf x' \xe4\xb8");
+    yyjson_mut_arr_append(arr, item);
+    yyjson_mut_obj_add_val(doc, root, "result", arr);
+    yyjson_mut_doc_set_root(doc, root);
+
+    size_t out_len = 0;
+    char *out = ilsp_json_write_mut(doc, &g_arena, &out_len);
+    TEST_ASSERT_NOT_NULL(out);
+    yyjson_read_err err;
+    memset(&err, 0, sizeof(err));
+    yyjson_doc *rt = ilsp_json_parse(out, out_len, &g_arena, &err);
+    TEST_ASSERT_NOT_NULL(rt);
+    yyjson_val *title = yyjson_obj_get(
+        yyjson_arr_get(yyjson_obj_get(yyjson_doc_get_root(rt), "result"), 0), "title");
+    TEST_ASSERT_EQUAL_STRING("Insert '\xef\xbf\xbd\xef\xbf\xbd x' \xef\xbf\xbd\xef\xbf\xbd",
+                             yyjson_get_str(title));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_parse_happy_path);
     RUN_TEST(test_deep_nesting);
     RUN_TEST(test_parse_error);
     RUN_TEST(test_write_round_trip);
+    RUN_TEST(test_write_invalid_utf8);
     RUN_TEST(test_allocator_reuse_across_arenas);
     RUN_TEST(test_alc_ctx_is_arena);
     return UNITY_END();
