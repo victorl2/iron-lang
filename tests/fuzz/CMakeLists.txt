@@ -103,6 +103,10 @@ endfunction()
 iron_add_fuzz_target(fuzz_parser      fuzz_parser.c)
 iron_add_fuzz_target(fuzz_typecheck   fuzz_typecheck.c)
 iron_add_fuzz_target(fuzz_hir_to_lir  fuzz_hir_to_lir.c)
+# Source in, analysis as `ironc check` and the language server run it (with
+# the stdlib prelude, broken buffers included) and the formatter's
+# idempotence. Seed it with the integration corpus.
+iron_add_fuzz_target(fuzz_check       fuzz_check.c)
 
 # Build-time helper (NOT a fuzz target — no -fsanitize=fuzzer).
 # Copies tests/integration/*.iron into corpus/parser/ and creates the
