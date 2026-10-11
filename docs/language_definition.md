@@ -1696,7 +1696,10 @@ func main() {
 `import name` makes a standard library module available (section 9), or
 documents a dependency on a source file of the package: `import util`
 matches `src/util.iron` or any file under a directory named `util`, and a
-dotted path `import a.b` matches consecutive directory components. Importing
+dotted path `import a.b` matches consecutive directory components. Paths are
+read below the package, without the leading `src/` (a vendored package's
+`vendor/<name>/src/` reads as `<name>/`), so neither `src`, `vendor` nor a
+directory above the package can be imported. Importing
 an unknown module is an error (`E0209`); an unused import warns (`W0611`).
 `import x as y` is rejected: Iron has no module namespaces, so imported
 declarations are used by their own names.

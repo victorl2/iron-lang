@@ -119,4 +119,21 @@ test -x "${WORK}/B/custom-out" || { echo "FAIL B: iron build -o did not write cu
     test -x "${WORK}/B/custom-out2" || { echo "FAIL B: iron build --output"; cat out.log; exit 1; }
 rm -f "${WORK}/B/custom-out" "${WORK}/B/custom-out2"
 
+# An import names files of the package only (#603): not the package
+# directory, not a directory above it, not `src`.
+cp src/main.iron "${WORK}/main.iron.orig"
+for mod in "${PKG_NAME}" "$(basename "$(dirname "${WORK}/B")")" src; do
+    { printf 'import %s\n' "${mod}"; cat "${WORK}/main.iron.orig"; } > src/main.iron
+    if "${IRON_BIN_ABS}" build > out.log 2>&1 || ! grep -q E0209 out.log; then
+        echo "FAIL B: import ${mod} should be E0209"
+        cat out.log
+        exit 1
+    fi
+done
+printf 'pub func helper() -> Int {\n    return 1\n}\n' > src/util.iron
+{ printf 'import util\n'; cat "${WORK}/main.iron.orig"; } > src/main.iron
+"${IRON_BIN_ABS}" build > out.log 2>&1 || { echo "FAIL B: import util of src/util.iron"; cat out.log; exit 1; }
+cp "${WORK}/main.iron.orig" src/main.iron
+rm -f src/util.iron
+
 echo "run_cwd_clean_smoke OK"
