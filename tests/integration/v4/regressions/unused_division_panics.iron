@@ -1,0 +1,13 @@
+-- @expect-panic: integer division by zero
+-- An integer division whose result is never used must still panic on a
+-- zero divisor (manual 2.1): DCE dropped it as pure (#476).
+func zero() -> Int {
+    return 0
+}
+
+func main() {
+    val z = zero()
+    val q = 10 / z
+    val r = 10 % z
+    println("not reached")
+}
