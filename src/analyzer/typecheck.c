@@ -8552,7 +8552,17 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_AWAIT: {
             Iron_AwaitExpr *ae = (Iron_AwaitExpr *)node;
-            check_expr(ctx, ae->handle);
+            Iron_Type *ht = check_expr(ctx, ae->handle);
+            /* `await 1`: only a spawn handle can be awaited (the C called
+             * the runtime with an integer). A handle is an object-kinded
+             * value (spawn's result). */
+            if (ht && ht->kind != IRON_TYPE_OBJECT && ht->kind != IRON_TYPE_ERROR) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "'await' takes a spawn handle, got '%s'",
+                         iron_type_to_string(ht, ctx->arena));
+                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ae->span, msg,
+                           "await the value of a `val h = spawn(...) { ... }`");
+            }
 
             /* The spawn body's result type, from the binding the handle
              * name resolves to: the latest spawn with that name is not the
