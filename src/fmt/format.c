@@ -25,8 +25,10 @@ bool iron_fmt_same_tokens(const Iron_Token *tokens, int count, const char *text,
     bool same = d.error_count == 0;
     int i = 0, j = 0, m = (int)arrlen(again);
     while (same) {
-        while (i < count && tokens[i].kind == IRON_TOK_NEWLINE) i++;
-        while (j < m && again[j].kind == IRON_TOK_NEWLINE) j++;
+        /* Line breaks may change; comments (carried by NEWLINE tokens)
+         * may not. */
+        while (i < count && tokens[i].kind == IRON_TOK_NEWLINE && tokens[i].comment == 0) i++;
+        while (j < m && again[j].kind == IRON_TOK_NEWLINE && again[j].comment == 0) j++;
         if (i >= count || j >= m) { same = i >= count && j >= m; break; }
         const Iron_Token *a = &tokens[i++], *b = &again[j++];
         if (a->kind != b->kind) same = false;

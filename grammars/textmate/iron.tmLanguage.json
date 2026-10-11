@@ -23,13 +23,22 @@
         "comments": {
             "patterns": [
                 {
+                    "name": "meta.directive.iron",
+                    "match": "(//)([a-z][a-z0-9_]*)(:)([^\\n]*)",
+                    "captures": {
+                        "1": { "name": "punctuation.definition.comment.iron" },
+                        "2": { "name": "keyword.other.directive.iron" },
+                        "3": { "name": "punctuation.separator.key-value.iron" },
+                        "4": { "name": "string.unquoted.directive.iron" }
+                    }
+                },
+                {
                     "name": "comment.line.double-slash.iron",
                     "match": "//[^\\n]*"
                 },
                 {
-                    "name": "comment.block.iron",
-                    "begin": "/\\*",
-                    "end": "\\*/"
+                    "name": "comment.line.double-dash.iron",
+                    "match": "--[^\\n]*"
                 }
             ]
         },

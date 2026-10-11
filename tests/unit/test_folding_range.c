@@ -105,11 +105,42 @@ static void test_folding_doc_comment_run(void) {
             "}\n");
     IronLsp_FoldingRange *out = NULL; size_t n = 0;
     ilsp_facade_folding_range(&f.server, f.doc, NULL, &f.out_arena, &out, &n);
-    /* Graceful: if lexer exposes IRON_TOK_DOC_COMMENT tokens, we expect
-     * at least one "comment" fold. If not (build without doc-comment
-     * tokens), the test asserts at least the region fold from the body
-     * rather than failing outright. */
-    TEST_ASSERT_TRUE(n >= 1);
+    /* The three doc lines fold as one "comment" range (lines 0..2). */
+    bool found = false;
+    for (size_t i = 0; i < n; i++)
+        if (out[i].kind && strcmp(out[i].kind, "comment") == 0 &&
+            out[i].start_line == 0 && out[i].end_line == 2) found = true;
+    TEST_ASSERT_TRUE_MESSAGE(found, "expected a comment fold over lines 0..2");
+    fx_destroy(&f);
+}
+
+/* `//` comment runs fold too; a blank line splits a run, a single line
+ * does not fold, and a trailing comment is not part of a run. */
+static void test_folding_slash_comment_runs(void) {
+    fx_t f;
+    fx_init(&f, "file:///tmp/t_fr4b.iron",
+            "// one\n"
+            "// two\n"
+            "\n"
+            "// alone\n"
+            "val a = 1 // trailing\n"
+            "-- dash one\n"
+            "-- dash two\n"
+            "func main() {\n"
+            "}\n");
+    IronLsp_FoldingRange *out = NULL; size_t n = 0;
+    ilsp_facade_folding_range(&f.server, f.doc, NULL, &f.out_arena, &out, &n);
+    int comments = 0;
+    bool first = false, dash = false;
+    for (size_t i = 0; i < n; i++) {
+        if (!out[i].kind || strcmp(out[i].kind, "comment") != 0) continue;
+        comments++;
+        if (out[i].start_line == 0 && out[i].end_line == 1) first = true;
+        if (out[i].start_line == 5 && out[i].end_line == 6) dash = true;
+    }
+    TEST_ASSERT_TRUE(first);
+    TEST_ASSERT_TRUE(dash);
+    TEST_ASSERT_EQUAL_INT(2, comments);
     fx_destroy(&f);
 }
 
@@ -225,6 +256,7 @@ int main(void) {
     RUN_TEST(test_folding_single_line_skipped);
     RUN_TEST(test_folding_import_run);
     RUN_TEST(test_folding_doc_comment_run);
+    RUN_TEST(test_folding_slash_comment_runs);
     RUN_TEST(test_folding_error_node_tolerant);
     RUN_TEST(test_folding_match_multiline);
     RUN_TEST(test_folding_empty_program);

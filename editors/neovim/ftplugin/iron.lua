@@ -6,10 +6,12 @@ if vim.b.did_ftplugin then
 end
 vim.b.did_ftplugin = 1
 
--- Iron has `--` line comments and `///` doc comments; no block comments.
--- `gc` (Neovim 0.10+ commenting) and `gq` / `o` continuation read these.
-vim.bo.commentstring = '-- %s'
-vim.bo.comments = ':///,:--'
+-- Iron has `//` line comments (a run of them above a declaration documents
+-- it) and no block comments; `--` and `///` are still accepted while code
+-- migrates. `gc` (Neovim 0.10+ commenting) and `gq` / `o` continuation read
+-- these.
+vim.bo.commentstring = '// %s'
+vim.bo.comments = ':///,://,:--'
 vim.opt_local.formatoptions:remove('t')
 vim.opt_local.formatoptions:append('croql')
 

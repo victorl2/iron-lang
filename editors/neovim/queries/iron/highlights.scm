@@ -131,3 +131,5 @@
 ; ── Comments ──────────────────────────────────────────────────────────
 (line_comment) @comment
 (doc_comment)  @comment.documentation
+; `//key:value` directives and `//iron:<hint>` compiler hints
+(directive_comment) @keyword.directive

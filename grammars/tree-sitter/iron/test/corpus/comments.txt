@@ -47,3 +47,123 @@ func main() {}
     name: (identifier)
     parameters: (parameter_list)
     body: (block)))
+
+==========
+slash line comment and Go style doc run
+==========
+
+// first line of docs
+// second line of docs
+func f() {}
+
+---
+
+(source_file
+  (line_comment)
+  (line_comment)
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block)))
+
+==========
+directive comments above and trailing
+==========
+
+object Item {
+    //db:primary_key
+    pub val item_id: Int  //json:id
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (directive_comment)
+    (field_declaration
+      (visibility_modifier)
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (directive_comment)))
+
+==========
+compiler hint directive above a func
+==========
+
+//iron:fusible
+func g() {}
+
+---
+
+(source_file
+  (directive_comment)
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block)))
+
+==========
+not a directive: space after slashes, capital key, no colon
+==========
+
+// json:id
+//Json:id
+//json id
+
+---
+
+(source_file
+  (line_comment)
+  (line_comment)
+  (line_comment))
+
+==========
+comment markers inside strings stay string text
+==========
+
+val url = "http://example.com/a//b -- c /// d //e:f"
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    value: (string_literal)))
+
+==========
+division followed by a trailing comment
+==========
+
+val q = 10 / 2 // half
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    value: (binary_expression
+      (integer_literal)
+      (integer_literal)))
+  (line_comment))
+
+==========
+transitional forms next to slash comments
+==========
+
+-- dash comment
+/// triple doc
+// slash doc
+func h() {}
+
+---
+
+(source_file
+  (line_comment)
+  (doc_comment)
+  (line_comment)
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block)))

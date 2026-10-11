@@ -99,7 +99,7 @@ describe('iron-lsp in Neovim', function()
 
   it('detects the filetype and applies the ftplugin', function()
     assert.are.equal('iron', vim.bo[state.buf].filetype)
-    assert.are.equal('-- %s', vim.bo[state.buf].commentstring)
+    assert.are.equal('// %s', vim.bo[state.buf].commentstring)
     assert.are.equal(4, vim.bo[state.buf].shiftwidth)
     assert.is_true(vim.bo[state.buf].expandtab)
   end)

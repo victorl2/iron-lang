@@ -1107,6 +1107,12 @@ void iron_ast_walk(Iron_Node *root, Iron_Visitor *v);
 /* Return a human-readable name for the node kind. */
 const char *iron_node_kind_str(Iron_NodeKind kind);
 
+/* The documentation and directives of a node (see Iron_Directive). Returns
+ * false, with *doc = NULL, *dirs = NULL and *count = 0, for a node kind
+ * that carries none. Any out pointer may be NULL. */
+bool iron_node_doc(const Iron_Node *n, const char **doc,
+                   const Iron_Directive **dirs, int *count);
+
 /* ── Expression prefix layout enforcement (PROT-01) ──────────────────────────
  * Each expression AST type must begin with {Iron_Span span; Iron_NodeKind kind;
  * struct Iron_Type *resolved_type;} in that exact order. The compile-time

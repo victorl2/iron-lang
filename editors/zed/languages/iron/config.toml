@@ -1,6 +1,8 @@
 # Iron language surface for Zed. Comments follow src/lexer/lexer.c:
-#   `-- ...`   line comment
-#   `/// ...`  doc comment
+#   `// ...`   line comment; a run of them above a declaration documents it
+#   `//key:value` directive comment
+#   `-- ...` and `/// ...` are still accepted while code migrates; toggling
+#   writes `// ` and still removes the old prefixes.
 #   (no block comment form exists in Iron)
 # The queries next to this file (highlights, brackets, indents, outline,
 # textobjects) target grammars/tree-sitter/iron; highlights.scm is written by
@@ -9,7 +11,7 @@
 name = "Iron"
 grammar = "iron"
 path_suffixes = ["iron"]
-line_comments = ["-- ", "/// "]
+line_comments = ["// ", "/// ", "-- "]
 autoclose_before = ";:.,=}])>\t\n "
 word_characters = ["_"]
 tab_size = 4

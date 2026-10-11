@@ -1069,6 +1069,24 @@ void ilsp_facade_hover(struct IronLsp_Server   *server,
         sb_append(&md, dc);
     }
 
+    /* Directive comments (`//key:value`), as written, in source order. */
+    {
+        const Iron_Directive *dirs = NULL;
+        int ndirs = 0;
+        (void)iron_node_doc(decl, NULL, &dirs, &ndirs);
+        if (ndirs > 0) {
+            sb_append(&md, "\n\n```iron\n");
+            for (int i = 0; i < ndirs; i++) {
+                if (i > 0) sb_append(&md, "\n");
+                sb_append(&md, "//");
+                sb_append(&md, dirs[i].key);
+                sb_append(&md, ":");
+                sb_append(&md, dirs[i].value);
+            }
+            sb_append(&md, "\n```");
+        }
+    }
+
     /* Active-diag footer (D-04 step 4): scan diags from the
      * compile-for-nav call. Use the first diag whose span covers the
      * target_span's start. */

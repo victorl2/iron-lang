@@ -269,7 +269,8 @@ static void test_aliased_both_kept(void) {
  * File-header blank lines before the first import are NOT in the
  * replaced range (the facade replaces starting at the first import's
  * line, not at byte 0). Doc-comment ON the import is preserved and
- * moves with it. Expected new_text includes `/// doc for math\nimport math\n`. */
+ * moves with it, written with `//`. Expected new_text includes
+ * `// doc for math\nimport math\n`. */
 static void test_doc_comment_preserved(void) {
     Iron_Arena     arena = iron_arena_create(64 * 1024);
     Iron_DiagList  diags = iron_diaglist_create();
@@ -292,9 +293,41 @@ static void test_doc_comment_preserved(void) {
      * doc_comment. */
     TEST_ASSERT_EQUAL_STRING(
         "import io\n"
-        "/// doc for math\n"
+        "// doc for math\n"
         "import math\n",
         out.new_text);
+
+    iron_diaglist_free(&diags);
+    iron_arena_free(&arena);
+}
+
+/* Test 8b: a `//` documentation run with a directive above an import, and
+ * a trailing directive, move with the import; the range starts at the
+ * first comment line. */
+static void test_doc_and_directives_preserved(void) {
+    Iron_Arena     arena = iron_arena_create(64 * 1024);
+    Iron_DiagList  diags = iron_diaglist_create();
+    const char    *src   = "// doc for math\n"
+                            "//dep:core\n"
+                            "import math  //pin:1\n"
+                            "import io\n"
+                            "\n"
+                            "func main() {}\n";
+    Iron_Program  *prog  = parse_source(src, &arena, &diags);
+    TEST_ASSERT_NOT_NULL(prog);
+
+    IronLsp_WorkspaceIndex *wi = make_wi(/*bulk_done=*/true);
+    IronLsp_OrganizeImportsResult out = {0};
+    ilsp_organize_imports(prog, NULL, &diags, wi, NULL, &arena, &out);
+
+    TEST_ASSERT_NOT_NULL(out.new_text);
+    TEST_ASSERT_EQUAL_STRING(
+        "import io\n"
+        "// doc for math\n"
+        "//dep:core\n"
+        "import math  //pin:1\n",
+        out.new_text);
+    TEST_ASSERT_EQUAL_UINT32(0, out.range_start_line);
 
     iron_diaglist_free(&diags);
     iron_arena_free(&arena);
@@ -337,6 +370,7 @@ int main(void) {
     RUN_TEST(test_unused_skipped_when_cold);
     RUN_TEST(test_aliased_both_kept);
     RUN_TEST(test_doc_comment_preserved);
+    RUN_TEST(test_doc_and_directives_preserved);
     RUN_TEST(test_null_program_no_edit);
     RUN_TEST(test_no_imports_no_edit);
     return UNITY_END();

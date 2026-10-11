@@ -160,7 +160,7 @@ Change them in a running session with `:IronInlayHints parameterNames off`
 (`on`, `off` or `toggle`; `bindingTypes` likewise); the hints update
 without a restart.
 
-The ftplugin sets `commentstring` to `-- %s` (so `gc` comments with `--`),
+The ftplugin sets `commentstring` to `// %s` (so `gc` comments with `//`),
 four-space indentation and brace indentation. Without a tree-sitter parser,
 `syntax/iron.vim` highlights keywords, strings, numbers and comments, and
 ironls semantic tokens color types, functions, parameters and fields.

@@ -31,6 +31,7 @@
 [
   (line_comment)
   (doc_comment)
+  (directive_comment)
 ] @indent.auto
 
 (string_literal) @indent.ignore
