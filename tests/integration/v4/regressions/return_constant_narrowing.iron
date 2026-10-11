@@ -1,0 +1,18 @@
+-- A constant expression returned from a function of a narrow integer type
+-- takes that type (manual 1.4); a debug build stopped with an internal
+-- error (it asserted a bare literal), and only the top node was retyped.
+func neg() -> Int8 {
+    return -5
+}
+
+func sum() -> UInt16 {
+    return 60000 + 5000
+}
+
+func mask() -> Int32 {
+    return (1 << 20) | 3
+}
+
+func main() {
+    println("{neg()} {sum()} {mask()}")
+}

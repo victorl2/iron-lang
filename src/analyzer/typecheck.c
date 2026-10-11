@@ -10206,9 +10206,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                          * structural proof. Assert the invariant explicitly so a
                          * future predicate bug aborts in Debug rather than
                          * silently writing to a foreign node layout. */
-                        IRON_NODE_ASSERT_KIND(rs->value, IRON_NODE_INT_LIT);
-                        Iron_IntLit *int_lit = (Iron_IntLit *)rs->value;
-                        int_lit->resolved_type = ctx->current_return_type;
+                        /* A constant expression narrows too (`return -5`,
+                         * `return 2 + 3`, manual 1.4): retype it down to its
+                         * literals. Asserting a bare literal stopped debug
+                         * builds with an internal error. */
+                        retype_int_constant(rs->value, ctx->current_return_type, 0);
                     }
                 }
             }
