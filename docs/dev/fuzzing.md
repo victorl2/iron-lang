@@ -188,7 +188,7 @@ python3 tests/fuzz/prog_fuzz.py sync build/ironc /tmp/pf 1 500 -j8 --runs 2
 python3 tests/fuzz/prog_fuzz.py jsonp build/ironc /tmp/pf 1 200 -j4 --valgrind
 python3 tests/fuzz/prog_fuzz.py sync build/ironc /tmp/pf 1 200 -j4 --tsan /tmp/rt_tsan
 python3 tests/fuzz/prog_fuzz.py conc build/ironc /tmp/pf 1 50 -j2 --helgrind /tmp/rt_vg
-python3 tests/fuzz/prog_fuzz.py http build/ironc /tmp/pf 1 3 --reduce
+python3 tests/fuzz/prog_fuzz.py http build/ironc /tmp/pf 7 --reduce
 ```
 
 `--asan RTDIR` and `--tsan RTDIR` build a sanitizer runtime into RTDIR
