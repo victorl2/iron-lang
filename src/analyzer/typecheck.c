@@ -10284,8 +10284,17 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     bool root_indirect = root_sym && root_sym->type &&
                         (root_sym->type->kind == IRON_TYPE_PTR ||
                          root_sym->type->kind == IRON_TYPE_RC);
+                    /* The receiver of a mutating method is the caller's
+                     * storage, and a pointer into it carries the receiver's
+                     * lifetime (manual 6.4, #542). A readonly method's self
+                     * is a copy, and init, drop and copy run on temporaries. */
+                    bool root_mut_self = root_sym && root_sym->name &&
+                        strcmp(root_sym->name, "self") == 0 &&
+                        root_sym->sym_kind == IRON_SYM_PARAM &&
+                        ctx->current_method_type && !ctx->in_readonly_method &&
+                        !ctx->in_init_method && !ctx->in_drop_method && !ctx->in_copy_method;
                     if (root_sym && sym_is_stack_local(root_sym) && !root_global &&
-                        !root_indirect) {
+                        !root_indirect && !root_mut_self) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
                                  "cannot return reference to stack-local "

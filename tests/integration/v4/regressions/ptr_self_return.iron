@@ -1,0 +1,27 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A mutating method may return a pointer into its receiver (E0271 used to
+-- reject it); the pointer carries the receiver's lifetime: valid for a live
+-- heap value, dangling once the local it points into is gone (#542).
+object Counter {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func handle() -> *var Int {
+        return &self.n
+    }
+}
+
+func mk() -> *var Int {
+    var c = Counter(1)
+    return c.handle()
+}
+
+func main() {
+    var h = heap Counter(3)
+    val p = h.handle()
+    println("{p}")
+    free h
+    val q = mk()
+    println("{q}")
+}
