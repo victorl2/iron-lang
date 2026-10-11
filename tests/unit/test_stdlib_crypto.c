@@ -26,28 +26,6 @@ static Iron_String repeat(const char *s, int64_t n) {
     return out;
 }
 
-/* Hex of a string, released by the caller with free(). */
-static char *hex_of(Iron_String s) {
-    Iron_String h = Iron_hex_encode(s);
-    size_t n = iron_string_byte_len(&h);
-    char *out = (char *)malloc(n + 1);
-    memcpy(out, iron_string_cstr(&h), n);
-    out[n] = 0;
-    iron_string_release(&h);
-    return out;
-}
-
-static void assert_hex(const char *want, Iron_String got) {
-    char *h = hex_of(got);
-    TEST_ASSERT_EQUAL_STRING(want, h);
-    free(h);
-}
-
-static void release_result(Iron_CryptoResult *r) {
-    iron_string_release(&r->data);
-    iron_string_release(&r->error_message);
-}
-
 static void release_decode(Iron_DecodeResult *r) {
     iron_string_release(&r->data);
     iron_string_release(&r->error_message);
@@ -141,6 +119,28 @@ static void test_encoding(void) {
 }
 
 #ifdef IRON_HAVE_OPENSSL
+
+/* Hex of a string, released by the caller with free(). */
+static char *hex_of(Iron_String s) {
+    Iron_String h = Iron_hex_encode(s);
+    size_t n = iron_string_byte_len(&h);
+    char *out = (char *)malloc(n + 1);
+    memcpy(out, iron_string_cstr(&h), n);
+    out[n] = 0;
+    iron_string_release(&h);
+    return out;
+}
+
+static void assert_hex(const char *want, Iron_String got) {
+    char *h = hex_of(got);
+    TEST_ASSERT_EQUAL_STRING(want, h);
+    free(h);
+}
+
+static void release_result(Iron_CryptoResult *r) {
+    iron_string_release(&r->data);
+    iron_string_release(&r->error_message);
+}
 
 static void test_digests(void) {
     Iron_String abc = text("abc");
