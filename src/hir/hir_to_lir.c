@@ -194,8 +194,11 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
              ft->nullable.inner->kind == IRON_TYPE_STRING))
             return true;
         if (ft->kind == IRON_TYPE_FUNC) return true;
+        /* An enum field whose payloads own something (a String, an rc
+         * handle, a list) makes the holder need glue too: without this an
+         * `object W { val node: N }` binding was never dropped. */
         if ((ft->kind == IRON_TYPE_OBJECT || ft->kind == IRON_TYPE_INTERFACE ||
-             ft->kind == IRON_TYPE_NULLABLE ||
+             ft->kind == IRON_TYPE_NULLABLE || ft->kind == IRON_TYPE_ENUM ||
              (ft->kind == IRON_TYPE_ARRAY && ft->array.is_bounded)) &&
             type_lifecycle_rec(ft, program, want_copy, depth + 1))
             return true;
@@ -268,8 +271,22 @@ static bool type_is_rc_like(Iron_Type *t) {
  *                          way a call's does; the handle hands it over
  * Everything else (ident/field aliasing an existing binding) is a BORROWED
  * view; storing it into a binding requires its own retain. */
+static bool hir_expr_is_place(IronHIR_Expr *e);
+
 static bool rc_expr_transfers_ownership(IronHIR_Expr *e) {
     if (!e) return false;
+    /* A field or element read off an owned temporary (`make().handle`,
+     * and the payload binding of `match make() { V(h) -> ... }`):
+     * take_from_owned_temp retains the value before dropping the
+     * temporary, so the read already arrives at +1. Treating it as a
+     * borrowed alias retained it a second time and leaked the handle. */
+    if (e->kind == IRON_HIR_EXPR_FIELD_ACCESS || e->kind == IRON_HIR_EXPR_INDEX) {
+        IronHIR_Expr *base = e->kind == IRON_HIR_EXPR_FIELD_ACCESS
+                           ? e->field_access.object : e->index.array;
+        if (!base || !base->type || base->kind == IRON_HIR_EXPR_STRING_LIT) return false;
+        if (type_is_rc_like(base->type)) return rc_expr_transfers_ownership(base);
+        return !hir_expr_is_place(base);
+    }
     /* if-chain (not switch) to stay clear of -Werror=switch-enum. */
     return e->kind == IRON_HIR_EXPR_RC ||
            e->kind == IRON_HIR_EXPR_CALL ||
@@ -5148,6 +5165,16 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
          * one form emit_c handles for every instruction kind). */
         IronLIR_ValueId ret_slot = IRON_LIR_VALUE_INVALID;
         if (has_value && ret_type) {
+            /* The slot holds the value as returned: after the T -> T?
+             * coercion above (`return s` of a String binding from a
+             * `-> String?` function), not the expression's own type. */
+            Iron_Type *slot_type = ret_type;
+            if ((ptrdiff_t)ret_val < arrlen(ctx->current_func->value_table) &&
+                ctx->current_func->value_table[ret_val] &&
+                ctx->current_func->value_table[ret_val]->type &&
+                ctx->current_func->value_table[ret_val]->type->kind == IRON_TYPE_NULLABLE)
+                slot_type = ctx->current_func->value_table[ret_val]->type;
+            ret_type = slot_type;
             ret_slot = emit_alloca_in_entry(ctx, ret_type, "__ret_val", span);
             iron_lir_store(ctx->current_func, ctx->current_block,
                            ret_slot, ret_val, span);

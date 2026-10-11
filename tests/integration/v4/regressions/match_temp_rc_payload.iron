@@ -1,0 +1,40 @@
+-- Matching on an owned temporary whose payload is an rc handle
+-- (`match make() { N.R(b) -> ... }`, `match holder().node { ... }`)
+-- retained the handle twice: once when the payload was read off the
+-- temporary and once more for the binding, so the object was never freed.
+object Big {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+
+enum N {
+    R(rc Big),
+    Nothing,
+}
+
+object W {
+    val node: N
+}
+
+func make(id: Int) -> N {
+    return N.R(rc Big(id))
+}
+
+func wrap(id: Int) -> W {
+    return W(make(id))
+}
+
+func main() {
+    match make(1) {
+        N.R(b) -> println("got {b.id}")
+        N.Nothing -> println("nothing")
+    }
+    match wrap(2).node {
+        N.R(b) -> println("got {b.id}")
+        N.Nothing -> println("nothing")
+    }
+    val h = wrap(3).node
+    println("end")
+}

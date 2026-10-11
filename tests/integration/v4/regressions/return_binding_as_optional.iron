@@ -1,0 +1,28 @@
+-- `return s` of a match binding from a function returning `T?` stored the
+-- value in a cleanup slot typed T instead of T?, so the LIR verifier
+-- rejected the function (E0905 return type mismatch).
+enum Tok {
+    Word(String),
+    Num(Int),
+    End,
+}
+
+func word(t: Tok) -> String? {
+    match t {
+        Tok.Word(s) -> return s
+        else -> return null
+    }
+    return null
+}
+
+func num(t: Tok) -> Int? {
+    match t {
+        Tok.Num(n) -> return n
+        else -> return null
+    }
+    return null
+}
+
+func main() {
+    println("{word(Tok.Word("hello"))} {word(Tok.End)} {num(Tok.Num(4))} {num(Tok.End)}")
+}
