@@ -3038,9 +3038,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     "static Iron_String _iron_lit_%d;\n"
                     "static _Atomic int _iron_lit_%d_ready;\n"
                     "static inline Iron_String _iron_lit_%d_get(void) {\n"
-                    "    if (atomic_load_explicit(&_iron_lit_%d_ready, memory_order_acquire) == 2) return _iron_lit_%d;\n"
+                    "    if (atomic_load_explicit(&_iron_lit_%d_ready, memory_order_acquire) == 2) {\n"
+                    "        IRON_HB_AFTER(&_iron_lit_%d_ready);\n"
+                    "        return _iron_lit_%d;\n"
+                    "    }\n"
                     "    Iron_String s = iron_string_from_literal(\"",
-                    lit_idx, lit_idx, lit_idx, lit_idx, lit_idx);
+                    lit_idx, lit_idx, lit_idx, lit_idx, lit_idx, lit_idx);
                 for (size_t i = 0; i < slen; i++) {
                     unsigned char ch = (unsigned char)sv[i];
                     switch (ch) {
@@ -3060,10 +3063,11 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     "    int expect = 0;\n"
                     "    if (atomic_compare_exchange_strong(&_iron_lit_%d_ready, &expect, 1)) {\n"
                     "        _iron_lit_%d = s;\n"
+                    "        IRON_HB_BEFORE(&_iron_lit_%d_ready);\n"
                     "        atomic_store_explicit(&_iron_lit_%d_ready, 2, memory_order_release);\n"
                     "    }\n"
                     "    return s;\n"
-                    "}\n\n", slen, lit_idx, lit_idx, lit_idx);
+                    "}\n\n", slen, lit_idx, lit_idx, lit_idx, lit_idx);
             }
             iron_strbuf_appendf(sb, " = _iron_lit_%d_get();\n", lit_idx);
             break;

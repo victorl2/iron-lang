@@ -117,10 +117,10 @@ SAN_COMMON = ['-g', '-O1', '-fno-omit-frame-pointer', '-std=gnu17', '-fwrapv',
 SAN_FLAGS = {
     'asan': ['-fsanitize=address,undefined', '-fno-sanitize-recover=undefined'],
     'tsan': ['-fsanitize=thread'],
-    # helgrind / DRD: unoptimized and not inlined, so the suppressions in
-    # valgrind_threads.supp can name the functions that synchronize with
-    # C11 atomics (which neither tool models)
-    'vg': ['-O0', '-fno-inline'],
+    # helgrind / DRD: the runtime's happens-before annotations on (neither
+    # tool models C11 atomics), unoptimized and not inlined so the
+    # suppressions in valgrind_threads.supp can name the atomic functions
+    'vg': ['-O0', '-fno-inline', '-DIRON_VALGRIND_ANNOTATE'],
 }
 VG_SUPP = os.path.join(HERE, 'valgrind_threads.supp')
 SAN = SAN_COMMON + SAN_FLAGS['asan']

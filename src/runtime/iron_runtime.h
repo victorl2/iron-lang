@@ -155,6 +155,18 @@ typedef _Atomic uint64_t iron_atomic_u64;
 #define IRON_TSAN_BUILD 1
 #endif
 #endif
+/* Happens-before annotations for helgrind and DRD, which do not model C11
+ * atomics either: a build with IRON_VALGRIND_ANNOTATE (prog_fuzz.py's
+ * --helgrind / --drd runs) marks the release / acquire pairs of the
+ * refcounts and of one-time initialization; otherwise they are nothing. */
+#ifdef IRON_VALGRIND_ANNOTATE
+#include <valgrind/helgrind.h>
+#define IRON_HB_BEFORE(p) ANNOTATE_HAPPENS_BEFORE(p)
+#define IRON_HB_AFTER(p)  ANNOTATE_HAPPENS_AFTER(p)
+#else
+#define IRON_HB_BEFORE(p) ((void)0)
+#define IRON_HB_AFTER(p)  ((void)0)
+#endif
 #ifdef IRON_TSAN_BUILD
 #undef IRON_ATOMIC_U64_FETCH_SUB_RELEASE
 #define IRON_ATOMIC_U64_FETCH_SUB_RELEASE(v, n) \

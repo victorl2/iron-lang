@@ -1023,8 +1023,10 @@ void Iron_mutex_retain(Iron_Mutex *m) {
 
 /* Drop one reference; true when it was the last (the caller frees). */
 bool iron_shared_release(iron_atomic_u64 *refs) {
+    IRON_HB_BEFORE(refs);
     if (IRON_ATOMIC_U64_FETCH_SUB_RELEASE(*refs, 1) != 1) return false;
     IRON_ATOMIC_FENCE_ACQUIRE();
+    IRON_HB_AFTER(refs);
     (void)IRON_ATOMIC_U64_LOAD_ACQUIRE(*refs);   /* the fence, as TSan sees it */
     return true;
 }

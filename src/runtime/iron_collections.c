@@ -130,9 +130,11 @@ void iron_cell_retain(void *value) {
 void iron_cell_release(void *value) {
     if (!value) return;
     IronClosureEnvHdr *h = ((IronClosureEnvHdr *)value) - 1;
+    IRON_HB_BEFORE(&h->rc);
     uint64_t prev = IRON_ATOMIC_U64_FETCH_SUB_RELEASE(h->rc, 1);
     if (prev == 1) {
         IRON_ATOMIC_FENCE_ACQUIRE();
+        IRON_HB_AFTER(&h->rc);
         /* A spawned task shares the cell (#458). The acquire load of the
          * count is what the fence does, in a form ThreadSanitizer models
          * (it does not see standalone fences and reported the free as a
@@ -151,9 +153,11 @@ void iron_closure_retain(Iron_Closure c) {
 void iron_closure_release(Iron_Closure c) {
     if (!c.env) return;
     IronClosureEnvHdr *h = ((IronClosureEnvHdr *)c.env) - 1;
+    IRON_HB_BEFORE(&h->rc);
     uint64_t prev = IRON_ATOMIC_U64_FETCH_SUB_RELEASE(h->rc, 1);
     if (prev == 1) {
         IRON_ATOMIC_FENCE_ACQUIRE();
+        IRON_HB_AFTER(&h->rc);
         if (h->drop) h->drop(c.env); else iron_closure_env_free(c.env);
     } else if (prev == 2 && h->cycle_break) {
         /* One share left: if it is a capture cell this env alone holds,
