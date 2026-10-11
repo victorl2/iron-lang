@@ -37,8 +37,8 @@ Areas:
     dropord   destruction order of objects, interfaces, lists, closures, rc;
               reference cycles
 
-    prog_fuzz.py AREA IRONC OUTDIR SEED [COUNT] [--valgrind | --helgrind |
-                 --drd | --asan RTDIR | --tsan RTDIR] [--runs N]
+    prog_fuzz.py AREA IRONC OUTDIR SEED [COUNT] [--valgrind | --helgrind [RTDIR] |
+                 --drd [RTDIR] | --asan RTDIR | --tsan RTDIR] [--runs N]
     prog_fuzz.py --suite IRONC OUTDIR [AREA...] (the fixed seeds ctest runs)
     prog_fuzz.py --gen AREA SEED               (print one program and its output)
     prog_fuzz.py AREA IRONC OUTDIR SEED --reduce
@@ -54,7 +54,10 @@ fails as a timeout.
 -fsanitize=address,undefined against a runtime built the same way into
 RTDIR (built on first use from the source tree next to this script);
 --tsan RTDIR does the same with -fsanitize=thread. --helgrind and --drd
-run the binary under those valgrind tools; a reported race fails it.
+run the binary under those valgrind tools; a reported race fails it. Given
+an RTDIR, they build the program and the runtime at -O0 without inlining,
+so valgrind_threads.supp can hide what the tools cannot model (C11 atomic
+refcounts and one-time initialization, glibc's thread stack cache).
 
 A program's expected outcome (pf_lang.Expected) is its output lines plus,
 optionally: `errors`, diagnostic codes one of which the build must report
@@ -80,7 +83,8 @@ sys.path.insert(0, HERE)
 from pf_lang import Bail, Expected  # noqa: E402
 
 AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime',
-         'numedge', 'genedge', 'ptredge', 'ctedge', 'strcoll', 'dropord')
+         'numedge', 'genedge', 'ptredge', 'ctedge', 'strcoll', 'dropord',
+         'sync', 'arenax', 'jsonp', 'crypto', 'http')
 
 
 def generator(area):
@@ -128,7 +132,12 @@ SAN_COMMON = ['-g', '-O1', '-fno-omit-frame-pointer', '-std=gnu17', '-fwrapv',
 SAN_FLAGS = {
     'asan': ['-fsanitize=address,undefined', '-fno-sanitize-recover=undefined'],
     'tsan': ['-fsanitize=thread'],
+    # helgrind / DRD: the runtime's happens-before annotations on (neither
+    # tool models C11 atomics), unoptimized and not inlined so the
+    # suppressions in valgrind_threads.supp can name the atomic functions
+    'vg': ['-O0', '-fno-inline', '-DIRON_VALGRIND_ANNOTATE'],
 }
+VG_SUPP = os.path.join(HERE, 'valgrind_threads.supp')
 SAN = SAN_COMMON + SAN_FLAGS['asan']
 
 
@@ -142,17 +151,29 @@ def build_asan_rt(rtdir, flavor='asan'):
     files = [f for f in glob.glob(os.path.join(src, 'runtime', 'iron_*.c'))
              if 'win_crt0' not in f and 'gencheck_count' not in f]
     files += [os.path.join(src, 'stdlib', f'iron_{n}.c') for n in
-              ('math', 'io', 'time', 'log', 'hint', 'net', 'http', 'tls', 'websocket')]
+              ('math', 'io', 'time', 'log', 'hint', 'net', 'http', 'tls', 'websocket',
+               'encoding', 'json', 'crypto')]
     files += [os.path.join(src, 'util', n) for n in ('stb_ds_impl.c', 'arena.c', 'strbuf.c')]
     objs = []
     for f in files:
         o = os.path.join(rtdir, os.path.basename(f)[:-2] + '.o')
-        subprocess.run(['clang', '-c'] + san + [f'-I{src}', f'-I{src}/vendor', f'-I{src}/stdlib',
-                        f, '-o', o], check=True)
+        subprocess.run(['clang', '-c'] + san + ssl_flags() + [f'-I{src}', f'-I{src}/vendor',
+                        f'-I{src}/stdlib', f, '-o', o], check=True)
         objs.append(o)
     subprocess.run(['ar', 'rcs', lib + '.tmp'] + objs, check=True)
     os.replace(lib + '.tmp', lib)
     return lib
+
+
+def ssl_flags():
+    """OpenSSL for the crypto, tls and https code of the sanitizer runtime,
+    when its headers are installed (as the compiler builds programs that
+    import crypto or http)."""
+    return ['-DIRON_HAVE_OPENSSL=1'] if os.path.exists('/usr/include/openssl/evp.h') else []
+
+
+def ssl_libs():
+    return ['-lssl', '-lcrypto'] if ssl_flags() else []
 
 
 def asan_build(ironc, src, workdir, exe, rtlib, flavor='asan'):
@@ -164,8 +185,9 @@ def asan_build(ironc, src, workdir, exe, rtlib, flavor='asan'):
     c = os.path.join(workdir, '.iron-build', name + '.c')
     s = os.path.normpath(os.path.join(HERE, '..', '..', 'src'))
     return subprocess.run(['clang'] + SAN_COMMON + SAN_FLAGS[flavor] +
-                          [f'-I{s}', f'-I{s}/vendor', f'-I{s}/stdlib', c, rtlib,
-                           '-lm', '-lpthread', '-o', exe], capture_output=True, text=True)
+                          ssl_flags() + [f'-I{s}', f'-I{s}/vendor', f'-I{s}/stdlib', c, rtlib,
+                                         '-lm', '-lpthread'] + ssl_libs() + ['-o', exe],
+                          capture_output=True, text=True)
 
 
 # ----------------------------------------------------------------- running
@@ -202,6 +224,8 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
         os.remove(exe)
     if mode in ('asan', 'tsan'):
         b = asan_build(ironc, src, d, exe, rtlib, mode)
+    elif mode in ('helgrind', 'drd') and rtlib:
+        b = asan_build(ironc, src, d, exe, rtlib, 'vg')
     else:
         b = subprocess.run([ironc, 'build', src, '-o', exe], capture_output=True, text=True,
                            encoding='utf-8', errors='replace')
@@ -226,7 +250,8 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
         cmd = ['valgrind', '--quiet', '--leak-check=' + ('no' if leaks_ok else 'full'),
                '--errors-for-leak-kinds=definite,indirect', '--error-exitcode=99', exe]
     if mode in ('helgrind', 'drd'):
-        cmd = ['valgrind', '--quiet', f'--tool={mode}', '--error-exitcode=99', exe]
+        cmd = ['valgrind', '--quiet', f'--tool={mode}', '--error-exitcode=99',
+               f'--suppressions={VG_SUPP}', exe]
     if mode == 'asan':
         env['ASAN_OPTIONS'] = (f'detect_leaks={0 if leaks_ok else 1}:abort_on_error=0:exitcode=99:'
                                'detect_stack_use_after_return=1')
@@ -242,8 +267,10 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
 
 def run_once(cmd, env, expected, panic, d, mode):
     try:
+        # helgrind and DRD run a threaded program 20 to 100 times slower
+        slow = 4 if mode in ('helgrind', 'drd') else 1
         r = subprocess.run(cmd, capture_output=True, text=True,
-                           timeout=int(os.environ.get('PF_TIMEOUT', '120')), env=env,
+                           timeout=int(os.environ.get('PF_TIMEOUT', '120')) * slow, env=env,
                            encoding='utf-8',
                            errors='replace')
     except subprocess.TimeoutExpired:
@@ -377,6 +404,14 @@ def reduce_program(ironc, outdir, area, seed, mode='plain', rtlib=None, jobs=8):
     changed = True
     while changed:
         changed = False
+        # segment programs (pf_seg.py): drop whole segments
+        while hasattr(g, 'segs') and len(g.segs) > 1:
+            cands = [deletion(g.segs, i, 1) for i in range(len(g.segs) - 1, -1, -1)]
+            k = first_failing(cands)
+            if k < 0:
+                break
+            cands[k][0]()
+            changed = True
         while True:
             cands = [deletion(g.funcs, i, 1) for i in range(len(g.funcs) - 1, -1, -1)]
             k = first_failing(cands)
@@ -489,9 +524,12 @@ SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure'
          # the edge case areas: their first seeds found the bugs fixed with
          # them (#466 .. #505); about a minute per ctest entry
          'numedge': range(1, 49), 'strcoll': range(1, 49), 'genedge': range(1, 49),
-         'ptredge': range(1, 49), 'ctedge': range(1, 25), 'dropord': range(1, 25)}
+         'ptredge': range(1, 49), 'ctedge': range(1, 25), 'dropord': range(1, 25),
+         'sync': range(1, 9), 'arenax': range(1, 9), 'jsonp': range(1, 7), 'crypto': range(1, 7),
+         'http': range(1, 5)}
 # `--suite IRONC OUTDIR` runs these; the other areas have ctest entries of
-# their own (`--suite IRONC OUTDIR conc`, `... num generic ptr comptime`).
+# their own (`--suite IRONC OUTDIR conc`, `... num generic ptr comptime`,
+# `... sync arenax`, `... jsonp crypto http`).
 SUITE_DEFAULT = ('stmt', 'coll', 'obj', 'closure')
 
 
@@ -526,8 +564,16 @@ def main(argv):
             i += 1
         elif argv[i].startswith('-j') and argv[i][2:].isdigit():
             jobs = int(argv[i][2:])
-        elif argv[i] in ('--valgrind', '--helgrind', '--drd'):
+        elif argv[i] == '--valgrind':
+            mode = 'valgrind'
+        elif argv[i] in ('--helgrind', '--drd'):
+            # RTDIR is optional: with it, programs and runtime are built
+            # unoptimized for the suppressions (see SAN_FLAGS['vg'])
             mode = argv[i][2:]
+            if i + 1 < len(argv) and not argv[i + 1].startswith('-') and \
+                    not argv[i + 1].isdigit() and len(args) >= 4:
+                rtlib = build_asan_rt(argv[i + 1], 'vg')
+                i += 1
         elif argv[i] == '--runs':
             os.environ['PF_RUNS'] = argv[i + 1]
             i += 1

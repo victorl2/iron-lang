@@ -1,0 +1,20 @@
+-- Unused divisions, remainders and list reads inside nested parallel
+-- loops: DCE keeps the ones that may panic (#476) and removes the rest,
+-- and asking again while it removed instructions once kept a remainder by
+-- a constant whose operands were gone (LIR verification failed).
+func main() {
+    val p = 5
+    val xs = [1, 2, 3, 4]
+    val total = Mutex(0)
+    for i in range(2) parallel {
+        for j in range(3) parallel {
+            val v = (p + 8) / (-3) * (i % 3 + j & 7)
+            val w = xs[j] % 2
+            val u = (i + j) % (j + 1)
+            val g = total.lock()
+            g.set(g.get() + 1)
+        }
+    }
+    val g = total.lock()
+    println("{g.get()}")
+}
