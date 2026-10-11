@@ -1098,11 +1098,12 @@ void iron_threads_init(void) {
 
 /* At program end (manual 7.1) a thread that is still running is stopped
  * with the program: a fire-and-forget spawn blocked on a channel nobody
- * feeds (or merely still working) must not keep the process alive. When a
- * pool still has work queued or running, its queued items are dropped
- * without running and the pool is left to the process exit (its workers
- * keep pointers to it, so it is not freed); otherwise it is idle and is
- * destroyed as usual. Returns whether the pool is idle. */
+ * feeds (or merely still working) must not keep the process alive. When
+ * the global pool (where those spawns run) still has work queued or
+ * running, its queued items are dropped without running and the pool is
+ * left to the process exit (its workers keep pointers to it, so it is not
+ * freed); otherwise it is idle and is destroyed as usual. Returns whether
+ * the pool is idle. */
 static bool pool_shutdown_idle(Iron_Pool *pool) {
     IRON_MUTEX_LOCK(pool->lock);
     bool idle = pool->pending <= 0;
@@ -1137,7 +1138,10 @@ void iron_threads_shutdown(void) {
      * ALLOW_BLOCKING_ON_MAIN_THREAD=0 setting. The browser reclaims
      * worker memory at page unload, so leaking here is acceptable on
      * web; the alternative is a guaranteed crash. */
-    if (Iron_io_pool && pool_shutdown_idle(Iron_io_pool)) {
+    /* The io pool runs the runtime's own blocking calls (DNS lookups), each
+     * bounded by the system's timeouts: it is joined as before, so a
+     * lookup the caller gave up on still frees its job. */
+    if (Iron_io_pool) {
         Iron_pool_destroy(Iron_io_pool);
         Iron_io_pool = NULL;
     }
