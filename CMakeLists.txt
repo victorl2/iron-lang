@@ -1517,6 +1517,14 @@ if(NOT WIN32)
         PASS_REGULAR_EXPRESSION "package_modules_smoke OK"
         TIMEOUT 600
     )
+    add_test(
+        NAME test_cli_strict_args_smoke
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/cli_strict_args_smoke.sh $<TARGET_FILE:iron>
+    )
+    set_tests_properties(test_cli_strict_args_smoke PROPERTIES
+        PASS_REGULAR_EXPRESSION "cli_strict_args_smoke OK"
+        TIMEOUT 300
+    )
 endif()
 
 # ── Benchmark rows (2026-07 realism split) ─────────────────────────────────
@@ -1618,6 +1626,27 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/json_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/json_fuzz)
     set_tests_properties(json_fuzz PROPERTIES LABELS "stdlib" TIMEOUT 900)
+    # Packages, the module system and the iron project tool
+    # (tests/fuzz/mod_fuzz.py), and the iron / ironc command lines
+    # (tests/fuzz/cli_fuzz.py). Fixed seeds.
+    if(NOT WIN32)
+        add_test(NAME mod_fuzz_pkg
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/mod_fuzz.py
+                --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/mod_fuzz_pkg pkg)
+        set_tests_properties(mod_fuzz_pkg PROPERTIES LABELS "tooling" TIMEOUT 900)
+        add_test(NAME mod_fuzz_incr
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/mod_fuzz.py
+                --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/mod_fuzz_incr incr)
+        set_tests_properties(mod_fuzz_incr PROPERTIES LABELS "tooling" TIMEOUT 900)
+        add_test(NAME mod_fuzz_tests
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/mod_fuzz.py
+                --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/mod_fuzz_tests tests)
+        set_tests_properties(mod_fuzz_tests PROPERTIES LABELS "tooling" TIMEOUT 900)
+        add_test(NAME cli_fuzz
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/cli_fuzz.py
+                --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/cli_fuzz)
+        set_tests_properties(cli_fuzz PROPERTIES LABELS "tooling" TIMEOUT 900)
+    endif()
 endif()
 # The standard library prelude, parsed by every compile, stays within the
 # section 13 grammar of the manual (#324).

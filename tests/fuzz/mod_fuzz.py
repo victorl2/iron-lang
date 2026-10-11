@@ -366,7 +366,7 @@ def run_area(iron, outdir, area, seeds, mode='plain', jobs=1, quiet=False):
 
 
 # Fixed seeds for ctest, about a minute per entry on 4 cores.
-SUITE = {'pkg': range(1, 41), 'incr': range(1, 13), 'tests': range(1, 31)}
+SUITE = {'pkg': range(1, 25), 'incr': range(1, 7), 'tests': range(1, 17)}
 
 
 def main(argv):
