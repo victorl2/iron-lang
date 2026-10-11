@@ -2351,7 +2351,9 @@ interpolation, bitwise operators and shifts, conversions such as
 enum values, and `heap` or `rc` allocation are not available at compile
 time (`E0231`); an error while evaluating, such as an integer division by
 zero or an index out of range, is `E0232` (a float divided by zero is an
-infinity or NaN, as at run time). Evaluation is limited to one million
+infinity or NaN, as at run time, and `%` on floats is the exact remainder
+`fmod` with the sign of the dividend: `5.5 % 2.0` is `1.5`, `-5.5 % 2.0`
+is `-1.5`, and a zero divisor gives NaN). Evaluation is limited to one million
 steps and to calls nested 256 deep (`E0230`). The result is typically
 bound to a global `val`.
 
