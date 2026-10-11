@@ -381,3 +381,54 @@ async def test_range_formatting_whole_crlf_document(lsp_binary, tmp_path):
         assert "\r\n    println(\"a\")\r\n" in out, repr(out)
     finally:
         await _stop(c)
+
+
+@pytest.mark.asyncio
+async def test_forgotten_free_quickfix_names_the_binding(client, tmp_path):
+    # W0606 points at the heap expression; the quickfix took its text as the
+    # name and offered "Insert 'defer free heap Buf(8'". With a byte-order
+    # mark before the expression the slice also cut a character, the
+    # response failed to serialize, and the client got no answer at all.
+    uri = (tmp_path / "forgot.iron").as_uri()
+    text = ("object Buf {\n"
+            "    val n: Int\n"
+            "}\n"
+            "\n"
+            "func main() {\n"
+            "    val buf = ﻿heap Buf(8)\n"
+            "    println(\"{buf.n}\")\n"
+            "}\n")
+    _open(client, uri, text)
+    diags = await _diagnostics_for_version(client, uri, 1)
+    w = [d for d in diags if d.code in ("E0606", "W0606")]
+    assert w, diags
+    res = await asyncio.wait_for(client.text_document_code_action_async(types.CodeActionParams(
+        text_document=types.TextDocumentIdentifier(uri=uri), range=w[0].range,
+        context=types.CodeActionContext(diagnostics=w))), timeout=10.0)
+    titles = [a.title for a in res or []]
+    assert "Insert 'defer free buf'" in titles, titles
+
+
+@pytest.mark.asyncio
+async def test_signature_help_documentation(client, tmp_path):
+    # The documentation of a signature pointed into the analysis arena,
+    # freed before the response was built (use after free).
+    uri = (tmp_path / "sighelp.iron").as_uri()
+    text = ("/// Adds two numbers.\n"
+            "func add(a: Int, b: Int) -> Int {\n"
+            "    return a + b\n"
+            "}\n"
+            "\n"
+            "func main() {\n"
+            "    println(\"{add(1, 2)}\")\n"
+            "}\n")
+    _open(client, uri, text)
+    await _diagnostics_for_version(client, uri, 1)
+    res = await asyncio.wait_for(client.text_document_signature_help_async(
+        types.SignatureHelpParams(text_document=types.TextDocumentIdentifier(uri=uri),
+                                  position=types.Position(line=6, character=18))),
+        timeout=10.0)
+    assert res and res.signatures, res
+    doc = res.signatures[0].documentation
+    doc = getattr(doc, "value", doc)
+    assert doc and "Adds two numbers." in doc, res.signatures[0]
