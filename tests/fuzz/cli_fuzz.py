@@ -139,7 +139,10 @@ def check_run(rng, tool, path, argv, work, in_pkg):
         return 'crash', ctx
     # the program a `run` builds exits with its own status; ok.iron and the
     # others the fuzzer writes exit 0 or panic (rc 1 or a signal caught above)
-    if r.returncode not in (0, 1):
+    # `fmt --check`: 2 for a file that does not parse, 3 for one that
+    # cannot be read (manual 10.2)
+    fmt_check = argv[:1] == ['fmt'] and '--check' in argv
+    if r.returncode not in ((0, 1, 2, 3) if fmt_check else (0, 1)):
         return 'status', ctx
     if r.returncode != 0 and not both.strip():
         return 'silent', ctx

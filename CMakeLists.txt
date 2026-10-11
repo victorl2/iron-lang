@@ -1180,6 +1180,13 @@ set_tests_properties(diag_reported_once PROPERTIES
     PASS_REGULAR_EXPRESSION "E0228"
     FAIL_REGULAR_EXPRESSION "E0228.*E0228")
 
+# A diagnostic inside a generic instance names the template's line (#594).
+add_test(NAME diag_generic_instance_location
+    COMMAND $<TARGET_FILE:ironc> check
+        ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/generic_instance_location.iron)
+set_tests_properties(diag_generic_instance_location PROPERTIES
+    PASS_REGULAR_EXPRESSION "E0328[^\n]*\n[^\n]*generic_instance_location\\.iron:11:25")
+
 # An unknown command prints a short error and where to look, not the help.
 add_test(NAME iron_unknown_command COMMAND $<TARGET_FILE:iron> bogus)
 set_tests_properties(iron_unknown_command PROPERTIES

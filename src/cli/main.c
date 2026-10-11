@@ -135,6 +135,17 @@ int main(int argc, char **argv) {
     const char *extra_link_flags_buf[32];
     int extra_link_flag_count = 0;
 
+    /* fmt takes a file and --check; the build flags meant nothing to it
+     * (`fmt -o x f.iron` formatted a file named -o). */
+    if (strcmp(cmd, "fmt") == 0) {
+        for (int i = 2; i < argc; i++) {
+            if (argv[i][0] == '-' && argv[i][1] != '\0' && strcmp(argv[i], "--check") != 0) {
+                fprintf(stderr, "error: unknown flag '%s' for command 'fmt'\n", argv[i]);
+                return 1;
+            }
+        }
+    }
+
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--verbose") == 0) {
             verbose = true;
@@ -380,17 +391,9 @@ int main(int argc, char **argv) {
          *   iron fmt <file> --check
          * Multi-file --check deferred to v1.x. */
         bool check_mode = false;
-        const char *file_arg = NULL;
-        for (int i = 2; i < argc; i++) {
-            if (strcmp(argv[i], "--check") == 0) {
-                check_mode = true;
-            } else if (strncmp(argv[i], "--", 2) == 0) {
-                /* Skip unrelated global flags already consumed above. */
-                continue;
-            } else if (file_arg == NULL) {
-                file_arg = argv[i];
-            }
-        }
+        const char *file_arg = source_file;
+        for (int i = 2; i < argc; i++)
+            if (strcmp(argv[i], "--check") == 0) check_mode = true;
         if (!file_arg) {
             fprintf(stderr, "%s fmt: missing file argument\nUsage: %s fmt [--check] <file.iron>\n",
                     IRON_BINARY_NAME, IRON_BINARY_NAME);

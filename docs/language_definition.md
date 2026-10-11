@@ -2925,7 +2925,9 @@ every `.iron` file under `src/` and `vendor/` into `target/`, `iron run`
 builds and runs it, `iron check` type-checks the same sources, `iron test`
 runs the package's `test "name" { ... }` blocks (section 10.2.1) and every
 `tests/test_*.iron` program, and `iron fmt file.iron` reformats a file
-(`--check` only reports). In a package, `iron build`, `iron run` and `iron
+(`--check` only reports, and exits with 0 when the file is formatted, 1
+when it would change, 2 when it does not parse and 3 when it cannot be
+read). In a package, `iron build`, `iron run` and `iron
 check` take no file argument (program arguments follow `--` in `iron
 run`), and `iron test` takes one, a name filter (`iron test -- -name` for
 a filter that starts with `-`); any other argument is an error, as is a

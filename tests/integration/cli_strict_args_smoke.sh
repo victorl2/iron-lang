@@ -27,6 +27,7 @@ expect_fail "after --" "${IRONC}" run ok.iron x
 expect_fail "is a directory" "${IRONC}" build adir
 expect_fail "is a directory" "${IRONC}" check adir
 expect_fail "standard input" "${IRONC}" build -
+expect_fail "unknown flag '-o' for command 'fmt'" "${IRONC}" fmt -o x ok.iron
 "${IRONC}" fmt --check ok.iron >/dev/null 2>&1 || fail "ironc fmt --check ok.iron"
 "${IRONC}" fmt ok.iron --check >/dev/null 2>&1 || fail "ironc fmt ok.iron --check"
 out="$("${IRONC}" bogus 2>&1)"; grep -q "Subcommands" <<< "${out}" && fail "ironc bogus printed the whole help"
