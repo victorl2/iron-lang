@@ -1,0 +1,53 @@
+-- A handler answers a request it rejected (here a header larger than its
+-- limit) and closes the connection while the client is still sending:
+-- the close reset the connection and the client lost the answer. The
+-- connection is now closed after the client stops sending (a lingering
+-- close). Found by the http program fuzzer (#509).
+import http
+import net
+
+func main() {
+    val l = Http.listen("127.0.0.1", 0)
+    if l.error != 0 {
+        println("listen failed")
+        return
+    }
+    val port = HttpServer.port(l.server)
+    val srv = l.server
+    val h = spawn("server") {
+        var errors = 0
+        for i in range(3) {
+            val acc = HttpServer.accept(srv, 10000)
+            val req = HttpConnection.read_request(acc.connection, 8192, 1024, 5000)
+            if req.error != 0 {
+                errors += 1
+            }
+            val s = HttpConnection.send_response(acc.connection, Http.text_response(400, "rejected"), 5000)
+            HttpConnection.close(acc.connection)
+        }
+        return errors
+    }
+    val requests = [
+        "GET / HTTP/1.1\u{d}\nHost: x\u{d}\nX-Big: " + "h".repeat(20000) + "\u{d}\n\u{d}\n",
+        "POST / HTTP/1.1\u{d}\nHost: x\u{d}\nContent-Length: 50000\u{d}\n\u{d}\n" + "b".repeat(50000),
+        "POST / HTTP/1.1\u{d}\nHost: x\u{d}\nContent-Length: 1\u{d}\nContent-Length: 2\u{d}\n\u{d}\n" + "c".repeat(30000),
+    ]
+    for req in requests {
+        val (sock, de) = Net.tcp_dial("127.0.0.1", port, 5000)
+        val (n, we) = TcpSocket.write(sock, req, 5000)
+        var got = ""
+        var reading = true
+        while reading {
+            val (part, re) = TcpSocket.read(sock, 65536, 5000)
+            if re.code != 0 or part.byte_len() == 0 {
+                reading = false
+            } else {
+                got = got + part
+            }
+        }
+        TcpSocket.close(sock)
+        println("{got.starts_with("HTTP/1.1 400")} {got.ends_with("rejected")}")
+    }
+    println("{await h}")
+    HttpServer.close(srv)
+}
