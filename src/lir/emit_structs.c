@@ -142,9 +142,20 @@ static void ir_topo_visit_type(IrTopoState *state, int idx, const Iron_Type *t) 
     for (int guard = 0; t && guard < 8; guard++) {
         if (t->kind == IRON_TYPE_NULLABLE) { t = t->nullable.inner; continue; }
         if (t->kind == IRON_TYPE_ARRAY && t->array.size >= 0) { t = t->array.elem; continue; }
+        /* A growable list holds a pointer, but a list of `T?` gets its
+         * Iron_Optional_T typedef (T inline) with the struct that holds it
+         * (`[Mb[Bool]?]` was emitted before Iron_Mb_Bool). */
+        if (t->kind == IRON_TYPE_ARRAY && t->array.elem &&
+            t->array.elem->kind == IRON_TYPE_NULLABLE) { t = t->array.elem; continue; }
         break;
     }
     if (!t) return;
+    /* A tuple holds its components inline. */
+    if (t->kind == IRON_TYPE_TUPLE) {
+        for (int i = 0; i < t->tuple.elem_count; i++)
+            ir_topo_visit_type(state, idx, t->tuple.elem_types[i]);
+        return;
+    }
     /* A Map or Set instance is emitted with the struct that holds it, and
      * its table stores the key and value inline (sizeof): they come first.
      * An object field `Map[String, Opt[[Int]]]` was emitted before the
@@ -224,8 +235,10 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
              * dependency (and their wrapper annotation has no name). A
              * `T?` field holds T inline (Iron_Optional_T), so it depends
              * on T like a plain field. */
-            if (!ta->name || ta->is_rc || ta->is_weak_rc || ta->is_pointer) continue;
-            if (!ta->is_array) ir_topo_visit_type(state, idx, f->resolved_type);
+            if (ta->is_rc || ta->is_weak_rc || ta->is_pointer) continue;
+            /* (also for a nameless annotation: a tuple, `[E?]`) */
+            ir_topo_visit_type(state, idx, f->resolved_type);
+            if (!ta->name) continue;
             int dep = find_ir_type_decl_idx(state->module, ta->name);
             if (dep >= 0 && dep != idx) ir_topo_visit(state, dep);
         }
@@ -528,6 +541,39 @@ static void emit_ensure_enum_list(EmitCtx *ctx, const Iron_Type *et) {
                              enum_needs_glue(ctx, et, true));
 }
 
+/* emit_ensure_enum_list / emit_ensure_object_list for every growable list
+ * of an enum or object inside t. */
+static void ensure_lists_in_type(EmitCtx *ctx, const Iron_Type *t, int depth) {
+    if (!t || depth > 12) return;
+    switch ((int)t->kind) {
+    case IRON_TYPE_ARRAY: {
+        const Iron_Type *e = t->array.elem;
+        if (e && t->array.size < 0 && !t->array.is_bounded) {
+            if (e->kind == IRON_TYPE_ENUM) emit_ensure_enum_list(ctx, e);
+            else if (e->kind == IRON_TYPE_OBJECT && e->object.decl &&
+                     !ir_is_runtime_provided_type(e->object.decl->name))
+                emit_ensure_object_list(ctx, e);
+        }
+        ensure_lists_in_type(ctx, e, depth + 1);
+        break;
+    }
+    case IRON_TYPE_NULLABLE: ensure_lists_in_type(ctx, t->nullable.inner, depth + 1); break;
+    case IRON_TYPE_RC:       ensure_lists_in_type(ctx, t->rc.inner, depth + 1); break;
+    case IRON_TYPE_TUPLE:
+        for (int i = 0; i < t->tuple.elem_count; i++)
+            ensure_lists_in_type(ctx, t->tuple.elem_types[i], depth + 1);
+        break;
+    case IRON_TYPE_OBJECT:
+        if (t->object.elem) {
+            ensure_lists_in_type(ctx, t->object.elem, depth + 1);
+            ensure_lists_in_type(ctx, t->object.elem2, depth + 1);
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 static void emit_mono_list_decls(EmitCtx *ctx) {
     IronLIR_Module *module = ctx->module;
     if (!module) return;
@@ -782,6 +828,44 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
 
     #undef PLAN_63_04_EMIT_LIST_FOR
 
+    /* Scan C: lists of enums and objects reached only through types: a
+     * field or payload `[Mb[String]]` of a generic instance, a parameter,
+     * a value's type. Their typedef comes with the forward declarations;
+     * the prototypes and bodies were never emitted (undeclared
+     * Iron_List_Iron_Mb_String_free). */
+    for (int i = 0; i < module->type_decl_count; i++) {
+        IronLIR_TypeDecl *td = module->type_decls[i];
+        if (!td || !td->type) continue;
+        if (td->type->kind == IRON_TYPE_OBJECT && td->type->object.decl &&
+            !ir_is_runtime_provided_type(td->name)) {
+            Iron_ObjectDecl *od = td->type->object.decl;
+            for (int fi = 0; fi < od->field_count; fi++) {
+                Iron_Field *f = (Iron_Field *)od->fields[fi];
+                if (f) ensure_lists_in_type(ctx, f->resolved_type, 0);
+            }
+        } else if (td->type->kind == IRON_TYPE_ENUM && td->type->enu.decl &&
+                   td->type->enu.variant_payload_types) {
+            Iron_EnumDecl *ed = td->type->enu.decl;
+            for (int vi = 0; vi < ed->variant_count; vi++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+                if (!ev || !td->type->enu.variant_payload_types[vi]) continue;
+                for (int k = 0; k < ev->payload_count; k++)
+                    ensure_lists_in_type(ctx, td->type->enu.variant_payload_types[vi][k], 0);
+            }
+        }
+    }
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (!fn) continue;
+        for (int pi = 0; pi < fn->param_count; pi++)
+            ensure_lists_in_type(ctx, fn->params[pi].type, 0);
+        ensure_lists_in_type(ctx, fn->return_type, 0);
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++)
+                ensure_lists_in_type(ctx, blk->instrs[ii]->type, 0);
+        }
+    }
 }
 
 /* Check if any type_decl's object extends the given name */

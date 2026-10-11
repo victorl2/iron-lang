@@ -1551,16 +1551,45 @@ static void register_mono_enum(HIR_to_LIR_Ctx *ctx,
                                 MonoEnumSeen **seen,
                                 Iron_Type *type) {
     /* An instance reached through another type (`Map[String, Opt[String]]`,
-     * `[Opt[Int]]`, `Opt[Int]?`, `rc ...`): used nowhere else, it was never
-     * declared and the table's glue named its missing drop. */
+     * `[Opt[Int]]`, `Opt[Int]?`, `rc ...`, a tuple component, a function
+     * type, a field of a generic object instance): used nowhere else, it was
+     * never declared and the C named its missing struct, list or drop. */
     for (int guard = 0; type && guard < 16; guard++) {
         if (type->kind == IRON_TYPE_ARRAY) { type = type->array.elem; continue; }
         if (type->kind == IRON_TYPE_NULLABLE) { type = type->nullable.inner; continue; }
         if (type->kind == IRON_TYPE_RC) { type = type->rc.inner; continue; }
+        if (type->kind == IRON_TYPE_TUPLE) {
+            for (int i = 0; i < type->tuple.elem_count; i++)
+                register_mono_enum(ctx, seen, type->tuple.elem_types[i]);
+            return;
+        }
+        if (type->kind == IRON_TYPE_FUNC) {
+            for (int i = 0; i < type->func.param_count; i++)
+                register_mono_enum(ctx, seen, type->func.param_types[i]);
+            type = type->func.return_type;
+            continue;
+        }
         if (type->kind == IRON_TYPE_OBJECT && type->object.elem) {
             register_mono_enum(ctx, seen, type->object.elem2);
             type = type->object.elem;
             continue;
+        }
+        if (type->kind == IRON_TYPE_OBJECT && type->object.decl &&
+            type->object.decl->name) {
+            /* The fields of an object (a generic instance holds the
+             * concrete types), once per object. */
+            char key[300];
+            snprintf(key, sizeof(key), "obj:%s", type->object.decl->name);
+            if (shgeti(*seen, key) >= 0) return;
+            char *k = iron_arena_strdup(ctx->lir_arena, key, strlen(key));
+            if (!k) return;
+            shput(*seen, k, true);
+            Iron_ObjectDecl *od = type->object.decl;
+            for (int i = 0; i < od->field_count; i++) {
+                Iron_Field *f = (Iron_Field *)od->fields[i];
+                if (f) register_mono_enum(ctx, seen, f->resolved_type);
+            }
+            return;
         }
         break;
     }
@@ -1591,6 +1620,18 @@ static void collect_mono_enums_node(HIR_to_LIR_Ctx *ctx, MonoEnumSeen **seen,
                                      Iron_Node *node) {
     if (!node) return;
     switch ((int)(node->kind)) {
+        case IRON_NODE_PARAM:
+            register_mono_enum(ctx, seen, ((Iron_Param *)node)->resolved_type);
+            break;
+        case IRON_NODE_OBJECT_DECL: {
+            /* Field types (a generic instance's are concrete). */
+            Iron_ObjectDecl *od = (Iron_ObjectDecl *)node;
+            for (int i = 0; i < od->field_count; i++) {
+                Iron_Field *f = (Iron_Field *)od->fields[i];
+                if (f) register_mono_enum(ctx, seen, f->resolved_type);
+            }
+            break;
+        }
         case IRON_NODE_FUNC_DECL: {
             Iron_FuncDecl *fd = (Iron_FuncDecl *)node;
             register_mono_enum(ctx, seen, fd->resolved_return_type);

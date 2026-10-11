@@ -1477,9 +1477,34 @@ static bool iron_elem_is_nullable_type(Iron_Parser *p) {
     return false;
 }
 
+/* A parenthesized element holding a `?` and ending the element (`,` or
+ * `]` after its `)`, or a `?` of its own) is a tuple type in expression
+ * position: `Gp[Int, (Bool, Int?)](...)`. */
+static bool iron_elem_is_nullable_tuple_type(Iron_Parser *p) {
+    if (!iron_check(p, IRON_TOK_LPAREN)) return false;
+    int depth = 0;
+    bool has_q = false;
+    for (int j = p->pos; j < p->token_count; j++) {
+        Iron_TokenKind k = p->tokens[j].kind;
+        if (k == IRON_TOK_EOF || k == IRON_TOK_NEWLINE || k == IRON_TOK_LBRACE) return false;
+        if (k == IRON_TOK_LPAREN || k == IRON_TOK_LBRACKET) depth++;
+        else if (k == IRON_TOK_RPAREN || k == IRON_TOK_RBRACKET) {
+            depth--;
+            if (depth == 0) {
+                if (!has_q) return false;
+                Iron_TokenKind nk = j + 1 < p->token_count ? p->tokens[j + 1].kind : IRON_TOK_EOF;
+                return nk == IRON_TOK_COMMA || nk == IRON_TOK_RBRACKET || nk == IRON_TOK_QUESTION;
+            }
+        } else if (k == IRON_TOK_QUESTION) has_q = true;
+    }
+    return false;
+}
+
 static Iron_Node *iron_parse_expr_or_nullable_type(Iron_Parser *p) {
     if ((iron_check(p, IRON_TOK_IDENTIFIER) || iron_check(p, IRON_TOK_LBRACKET)) &&
         iron_elem_is_nullable_type(p))
+        return iron_parse_type_annotation(p);
+    if (iron_elem_is_nullable_tuple_type(p))
         return iron_parse_type_annotation(p);
     return iron_parse_expr(p);
 }
