@@ -1608,6 +1608,7 @@ if(Python3_EXECUTABLE)
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/json_fuzz)
     set_tests_properties(json_fuzz PROPERTIES LABELS "stdlib" TIMEOUT 900)
 endif()
+include(${CMAKE_SOURCE_DIR}/tests/fuzz/cg_tests.cmake)
 # The standard library prelude, parsed by every compile, stays within the
 # section 13 grammar of the manual (#324).
 if(Python3_EXECUTABLE)

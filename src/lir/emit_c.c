@@ -914,6 +914,21 @@ static void emit_spawn_env_cell_retains(Iron_StrBuf *sb, EmitCtx *ctx, int ind, 
     }
 }
 
+/* The value a `val` capture stores into an environment. Scalar copy
+ * coalescing may hand the capture the variable's slot in place of a load
+ * from it; a read-only parameter's slot is not declared (the parameter
+ * stands for it), so name the parameter. */
+static void emit_capture_val(Iron_StrBuf *sb, IronLIR_ValueId cap_vid, EmitCtx *ctx) {
+    if (ctx->param_alias_ids) {
+        ptrdiff_t pa = hmgeti(ctx->param_alias_ids, cap_vid);
+        if (pa >= 0) {
+            emit_val(sb, ctx->param_alias_ids[pa].value);
+            return;
+        }
+    }
+    emit_val(sb, cap_vid);
+}
+
 static void emit_capture_rhs(Iron_StrBuf *sb, IronLIR_ValueId cap_vid,
                               Iron_CaptureEntry *cap, EmitCtx *ctx) {
     /* Check if this is a stack-array value */
@@ -930,7 +945,7 @@ static void emit_capture_rhs(Iron_StrBuf *sb, IronLIR_ValueId cap_vid,
         emit_val(sb, cap_vid);
         iron_strbuf_appendf(sb, "_len }");
     } else {
-        emit_val(sb, cap_vid);
+        emit_capture_val(sb, cap_vid, ctx);
     }
 }
 
@@ -8020,7 +8035,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                        ctx->current_block_id);
                 } else {
                     /* val capture: store loaded value */
-                    emit_val(sb, instr->make_closure.captures[ci]);
+                    emit_capture_val(sb, instr->make_closure.captures[ci], ctx);
                 }
                 iron_strbuf_appendf(sb, ";\n");
                 if (cap_meta[ci].is_mutable && cap_meta[ci].is_boxed) {

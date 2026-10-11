@@ -1593,6 +1593,25 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                         }
                     }
                 }
+                /* A `var` captured by a spawn or a parallel loop is written
+                 * by the thread through its environment (manual 7.1): after
+                 * `await` the variable holds what the thread stored, not the
+                 * single store this function makes. */
+                if (in->kind == IRON_LIR_SPAWN || in->kind == IRON_LIR_PARALLEL_FOR) {
+                    int n = in->kind == IRON_LIR_SPAWN ? in->spawn.capture_count
+                                                       : in->parallel_for.capture_count;
+                    IronLIR_ValueId *caps = in->kind == IRON_LIR_SPAWN
+                                                ? in->spawn.captures
+                                                : in->parallel_for.captures;
+                    for (int ci = 0; ci < n; ci++) {
+                        IronLIR_ValueId cap = caps[ci];
+                        if (store_info && cap != IRON_LIR_VALUE_INVALID &&
+                            (ptrdiff_t)cap < arrlen(fn->value_table) &&
+                            fn->value_table[cap] != NULL &&
+                            fn->value_table[cap]->kind == IRON_LIR_ALLOCA)
+                            hmdel(store_info, cap);
+                    }
+                }
                 /* PARM-02 (callee side): a var param's entry copy-in store
                  * (`store alloca, <var-param vid>`) must never be forwarded —
                  * the vid names the `T *` pointer slot, not the value. Ban
@@ -1992,6 +2011,24 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
                  * The closure holds a pointer into the caller's stack frame. */
                 for (int ci = 0; ci < in->make_closure.capture_count; ci++) {
                     ptrdiff_t idx = hmgeti(escaped, in->make_closure.captures[ci]);
+                    if (idx >= 0) escaped[idx].value = true;
+                }
+                break;
+
+            /* A spawn or parallel-for body reads the slot through its
+             * environment just the same. Without these, store-load
+             * elimination deleted the store into a captured parameter's
+             * slot once nothing else loaded it, and the C read an
+             * undeclared variable. */
+            case IRON_LIR_SPAWN:
+                for (int ci = 0; ci < in->spawn.capture_count; ci++) {
+                    ptrdiff_t idx = hmgeti(escaped, in->spawn.captures[ci]);
+                    if (idx >= 0) escaped[idx].value = true;
+                }
+                break;
+            case IRON_LIR_PARALLEL_FOR:
+                for (int ci = 0; ci < in->parallel_for.capture_count; ci++) {
+                    ptrdiff_t idx = hmgeti(escaped, in->parallel_for.captures[ci]);
                     if (idx >= 0) escaped[idx].value = true;
                 }
                 break;
@@ -2540,6 +2577,12 @@ static bool run_store_load_elim(IronLIR_Module *module) {
                     break;
                 }
 
+                /* A spawned thread or a parallel loop body writes the
+                 * captured slots it holds (they escape, compute_escape_set),
+                 * and `await` is where the parent sees those writes. */
+                case IRON_LIR_SPAWN:
+                case IRON_LIR_PARALLEL_FOR:
+                case IRON_LIR_AWAIT:
                 case IRON_LIR_CALL:
                     /* For escaped allocas: their content may be modified by callee */
                     {

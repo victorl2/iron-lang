@@ -129,11 +129,14 @@ class Outcome:
         self.stderr = ''
         self.rc = None
         self.timeout = False
+        self.leaks_ok = False
 
     def panic_line(self):
         """The first line of the run's error output with numbers in
         addresses taken out (the panic text)."""
         for l in self.stderr.splitlines():
+            if self.leaks_ok and 'leaked at exit' in l:
+                continue   # the debug allocator's report of an allowed leak
             if l.strip() and not l.startswith('=='):
                 return re.sub(r'0x[0-9a-fA-F]+', 'A', l.strip())
         return ''
@@ -172,7 +175,8 @@ def build(ironc, src, exe, flags=(), cc=None, skip=None, cwd=None):
     return o
 
 
-def run(o, exe, cwd=None, env_extra=None):
+def run(o, exe, cwd=None, env_extra=None, leaks_ok=False):
+    o.leaks_ok = leaks_ok
     env = dict(os.environ)
     env['UBSAN_OPTIONS'] = 'print_stacktrace=1:halt_on_error=1'
     if env_extra:
@@ -216,6 +220,8 @@ def versus_model(o, expected):
         return None
     if o.rc != 0:
         return f'exit status {o.rc}\n{o.stderr[:2000]}'
+    if o.panic_line():
+        return 'unexpected error output:\n' + o.stderr[:2000]
     return None
 
 
@@ -241,6 +247,8 @@ def write_case(d, name, src_text, expected):
                 f.write('-- compile error: ' + ' or '.join(sorted(expected.errors)) + '\n')
             if getattr(expected, 'panic', None):
                 f.write('-- then panics: ' + expected.panic + '\n')
+            if getattr(expected, 'leaks_ok', False):
+                f.write('-- leaks allowed\n')
     return src
 
 
@@ -289,7 +297,7 @@ def check_modes(ironc, outdir, area, seed, modes=DEFAULT_MODES):
         exe = os.path.join(d, f'{name}.{m}.bin')
         o = build(ironc, src, exe, flags, cc, skip, cwd=d)
         if o.built:
-            run(o, exe, cwd=d)
+            run(o, exe, cwd=d, leaks_ok=getattr(expected, 'leaks_ok', False))
             os.remove(exe)
         label = m + (f'[{skip}]' if skip else '')
         outs[label] = o

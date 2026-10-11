@@ -1,0 +1,51 @@
+# Code generator fuzzing (tests/fuzz/cg_fuzz.py) and the regressions it
+# found. Included from the top-level CMakeLists.txt.
+
+if(Python3_EXECUTABLE)
+    # Fixed seeds, about a minute each with -j4:
+    #   modes   every generator's programs in every build mode (release,
+    #           --debug, --debug-build, --no-optimize, C at -O0 / -O1, LIR
+    #           pass subsets, UBSan, --emit-c twice): same behavior, no C
+    #           compiler warnings
+    #   meta    semantics-preserving rewrites of the programs (pf_meta.py)
+    #   mutate  near-valid mutants: a diagnostic code or a clean build, never
+    #           a crash, a hang or C the C compiler rejects (pf_mutate.py)
+    #   shapes  nested generic, enum, tuple and optional types (pf_shapes.py)
+    foreach(_cg_kind modes)
+        add_test(NAME cg_fuzz_${_cg_kind}
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_fuzz.py
+                --suite ${_cg_kind} $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/cg_fuzz_${_cg_kind})
+        set_tests_properties(cg_fuzz_${_cg_kind} PROPERTIES LABELS "codegen" TIMEOUT 900)
+    endforeach()
+endif()
+
+if(NOT WIN32)
+    set(_cg_reg ${CMAKE_SOURCE_DIR}/tests/integration/v4/regressions)
+    # #561: a captured parameter with copy propagation left out.
+    add_test(NAME cg_capture_param_no_copyprop
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_check.sh $<TARGET_FILE:ironc>
+            ${_cg_reg}/capture_param_slot.iron ${_cg_reg}/capture_param_slot.expected
+            ${CMAKE_BINARY_DIR}/cg_check/capture_param)
+    set_tests_properties(cg_capture_param_no_copyprop PROPERTIES LABELS "codegen" TIMEOUT 120
+        ENVIRONMENT "IRON_LIR_SKIP=copyprop")
+    # #559 / #560: the thread's write is seen after await, and W0604 is
+    # reported for `val h = spawn`.
+    add_test(NAME cg_spawn_var_after_await
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_check.sh $<TARGET_FILE:ironc>
+            ${_cg_reg}/spawn_var_after_await.iron ${_cg_reg}/spawn_var_after_await.expected
+            ${CMAKE_BINARY_DIR}/cg_check/spawn_var)
+    set_tests_properties(cg_spawn_var_after_await PROPERTIES LABELS "codegen" TIMEOUT 120
+        ENVIRONMENT "CG_CHECK_DIAG=spawn block 'u' mutates outer variable 'n'")
+    # #562: warning free C, also at -O0 and with every LIR pass left out.
+    add_test(NAME cg_c_warning_free
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_check.sh $<TARGET_FILE:ironc>
+            ${_cg_reg}/c_warning_free.iron ${_cg_reg}/c_warning_free.expected
+            ${CMAKE_BINARY_DIR}/cg_check/c_warning_free)
+    add_test(NAME cg_c_warning_free_noopt
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_check.sh $<TARGET_FILE:ironc>
+            ${_cg_reg}/c_warning_free.iron ${_cg_reg}/c_warning_free.expected
+            ${CMAKE_BINARY_DIR}/cg_check/c_warning_free_noopt)
+    set_tests_properties(cg_c_warning_free PROPERTIES LABELS "codegen" TIMEOUT 120)
+    set_tests_properties(cg_c_warning_free_noopt PROPERTIES LABELS "codegen" TIMEOUT 120
+        ENVIRONMENT "IRON_LIR_SKIP=all;IRON_CC_FLAGS=-O0")
+endif()

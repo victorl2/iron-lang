@@ -1,0 +1,15 @@
+-- The C written for these is warning free (#562): a value compared with
+-- itself, and the negation of a narrow constant (-(-128) wraps on Int8).
+func pk(x: Int) -> Int {
+    return x
+}
+
+func main() {
+    val a = pk(3)
+    val f = Float(pk(2)) / 3.0
+    println("{a != a} {a == a} {f == f}")
+    val x = Int8(pk(0 - 128))
+    println("{-x} {(-128) * Int8(pk(1))} {~x}")
+    val m = -(-128)
+    println("{m}")
+}
