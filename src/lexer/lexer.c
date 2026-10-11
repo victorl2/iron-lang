@@ -503,6 +503,9 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
                         break;
                     }
                     if (cp < 0x80) {
+                        if (cp == (uint32_t)IRON_LEX_LITERAL_LBRACE ||
+                            cp == (uint32_t)IRON_LEX_LITERAL_RBRACE)
+                            PUSH_CHAR(IRON_LEX_LITERAL_ESC);
                         PUSH_CHAR((char)cp);
                     } else if (cp < 0x800) {
                         PUSH_CHAR((char)(0xC0 | (cp >> 6)));
@@ -559,6 +562,10 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
         }
 
         iron_advance_char(l);
+        if (interp_depth == 0 &&
+            (c == IRON_LEX_LITERAL_LBRACE || c == IRON_LEX_LITERAL_RBRACE ||
+             c == IRON_LEX_LITERAL_ESC))
+            PUSH_CHAR(IRON_LEX_LITERAL_ESC);
         PUSH_CHAR(c);
     }
 
@@ -569,10 +576,16 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
     /* Without interpolation there is no splitter to consume the escaped-
      * brace markers: turn them back into braces. */
     if (!has_interp) {
+        size_t w = 0;
         for (size_t bi = 0; bi < buf_len; bi++) {
-            if (buf[bi] == IRON_LEX_LITERAL_LBRACE) buf[bi] = '{';
-            else if (buf[bi] == IRON_LEX_LITERAL_RBRACE) buf[bi] = '}';
+            char ch = buf[bi];
+            if (ch == IRON_LEX_LITERAL_ESC && bi + 1 < buf_len) ch = buf[++bi];
+            else if (ch == IRON_LEX_LITERAL_LBRACE) ch = '{';
+            else if (ch == IRON_LEX_LITERAL_RBRACE) ch = '}';
+            buf[w++] = ch;
         }
+        buf_len = w;
+        buf[buf_len] = '\0';
     }
 
     /* WR-07: if PUSH_CHAR dropped bytes past the 4KB buffer capacity, emit

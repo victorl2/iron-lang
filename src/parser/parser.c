@@ -3255,7 +3255,8 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
         } else {
             /* Escaped braces arrive as lexer marker bytes. */
             char ch = s[i++];
-            if (ch == IRON_LEX_LITERAL_LBRACE) ch = '{';
+            if (ch == IRON_LEX_LITERAL_ESC && s[i]) ch = s[i++];
+            else if (ch == IRON_LEX_LITERAL_LBRACE) ch = '{';
             else if (ch == IRON_LEX_LITERAL_RBRACE) ch = '}';
             lit_buf[lit_len++] = ch;
         }

@@ -232,5 +232,9 @@ const char *iron_token_spelling(Iron_TokenKind kind);
  * parser's interpolation splitter turns them back into braces. */
 #define IRON_LEX_LITERAL_LBRACE '\x01'
 #define IRON_LEX_LITERAL_RBRACE '\x02'
+/* A content byte equal to one of the markers (or to this prefix) is stored
+ * after this prefix byte, which never occurs in UTF-8: "\u{1}" is the
+ * pair 0xFF 0x01, not a brace. Both decoders drop the prefix. */
+#define IRON_LEX_LITERAL_ESC    '\xFF'
 
 #endif /* IRON_LEXER_H */
