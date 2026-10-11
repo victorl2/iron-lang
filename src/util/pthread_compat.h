@@ -2,7 +2,8 @@
  * every platform. POSIX systems get <pthread.h>; Windows gets the same
  * names over CRITICAL_SECTION, INIT_ONCE and CreateThread. Only what the
  * server uses is provided: mutexes (init, lock, unlock), once, and
- * threads created joinable or detached (create, join). Programs compiled
+ * threads created joinable or detached with a stack size (create, join;
+ * compile-time evaluation runs on a thread with a large stack). Programs compiled
  * by ironc do not see this header; the runtime has its own primitives. */
 #ifndef IRON_UTIL_PTHREAD_COMPAT_H
 #define IRON_UTIL_PTHREAD_COMPAT_H
@@ -46,10 +47,11 @@
   }
 
   typedef struct { HANDLE handle; } pthread_t;
-  typedef struct { int detached; } pthread_attr_t;
+  typedef struct { int detached; size_t stack; } pthread_attr_t;
   #define PTHREAD_CREATE_DETACHED 1
   #define PTHREAD_CREATE_JOINABLE 0
-  static inline int pthread_attr_init(pthread_attr_t *a) { a->detached = 0; return 0; }
+  static inline int pthread_attr_init(pthread_attr_t *a) { a->detached = 0; a->stack = 0; return 0; }
+  static inline int pthread_attr_setstacksize(pthread_attr_t *a, size_t n) { a->stack = n; return 0; }
   static inline int pthread_attr_destroy(pthread_attr_t *a) { (void)a; return 0; }
   static inline int pthread_attr_setdetachstate(pthread_attr_t *a, int s) { a->detached = s; return 0; }
 
@@ -65,7 +67,8 @@
       iron_pc_thread_ctx *c = (iron_pc_thread_ctx *)malloc(sizeof *c);
       if (!c) return -1;
       c->fn = fn; c->arg = arg;
-      HANDLE h = CreateThread(NULL, 0, iron_pc_thread_tramp, c, 0, NULL);
+      HANDLE h = CreateThread(NULL, a ? a->stack : 0, iron_pc_thread_tramp, c,
+                              a && a->stack ? STACK_SIZE_PARAM_IS_A_RESERVATION : 0, NULL);
       if (!h) { free(c); return -1; }
       if (a && a->detached) { CloseHandle(h); t->handle = NULL; }
       else t->handle = h;

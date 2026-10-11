@@ -1,0 +1,23 @@
+-- Compile-time evaluation nests up to 256 calls (manual 8). The evaluator
+-- recursed on the compiler's own stack: a sanitizer build of ironc, and
+-- the language server whose worker threads have smaller stacks, overflowed
+-- it near 200 calls (ironls died opening comptime_matches_runtime.iron).
+-- It runs on a thread with a stack sized for the limit now.
+func depth(n: Int, acc: Int) -> Int {
+    if n <= 0 {
+        return acc
+    }
+    var next = acc
+    for i in range(1) {
+        if i == 0 {
+            next = acc + n
+        }
+    }
+    return depth(n - 1, next)
+}
+
+val DEEP = comptime depth(250, 0)
+
+func main() {
+    println("{DEEP} {depth(250, 0)}")
+}

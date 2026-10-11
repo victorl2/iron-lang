@@ -19,6 +19,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <inttypes.h>
+
+#include "util/pthread_compat.h"
 /* WR-10: <sys/stat.h> and <errno.h> were only needed by the
  * comptime_cache_{read,write} functions, which have been deleted as
  * dead code (cache read returned a value that was always discarded,
@@ -1271,6 +1273,9 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
 
 /* ── AST walker for replacing IRON_NODE_COMPTIME nodes ───────────────────── */
 
+#define IRON_COMPTIME_STACK (64u * 1024u * 1024u)   /* reserved, not committed */
+
+
 /* Context for the replacement walk */
 typedef struct {
     Iron_ComptimeCtx *eval_ctx;
@@ -1513,6 +1518,17 @@ static void replace_in_node_array(Iron_Node **nodes, int count,
 
 /* ── Main entry point ────────────────────────────────────────────────────── */
 
+typedef struct {
+    Iron_Node  **slot;
+    ReplaceCtx  *rctx;
+} ComptimeRun;
+
+static void *comptime_thread(void *p) {
+    ComptimeRun *r = (ComptimeRun *)p;
+    replace_in_node(r->slot, r->rctx);
+    return NULL;
+}
+
 void iron_comptime_apply(Iron_Program *program, Iron_Scope *global_scope,
                           Iron_Arena *arena, Iron_DiagList *diags,
                           const char *source_file_dir, bool force_comptime,
@@ -1552,7 +1568,24 @@ void iron_comptime_apply(Iron_Program *program, Iron_Scope *global_scope,
     rctx.eval_ctx = &eval_ctx;
     rctx.arena    = arena;
 
-    replace_in_node((Iron_Node **)&program, &rctx);
+    /* The evaluator recurses once per nested Iron call; it runs on a
+     * thread whose stack holds the 256 nested calls it allows in every
+     * build (a sanitizer build's frames are many times larger: the main
+     * thread's stack overflowed at 200 calls, and the language server's
+     * worker threads have smaller stacks still). */
+    ComptimeRun run = { (Iron_Node **)&program, &rctx };
+    pthread_attr_t attr;
+    pthread_t th;
+    bool threaded = false;
+    if (pthread_attr_init(&attr) == 0) {
+        if (pthread_attr_setstacksize(&attr, (size_t)IRON_COMPTIME_STACK) == 0 &&
+            pthread_create(&th, &attr, comptime_thread, &run) == 0) {
+            pthread_join(th, NULL);
+            threaded = true;
+        }
+        pthread_attr_destroy(&attr);
+    }
+    if (!threaded) replace_in_node((Iron_Node **)&program, &rctx);
 
     /* Clean up stb_ds arrays */
     arrfree(eval_ctx.call_stack);
