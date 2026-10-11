@@ -859,6 +859,25 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     if (opts.debug_build && !opts.release) {
         argv_buf[ai++] = "-DIRON_DEBUG_ALLOCATOR";
     }
+    /* IRON_CFLAGS: extra C compiler flags for the program and the runtime
+     * compiled into it, such as "-fsanitize=address,undefined -g" for a
+     * sanitizer build of a whole project. Split on spaces, at most 16. */
+    {
+        static char cflags_copy[1024];
+        const char *env_cflags = getenv("IRON_CFLAGS");
+        if (env_cflags && env_cflags[0]) {
+            snprintf(cflags_copy, sizeof(cflags_copy), "%s", env_cflags);
+            int added = 0;
+            char *p = cflags_copy;
+            while (*p && added < 16) {
+                while (*p == ' ' || *p == '\t') *p++ = 0;
+                if (!*p) break;
+                argv_buf[ai++] = p;
+                added++;
+                while (*p && *p != ' ' && *p != '\t') p++;
+            }
+        }
+    }
     argv_buf[ai++] = "-o";
     argv_buf[ai++] = output;
     argv_buf[ai++] = c_file;
@@ -1490,8 +1509,8 @@ static int invoke_clang(const char *c_file, const char *output,
     char *rl_src = NULL, *rl_i_flag = NULL;
     char *rl_glfw_src = NULL, *rl_glfw_i_flag = NULL;
 
-    const char *argv_buf[128];
-    _Static_assert(sizeof(argv_buf)/sizeof(argv_buf[0]) >= 128,
+    const char *argv_buf[160];
+    _Static_assert(sizeof(argv_buf)/sizeof(argv_buf[0]) >= 160,
                    "argv_buf too small — bump if adding new stdlib modules");
     int ai = 0;
 

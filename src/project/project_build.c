@@ -1050,7 +1050,8 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * Phase 94 LIB-04: --release is parsed at the iron build CLI layer and
      * forwarded to ironc below; the Finished status line differentiates
      * "release [optimized]" from "dev [unoptimized]" based on the same flag. */
-    static const char *const allowed[] = { "--verbose", "--release", "--debug", "--target=", NULL };
+    static const char *const allowed[] = { "--verbose", "--release", "--debug", "--target=",
+                                           "-o", "--output", "--output=", NULL };
     static const char *const allowed_debug[] = { "--verbose", "--gdb", "--lldb", NULL };
     if (reject_unknown_flags(g_debug_session ? "debug" : run_after ? "run" : "build", argc, argv,
                              g_debug_session ? allowed_debug : allowed) != 0)
@@ -1059,6 +1060,7 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     bool release = false;
     bool debug = g_debug_session; /* --debug: debug info on Iron lines (#312) */
     const char *target = NULL;   /* --target=<name>: web or a cross target, forwarded to ironc */
+    const char *output_override = NULL;  /* -o / --output (iron build only) */
     char **run_args = NULL;
     int run_arg_count = 0;
     for (int i = 2; i < argc; i++) {
@@ -1075,6 +1077,15 @@ static int cmd_build(bool run_after, int argc, char **argv) {
         } else if (strncmp(argv[i], "--target=", 9) == 0) {
             target = argv[i] + 9;
             if (strcmp(target, "native") == 0) target = NULL;
+        } else if ((strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) &&
+                   !run_after && !g_debug_session) {
+            if (i + 1 >= argc || strcmp(argv[i + 1], "--") == 0) {
+                iron_print_error(colors, "-o needs an output path");
+                return 1;
+            }
+            output_override = argv[++i];
+        } else if (strncmp(argv[i], "--output=", 9) == 0 && !run_after && !g_debug_session) {
+            output_override = argv[i] + 9;
         } else if (strcmp(argv[i], "--") == 0) {
             run_args = &argv[i + 1];
             run_arg_count = argc - i - 1;
@@ -1261,6 +1272,8 @@ static int cmd_build(bool run_after, int argc, char **argv) {
         snprintf(output_path, sizeof(output_path), "%s/target/%s/%s%s", proj_dir, target, proj->name,
                  strncmp(target, "windows-", 8) == 0 ? ".exe" : "");
     }
+
+    if (output_override) snprintf(output_path, sizeof(output_path), "%s", output_override);
 
     /* 6. Assemble sources: vendored files + project files, or just the
      * entry point for a single-file project with nothing vendored. */

@@ -2973,7 +2973,11 @@ before the C compiler), `--dump-ir-passes`, `--report-compression`,
 compilation, section 10.6). `--no-strict-v3` accepts a few removed syntax forms for
 debugging old code. `--verbose` prints the generated C and the link line
 and `--version` prints the compiler version and the toolchain it compiles
-with.
+with. On Linux and macOS the environment variable `IRON_CFLAGS` adds C
+compiler flags (separated by spaces, at most 16) to the compilation of the
+program and of the runtime built into it, for example
+`IRON_CFLAGS="-g -fsanitize=address,undefined" iron build` for a sanitizer
+build.
 
 ### 10.5 The web target
 
