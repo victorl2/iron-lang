@@ -411,7 +411,8 @@ def run(ironc, outdir, area, seeds, mode='plain', rtlib=None, quiet=False, jobs=
 # The fixed seeds ctest runs (prog_fuzz): each area's programs found bugs
 # when they were added, so they guard the fixes.
 SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure': range(1, 9),
-         'num': range(1, 9), 'generic': range(1, 9), 'ptr': range(1, 9), 'comptime': range(1, 9)}
+         'num': range(1, 9), 'generic': range(1, 9), 'ptr': (1, 2, 3, 4, 5, 22, 26, 41),
+         'comptime': range(1, 9)}
 
 
 def main(argv):
