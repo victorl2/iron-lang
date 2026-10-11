@@ -53,6 +53,7 @@ PRIMARY_MODULES = {
     "http": "HTTP/HTTPS clients and servers, REST, static files",
     "websocket": "WebSocket and secure WebSocket clients and servers",
     "url": "URL parsing, building, resolving, and percent-encoding",
+    "json": "JSON values, strict parser, serializer and streaming writer",
 }
 # Built-in types and runtime surfaces that need no import.
 CORE_MODULES = {

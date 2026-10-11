@@ -358,6 +358,7 @@ add_library(iron_stdlib STATIC
     src/stdlib/iron_http.c
     src/stdlib/iron_tls.c
     src/stdlib/iron_websocket.c
+    src/stdlib/iron_json.c
 )
 target_include_directories(iron_stdlib PUBLIC src)
 find_package(Threads REQUIRED)
@@ -501,6 +502,7 @@ add_subdirectory(tests/compile_fail)
 add_subdirectory(tests/algorithms)
 add_subdirectory(tests/composite)
 add_subdirectory(tests/manual)
+add_subdirectory(tests/json)
 
 # ── ironc compiler executable ────────────────────────────────────────────────
 add_executable(ironc

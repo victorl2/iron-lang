@@ -486,6 +486,9 @@ static int prepend_marked_file(char **source_io, const char *base_dir,
 /* iron_os.c: the platform behind the freestanding runtime header (#235);
  * passed to clang with the other runtime sources. */
 static char *s_rt_os = NULL;
+/* stdlib/iron_json.c, compiled into every program like the other stdlib
+ * modules (kept here rather than threaded through the path lists). */
+static char *s_sl_json = NULL;
 
 #ifdef _WIN32
 /* --debug on Windows (#312): Visual Studio views of Iron values. A natvis
@@ -661,6 +664,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     *sl_http_out    = make_path(base_dir, "stdlib/iron_http.c");
     *sl_tls_out     = make_path(base_dir, "stdlib/iron_tls.c");
     *sl_websocket_out = make_path(base_dir, "stdlib/iron_websocket.c");
+    free(s_sl_json);
+    s_sl_json = make_path(base_dir, "stdlib/iron_json.c");
 
     if (!*rt_stb_out || !*rt_arena_out || !*rt_strbuf_out || !*rt_string_out ||
         !*rt_rc_out || !*rt_builtin_out || !*rt_threads_out || !*rt_collect_out ||
@@ -668,7 +673,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         !*rt_panic_out || !*rt_leakcheck_out || !*rt_arena_rt_out ||
         !*sl_math_out || !*sl_io_out || !*sl_time_out || !*sl_log_out ||
         !*sl_hint_out || !*sl_net_out || !*sl_http_out || !*sl_tls_out ||
-        !*sl_websocket_out) {
+        !*sl_websocket_out || !s_sl_json) {
         return 1;
     }
 
@@ -742,6 +747,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_http_out;
     argv_buf[ai++] = *sl_tls_out;
     argv_buf[ai++] = *sl_websocket_out;
+    argv_buf[ai++] = s_sl_json;
     if (opts.use_tls) {
         argv_buf[ai++] = "/DIRON_HAVE_OPENSSL=1";
 #ifdef IRON_CLI_OPENSSL_INCLUDE_DIR
@@ -853,6 +859,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_http_out;
     argv_buf[ai++] = *sl_tls_out;
     argv_buf[ai++] = *sl_websocket_out;
+    argv_buf[ai++] = s_sl_json;
     if (opts.use_tls) {
         argv_buf[ai++] = "-DIRON_HAVE_OPENSSL=1";
 #ifdef IRON_CLI_OPENSSL_INCLUDE_DIR
@@ -998,6 +1005,7 @@ static void free_src_list(char *base_dir,
     free(rt_threads); free(rt_collect);
     free(rt_netinit); free(rt_oom);
     free(s_rt_os); s_rt_os = NULL;
+    free(s_sl_json); s_sl_json = NULL;
     free(rt_fmt);
     free(rt_heap_track);
     free(rt_panic);
@@ -1820,6 +1828,13 @@ int iron_build(const char *source_path, const char *output_path,
     if (imports_websocket) {
         stdlib_prepended_lines +=
             prepend_marked_file(&source, base_dir, "stdlib/websocket.iron",
+                                line_markers);
+    }
+
+    /* `import json` prepends json.iron (iron_json.c is always linked). */
+    if (iron_detect_import(source, source_path, "json", &detect_arena)) {
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/json.iron",
                                 line_markers);
     }
 
