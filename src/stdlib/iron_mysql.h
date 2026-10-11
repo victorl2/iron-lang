@@ -50,6 +50,7 @@ typedef struct Iron_MysqlConfig {
     int64_t timeout;
     bool multi_statements;
     int64_t max_allowed_packet;
+    Iron_String init_command;
 } Iron_MysqlConfig;
 
 typedef struct Iron_MysqlDateTime {

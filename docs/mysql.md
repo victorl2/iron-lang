@@ -62,6 +62,7 @@ func main() {
 | `timeout` | `0` | milliseconds for each command's round trip; `0` is no limit |
 | `multi_statements` | `false` | let a query string hold several statements |
 | `max_allowed_packet` | 1 GB | the largest packet accepted from the server |
+| `init_command` | `""` | SQL run on each new connection (and after a pool reset), such as `SET time_zone = '+00:00'`; a failure fails the connection |
 
 `Mysql.parse_url(url)` returns `(MysqlConfig, MysqlError)` and
 `Mysql.connect_url(url)` connects with it. The URL is
@@ -71,7 +72,8 @@ an IPv6 host goes in brackets. The options are the fields above:
 `tls` (or `ssl-mode`) with `disabled`, `preferred`, `required`,
 `verify_ca` or `verify_identity`; `ca`, `server_public_key`,
 `allow_public_key_retrieval`, `allow_cleartext_password`, `collation`,
-`connect_timeout`, `timeout`, `multi_statements` and `max_allowed_packet`.
+`connect_timeout`, `timeout`, `multi_statements`, `max_allowed_packet` and
+`init_command`.
 
 ### Authentication
 

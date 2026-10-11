@@ -1164,6 +1164,8 @@ typedef struct MyCfg {
     int64_t timeout;
     int multi_statements;
     int64_t max_packet;
+    char *init_command;
+    size_t init_command_len;
 } MyCfg;
 
 static void cfg_free(MyCfg *k) {
@@ -1174,6 +1176,7 @@ static void cfg_free(MyCfg *k) {
     free(k->ca_file);
     free(k->server_public_key);
     free(k->collation);
+    free(k->init_command);
     memset(k, 0, sizeof(*k));
 }
 
@@ -1199,8 +1202,10 @@ static int cfg_from_iron(MyCfg *k, const Iron_MysqlConfig *c) {
     k->timeout = c->timeout;
     k->multi_statements = c->multi_statements;
     k->max_packet = c->max_allowed_packet;
+    k->init_command = istr_dup(c->init_command);
+    k->init_command_len = iron_string_byte_len(&c->init_command);
     if (!k->host || !k->user || !k->password || !k->database || !k->ca_file ||
-        !k->server_public_key || !k->collation) {
+        !k->server_public_key || !k->collation || !k->init_command) {
         cfg_free(k);
         return 0;
     }
@@ -1599,6 +1604,15 @@ static void set_nodelay(int64_t fd) {
 
 /* Open and authenticate a connection. Always returns a MyConn (NULL only
  * when out of memory); on failure it is closed and carries the error. */
+/* MysqlConfig.init_command: run on a new connection (and after a pooled
+ * connection's COM_RESET_CONNECTION). Nonzero on failure, with e set. */
+static int conn_run_init(MyConn *c, const MyCfg *k, MyErr *e) {
+    if (!k->init_command || k->init_command_len == 0) return 0;
+    int rc = run_simple(c, k->init_command, k->init_command_len, e);
+    if (rc && !e->code) err_set(e, rc);
+    return rc;
+}
+
 static MyConn *conn_open(const MyCfg *k) {
     MyConn *c = conn_new();
     if (!c) return NULL;
@@ -1635,6 +1649,11 @@ static MyConn *conn_open(const MyCfg *k) {
         return c;
     }
     err_clear(&c->err);
+    if (conn_run_init(c, k, &c->err)) {
+        c->broken = 1;
+        conn_shutdown(c, 0);
+        return c;
+    }
     c->idle_since_ms = Iron_monotonic_now_ms();
     return c;
 }
@@ -2804,6 +2823,7 @@ static void config_release(Iron_MysqlConfig *c) {
     iron_string_release(&c->ca_file);
     iron_string_release(&c->server_public_key);
     iron_string_release(&c->collation);
+    iron_string_release(&c->init_command);
 }
 
 static void replace_str(Iron_String *dst, Iron_String v) {
@@ -2943,6 +2963,8 @@ Iron_MysqlConfigResult Iron_mysqlnative_parse_url(Iron_String url_value) {
                 if (ok) r.v0.multi_statements = bv;
             } else if (!strcmp(keybuf, "collation")) {
                 replace_str(&r.v0.collation, str_of(v, vn));
+            } else if (!strcmp(keybuf, "init_command")) {
+                replace_str(&r.v0.init_command, str_of(v, vn));
             } else if (!strcmp(keybuf, "connect_timeout")) {
                 ok = parse_int_value(v, vn, &iv);
                 if (ok) r.v0.connect_timeout = iv;
@@ -3101,7 +3123,10 @@ static void pool_give_back(MyConn *c) {
     if (c->open && !c->broken && p->reset_on_release) {
         MyErr e;
         if (simple_command(c, COM_RESET_CONNECTION, "", 0, &e)) c->broken = 1;
-        else cache_clear(c, 0);
+        else {
+            cache_clear(c, 0);
+            if (conn_run_init(c, &p->cfg, &e)) c->broken = 1;
+        }
     }
     atomic_fetch_add(&c->gen, 1);
     uint64_t now = Iron_monotonic_now_ms();
