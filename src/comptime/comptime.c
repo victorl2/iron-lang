@@ -399,6 +399,9 @@ static void comptime_file_dir(Iron_ComptimeCtx *ctx, Iron_Node *node, char *buf,
     } else if (g_package_root) {
         if (dlen) snprintf(buf, size, "%s/%.*s", g_package_root, dlen, f);
         else snprintf(buf, size, "%s", g_package_root);
+    } else if (ctx->source_file_dir && ctx->source_file_dir[0]) {
+        /* a single compiled file: its directory, as the driver gives it */
+        snprintf(buf, size, "%s", ctx->source_file_dir);
     } else {
         snprintf(buf, size, "%.*s", dlen, f);
     }

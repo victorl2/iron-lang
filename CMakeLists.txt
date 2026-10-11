@@ -1180,6 +1180,14 @@ set_tests_properties(diag_reported_once PROPERTIES
     PASS_REGULAR_EXPRESSION "E0228"
     FAIL_REGULAR_EXPRESSION "E0228.*E0228")
 
+# Under --no-optimize a pub getter inlined into a drop block or mutating
+# method stored the receiver pointer into a value slot (C did not compile).
+add_test(NAME no_optimize_getter_in_drop
+    COMMAND $<TARGET_FILE:ironc> run --no-optimize
+        ${CMAKE_SOURCE_DIR}/tests/integration/v4/regressions/no_optimize_getter_in_drop.iron)
+set_tests_properties(no_optimize_getter_in_drop PROPERTIES
+    PASS_REGULAR_EXPRESSION "bumped 4\n4\ndrop 4")
+
 # A diagnostic inside a generic instance names the template's line (#594).
 add_test(NAME diag_generic_instance_location
     COMMAND $<TARGET_FILE:ironc> check
