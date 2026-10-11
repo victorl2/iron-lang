@@ -2617,6 +2617,35 @@ static int classify_null_check(TypeCtx *ctx, Iron_Node *expr, const char **out_n
  * so the walker may miss a genuine always-returns path, which is safe
  * (emits a false positive at worst; user can annotate with an explicit
  * return statement to suppress). Never returns true on ambiguous code. */
+/* The `return value` statements of a spawn body, at any depth but not in a
+ * nested lambda or spawn (those return for themselves), in source order. */
+static void spawn_returns(Iron_Node *n, Iron_ReturnStmt ***out) {
+    if (!n) return;
+    if (n->kind == IRON_NODE_RETURN) {
+        if (((Iron_ReturnStmt *)n)->value) arrput(*out, (Iron_ReturnStmt *)n);
+    } else if (n->kind == IRON_NODE_BLOCK) {
+        Iron_Block *b = (Iron_Block *)n;
+        for (int i = 0; i < b->stmt_count; i++) spawn_returns(b->stmts[i], out);
+    } else if (n->kind == IRON_NODE_IF) {
+        Iron_IfStmt *is = (Iron_IfStmt *)n;
+        spawn_returns(is->body, out);
+        for (int i = 0; i < is->elif_count; i++) spawn_returns(is->elif_bodies[i], out);
+        spawn_returns(is->else_body, out);
+    } else if (n->kind == IRON_NODE_WHILE) {
+        spawn_returns(((Iron_WhileStmt *)n)->body, out);
+    } else if (n->kind == IRON_NODE_FOR) {
+        spawn_returns(((Iron_ForStmt *)n)->body, out);
+    } else if (n->kind == IRON_NODE_IN_ARENA) {
+        spawn_returns(((Iron_InArenaBlock *)n)->body, out);
+    } else if (n->kind == IRON_NODE_MATCH) {
+        Iron_MatchStmt *ms = (Iron_MatchStmt *)n;
+        for (int i = 0; i < ms->case_count; i++)
+            if (ms->cases[i] && ms->cases[i]->kind == IRON_NODE_MATCH_CASE)
+                spawn_returns(((Iron_MatchCase *)ms->cases[i])->body, out);
+        spawn_returns(ms->else_body, out);
+    }
+}
+
 static bool stmt_always_returns(Iron_Node *node) {
     if (!node) return false;
     switch ((int)node->kind) {
@@ -8172,13 +8201,24 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             Iron_AwaitExpr *ae = (Iron_AwaitExpr *)node;
             check_expr(ctx, ae->handle);
 
-            /* Look up the spawn body's return type from the handle name */
+            /* The spawn body's result type, from the binding the handle
+             * name resolves to: the latest spawn with that name is not the
+             * one a shadowed (or an outer) handle refers to. */
             Iron_Type *await_type = iron_type_make_primitive(IRON_TYPE_INT);
             if (ae->handle && ae->handle->kind == IRON_NODE_IDENT) {
                 Iron_Ident *ident = (Iron_Ident *)ae->handle;
-                int idx = shgeti(ctx->spawn_result_types, ident->name);
-                if (idx >= 0) {
-                    await_type = ctx->spawn_result_types[idx].value;
+                Iron_Symbol *hs = tc_lookup(ctx, ident->name);
+                Iron_Node *hd = hs ? hs->decl_node : NULL;
+                Iron_Node *init = NULL;
+                if (hd && hd->kind == IRON_NODE_VAL_DECL) init = ((Iron_ValDecl *)hd)->init;
+                else if (hd && hd->kind == IRON_NODE_VAR_DECL) init = ((Iron_VarDecl *)hd)->init;
+                if (init && init->kind == IRON_NODE_SPAWN && ((Iron_SpawnStmt *)init)->result_type) {
+                    await_type = ((Iron_SpawnStmt *)init)->result_type;
+                } else {
+                    int idx = shgeti(ctx->spawn_result_types, ident->name);
+                    if (idx >= 0) {
+                        await_type = ctx->spawn_result_types[idx].value;
+                    }
                 }
             }
             result = await_type;
@@ -10855,50 +10895,53 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                            "remove the pool argument: spawn(\"name\") { ... }");
             }
             {
+                /* A `return` in the body ends the task, not the enclosing
+                 * function: it is not checked against that function's
+                 * return type (a spawn in `func f() -> Int` returning a
+                 * String was rejected with E0215). */
                 int saved_depth = ctx->loop_depth;
                 int saved_defer = ctx->defer_depth;
+                Iron_Type *saved_ret = ctx->current_return_type;
                 ctx->loop_depth = 0;
                 ctx->defer_depth = 0;
+                ctx->current_return_type = NULL;
                 if (ss->body) check_stmt(ctx, ss->body);
                 ctx->loop_depth = saved_depth;
                 ctx->defer_depth = saved_defer;
+                ctx->current_return_type = saved_ret;
             }
 
-            /* Store spawn body return type for downstream await lookup */
-            if (ss->handle_name) {
-                /* Walk the spawn body to find IRON_NODE_RETURN and use its expr type */
-                Iron_Type *body_ret = iron_type_make_primitive(IRON_TYPE_INT);
-                /* PROT-03 row 20 (AUDIT-01 M-severity): ss->body is normally an
-                 * IRON_NODE_BLOCK but error-recovery paths can leave it as a
-                 * non-block expression form; guard before the cast and assert
-                 * the kind so a wrong-kind shape aborts in Debug. */
-                Iron_Block *blk = NULL;
-                if (ss->body && ss->body->kind == IRON_NODE_BLOCK) {
-                    IRON_NODE_ASSERT_KIND(ss->body, IRON_NODE_BLOCK);
-                    blk = (Iron_Block *)ss->body;
-                }
-                if (blk) {
-                    for (int i = 0; i < blk->stmt_count; i++) {
-                        if (blk->stmts[i]->kind == IRON_NODE_RETURN) {
-                            Iron_ReturnStmt *rs = (Iron_ReturnStmt *)blk->stmts[i];
-                            if (rs->value) {
-                                /* PROT-04 rewrite (rank 11a, AUDIT-01): rs->value
-                                 * is a generic expression node (any kind). The
-                                 * previous code aliased Iron_IntLit solely to read
-                                 * resolved_type at the common prefix offset. Use
-                                 * Iron_ExprNode from ast.h (layout-locked by
-                                 * PROT-01 _Static_asserts) for type-safe prefix
-                                 * access. */
-                                Iron_ExprNode *expr_node = (Iron_ExprNode *)rs->value;
-                                if (expr_node->resolved_type) {
-                                    body_ret = expr_node->resolved_type;
-                                }
-                            }
-                            break;
-                        }
+            /* The task's result type is the type of the body's first
+             * `return value`, at any depth (a body may return from both
+             * arms of an if); every other return must agree with it. */
+            {
+                Iron_ReturnStmt **rets = NULL;
+                spawn_returns(ss->body, &rets);
+                Iron_Type *body_ret = NULL;
+                for (int i = 0; i < (int)arrlen(rets); i++) {
+                    Iron_Type *t = ((Iron_ExprNode *)rets[i]->value)->resolved_type;
+                    if (!t || t->kind == IRON_TYPE_ERROR) continue;
+                    if (!body_ret) {
+                        body_ret = t;
+                    } else if (!types_assignable(body_ret, t) &&
+                               !is_int_literal_narrowing(body_ret, t, rets[i]->value)) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "return type mismatch: the spawn body returns '%s', got '%s'",
+                                 iron_type_to_string(body_ret, ctx->arena),
+                                 iron_type_to_string(t, ctx->arena));
+                        emit_error(ctx, IRON_ERR_RETURN_TYPE, rets[i]->span, msg,
+                                   "every return of a spawn body gives the value await yields: return one type");
                     }
                 }
-                shput(ctx->spawn_result_types, ss->handle_name, body_ret);
+                arrfree(rets);
+                /* no `return value`: the task returns nothing (lowered as a
+                 * void function); await still types it Int, as before */
+                ss->result_type = body_ret;
+                if (!body_ret) body_ret = iron_type_make_primitive(IRON_TYPE_INT);
+                /* Store the result type for the await lookup */
+                if (ss->handle_name)
+                    shput(ctx->spawn_result_types, ss->handle_name, body_ret);
             }
             break;
         }

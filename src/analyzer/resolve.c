@@ -1068,6 +1068,9 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_HEAP: {
             Iron_HeapExpr *he = (Iron_HeapExpr *)node;
+            /* `heap(in: a)`: the arena is a name like any other (left
+             * unresolved, a spawn or parallel for body did not capture it) */
+            if (he->arena_expr) resolve_expr(ctx, he->arena_expr);
             resolve_expr(ctx, he->inner);
             break;
         }

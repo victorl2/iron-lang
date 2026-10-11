@@ -1,0 +1,57 @@
+-- A binding declared inside an `if`, a loop or a match arm of a parallel
+-- for body is the iteration's own, but only the body's top-level
+-- declarations were counted as local: assigning one was rejected as a
+-- write to an outer variable (E0208). A nested parallel for writing its own
+-- slot of a list the enclosing iteration made was rejected the same way. (#425)
+func main() {
+    val m = Mutex(0)
+    for i in range(6) parallel {
+        if i % 2 == 0 {
+            var t = 0
+            for j in range(i) {
+                var u = j
+                u += 1
+                t += u
+            }
+            val g = m.lock()
+            g.set(g.get() + t)
+        } else {
+            match i % 3 {
+                0 -> {
+                    var w = i
+                    w *= 10
+                    val g = m.lock()
+                    g.set(g.get() + w)
+                }
+                else -> {
+                    var acc = 0
+                    while acc < i {
+                        acc += 2
+                    }
+                    val g = m.lock()
+                    g.set(g.get() + acc)
+                }
+            }
+        }
+    }
+    {
+        val g = m.lock()
+        println("locals {g.get()}")
+    }
+
+    val total = Mutex(0)
+    for i in range(3) parallel {
+        val rs = rc [0, 0, 0, 0]
+        for j in range(4) parallel {
+            rs[j] = i * 10 + j
+        }
+        var s = 0
+        for k in range(4) {
+            s += rs[k]
+        }
+        val g = total.lock()
+        g.set(g.get() + s)
+    }
+    val g = total.lock()
+    println("nested slots {g.get()}")
+}

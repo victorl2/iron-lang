@@ -4266,6 +4266,37 @@ static bool gencheck_is_heap_handle(IronLIR_Func *fn, IronLIR_ValueId v) {
     return any;
 }
 
+/* An arena handle (`heap(in: a) T(...)`, or `heap T(...)` inside `in a`):
+ * the ARENA_ALLOC value itself, or a load of a `var` binding's slot whose
+ * every store is an ARENA_ALLOC. */
+static bool gencheck_is_arena_handle(IronLIR_Func *fn, IronLIR_ValueId v) {
+    if (v == IRON_LIR_VALUE_INVALID || (ptrdiff_t)v >= arrlen(fn->value_table)) return false;
+    IronLIR_Instr *d = fn->value_table[v];
+    if (!d) return false;
+    if (d->kind == IRON_LIR_ARENA_ALLOC) return true;
+    if (d->kind != IRON_LIR_LOAD) return false;
+    if (d->type && d->type->kind == IRON_TYPE_PTR) return false;
+    IronLIR_ValueId slot = d->load.ptr;
+    if (slot == IRON_LIR_VALUE_INVALID || (ptrdiff_t)slot >= arrlen(fn->value_table)) return false;
+    IronLIR_Instr *a = fn->value_table[slot];
+    if (!a || a->kind != IRON_LIR_ALLOCA) return false;
+    bool any = false;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *st = blk->instrs[ii];
+            if (!st || st->kind != IRON_LIR_STORE || st->store.ptr != slot) continue;
+            IronLIR_ValueId sv = st->store.value;
+            IronLIR_Instr *sd = (sv != IRON_LIR_VALUE_INVALID &&
+                                 (ptrdiff_t)sv < arrlen(fn->value_table))
+                                ? fn->value_table[sv] : NULL;
+            if (!sd || sd->kind != IRON_LIR_ARENA_ALLOC) return false;
+            any = true;
+        }
+    }
+    return any;
+}
+
 static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
                                        IronLIR_ValueId *out_ptr,
                                        IronLIR_GenSource *out_gen) {
@@ -4275,6 +4306,15 @@ static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
         gencheck_is_heap_handle(fn, in->field.object)) {
         *out_ptr = in->field.object;
         *out_gen = IRON_LIR_GEN_HEAP;
+        return true;
+    }
+    /* The same through an arena handle: after `a.reset()` (or a restore to
+     * a mark taken before the allocation) h.f read reclaimed arena memory
+     * instead of failing with the stale pointer error of manual 6.6. */
+    if ((in->kind == IRON_LIR_GET_FIELD || in->kind == IRON_LIR_SET_FIELD) &&
+        gencheck_is_arena_handle(fn, in->field.object)) {
+        *out_ptr = in->field.object;
+        *out_gen = IRON_LIR_GEN_ARENA;
         return true;
     }
     switch ((int)(in->kind)) {

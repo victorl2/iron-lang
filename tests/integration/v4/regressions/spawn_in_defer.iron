@@ -1,0 +1,38 @@
+-- Two C redefinition errors:
+--   - a spawn or parallel for in a deferred block: the block is emitted at
+--     every exit of its scope (here the end of the iteration and the
+--     `continue`), and each copy wrote the task's wrapper again (the
+--     parallel for also its context type);
+--   - an awaited value used in another block (here after an inner loop) is
+--     declared at the function entry, and the await declared it again. (#457)
+func main() {
+    var n = 0
+    val total = Mutex(0)
+    for i in range(3) {
+        defer {
+            for j in range(2) parallel {
+                val g = total.lock()
+                g.set(g.get() + j + i)
+            }
+            val h = spawn("d") { return i * 10 }
+            val r = await h
+            println("deferred {i} {r}")
+        }
+        if i == 1 {
+            continue
+        }
+        n += 1
+    }
+    val g = total.lock()
+    println("{n} {g.get()}")
+    for i in [1, 2] {
+        val h = spawn("t") { return 3 + i }
+        var acc = 0
+        for j in range(2) {
+            acc += j
+        }
+        val z = await h
+        acc = z
+        println("{acc}")
+    }
+}

@@ -1,0 +1,23 @@
+-- @expect-panic: stale pointer dereference
+-- Manual 6.6: using an arena value after reset is a stale pointer error.
+-- Only reads through a `*T` pointer were checked; a field read through the
+-- binding itself read the reclaimed arena memory and went on. (#429)
+object Pt {
+    var x: Int
+    var y: Int
+    init(x: Int, y: Int) {
+        self.x = x
+        self.y = y
+    }
+}
+
+func main() {
+    val a = Arena(4096)
+    val p = heap(in: a) Pt(1, 2)
+    var q = heap(in: a) Pt(3, 4)
+    q.x = 30
+    println("{p.x} {q.x}")
+    a.reset()
+    println("reset")
+    println("{q.y}")
+}

@@ -211,6 +211,14 @@ static void scan_for_writes(UnusedVarCtx *ctx, Iron_Node *node) {
             scan_for_writes(ctx, rs->value);
             break;
         }
+        /* An assignment inside `in a { }` or a deferred block is a write
+         * too (a var assigned only there was told to be a val, W0613). */
+        case IRON_NODE_IN_ARENA:
+            scan_for_writes(ctx, ((Iron_InArenaBlock *)node)->body);
+            break;
+        case IRON_NODE_DEFER:
+            scan_for_writes(ctx, ((Iron_DeferStmt *)node)->expr);
+            break;
         /* Other statement / expression kinds: conservative default is no
          * recursion (over-warns, never under-warns is the safer direction
          * for missed-warning vs false-fire tradeoff). ADD CASES HERE as
@@ -301,6 +309,7 @@ static void walk_node(UnusedVarCtx *ctx, Iron_Node *node, bool in_lambda) {
         }
         case IRON_NODE_MATCH_CASE: walk_node(ctx, ((Iron_MatchCase *)node)->body, in_lambda); break;
         case IRON_NODE_DEFER: walk_node(ctx, ((Iron_DeferStmt *)node)->expr, in_lambda); break;
+        case IRON_NODE_IN_ARENA: walk_node(ctx, ((Iron_InArenaBlock *)node)->body, in_lambda); break;
         case IRON_NODE_INTERP_STRING: {
             Iron_InterpString *is_ = (Iron_InterpString *)node;
             walk_nodes(ctx, is_->parts, is_->part_count, in_lambda);

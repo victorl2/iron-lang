@@ -1,0 +1,22 @@
+-- A capturing spawn or parallel for after a `return` is never started, but
+-- its lifted body is still emitted and reads its captures through an env
+-- type only starting it declared: C compile error. As for lambdas (#384),
+-- the missing env types are declared after the functions. (#426)
+func f(n: Int) -> Int {
+    return n + 1
+    val m = Mutex(0)
+    val h = spawn("never") {
+        val g = m.lock()
+        g.set(g.get() + n)
+        return 2
+    }
+    for i in range(3) parallel {
+        val g = m.lock()
+        g.set(g.get() + i * n)
+    }
+    return await h
+}
+
+func main() {
+    println("{f(4)}")
+}

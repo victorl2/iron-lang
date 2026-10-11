@@ -50,6 +50,11 @@ typedef struct {
      * to one iteration: xs[i] with i the loop variable is disjoint). */
     const char   *par_loop_var;
     Iron_Program *program;
+
+    /* local_names below this index belong to the code around the innermost
+     * parallel for (for a nested one, to the enclosing iteration): they are
+     * outer variables to its body. */
+    int           local_floor;
 } ConcurrencyCtx;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -74,7 +79,7 @@ static const char *expr_ident_name(Iron_Node *node) {
 
 static bool name_is_local(ConcurrencyCtx *ctx, const char *name) {
     int n = arrlen(ctx->local_names);
-    for (int i = 0; i < n; i++) {
+    for (int i = ctx->local_floor; i < n; i++) {
         if (ctx->local_names[i] && strcmp(ctx->local_names[i], name) == 0)
             return true;
     }
@@ -470,10 +475,27 @@ static void check_stmt_for_mutation(ConcurrencyCtx *ctx, Iron_Node *node) {
             break;
         }
         case IRON_NODE_BLOCK: {
+            /* Bindings declared in the block are local to it (an `if` or
+             * loop body inside the parallel body declares them too); they
+             * go out of scope at its end. */
             Iron_Block *blk = (Iron_Block *)node;
+            int saved = (int)arrlen(ctx->local_names);
             check_body_stmts(ctx, blk->stmts, blk->stmt_count);
+            arrsetlen(ctx->local_names, saved);
             break;
         }
+        case IRON_NODE_MATCH: {
+            Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
+            check_expr_for_mutation(ctx, ms->subject);
+            for (int i = 0; i < ms->case_count; i++)
+                if (ms->cases[i] && ms->cases[i]->kind == IRON_NODE_MATCH_CASE)
+                    check_stmt_for_mutation(ctx, ((Iron_MatchCase *)ms->cases[i])->body);
+            if (ms->else_body) check_stmt_for_mutation(ctx, ms->else_body);
+            break;
+        }
+        case IRON_NODE_IN_ARENA:
+            check_stmt_for_mutation(ctx, ((Iron_InArenaBlock *)node)->body);
+            break;
         case IRON_NODE_IF: {
             Iron_IfStmt *is = (Iron_IfStmt *)node;
             if (is->body) check_stmt_for_mutation(ctx, is->body);
@@ -492,16 +514,31 @@ static void check_stmt_for_mutation(ConcurrencyCtx *ctx, Iron_Node *node) {
          * still check their bodies for outer mutations. */
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
+            check_expr_for_mutation(ctx, fs->iterable);
+            /* A nested parallel for is checked on its own, against the
+             * bindings of this iteration too (walk_nested_in_parallel_body). */
+            if (fs->is_parallel) break;
             /* Record the nested loop variable as local */
+            int saved = (int)arrlen(ctx->local_names);
             if (fs->var_name) arrpush(ctx->local_names, fs->var_name);
+            if (fs->var_name2) arrpush(ctx->local_names, fs->var_name2);
             if (fs->body) check_stmt_for_mutation(ctx, fs->body);
+            arrsetlen(ctx->local_names, saved);
             break;
         }
-        case IRON_NODE_VAL_DECL:
-            check_expr_for_mutation(ctx, ((Iron_ValDecl *)node)->init);
+        case IRON_NODE_VAL_DECL: {
+            Iron_ValDecl *vd = (Iron_ValDecl *)node;
+            check_expr_for_mutation(ctx, vd->init);
+            if (vd->name) arrpush(ctx->local_names, vd->name);
+            for (int bi = 0; bi < vd->binding_count; bi++)
+                if (vd->binding_names && vd->binding_names[bi])
+                    arrpush(ctx->local_names, vd->binding_names[bi]);
             break;
+        }
         case IRON_NODE_VAR_DECL:
             check_expr_for_mutation(ctx, ((Iron_VarDecl *)node)->init);
+            if (((Iron_VarDecl *)node)->name)
+                arrpush(ctx->local_names, ((Iron_VarDecl *)node)->name);
             break;
         case IRON_NODE_RETURN:
             check_expr_for_mutation(ctx, ((Iron_ReturnStmt *)node)->value);
@@ -549,6 +586,11 @@ static void walk_nested_in_parallel_body(ConcurrencyCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
+            if (fs->is_parallel) {
+                /* its own analysis: this iteration's bindings are outer */
+                walk_stmt(ctx, node);
+                break;
+            }
             if (fs->body) walk_nested_in_parallel_body(ctx, fs->body);
             break;
         }
@@ -557,6 +599,17 @@ static void walk_nested_in_parallel_body(ConcurrencyCtx *ctx, Iron_Node *node) {
             if (ws->body) walk_nested_in_parallel_body(ctx, ws->body);
             break;
         }
+        case IRON_NODE_MATCH: {
+            Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
+            for (int i = 0; i < ms->case_count; i++)
+                if (ms->cases[i] && ms->cases[i]->kind == IRON_NODE_MATCH_CASE)
+                    walk_nested_in_parallel_body(ctx, ((Iron_MatchCase *)ms->cases[i])->body);
+            if (ms->else_body) walk_nested_in_parallel_body(ctx, ms->else_body);
+            break;
+        }
+        case IRON_NODE_IN_ARENA:
+            walk_nested_in_parallel_body(ctx, ((Iron_InArenaBlock *)node)->body);
+            break;
         /* -Wswitch-enum opt-out: only descends into nested control flow that
          * could legitimately contain a spawn / parallel-for. */
         default:
@@ -578,6 +631,10 @@ static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
 
                 /* Save local names count so we can restore after this for-stmt */
                 int saved_count = arrlen(ctx->local_names);
+                /* What is local so far (an enclosing parallel body's
+                 * bindings) is outer to this body. */
+                int prev_floor = ctx->local_floor;
+                ctx->local_floor = saved_count;
 
                 /* The loop variable itself is local */
                 if (fs->var_name) {
@@ -600,6 +657,7 @@ static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
 
                 /* Restore local names to pre-parallel-for state */
                 arrsetlen(ctx->local_names, saved_count);
+                ctx->local_floor = prev_floor;
                 ctx->in_parallel = prev_in_parallel;
                 ctx->par_loop_var = prev_loop_var;
             } else {
@@ -627,6 +685,19 @@ static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
             if (ws->body) walk_stmt(ctx, ws->body);
             break;
         }
+        /* A parallel for in a match arm or an `in a { }` body was never
+         * checked (a racy write there compiled). */
+        case IRON_NODE_MATCH: {
+            Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
+            for (int i = 0; i < ms->case_count; i++)
+                if (ms->cases[i] && ms->cases[i]->kind == IRON_NODE_MATCH_CASE)
+                    walk_stmt(ctx, ((Iron_MatchCase *)ms->cases[i])->body);
+            if (ms->else_body) walk_stmt(ctx, ms->else_body);
+            break;
+        }
+        case IRON_NODE_IN_ARENA:
+            walk_stmt(ctx, ((Iron_InArenaBlock *)node)->body);
+            break;
         case IRON_NODE_SPAWN: {
             Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
             if (!ss->body) break;
@@ -806,8 +877,38 @@ static void aw_stmt(ConcurrencyCtx *ctx, Iron_Node *n, AwaitState *s,
     if (!n || s->dead) return;
     switch ((int)n->kind) {
         case IRON_NODE_BLOCK: {
+            /* A binding declared in the block shadows the outer one only
+             * until the block ends: the outer handle's state then comes
+             * back (awaiting an inner `h` is not an await of the outer
+             * `h`). */
             Iron_Block *b = (Iron_Block *)n;
-            for (int i = 0; i < b->stmt_count; i++) aw_stmt(ctx, b->stmts[i], s, reported);
+            const char **shadowed = NULL;
+            bool *was = NULL;
+            for (int i = 0; i < b->stmt_count; i++) {
+                Iron_Node *st = b->stmts[i];
+                const char *dn = NULL;
+                if (st && st->kind == IRON_NODE_VAL_DECL) dn = ((Iron_ValDecl *)st)->name;
+                else if (st && st->kind == IRON_NODE_VAR_DECL) dn = ((Iron_VarDecl *)st)->name;
+                else if (st && st->kind == IRON_NODE_SPAWN) dn = ((Iron_SpawnStmt *)st)->handle_name;
+                if (dn) {
+                    bool seen = false;
+                    for (ptrdiff_t k = 0; k < arrlen(shadowed); k++)
+                        if (strcmp(shadowed[k], dn) == 0) { seen = true; break; }
+                    if (!seen) {
+                        arrput(shadowed, dn);
+                        arrput(was, aw_has(s, dn));
+                    }
+                }
+                aw_stmt(ctx, st, s, reported);
+            }
+            if (!s->dead) {
+                for (ptrdiff_t k = 0; k < arrlen(shadowed); k++) {
+                    if (was[k]) aw_add(s, shadowed[k]);
+                    else aw_remove(s, shadowed[k]);
+                }
+            }
+            arrfree(shadowed);
+            arrfree(was);
             break;
         }
         case IRON_NODE_VAL_DECL: {
@@ -861,6 +962,9 @@ static void aw_stmt(ConcurrencyCtx *ctx, Iron_Node *n, AwaitState *s,
             *s = out;
             break;
         }
+        case IRON_NODE_IN_ARENA:
+            aw_block(ctx, ((Iron_InArenaBlock *)n)->body, s, reported);
+            break;
         case IRON_NODE_MATCH: {
             Iron_MatchStmt *m = (Iron_MatchStmt *)n;
             aw_expr(ctx, m->subject, s, reported);

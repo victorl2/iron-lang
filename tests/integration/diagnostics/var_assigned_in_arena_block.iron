@@ -1,0 +1,23 @@
+-- W0613 told to declare `val` a var assigned only inside `in a { }` (or a
+-- deferred block): the pass looking for writes did not look into either.
+-- A var that really is never assigned still warns. (#430)
+object Pt {
+    val x: Int
+    val y: Int
+}
+
+func main() {
+    val a = Arena(4096)
+    var area = 0
+    in a {
+        val p = heap Pt(3, 4)
+        area = p.x * p.y
+    }
+    var later = 1
+    defer {
+        later = 2
+        println("{later}")
+    }
+    var never_set = 5
+    println("{area} {never_set}")
+}
