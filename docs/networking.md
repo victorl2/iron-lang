@@ -514,7 +514,9 @@ UdpSocket.close(receiver)
 Datagram boundaries are preserved: one successful receive consumes one
 packet. If a datagram exceeds `max_bytes`, the captured prefix is returned
 with `truncated == 1` and error code `1018`. A successful zero-length
-datagram has empty data and error code `0`; a timeout has code `1004`.
+datagram has empty data and error code `0`; a timeout has code `1004`. Sending a datagram larger
+than the system allows is error `1018` too (65507 bytes over IPv4; macOS
+limits UDP sends to 9216 bytes by default, `net.inet.udp.maxdgram`).
 
 ## DNS and addresses
 

@@ -24,6 +24,7 @@ format against inet_ntop; a zero byte, an empty zone or a zone over 63
 bytes is 1008.
 """
 import socket
+import sys
 
 from stdfz_common import StdGen, Probe, lit, qtext, b2s
 from pf_iofs import blob, digest
@@ -173,6 +174,9 @@ func drain(l: TcpListener, n: Int) -> Int {
     TcpListener.close(l)
     return digest(d)
 }'''
+
+
+MAX_DATAGRAM = 9216 if sys.platform == 'darwin' else 65507
 
 
 def frame(n):
@@ -353,7 +357,9 @@ class NetGen(StdGen):
         for _ in range(r.randint(1, 4)):
             k = r.random()
             if k < 0.6:
-                n = r.choice([0, 1, 100, 1472, 8192, 65507])
+                # (macOS sends at most net.inet.udp.maxdgram = 9216 bytes
+                # by default: larger datagrams fail with 1018 there)
+                n = r.choice([0, 1, 100, 1472, 8192, MAX_DATAGRAM])
                 seed = r.randint(1, 10**6)
                 mx = max(1, r.choice([n, n + 1, 65536, 1000000, n - 1, 1]))
                 d = blob(n, seed)
