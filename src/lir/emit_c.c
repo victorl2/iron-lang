@@ -1666,6 +1666,39 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
     return true;
 }
 
+/* `xs.len()` on a dynamic list: `(int64_t)(<receiver address>)->count`, the
+ * receiver addressed exactly as the out-of-line Iron_List_<T>_len call would
+ * receive it (self_by_addr). Returns false for any other call. */
+static bool emit_inline_list_len(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                                 IronLIR_Func *fn, EmitCtx *ctx,
+                                 int ind, bool is_hoisted) {
+    if (instr->call.arg_count != 1 || !instr->call.self_by_addr ||
+        instr->call.func_decl) return false;
+    if (!instr->type || instr->type->kind == IRON_TYPE_VOID) return false;
+    IronLIR_ValueId fp = instr->call.func_ptr;
+    if (fp == IRON_LIR_VALUE_INVALID || fp >= (IronLIR_ValueId)arrlen(fn->value_table) ||
+        !fn->value_table[fp] || fn->value_table[fp]->kind != IRON_LIR_FUNC_REF)
+        return false;
+    const char *name = fn->value_table[fp]->func_ref.func_name;
+    if (!name || strncmp(name, "Iron_List_", 10) != 0) return false;
+    size_t nl = strlen(name);
+    if (nl < 14 || strcmp(name + nl - 4, "_len") != 0) return false;
+    Iron_Type *rt = emit_get_value_type(fn, instr->call.args[0]);
+    if (!rt || rt->kind != IRON_TYPE_ARRAY || rt->array.is_bounded ||
+        rt->array.size >= 0) return false;
+    /* The C name must be the list type of this receiver, so an object
+     * method that happens to be called Iron_List_..._len never matches. */
+    const char *lt = emit_type_to_c(rt, ctx);
+    if (!lt || strncmp(name, lt, strlen(lt)) != 0 || strlen(lt) + 4 != nl) return false;
+    emit_indent(sb, ind);
+    if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+    emit_val(sb, instr->id);
+    iron_strbuf_appendf(sb, " = (int64_t)(");
+    emit_receiver_addr(sb, fn, ctx, instr->call.args[0], ctx->current_block_id);
+    iron_strbuf_appendf(sb, ")->count;\n");
+    return true;
+}
+
 /* ── Expression inlining recursive helper ─────────────────────────────────── */
 
 /* Recursively build a C expression string for vid.
@@ -5951,6 +5984,14 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
             }
         }
+
+        /* `xs.len()` on a dynamic list reads the count field in place
+         * instead of calling the out-of-line Iron_List_<T>_len: an opaque
+         * call in a loop condition makes clang reload and recheck the count
+         * on every iteration and blocks vectorization of
+         * `while i < xs.len() { ... xs[i] ... }`. The receiver expression
+         * is exactly the one the call would have been handed. */
+        if (emit_inline_list_len(sb, instr, fn, ctx, ind, is_hoisted)) break;
 
         bool is_void = (instr->type == NULL ||
                         instr->type->kind == IRON_TYPE_VOID);
