@@ -1,0 +1,24 @@
+func total(xs: [Int], scale: Int) -> Int {
+    var t = 0
+    for x in xs {
+        t += x * scale
+    }
+    return t
+}
+
+func bump(var n: Int) {
+    n += 5
+    println("{n}")
+}
+
+func main() {
+    var count = 1
+    val k = 10
+    val add = func(d: Int) -> Int {
+        count = count + d + k
+        return count
+    }
+    var m = 1
+    bump(m)
+    println("{total([1, 2, 3], 2)} {add(1)} {m}")
+}

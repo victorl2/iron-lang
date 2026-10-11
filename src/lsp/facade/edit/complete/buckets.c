@@ -555,8 +555,8 @@ static void emit_stdlib(IronLsp_CompletionCandidate **out_arr,
      * module stems from the stdlib surface files. Plan 04-03 may
      * introduce a true iteration API if the list grows. */
     static const char *const stdlib_modules[] = {
-        "math", "io", "time", "log", "hint", "os", "net", "url", "json",
-        "string", "list", "raylib",
+        "math", "io", "time", "log", "hint", "os", "net", "http",
+        "websocket", "url", "json", "crypto", "encoding", "string", "list", "raylib",
     };
     size_t n = sizeof(stdlib_modules) / sizeof(stdlib_modules[0]);
     for (size_t i = 0; i < n; i++) {

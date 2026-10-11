@@ -359,6 +359,8 @@ add_library(iron_stdlib STATIC
     src/stdlib/iron_tls.c
     src/stdlib/iron_websocket.c
     src/stdlib/iron_json.c
+    src/stdlib/iron_encoding.c
+    src/stdlib/iron_crypto.c
 )
 target_include_directories(iron_stdlib PUBLIC src)
 find_package(Threads REQUIRED)

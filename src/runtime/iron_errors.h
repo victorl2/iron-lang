@@ -17,6 +17,7 @@
  *   6000..6999 ws
  *   7000..7999 internal (runtime invariant violations)
  *   8000..8999 file I/O
+ *   9000..9999 crypto (9000..9099) and encoding (9100..9199)
  *
  * Each subsystem header comment documents which codes are assigned and which
  * are reserved; downstream plans append new codes inside the reserved bands.
@@ -125,5 +126,23 @@
 #define IRON_ERR_IO_NO_MEMORY              8010
 #define IRON_ERR_IO_OTHER                  8011
 /* 8012..8099 reserved for future file additions */
+
+/* ── Crypto (9000..9099) ────────────────────────────────────────────────── */
+#define IRON_ERR_CRYPTO_UNAVAILABLE        9000   /* built without OpenSSL 3 */
+#define IRON_ERR_CRYPTO_INVALID_ARGUMENT   9001
+#define IRON_ERR_CRYPTO_INVALID_KEY        9002   /* wrong key length, unparsable key */
+#define IRON_ERR_CRYPTO_INVALID_NONCE      9003   /* wrong nonce length */
+#define IRON_ERR_CRYPTO_AUTHENTICATION     9004   /* AEAD tag mismatch: forged or corrupt */
+#define IRON_ERR_CRYPTO_INVALID_LENGTH     9005   /* output length out of range */
+#define IRON_ERR_CRYPTO_INVALID_PARAMETERS 9006   /* KDF cost parameters */
+#define IRON_ERR_CRYPTO_MALFORMED_HASH     9007   /* not a password hash string */
+#define IRON_ERR_CRYPTO_INTERNAL           9008   /* libcrypto reported a failure */
+/* 9009..9099 reserved for future crypto additions */
+
+/* ── Encoding (9100..9199) ──────────────────────────────────────────────── */
+#define IRON_ERR_ENCODING_INVALID_CHARACTER 9100
+#define IRON_ERR_ENCODING_INVALID_LENGTH    9101
+#define IRON_ERR_ENCODING_INVALID_PADDING   9102
+/* 9103..9199 reserved for future encoding additions */
 
 #endif /* IRON_ERRORS_H */

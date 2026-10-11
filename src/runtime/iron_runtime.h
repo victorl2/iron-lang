@@ -518,6 +518,33 @@ static inline void iron_list_call_site(const char *file, int line) {
     iron_list_call_file = file;
     iron_list_call_line = line;
 }
+/* --debug: the bounds checks of those runtime bodies, repeated at the call
+ * site (emit_debug_list_check), so a failing one traps in the Iron
+ * function. They only trap: the runtime body then panics as usual. */
+#ifdef IRON_DEBUG_TRAPS_ON
+IRON_CHECK_FN void iron_dbg_list_check_pop(int64_t count, const char *f, int l) {
+    if (count <= 0 && iron_debug_panic_stop(f, l, "pop from an empty list"))
+        IRON_DEBUG_BREAK();
+}
+IRON_CHECK_FN void iron_dbg_list_check_index(int64_t count, int64_t index,
+                                             const char *f, int l) {
+    if ((uint64_t)index >= (uint64_t)count &&
+        iron_debug_panic_stop(f, l, "index out of bounds (index %lld, bound %lld)",
+                              (long long)index, (long long)count))
+        IRON_DEBUG_BREAK();
+}
+IRON_CHECK_FN void iron_dbg_list_check_insert(int64_t count, int64_t index,
+                                              const char *f, int l) {
+    if ((uint64_t)index > (uint64_t)count &&
+        iron_debug_panic_stop(f, l, "index out of bounds (index %lld, bound %lld)",
+                              (long long)index, (long long)count + 1))
+        IRON_DEBUG_BREAK();
+}
+#else
+#define iron_dbg_list_check_pop(...) ((void)0)
+#define iron_dbg_list_check_index(...) ((void)0)
+#define iron_dbg_list_check_insert(...) ((void)0)
+#endif
 
 /* Generic index out of bounds (LIST-01). Definition in iron_panic.c. */
 #if defined(__GNUC__) || defined(__clang__)
@@ -883,6 +910,11 @@ void         iron_string_release(Iron_String *s);
 /* Registers one more owner of the string's characters (a copy of the value
  * that will be released on its own). No-op for inline and interned strings. */
 void         iron_string_retain(const Iron_String *s);
+/* In-place construction for producers of binary data (iron_string.c):
+ * alloc gives `byte_len` writable bytes through *bytes, seal keeps the
+ * first `byte_len` once they are written. *s must not move in between. */
+void         iron_string_alloc_bytes(Iron_String *s, size_t byte_len, char **bytes);
+void         iron_string_seal_bytes(Iron_String *s, size_t byte_len);
 
 /* ── Phase 26 POL-06: rc policy runtime API ──────────────────────────────────
  *
@@ -1055,6 +1087,24 @@ IRON_CHECK_FN void iron_dbg_assert(bool cond, Iron_String msg) {
 #define Iron_assert(...) iron_dbg_assert(__VA_ARGS__)
 #endif
 Iron_String Iron_read_file(Iron_String path);
+/* read_file without the panic: 0 and the contents in *out, or 1 (cannot
+ * open) / 2 (read error) and nothing allocated. */
+int iron_read_file_try(Iron_String path, Iron_String *out);
+#ifdef IRON_DEBUG_TRAPS_ON
+/* --debug: a read_file that would panic traps in the Iron function first;
+ * continuing runs Iron_read_file, which panics as usual. */
+IRON_CHECK_FN Iron_String iron_dbg_read_file(const char *f, int l, Iron_String path) {
+    Iron_String s;
+    int err = iron_read_file_try(path, &s);
+    if (err == 0) return s;
+    if (iron_debug_panic_stop(f, l, err == 1 ? "read_file: cannot open '%s'"
+                                             : "read_file: error reading '%s'",
+                              iron_string_cstr(&path)))
+        IRON_DEBUG_BREAK();
+    return (Iron_read_file)(path);
+}
+#define Iron_read_file(...) iron_dbg_read_file(IRON_SITE, __VA_ARGS__)
+#endif
 
 /* ── Phase 78 FMT — Int/Int32/Float → String conversion ─────────────────
  * Defined in src/runtime/iron_fmt.c. Consumed by the Iron-side stubs in
@@ -1981,6 +2031,7 @@ int64_t               Iron_string_count(Iron_String self, Iron_String sub);
 int64_t               Iron_string_rindex_of(Iron_String self, Iron_String sub);
 int64_t               Iron_string_byte_at(Iron_String self, int64_t i);
 Iron_String           Iron_string_from_byte(int64_t b);
+Iron_String           Iron_string_byte_slice(Iron_String self, int64_t start, int64_t end_idx);
 int64_t               Iron_string_byte_len(Iron_String self);
 void                  Iron_string_release(Iron_String self);
 

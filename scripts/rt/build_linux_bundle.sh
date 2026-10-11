@@ -21,9 +21,9 @@
 #   JOBS             parallel jobs (default: nproc)
 #   IRON_COMMIT      the short commit hash recorded in the manifest (default: git rev-parse --short HEAD)
 #
-# The TLS module is built twice: libiron_tls.a against a static OpenSSL
-# (libssl.a, libcrypto.a, shipped too) for programs that import http or
-# websocket, and libiron_tls_none.a for the rest.
+# The TLS and crypto modules are built twice: libiron_tls.a against a
+# static OpenSSL (libssl.a, libcrypto.a, shipped too) for programs that
+# import http, websocket or crypto, and libiron_tls_none.a for the rest.
 #
 # Writes <out-dir>/iron-rt-<version>-<target>/ with lib/ (libiron_rt.a,
 # libc.a, crt1.o, crti.o, crtn.o, libclang_rt.builtins.a) and a rt.txt
@@ -129,7 +129,8 @@ sources=$(cd "$here" && ls src/util/stb_ds_impl.c src/util/arena.c src/util/strb
     src/runtime/iron_panic.c src/runtime/iron_leakcheck.c src/runtime/iron_arena_rt.c \
     src/runtime/iron_os.c \
     src/stdlib/iron_math.c src/stdlib/iron_io.c src/stdlib/iron_time.c src/stdlib/iron_log.c \
-    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_websocket.c src/stdlib/iron_json.c)
+    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_websocket.c \
+    src/stdlib/iron_encoding.c src/stdlib/iron_json.c)
 cflags=(--target="$triple" --sysroot="$musl_prefix" -std=gnu17 -fwrapv -fno-strict-aliasing
         -O2 -fPIC -I "$here/src" -I "$here/src/stdlib" -I "$here/src/vendor" -D_GNU_SOURCE)
 for s in $sources; do
@@ -138,11 +139,14 @@ for s in $sources; do
 done
 rm -f "$dest/lib/libiron_rt.a" "$dest/lib/libiron_tls.a" "$dest/lib/libiron_tls_none.a"
 "$tc/bin/llvm-ar" rcs "$dest/lib/libiron_rt.a" "$objs"/*.o
-"$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_tls.c" -o "$work/iron_tls_none.o"
-"$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
-    -c "$here/src/stdlib/iron_tls.c" -o "$work/iron_tls.o"
-"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls_none.a" "$work/iron_tls_none.o"
-"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/iron_tls.o"
+# The crypto module rides with TLS: it needs the same libcrypto.
+for m in tls crypto; do
+    "$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_$m.c" -o "$work/iron_${m}_none.o"
+    "$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
+        -c "$here/src/stdlib/iron_$m.c" -o "$work/iron_$m.o"
+done
+"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls_none.a" "$work/iron_tls_none.o" "$work/iron_crypto_none.o"
+"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/iron_tls.o" "$work/iron_crypto.o"
 cp "$ossl_lib/libssl.a" "$ossl_lib/libcrypto.a" "$dest/lib/"
 
 cp "$musl_prefix/lib/libc.a" "$musl_prefix/lib/crt1.o" "$musl_prefix/lib/crti.o" "$musl_prefix/lib/crtn.o" "$dest/lib/"
