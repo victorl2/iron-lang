@@ -14,7 +14,7 @@
 #   lib/clang_rt.builtins.lib  the compiler builtins
 #   lib/iron_tls.lib, libssl.lib, libcrypto.lib
 #                            the TLS module against a static OpenSSL, for
-#                            programs that import http or websocket
+#                            programs that import http, websocket or crypto
 #   lib/iron_tls_none.lib    the TLS module without OpenSSL, for the rest
 #   lib/raylib.lib           raylib (GLFW on Win32, OpenGL) and Iron's raylib
 #                            shim, for programs that import raylib
@@ -116,7 +116,8 @@ sources=$(cd "$here" && ls src/util/stb_ds_impl.c src/util/arena.c src/util/strb
     src/runtime/iron_panic.c src/runtime/iron_leakcheck.c src/runtime/iron_arena_rt.c \
     src/runtime/iron_os.c \
     src/stdlib/iron_math.c src/stdlib/iron_io.c src/stdlib/iron_time.c src/stdlib/iron_log.c \
-    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_websocket.c)
+    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_websocket.c \
+    src/stdlib/iron_encoding.c)
 for s in $sources; do
     o="$work/objs/$(echo "$s" | tr '/' '_' | sed 's/\.c$/.obj/')"
     "$clang" "${cflags[@]}" -c "$here/$s" -o "$o"
@@ -124,11 +125,14 @@ done
 rm -f "$dest/lib/iron_rt.lib"
 "$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_rt.lib")" "$work"/objs/*.obj
 mkdir -p "$work/tls"
-"$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_tls.c" -o "$work/tls/iron_tls_none.obj"
-"$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
-    -c "$here/src/stdlib/iron_tls.c" -o "$work/tls/iron_tls.obj"
-"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls_none.lib")" "$work/tls/iron_tls_none.obj"
-"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls.lib")" "$work/tls/iron_tls.obj"
+# The crypto module rides with TLS: it needs the same libcrypto.
+for m in tls crypto; do
+    "$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_$m.c" -o "$work/tls/iron_${m}_none.obj"
+    "$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
+        -c "$here/src/stdlib/iron_$m.c" -o "$work/tls/iron_$m.obj"
+done
+"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls_none.lib")" "$work/tls/iron_tls_none.obj" "$work/tls/iron_crypto_none.obj"
+"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls.lib")" "$work/tls/iron_tls.obj" "$work/tls/iron_crypto.obj"
 cp "$ossl_prefix/lib/libssl.lib" "$ossl_prefix/lib/libcrypto.lib" "$dest/lib/"
 
 # raylib: each source is its own translation unit (rlgl.h and glad.h have

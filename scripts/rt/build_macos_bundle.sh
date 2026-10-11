@@ -17,7 +17,7 @@
 #   lib/libclang_rt.builtins.a   the compiler builtins (libclang_rt.osx.a)
 #   lib/libiron_tls.a, libssl.a, libcrypto.a
 #                                the TLS module against a static OpenSSL, for
-#                                programs that import http or websocket
+#                                programs that import http, websocket or crypto
 #   lib/libiron_tls_none.a       the TLS module without OpenSSL, for the rest
 #
 # ld64.lld links a program against the stub instead of the SDK, so any host
@@ -102,7 +102,8 @@ sources=$(cd "$here" && ls src/util/stb_ds_impl.c src/util/arena.c src/util/strb
     src/runtime/iron_panic.c src/runtime/iron_leakcheck.c src/runtime/iron_arena_rt.c \
     src/runtime/iron_os.c \
     src/stdlib/iron_math.c src/stdlib/iron_io.c src/stdlib/iron_time.c src/stdlib/iron_log.c \
-    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_websocket.c)
+    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_websocket.c \
+    src/stdlib/iron_encoding.c)
 cflags=(--target="$triple" -isysroot "$sdk" -std=gnu17 -fwrapv -fno-strict-aliasing -O2
         -I "$here/src" -I "$here/src/stdlib" -I "$here/src/vendor")
 for s in $sources; do
@@ -113,11 +114,14 @@ rm -f "$dest/lib/libiron_rt.a"
 "$tc/bin/llvm-ar" rcs "$dest/lib/libiron_rt.a" "$work"/objs/*.o
 cp "$builtins_src" "$dest/lib/libclang_rt.builtins.a"
 mkdir -p "$work/tls"
-"$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_tls.c" -o "$work/tls/iron_tls_none.o"
-"$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
-    -c "$here/src/stdlib/iron_tls.c" -o "$work/tls/iron_tls.o"
-"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls_none.a" "$work/tls/iron_tls_none.o"
-"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/tls/iron_tls.o"
+# The crypto module rides with TLS: it needs the same libcrypto.
+for m in tls crypto; do
+    "$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_$m.c" -o "$work/tls/iron_${m}_none.o"
+    "$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
+        -c "$here/src/stdlib/iron_$m.c" -o "$work/tls/iron_$m.o"
+done
+"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls_none.a" "$work/tls/iron_tls_none.o" "$work/tls/iron_crypto_none.o"
+"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/tls/iron_tls.o" "$work/tls/iron_crypto.o"
 cp "$ossl_prefix/lib/libssl.a" "$ossl_prefix/lib/libcrypto.a" "$dest/lib/"
 
 # raylib: each source is its own translation unit, as build.c compiles

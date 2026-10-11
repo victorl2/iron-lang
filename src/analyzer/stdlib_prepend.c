@@ -324,6 +324,18 @@ int iron_stdlib_prepend(char **source_io, const char *source_path, const char *b
                                       line_markers);
     }
 
+    /* Hex and Base64 codecs, and the crypto module (OpenSSL backed). */
+    if (iron_detect_import(*source_io, source_path, "encoding", &detect_arena)) {
+        stdlib_prepended_lines +=
+            check_prepend_marked_file(source_io, base_dir, "stdlib/encoding.iron",
+                                      line_markers);
+    }
+    if (iron_detect_import(*source_io, source_path, "crypto", &detect_arena)) {
+        stdlib_prepended_lines +=
+            check_prepend_marked_file(source_io, base_dir, "stdlib/crypto.iron",
+                                      line_markers);
+    }
+
     /* Phase 59 05: detect "import url" and prepend url.iron (pure Iron,
      * no C backing) so `iron check` sees the Url/Url_Builder/UrlError
      * decls. String primitives rindex_of / byte_at / from_byte used by
