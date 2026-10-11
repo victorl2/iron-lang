@@ -2540,6 +2540,7 @@ Simple functions on `IO`:
 | `read_file(path) -> String`, `write_file(path, content)`, `append_file(path, content)` | whole-file text I/O (an unreadable file reads as `""`) |
 | `read_lines(path) -> [String]` | the lines of a file |
 | `read_line() -> String` | one line from standard input |
+| `write_stdout(s) -> Int`, `write_stderr(s) -> Int` | write all of `s` at once without buffering (lines from several threads do not interleave; println's buffer is flushed first); the bytes written, or -1 |
 | `file_exists(path) -> Bool`, `is_dir(path) -> Bool` | tests |
 | `create_dir(path)`, `delete_file(path)` | directories and deletion |
 | `list_files(dir) -> String` | the entries of a directory, one per line |
@@ -2616,6 +2617,16 @@ true 2000 false
 not set), `OS.env_or(name, fallback) -> String` returns `fallback` instead,
 and `OS.has_env(name) -> Bool` tests for it (an empty value counts as set).
 Names and values are UTF-8 on every platform.
+
+For long-running programs: `OS.trap_shutdown_signals()` makes SIGINT and
+SIGTERM (Ctrl+C, Ctrl+Break and closing the console on Windows) set a flag
+instead of ending the process, and `OS.shutdown_signal() -> Int` returns
+the first such signal received (2 or 15), or 0, for the program to poll and
+shut down cleanly; a second signal ends the process at once.
+`OS.exit(code)` ends the process with an exit status (after flushing
+standard output; drops, defers and other tasks do not run),
+`OS.pid() -> Int` is the process id and `OS.cpu_count() -> Int` the
+number of CPUs the process may run on (its affinity mask on Linux).
 
 ```iron
 import os
