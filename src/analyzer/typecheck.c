@@ -683,6 +683,26 @@ static bool is_lvalue_expression(const Iron_Node *expr) {
     }
 }
 
+/* An address into an inline field or fixed array inside a growable list
+ * moves with the outer element too. Walk the whole storage path, rather
+ * than checking only an immediate index operand (#680). */
+static bool address_roots_in_growable_list(Iron_Node *expr) {
+    while (expr) {
+        if (expr->kind == IRON_NODE_FIELD_ACCESS) {
+            expr = ((Iron_FieldAccess *)expr)->object;
+        } else if (expr->kind == IRON_NODE_INDEX) {
+            Iron_Node *obj = ((Iron_IndexExpr *)expr)->object;
+            Iron_Type *t = obj ? ((Iron_ExprNode *)obj)->resolved_type : NULL;
+            if (t && t->kind == IRON_TYPE_ARRAY && t->array.size < 0 &&
+                !t->array.is_bounded) return true;
+            expr = obj;
+        } else {
+            return false;
+        }
+    }
+    return false;
+}
+
 /* Phase 20 PTR-07 (Plan 20-02a): set is_auto_address_target=true on the
  * given expression when its kind is one of the supported lvalue shapes
  * (IDENT, FIELD_ACCESS, INDEX). Pitfall 4 lock: flag-on-existing-node
@@ -4966,20 +4986,15 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                  * checked against; only fixed-size arrays give stable
                  * element addresses. A borrow for the duration of a call
                  * (`f(&list[i])`) is allowed, like auto-addressing. */
-                if (ue->operand->kind == IRON_NODE_INDEX && !ue->is_call_arg) {
-                    Iron_Node *lo = ((Iron_IndexExpr *)ue->operand)->object;
-                    Iron_Type *lt = lo ? ((Iron_ExprNode *)lo)->resolved_type : NULL;
-                    if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.size < 0 &&
-                        !lt->array.is_bounded) {
-                        emit_error(ctx, IRON_ERR_PTR_INTO_LIST, ue->span,
-                                   "cannot take the address of a list element;"
-                                   " the list may reallocate its elements",
-                                   "point at a fixed-size array element, or"
-                                   " store the element in a binding first");
-                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
-                        ue->resolved_type = result;
-                        break;
-                    }
+                if (!ue->is_call_arg && address_roots_in_growable_list(ue->operand)) {
+                    emit_error(ctx, IRON_ERR_PTR_INTO_LIST, ue->span,
+                               "cannot take the address of a list element or its field;"
+                               " the list may reallocate its elements",
+                               "point at a fixed-size array element, or"
+                               " store the element in a binding first");
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ue->resolved_type = result;
+                    break;
                 }
                 bool is_var_src = arg_source_is_mutable(ctx, ue->operand);
                 mark_requires_mutable(ctx, ue->operand);
