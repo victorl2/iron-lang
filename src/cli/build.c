@@ -493,6 +493,9 @@ static char *s_sl_crypto = NULL;
 /* stdlib/iron_json.c, compiled only into programs that `import json`. */
 static char *s_sl_json = NULL;
 static bool s_imports_json = false;
+/* stdlib/iron_mysql.c: compiled only into programs that import mysql
+ * (opts.use_mysql), so other programs do not pay for its compile time. */
+static char *s_sl_mysql = NULL;
 
 #ifdef _WIN32
 /* --debug on Windows (#312): Visual Studio views of Iron values. A natvis
@@ -674,6 +677,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     s_sl_crypto     = make_path(base_dir, "stdlib/iron_crypto.c");
     free(s_sl_json);
     s_sl_json = make_path(base_dir, "stdlib/iron_json.c");
+    free(s_sl_mysql);
+    s_sl_mysql      = make_path(base_dir, "stdlib/iron_mysql.c");
 
     if (!*rt_stb_out || !*rt_arena_out || !*rt_strbuf_out || !*rt_string_out ||
         !*rt_rc_out || !*rt_builtin_out || !*rt_threads_out || !*rt_collect_out ||
@@ -682,7 +687,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         !*sl_math_out || !*sl_io_out || !*sl_time_out || !*sl_log_out ||
         !*sl_hint_out || !*sl_net_out || !*sl_http_out || !*sl_tls_out ||
         !*sl_websocket_out || !s_sl_encoding || !s_sl_crypto ||
-        !s_sl_json) {
+        !s_sl_json || !s_sl_mysql) {
         return 1;
     }
 
@@ -762,6 +767,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = s_sl_encoding;
     if (opts.wants_tls) argv_buf[ai++] = s_sl_crypto;  /* only importers pay for it */
     if (s_imports_json) argv_buf[ai++] = s_sl_json;
+    if (opts.use_mysql) argv_buf[ai++] = s_sl_mysql;
     if (opts.use_tls) {
         argv_buf[ai++] = "/DIRON_HAVE_OPENSSL=1";
 #ifdef IRON_CLI_OPENSSL_INCLUDE_DIR
@@ -794,6 +800,10 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         argv_buf[ai++] = "libcrypto.lib";
 #endif
         argv_buf[ai++] = "crypt32.lib";   /* trusted roots from the system store */
+        /* A static libcrypto also needs these (entropy, the service and
+         * fatal-error helpers); import libraries pull them in on their own. */
+        argv_buf[ai++] = "advapi32.lib";
+        argv_buf[ai++] = "user32.lib";
     }
     /* Output flag for clang-cl */
     {
@@ -880,6 +890,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = s_sl_encoding;
     if (opts.wants_tls) argv_buf[ai++] = s_sl_crypto;  /* only importers pay for it */
     if (s_imports_json) argv_buf[ai++] = s_sl_json;
+    if (opts.use_mysql) argv_buf[ai++] = s_sl_mysql;
     if (opts.use_tls) {
         argv_buf[ai++] = "-DIRON_HAVE_OPENSSL=1";
 #ifdef IRON_CLI_OPENSSL_INCLUDE_DIR
@@ -1028,6 +1039,7 @@ static void free_src_list(char *base_dir,
     free(s_sl_encoding); s_sl_encoding = NULL;
     free(s_sl_crypto); s_sl_crypto = NULL;
     free(s_sl_json); s_sl_json = NULL;
+    free(s_sl_mysql); s_sl_mysql = NULL;
     free(rt_fmt);
     free(rt_heap_track);
     free(rt_panic);
@@ -1880,6 +1892,21 @@ int iron_build(const char *source_path, const char *output_path,
     if (s_imports_json) {
         stdlib_prepended_lines +=
             prepend_marked_file(&source, base_dir, "stdlib/json.iron",
+                                line_markers);
+    }
+
+    /* MySQL client: native protocol over TCP with TLS and the hashing its
+     * authentication needs from libcrypto, so it links OpenSSL like http. */
+    if (iron_detect_import(source, source_path, "mysql", &detect_arena)) {
+        opts.use_mysql = true;
+        opts.wants_tls = true;
+#ifdef IRON_CLI_HAVE_OPENSSL
+        opts.use_tls = true;
+#else
+        opts.use_tls = false;
+#endif
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/mysql.iron",
                                 line_markers);
     }
 

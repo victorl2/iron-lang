@@ -17,7 +17,7 @@
 #   lib/libclang_rt.builtins.a   the compiler builtins (libclang_rt.osx.a)
 #   lib/libiron_tls.a, libssl.a, libcrypto.a
 #                                the TLS module against a static OpenSSL, for
-#                                programs that import http, websocket or crypto
+#                                programs that import http, websocket, crypto or mysql
 #   lib/libiron_tls_none.a       the TLS module without OpenSSL, for the rest
 #
 # ld64.lld links a program against the stub instead of the SDK, so any host
@@ -126,7 +126,12 @@ for m in tls crypto; do
         -c "$here/src/stdlib/iron_$m.c" -o "$work/tls/iron_$m.o"
 done
 "$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls_none.a" "$work/tls/iron_tls_none.o" "$work/tls/iron_crypto_none.o"
-"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/tls/iron_tls.o" "$work/tls/iron_crypto.o"
+# The MySQL client needs libcrypto (auth hashing, RSA) and TLS: it ships in
+# the OpenSSL flavour only, which build.c links for a program that imports
+# mysql.
+"$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
+    -c "$here/src/stdlib/iron_mysql.c" -o "$work/tls/iron_mysql.o"
+"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/tls/iron_tls.o" "$work/tls/iron_crypto.o" "$work/tls/iron_mysql.o"
 cp "$ossl_prefix/lib/libssl.a" "$ossl_prefix/lib/libcrypto.a" "$dest/lib/"
 
 # raylib: each source is its own translation unit, as build.c compiles

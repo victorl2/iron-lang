@@ -963,10 +963,25 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 return NULL;
             }
 
-            /* Create tmp var for the tuple init. */
+            /* Create tmp var for the tuple init. A tuple that a call, a
+             * method call or an await produced belongs to nothing else, so
+             * its elements move into the bindings (`__tuple_mv_`, see
+             * hir_to_lir.c). A tuple binding (`val (a, b) = t`) keeps its
+             * elements: they are copied, or destructuring `t` twice freed
+             * them twice. */
+            bool moves = init_expr &&
+                         (init_expr->kind == IRON_HIR_EXPR_CALL ||
+                          init_expr->kind == IRON_HIR_EXPR_METHOD_CALL ||
+                          init_expr->kind == IRON_HIR_EXPR_AWAIT);
             char tmp_name[64];
-            snprintf(tmp_name, sizeof(tmp_name), "__tuple_tmp_%d",
+            snprintf(tmp_name, sizeof(tmp_name), "%s%d",
+                     moves ? "__tuple_mv_" : "__tuple_tmp_",
                      ctx->lift_counter++);
+            /* The identifiers below keep a pointer to the name, so it must
+             * outlive this frame (it pointed into tmp_name). */
+            const char *tmp_name_kept = iron_arena_strdup(ctx->module->arena, tmp_name,
+                                                          strlen(tmp_name));
+            if (!tmp_name_kept) iron_oom_abort("hir_lower.c:tuple temporary name");
             IronHIR_VarId tmp_id = iron_hir_alloc_var(mod, tmp_name,
                                                        tuple_ty, false);
             iron_hir_block_add_stmt(blk,
@@ -999,7 +1014,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 memcpy((char *)fname_arena, field_name, strlen(field_name) + 1);
 
                 IronHIR_Expr *tmp_ref = iron_hir_expr_ident(mod, tmp_id,
-                                                             tmp_name,
+                                                             tmp_name_kept,
                                                              tuple_ty, span);
                 IronHIR_Expr *elem_expr = iron_hir_expr_field_access(mod,
                                                                       tmp_ref,

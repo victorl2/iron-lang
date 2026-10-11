@@ -23,7 +23,8 @@
 #
 # The TLS and crypto modules are built twice: libiron_tls.a against a
 # static OpenSSL (libssl.a, libcrypto.a, shipped too) for programs that
-# import http, websocket or crypto, and libiron_tls_none.a for the rest.
+# import http, websocket, crypto or mysql (the MySQL client is in it too),
+# and libiron_tls_none.a for the rest.
 #
 # Writes <out-dir>/iron-rt-<version>-<target>/ with lib/ (libiron_rt.a,
 # libc.a, crt1.o, crti.o, crtn.o, libclang_rt.builtins.a) and a rt.txt
@@ -146,7 +147,12 @@ for m in tls crypto; do
         -c "$here/src/stdlib/iron_$m.c" -o "$work/iron_$m.o"
 done
 "$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls_none.a" "$work/iron_tls_none.o" "$work/iron_crypto_none.o"
-"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/iron_tls.o" "$work/iron_crypto.o"
+# The MySQL client needs libcrypto (auth hashing, RSA) and TLS: it ships in
+# the OpenSSL flavour only, which build.c links for a program that imports
+# mysql.
+"$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
+    -c "$here/src/stdlib/iron_mysql.c" -o "$work/iron_mysql.o"
+"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/iron_tls.o" "$work/iron_crypto.o" "$work/iron_mysql.o"
 cp "$ossl_lib/libssl.a" "$ossl_lib/libcrypto.a" "$dest/lib/"
 
 cp "$musl_prefix/lib/libc.a" "$musl_prefix/lib/crt1.o" "$musl_prefix/lib/crti.o" "$musl_prefix/lib/crtn.o" "$dest/lib/"

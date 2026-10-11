@@ -1,0 +1,157 @@
+-- MySQL client throughput: point SELECT by primary key and single-row
+-- INSERT with prepared statements, on one connection and from N tasks
+-- sharing a pool. Prints one line per workload: name, operations,
+-- seconds, operations per second. tests/mysql/bench/run_bench.sh runs it
+-- next to the libmysqlclient baseline (bench_libmysql.c).
+--
+--   BENCH_URL      mysql://... (default: IRON_MYSQL_URL)
+--   BENCH_OPS      operations per workload (default 50000)
+--   BENCH_THREADS  tasks for the pooled workloads (default 8, at most 16)
+--   BENCH_ROWS     rows in the SELECT table (default 10000)
+import mysql
+import os
+import time
+
+func point_selects(conn: *var MysqlConn, start: Int, ops: Int, rows: Int) -> Int {
+    var found = 0
+    var i = 0
+    while i < ops {
+        val id = ((start + i) * 7919) % rows + 1
+        val r = conn.exec("SELECT id, name, value FROM bench_t WHERE id = ?", [MysqlValue.Int(id)])
+        if r.row_count() == 1 {
+            val v = r.int(0, 2)
+            if v != null and v == id * 3 {
+                found += 1
+            }
+        }
+        i += 1
+    }
+    return found
+}
+
+func inserts(conn: *var MysqlConn, start: Int, ops: Int) -> Int {
+    var done = 0
+    var i = 0
+    while i < ops {
+        val r = conn.exec("INSERT INTO bench_ins (name, value) VALUES (?, ?)", [MysqlValue.Text("row-name"), MysqlValue.Int(start + i)])
+        if r.affected_rows() == 1 {
+            done += 1
+        }
+        i += 1
+    }
+    return done
+}
+
+func pooled_selects(shared: rc MysqlPool, task: Int, ops: Int, rows: Int) -> Int {
+    var found = 0
+    var i = 0
+    while i < ops {
+        val id = ((task * 1000003 + i) * 7919) % rows + 1
+        val r = shared.exec("SELECT id, name, value FROM bench_t WHERE id = ?", [MysqlValue.Int(id)])
+        if r.row_count() == 1 {
+            found += 1
+        }
+        i += 1
+    }
+    return found
+}
+
+func pooled_inserts(shared: rc MysqlPool, task: Int, ops: Int) -> Int {
+    var done = 0
+    var i = 0
+    while i < ops {
+        val r = shared.exec("INSERT INTO bench_ins (name, value) VALUES (?, ?)", [MysqlValue.Text("row-name"), MysqlValue.Int(task * 1000000 + i)])
+        if r.affected_rows() == 1 {
+            done += 1
+        }
+        i += 1
+    }
+    return done
+}
+
+-- One task per slot below `threads`; each runs `per` operations.
+func run_pool(shared: rc MysqlPool, threads: Int, per: Int, rows: Int, insert: Bool) -> Int {
+    val t0 = spawn("b0") { if 0 < threads { if insert { return pooled_inserts(shared, 0, per) } return pooled_selects(shared, 0, per, rows) } return 0 }
+    val t1 = spawn("b1") { if 1 < threads { if insert { return pooled_inserts(shared, 1, per) } return pooled_selects(shared, 1, per, rows) } return 0 }
+    val t2 = spawn("b2") { if 2 < threads { if insert { return pooled_inserts(shared, 2, per) } return pooled_selects(shared, 2, per, rows) } return 0 }
+    val t3 = spawn("b3") { if 3 < threads { if insert { return pooled_inserts(shared, 3, per) } return pooled_selects(shared, 3, per, rows) } return 0 }
+    val t4 = spawn("b4") { if 4 < threads { if insert { return pooled_inserts(shared, 4, per) } return pooled_selects(shared, 4, per, rows) } return 0 }
+    val t5 = spawn("b5") { if 5 < threads { if insert { return pooled_inserts(shared, 5, per) } return pooled_selects(shared, 5, per, rows) } return 0 }
+    val t6 = spawn("b6") { if 6 < threads { if insert { return pooled_inserts(shared, 6, per) } return pooled_selects(shared, 6, per, rows) } return 0 }
+    val t7 = spawn("b7") { if 7 < threads { if insert { return pooled_inserts(shared, 7, per) } return pooled_selects(shared, 7, per, rows) } return 0 }
+    val t8 = spawn("b8") { if 8 < threads { if insert { return pooled_inserts(shared, 8, per) } return pooled_selects(shared, 8, per, rows) } return 0 }
+    val t9 = spawn("b9") { if 9 < threads { if insert { return pooled_inserts(shared, 9, per) } return pooled_selects(shared, 9, per, rows) } return 0 }
+    val t10 = spawn("b10") { if 10 < threads { if insert { return pooled_inserts(shared, 10, per) } return pooled_selects(shared, 10, per, rows) } return 0 }
+    val t11 = spawn("b11") { if 11 < threads { if insert { return pooled_inserts(shared, 11, per) } return pooled_selects(shared, 11, per, rows) } return 0 }
+    val t12 = spawn("b12") { if 12 < threads { if insert { return pooled_inserts(shared, 12, per) } return pooled_selects(shared, 12, per, rows) } return 0 }
+    val t13 = spawn("b13") { if 13 < threads { if insert { return pooled_inserts(shared, 13, per) } return pooled_selects(shared, 13, per, rows) } return 0 }
+    val t14 = spawn("b14") { if 14 < threads { if insert { return pooled_inserts(shared, 14, per) } return pooled_selects(shared, 14, per, rows) } return 0 }
+    val t15 = spawn("b15") { if 15 < threads { if insert { return pooled_inserts(shared, 15, per) } return pooled_selects(shared, 15, per, rows) } return 0 }
+    return (await t0) + (await t1) + (await t2) + (await t3) + (await t4) + (await t5) + (await t6) + (await t7) + (await t8) + (await t9) + (await t10) + (await t11) + (await t12) + (await t13) + (await t14) + (await t15)
+}
+
+func report(name: String, ops: Int, ok: Int, start_ns: Int) {
+    val secs = Float(Time.now_ns() - start_ns) / 1000000000.0
+    val qps = Int(Float(ops) / secs)
+    println("{name} ops={ops} ok={ok} secs={secs} qps={qps}")
+}
+
+func main() {
+    val url = OS.env_or("BENCH_URL", OS.env_or("IRON_MYSQL_URL", ""))
+    if url == "" {
+        println("set BENCH_URL or IRON_MYSQL_URL")
+        return
+    }
+    val ops = OS.env_or("BENCH_OPS", "50000").to_int()
+    var threads = OS.env_or("BENCH_THREADS", "8").to_int()
+    if threads > 16 {
+        threads = 16
+    }
+    val rows = OS.env_or("BENCH_ROWS", "10000").to_int()
+
+    var conn = Mysql.connect_url(url)
+    if conn.error.failed() {
+        println("connect: {conn.error.message}")
+        return
+    }
+    conn.run("DROP TABLE IF EXISTS bench_t")
+    conn.run("CREATE TABLE bench_t (id INT PRIMARY KEY, name VARCHAR(64) NOT NULL, value INT NOT NULL)")
+    conn.run("SET SESSION cte_max_recursion_depth = 1000000")
+    val fill = conn.run("INSERT INTO bench_t (id, name, value) WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < {rows}) SELECT n, CONCAT('name-', n), n * 3 FROM s")
+    if fill.failed() {
+        println("fill: {fill.message}")
+        return
+    }
+    conn.run("DROP TABLE IF EXISTS bench_ins")
+    conn.run("CREATE TABLE bench_ins (id BIGINT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(64) NOT NULL, value BIGINT NOT NULL)")
+
+    -- Warm up the server's buffer pool and the statement cache.
+    point_selects(conn, 0, rows, rows)
+
+    var t = Time.now_ns()
+    var ok = point_selects(conn, 1, ops, rows)
+    report("iron select single", ops, ok, t)
+
+    t = Time.now_ns()
+    ok = inserts(conn, 0, ops)
+    report("iron insert single", ops, ok, t)
+
+    val (cfg, _) = Mysql.parse_url(url)
+    var popts = MysqlPoolOptions(threads, threads)
+    popts.health_check = 0
+    val shared = Mysql.open_pool(cfg, popts)
+    if not shared.ok() {
+        println("pool: {shared.error.message}")
+        return
+    }
+    val per = ops / threads
+    run_pool(shared, threads, rows / threads, rows, false)
+
+    t = Time.now_ns()
+    ok = run_pool(shared, threads, per, rows, false)
+    report("iron select pool x{threads}", per * threads, ok, t)
+
+    t = Time.now_ns()
+    ok = run_pool(shared, threads, per, rows, true)
+    report("iron insert pool x{threads}", per * threads, ok, t)
+}

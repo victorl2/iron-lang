@@ -1,0 +1,49 @@
+-- The right operand of `and` sees what a true left operand proves, and the
+-- right operand of `or` what a false one proves: `x != null and x < 5`,
+-- `s == null or s.len() == 0`. Ordering comparisons there used to emit C
+-- that compared the optional itself, and field or method access was
+-- rejected.
+object Box2 {
+    val v: Int
+}
+
+func maybe(n: Int) -> Int? {
+    if n == 0 {
+        return null
+    }
+    return n
+}
+
+func mbox(n: Int) -> Box2? {
+    if n == 0 {
+        return null
+    }
+    return Box2(n)
+}
+
+func maybe_s(n: Int) -> String? {
+    if n == 0 {
+        return null
+    }
+    return "s{n}"
+}
+
+func main() {
+    val x = maybe(3)
+    val z = maybe(0)
+    if x == null or x < 5 {
+        println("a")
+    }
+    if x != null and x < 5 {
+        println("b")
+    }
+    if z != null and z < 5 {
+        println("c")
+    }
+    val b = mbox(2)
+    val nb = mbox(0)
+    println("{b != null and b.v == 2} {nb != null and nb.v == 2} {nb == null or nb.v == 2}")
+    val s = maybe_s(1)
+    val ns = maybe_s(0)
+    println("{s != null and s.len() == 2} {ns == null or ns.len() == 2} {not (ns != null and ns.len() > 0)}")
+}

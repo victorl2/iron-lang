@@ -1,0 +1,138 @@
+-- Packets of 16 MB and more are split on the wire in both directions:
+-- large parameters and query strings going out, large rows coming back,
+-- including the payload sizes that land exactly on the 0xFFFFFF boundary.
+-- max_allowed_packet is enforced on both sides as errors, not crashes.
+-- The server needs max_allowed_packet >= 64 MB.
+import mysql
+import os
+
+var failures = 0
+
+func is_int(v: Int?, want: Int) -> Bool {
+    return v != null and v == want
+}
+
+func is_uint(v: UInt?, want: UInt) -> Bool {
+    return v != null and v == want
+}
+
+func is_float(v: Float?, want: Float) -> Bool {
+    return v != null and v == want
+}
+
+func is_text(v: String?, want: String) -> Bool {
+    return v != null and v == want
+}
+
+func is_bool(v: Bool?, want: Bool) -> Bool {
+    return v != null and v == want
+}
+
+func check(cond: Bool, what: String) {
+    if cond {
+        println("ok   {what}")
+    } else {
+        println("FAIL {what}")
+        failures += 1
+    }
+}
+
+-- A deterministic binary pattern of n bytes.
+func pattern(n: Int) -> String {
+    var block = ""
+    var i = 0
+    while i < 256 {
+        block = block + String.from_byte((i * 37 + 11) % 256)
+        i += 1
+    }
+    val whole = block.repeat(n / 256)
+    var rest = ""
+    var j = 0
+    while j < n % 256 {
+        rest = rest + String.from_byte((j * 37 + 11) % 256)
+        j += 1
+    }
+    return whole + rest
+}
+
+func main() {
+    val url = OS.env_or("IRON_MYSQL_URL", "")
+    if url == "" {
+        println("SKIP: IRON_MYSQL_URL is not set")
+        return
+    }
+    var conn = Mysql.connect_url(url)
+    check(conn.ok(), "connect: {conn.error.message}")
+    if conn.error.failed() {
+        return
+    }
+    val maxp = conn.query("SELECT @@max_allowed_packet")
+    val server_max = maxp.int(0, 0)
+    if server_max == null or server_max < 64 * 1024 * 1024 {
+        println("SKIP: server max_allowed_packet is below 64 MB")
+        return
+    }
+    conn.run("DROP TABLE IF EXISTS iron_blobs")
+    check(conn.run("CREATE TABLE iron_blobs (id INT PRIMARY KEY, data LONGBLOB)").ok(), "create table")
+
+    val sizes = [16777210, 16777215, 16777216, 20 * 1024 * 1024, 33554433]
+    var id = 0
+    for size in sizes {
+        id += 1
+        val data = pattern(size)
+        val ins = conn.exec("INSERT INTO iron_blobs (id, data) VALUES (?, ?)", [MysqlValue.Int(id), MysqlValue.Bytes(data)])
+        check(ins.ok(), "insert {size} bytes: {ins.error.message}")
+        val bin = conn.exec("SELECT data, LENGTH(data) FROM iron_blobs WHERE id = ?", [MysqlValue.Int(id)])
+        check(bin.ok() and is_int(bin.int(0, 1), size), "binary read length {size}: {bin.error.message}")
+        check(is_text(bin.bytes(0, 0), data), "binary read content {size}")
+        val txt = conn.query("SELECT data FROM iron_blobs WHERE id = {id}")
+        check(txt.ok() and is_text(txt.bytes(0, 0), data), "text read content {size}: {txt.error.message}")
+    }
+
+    -- Rows whose payload is exactly 0xFFFFFF bytes and one more: a 1-column
+    -- text row of n bytes has a 4-byte length prefix.
+    for n in [16777211, 16777212] {
+        val r = conn.query("SELECT REPEAT('x', {n})")
+        val s = r.text(0, 0)
+        if s != null {
+            check(s.byte_len() == n and s.starts_with("xxx"), "text row of {n + 4} bytes")
+        } else {
+            check(false, "text row of {n + 4} bytes: {r.error.message}")
+        }
+    }
+
+    -- A query string of exactly 0xFFFFFF payload bytes (command byte + SQL)
+    -- needs an empty packet after it.
+    val prefix = "SELECT LENGTH('"
+    val suffix = "')"
+    val fill = 16777215 - 1 - prefix.byte_len() - suffix.byte_len()
+    val big_sql = prefix + "y".repeat(fill) + suffix
+    val exact = conn.query(big_sql)
+    check(exact.ok() and is_int(exact.int(0, 0), fill), "query payload of exactly 0xFFFFFF bytes: {exact.error.message}")
+
+    -- Over the server's max_allowed_packet: refused before sending, and the
+    -- connection stays usable.
+    val too_big = pattern(server_max + 1)
+    val refused = conn.exec("INSERT INTO iron_blobs (id, data) VALUES (?, ?)", [MysqlValue.Int(99), MysqlValue.Bytes(too_big)])
+    check(refused.error.code == 7003, "statement over the server's max_allowed_packet is 7003 (got {refused.error.code})")
+    check(conn.is_open() and conn.ping().ok(), "connection usable after the refusal")
+
+    -- The client's own limit: a row larger than it ends the connection with
+    -- an error value.
+    val (base, _) = Mysql.parse_url(url)
+    var small = base
+    small.max_allowed_packet = 1024 * 1024
+    var limited = Mysql.connect(small)
+    check(limited.ok(), "connect with a 1 MB client limit")
+    val over = limited.query("SELECT REPEAT('z', 2000000)")
+    check(over.error.code == 7003, "row over the client limit is 7003 (got {over.error.code})")
+    check(not limited.is_open(), "connection closed after exceeding the client limit")
+
+    conn.run("DROP TABLE iron_blobs")
+    if failures == 0 {
+        println("PASS blobs")
+    } else {
+        println("FAILED blobs: {failures}")
+        assert(false, "blob checks failed")
+    }
+}

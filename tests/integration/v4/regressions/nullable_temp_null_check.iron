@@ -1,0 +1,16 @@
+-- An owned value that a call returns and the program only tests against
+-- null (`maybe_s(1) == null`, `if find(k) != null`) was never dropped:
+-- the null check released rc handles but not strings or objects.
+func maybe_s(n: Int) -> String? {
+    if n == 0 {
+        return null
+    }
+    return "a long heap string number {n} xxxxxxxxxxxxxxxx"
+}
+
+func main() {
+    println("{maybe_s(1) == null}")
+    if maybe_s(2) != null {
+        println("present")
+    }
+}

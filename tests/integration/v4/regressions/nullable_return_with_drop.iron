@@ -1,0 +1,45 @@
+-- A function returning T? while a droppable local (an object with a String
+-- field) is in scope: the return value went through the cleanup path's
+-- spill slot typed as T, and LIR verification rejected the reload (E0905).
+object Wrap {
+    val code: Int
+    val msg: String
+}
+
+func pair(n: Int) -> (Int, Wrap) {
+    return (n * 2, Wrap(n, "msg {n}"))
+}
+
+func lookup(n: Int) -> Int? {
+    val (v, w) = pair(n)
+    if w.code < 0 {
+        return null
+    }
+    return v
+}
+
+func name_of(n: Int) -> String? {
+    val w = Wrap(n, "name {n}")
+    if n == 0 {
+        return null
+    }
+    return w.msg
+}
+
+object Holder {
+    val base: Int
+    readonly func find(n: Int) -> Int? {
+        val w = Wrap(n, "x")
+        if w.code > 100 {
+            return null
+        }
+        return self.base + w.code
+    }
+}
+
+func main() {
+    println("{lookup(4)} {lookup(-1)}")
+    println("{name_of(3)} {name_of(0)}")
+    val h = Holder(10)
+    println("{h.find(5)} {h.find(500)}")
+}
