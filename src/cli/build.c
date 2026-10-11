@@ -734,6 +734,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = "/clang:-ffp-contract=off";
     /* ...so clang's overflow warnings on the generated C are noise. */
     argv_buf[ai++] = "/clang:-Wno-integer-overflow";
+    argv_buf[ai++] = "/clang:-Wno-tautological-compare";
     /* The runtime uses the standard C library by name; the UCRT's
      * "unsafe" deprecation notes are noise on every build. */
     argv_buf[ai++] = "/D_CRT_SECURE_NO_WARNINGS";
@@ -828,6 +829,10 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = "-fwrapv";
     /* Overflow wraps by definition: clang's warning on the C is noise. */
     argv_buf[ai++] = "-Wno-integer-overflow";
+    /* `x != x` in Iron (a NaN test, or any comparison of a value with
+     * itself) is written as such in the C; clang's warning about it names
+     * the generated file, not the program. */
+    argv_buf[ai++] = "-Wno-tautological-compare";
     argv_buf[ai++] = "-fno-strict-aliasing";
     /* Float arithmetic rounds after every operation (section 10.6): with
      * the default contraction `a * b + c` became one fused multiply-add on
@@ -850,6 +855,20 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         argv_buf[ai++] = "-O0";
         argv_buf[ai++] = "-g";
         argv_buf[ai++] = "-fno-omit-frame-pointer";
+    }
+    /* IRON_CC_FLAGS: extra C compiler flags, after the ones above (so an
+     * -O level here wins). For the differential fuzzer (tests/fuzz/
+     * cg_fuzz.py), which builds the same program at every -O level, with
+     * -Werror and with -fsanitize=undefined. At most 8 flags. */
+    {
+        static char cc_flags_buf[512];
+        const char *env = getenv("IRON_CC_FLAGS");
+        if (env && *env && strlen(env) < sizeof(cc_flags_buf)) {
+            strcpy(cc_flags_buf, env);
+            int n = 0;
+            for (char *tok = strtok(cc_flags_buf, " "); tok && n < 8; tok = strtok(NULL, " "), n++)
+                argv_buf[ai++] = tok;
+        }
     }
     /* Phase 31 GA3 (Plan 31-01): debug builds get the full debug allocator —
      * 64B IronAllocHdr + poison-on-free + leak registry + atexit dump +
@@ -1098,6 +1117,10 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
     argv_buf[ai++] = "-fwrapv";
     /* Overflow wraps by definition: clang's warning on the C is noise. */
     argv_buf[ai++] = "-Wno-integer-overflow";
+    /* `x != x` in Iron (a NaN test, or any comparison of a value with
+     * itself) is written as such in the C; clang's warning about it names
+     * the generated file, not the program. */
+    argv_buf[ai++] = "-Wno-tautological-compare";
     argv_buf[ai++] = "-fno-strict-aliasing";
     /* Float arithmetic rounds after every operation (section 10.6): with
      * the default contraction `a * b + c` became one fused multiply-add on
@@ -1382,6 +1405,7 @@ static int invoke_cross(const char *c_file, const char *output, IronBuildOpts op
     cc[ci++] = "-std=gnu17";
     cc[ci++] = "-fwrapv";
     cc[ci++] = "-Wno-integer-overflow";
+    cc[ci++] = "-Wno-tautological-compare";
     cc[ci++] = "-fno-strict-aliasing";
     cc[ci++] = "-ffp-contract=off";
     cc[ci++] = opts.release ? "-O2" : "-O3";
@@ -1490,7 +1514,7 @@ static int invoke_clang(const char *c_file, const char *output,
     char *rl_src = NULL, *rl_i_flag = NULL;
     char *rl_glfw_src = NULL, *rl_glfw_i_flag = NULL;
 
-    const char *argv_buf[128];
+    const char *argv_buf[144];
     _Static_assert(sizeof(argv_buf)/sizeof(argv_buf[0]) >= 128,
                    "argv_buf too small — bump if adding new stdlib modules");
     int ai = 0;

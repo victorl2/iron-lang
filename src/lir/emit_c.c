@@ -3522,9 +3522,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = -(");
+        /* The explicit conversion: C computes `-` on 8 and 16 bit values in
+         * int, and clang warns when a constant result, such as -(-128) on
+         * Int8, does not fit the variable (the value wraps, as Iron's does). */
+        iron_strbuf_appendf(sb, " = (%s)(-(", emit_type_to_c(instr->type, ctx));
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ");\n");
+        iron_strbuf_appendf(sb, "));\n");
         break;
 
     case IRON_LIR_NOT:
@@ -3540,9 +3543,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = ~(");
+        /* The explicit conversion: C computes `~` on 8 and 16 bit values in
+         * int, and clang warns when a constant result, such as -(-128) on
+         * Int8, does not fit the variable (the value wraps, as Iron's does). */
+        iron_strbuf_appendf(sb, " = (%s)(~(", emit_type_to_c(instr->type, ctx));
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ");\n");
+        iron_strbuf_appendf(sb, "));\n");
         break;
 
     /* ── Memory ─────────────────────────────────────────────────────────── */
