@@ -176,6 +176,42 @@ def check_run(rng, tool, path, argv, work, in_pkg):
             unknown = unknown or a
     if unknown and r.returncode == 0:
         return 'accepted-unknown', f'{unknown} was accepted\n{ctx}'
+    # positional arguments (what is left after flags and their values)
+    pos, skip = [], False
+    for a in pre:
+        if skip:
+            skip = False
+            continue
+        if a in VALUE_FLAGS:
+            skip = True
+            continue
+        if a.startswith('-') and a != '-':
+            continue
+        pos.append(a)
+    if sub == 'init' or (tool == 'iron' and sub == 'fmt'):
+        return 'ok', ''
+    # any flag outside the plain known ones may be the reason a run failed
+    odd = any(a.startswith('-') and a not in FLAGS + VALUE_FLAGS for a in pre) or \
+        any(v in pre for v in VALUE_FLAGS)
+    unknown = unknown or (odd and 'odd') or ('unknown flag' in both and 'flag')
+    file_mode = tool == 'ironc' or any(a.endswith('.iron') for a in pos)
+    limit = (2 if sub == 'test' else 1) if file_mode else (1 if sub == 'test' else 0)
+    if len(pos) > limit and r.returncode == 0:
+        return 'accepted-extra', f'extra argument {pos[limit]!r} was accepted\n{ctx}'
+    if file_mode and pos and not unknown and len(pos) <= limit and r.returncode != 0:
+        first = pos[0]
+        full = os.path.join(cwd, first)
+        if first == '-' or len(first) > 4000:
+            return 'ok', ''
+        if not os.path.exists(full) and first not in both and 'cannot' not in both:
+            return 'unclear', f'missing {first!r} is not named\n{ctx}'
+    if file_mode and pos and sub in ('build', 'run', 'check', 'fmt'):
+        full = os.path.join(cwd, pos[0])
+        if os.path.isdir(full):
+            if r.returncode == 0:
+                return 'accepted-dir', f'directory {pos[0]!r} was accepted\n{ctx}'
+            if not unknown and len(pos) <= limit and 'directory' not in both:
+                return 'unclear', f'directory {pos[0]!r} not reported as one\n{ctx}'
     return 'ok', ''
 
 
