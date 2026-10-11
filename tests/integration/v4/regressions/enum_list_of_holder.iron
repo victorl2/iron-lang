@@ -1,0 +1,40 @@
+-- An enum whose payload is a list of an object that holds the enum
+-- (`enum J { Obj([Member]) }`, `object Member { val v: J }`): the enum's
+-- drop and copy glue call the list's free and clone before that list's
+-- IRON_LIST_DECL is emitted, which used to fail the C compile with an
+-- implicit declaration.
+object Member {
+    val key: String
+    val value: Tree
+}
+
+enum Tree {
+    Leaf(Int),
+    Node([Member]),
+}
+
+func total(t: Tree) -> Int {
+    match t {
+        Tree.Leaf(n) -> return n
+        Tree.Node(ms) -> {
+            var sum = 0
+            for m in ms {
+                sum += total(m.value)
+            }
+            return sum
+        }
+    }
+    return 0
+}
+
+func main() {
+    var inner: [Member] = []
+    inner.push(Member("a", Tree.Leaf(1)))
+    inner.push(Member("b", Tree.Leaf(2)))
+    var outer: [Member] = []
+    outer.push(Member("in", Tree.Node(inner.take())))
+    outer.push(Member("c", Tree.Leaf(4)))
+    val t = Tree.Node(outer.take())
+    val dup = t
+    println("{total(t)} {total(dup)}")
+}

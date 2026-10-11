@@ -54,6 +54,10 @@ language: syntax, types, memory model, standard library and grammar.
 For TCP, UDP, DNS, HTTP/HTTPS, REST servers, webpages, WebSocket/WSS, and
 binary-safe file examples, see the [networking guide](docs/networking.md).
 
+For hashing, HMAC, password hashing, secure random numbers, AES-GCM and
+ChaCha20-Poly1305, hex and base64, see the
+[cryptography guide](docs/crypto.md).
+
 For graphics, interactive applications, and games, explore the
 [Raylib guide](https://ironlang.dev/raylib/) and [Pong example](examples/pong/README.md).
 These are part of what you can build with Iron, not a requirement for using it.

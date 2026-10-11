@@ -1,0 +1,45 @@
+-- json_suite.iron -- conformance driver for tests/json/run_json_suite.sh.
+--
+-- For every file named on the command line: parse it, print
+-- "<file> accept" or "<file> reject <code> <message>", and for accepted
+-- documents check that compact and pretty output parse back to an equal
+-- value and that compact output is stable (serialize(parse(s)) is a fixed
+-- point after one round).
+import io
+import json
+
+func main(args: [String]) {
+    for path in args {
+        val name = IO.basename(path)
+        val file = IO.read_bytes(path, 268435456)
+        if file.error != 0 {
+            println("{name} unreadable {file.error_message}")
+            continue
+        }
+        val res = Json.parse(file.data)
+        if res.error != 0 {
+            println("{name} reject {res.error} {res.error_message}")
+            continue
+        }
+        val text = res.value.to_string()
+        val again = Json.parse(text)
+        if again.error != 0 {
+            println("{name} roundtrip-fail compact output does not parse: {again.error_message}")
+            continue
+        }
+        if not again.value.equals(res.value) {
+            println("{name} roundtrip-fail compact output parses to another value")
+            continue
+        }
+        if again.value.to_string() != text {
+            println("{name} roundtrip-fail compact output is not stable")
+            continue
+        }
+        val pretty = Json.parse(res.value.pretty())
+        if pretty.error != 0 or not pretty.value.equals(res.value) {
+            println("{name} roundtrip-fail pretty output")
+            continue
+        }
+        println("{name} accept")
+    }
+}

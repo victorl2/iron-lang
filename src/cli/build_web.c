@@ -716,7 +716,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
      */
     const char *iron_src_dir = lib_dir ? lib_dir : "src";
 
-#define IRON_WEB_SRC_COUNT 17
+#define IRON_WEB_SRC_COUNT 18
     const char *rel_paths[IRON_WEB_SRC_COUNT] = {
         "util/stb_ds_impl.c",
         "util/arena.c",
@@ -737,6 +737,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         "stdlib/iron_math.c",
         "stdlib/iron_hint.c",
         "stdlib/iron_time_web.c",
+        "stdlib/iron_json.c",
     };
     char *abs_paths[IRON_WEB_SRC_COUNT] = {0};
     for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) {

@@ -117,4 +117,73 @@ if command -v lldb >/dev/null 2>&1 && lldb --version >/dev/null 2>&1; then
 else
     echo "lldb not installed: skipped"
 fi
+
+# 4. Parameters (temporaries_params.iron). C cannot mark a parameter
+#    nodebug, so the compiler names the synthetic ones instead: a list
+#    parameter passed as a C array is `xs` + `xs_len` (no second copy), a
+#    `var` parameter's working copy is `n` (its pointer to the caller's
+#    binding a `_` name), a closure's environment is `_env`.
+check_params() {
+    local PSRC="$SRC_ROOT/tests/integration/debug/temporaries_params.iron"
+    local P_TOTAL=6 P_BUMP=11 P_CLOSURE=19
+    "$IRONC" build "$PSRC" --debug -o params >/dev/null 2>&1 ||
+        fail "cannot build temporaries_params.iron with --debug"
+    [ "$(./params)" = "$(printf '6\n12 12 6')" ] || fail "temporaries_params prints $(./params)"
+
+    # only <debugger> <where> <output> <names>: the names listed apart
+    # from `_env` and `_ref_<name>` are exactly <names>.
+    only() {
+        local got
+        got="$(names "$3" | grep -vE '^(_env|_ref_.+)$' | tr '\n' ' ')"
+        [ "$got" = "$4 " ] || fail "$1 in $2 lists '$got', want '$4'" "$3"
+    }
+    if command -v gdb >/dev/null 2>&1; then
+        local out
+        out="$(gdb -q -batch -ex "break temporaries_params.iron:$P_TOTAL" -ex run \
+                   -ex "info args" -ex "info locals" ./params 2>&1 || true)"
+        if ! grep -q "temporaries_params.iron:$P_TOTAL" <<< "$out"; then
+            echo "gdb cannot run the program here: skipped (parameters)"
+        else
+            only gdb "total" "$out" "scale t x xs xs_len"
+            out="$(gdb -q -batch -ex "break temporaries_params.iron:$P_BUMP" -ex run \
+                       -ex "info locals" ./params 2>&1 || true)"
+            only gdb "bump" "$out" "n"
+            grep -qE '^n = 6$' <<< "$out" || fail "gdb: bump's n is not 6" "$out"
+            out="$(gdb -q -batch -ex "break temporaries_params.iron:$P_CLOSURE" -ex run \
+                       -ex "info args" -ex "info locals" ./params 2>&1 || true)"
+            only gdb "the closure" "$out" "d"
+            grep -qE '^_env = ' <<< "$out" || fail "gdb: the closure's environment is not _env" "$out"
+            echo "gdb: parameters: xs + xs_len, n once, the closure's environment is _env"
+        fi
+    fi
+    if command -v lldb >/dev/null 2>&1 && lldb --version >/dev/null 2>&1; then
+        local out
+        out="$(lldb -b -o "b temporaries_params.iron:$P_TOTAL" -o run -o "frame variable" ./params 2>&1 || true)"
+        if ! grep -q "stop reason = breakpoint" <<< "$out"; then
+            echo "lldb cannot run the program here: skipped (parameters)"
+        else
+            only lldb "total" "$out" "scale t x xs xs_len"
+            out="$(lldb -b -o "b temporaries_params.iron:$P_BUMP" -o run -o "frame variable" ./params 2>&1 || true)"
+            # The pointer to the caller's binding is a parameter: listed
+            # under a `_v` name, which iron dap hides; its value is `n`.
+            out="$(grep -vE '^\([^)]*\*\) _v[0-9]+ = ' <<< "$out")"
+            only lldb "bump" "$out" "n"
+            grep -qE '^\(int64_t\) n = 6$' <<< "$out" || fail "lldb: bump's n is not 6" "$out"
+            out="$(lldb -b -o "b temporaries_params.iron:$P_CLOSURE" -o run -o "frame variable" ./params 2>&1 || true)"
+            only lldb "the closure" "$out" "d"
+            grep -qE '^\(void \*\) _env = ' <<< "$out" || fail "lldb: the closure's environment is not _env" "$out"
+            echo "lldb: parameters: xs + xs_len, n once, the closure's environment is _env"
+        fi
+    fi
+    local IRON
+    IRON="$(dirname "$IRONC")/iron"
+    if command -v python3 >/dev/null 2>&1 && [ -x "$IRON" ]; then
+        set +e
+        python3 "$SRC_ROOT/tests/integration/debug/dap_params_client.py" "$PSRC" "$IRON" dap
+        local rc=$?
+        set -e
+        [ $rc -eq 0 ] || [ $rc -eq 77 ] || fail "iron dap shows synthetic parameters"
+    fi
+}
+check_params
 echo "PASS"

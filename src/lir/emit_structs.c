@@ -1169,6 +1169,20 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
                         const char *pc = emit_type_to_c(pt, ctx);
                         iron_strbuf_appendf(&protos, "static void %s_%s(%s *self);\n",
                                             pc, drop ? "drop" : "copied", pc);
+                    } else if (arm.len > before && pt->kind == IRON_TYPE_ARRAY &&
+                               pt->array.size < 0 && !pt->array.is_bounded) {
+                        /* A list payload whose element type is declared
+                         * after this enum (an object that holds the enum,
+                         * `enum J { Obj([Member]) }` with `Member { v: J }`)
+                         * has its IRON_LIST_DECL emitted later: declare the
+                         * one lifecycle function the glue calls. */
+                        const char *lc = emit_type_to_c(pt, ctx);
+                        if (drop) {
+                            iron_strbuf_appendf(&protos, "void %s_free(%s *self);\n", lc, lc);
+                        } else {
+                            iron_strbuf_appendf(&protos, "%s %s_clone(const %s *src);\n",
+                                                lc, lc, lc);
+                        }
                     }
                 }
                 if (arm.len > 0) {

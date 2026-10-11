@@ -1,0 +1,6 @@
+func main() {
+    var stack = [7]
+    val first = stack.pop()
+    val second = stack.pop()
+    println("{first} {second}")
+}

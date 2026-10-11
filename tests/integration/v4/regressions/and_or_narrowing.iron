@@ -1,0 +1,25 @@
+-- The right operand of `and` runs only when the left one is true, and of
+-- `or` only when it is false, so `x != null and x == 3` and
+-- `x == null or x > 2` read x as the non-null T. The checker did not
+-- narrow there, and the comparison of an Int? with an Int reached the C
+-- compiler.
+func is_three(x: Int?) -> Bool {
+    return x != null and x == 3
+}
+
+func absent_or_big(x: Int?) -> Bool {
+    return x == null or x > 2
+}
+
+func same(a: String?, b: String) -> Bool {
+    if a != null and a == b {
+        return true
+    }
+    return false
+}
+
+func main() {
+    println("{is_three(3)} {is_three(4)} {is_three(null)}")
+    println("{absent_or_big(null)} {absent_or_big(5)} {absent_or_big(1)}")
+    println("{same("x", "x")} {same(null, "x")} {same("y", "x")}")
+}

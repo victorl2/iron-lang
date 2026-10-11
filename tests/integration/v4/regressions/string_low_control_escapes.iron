@@ -1,0 +1,17 @@
+-- "\u{1}" and "\u{2}" (and raw 0x01 / 0x02 bytes) collided with the lexer's
+-- marker bytes for escaped braces and came out as '{' and '}'. They are now
+-- stored behind an escape byte that UTF-8 never contains.
+func codes(s: String) -> String {
+    var out = ""
+    for i in range(s.byte_len()) {
+        out += "{s.byte_at(i)} "
+    }
+    return out
+}
+
+func main() {
+    val n = 7
+    println(codes("a\u{1}b\u{2}c"))
+    println(codes("\u{1}\{\}{n}\u{2}"))
+    println(codes("\{plain\}"))
+}

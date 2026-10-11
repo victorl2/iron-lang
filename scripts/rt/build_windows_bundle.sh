@@ -14,7 +14,7 @@
 #   lib/clang_rt.builtins.lib  the compiler builtins
 #   lib/iron_tls.lib, libssl.lib, libcrypto.lib
 #                            the TLS module against a static OpenSSL, for
-#                            programs that import http or websocket
+#                            programs that import http, websocket or crypto
 #   lib/iron_tls_none.lib    the TLS module without OpenSSL, for the rest
 #   lib/raylib.lib           raylib (GLFW on Win32, OpenGL) and Iron's raylib
 #                            shim, for programs that import raylib
@@ -39,13 +39,19 @@
 #   OPENSSL_VERSION  OpenSSL release for TLS (default 3.5.9)
 #   PERL             a native Windows perl for OpenSSL's Configure
 #                    (default: Strawberry Perl in C:\Strawberry)
+#   NASM             OpenSSL's assembler (default: nasm on PATH, or
+#                    C:\Program Files\NASM). The assembly is what gives TLS
+#                    and the crypto module AES-NI, SHA extensions and
+#                    constant-time AES and GHASH; OPENSSL_NO_ASM=1 builds the
+#                    C fallbacks instead (several times slower, and their
+#                    table-based AES is not constant time).
 #
 # Writes <out-dir>/iron-rt-<version>-<target>/ with lib/ and a rt.txt
 # manifest, plus the .tar.gz and its .sha256 line next to it.
 set -euo pipefail
 
 if [ $# -ne 3 ]; then
-    sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
 fi
 target=$1 version=$2
@@ -79,17 +85,26 @@ mkdir -p "$dest/lib" "$work/objs"
 openssl=${OPENSSL_VERSION:-3.5.9}
 perl=${PERL:-/c/Strawberry/perl/bin/perl.exe}
 cache="$out/cache-$target"
-ossl_prefix="$cache/openssl-$openssl-install"
+if [ "${OPENSSL_NO_ASM:-0}" = 1 ]; then
+    asm_flag=no-asm asm_tag=noasm
+else
+    asm_flag="" asm_tag=asm
+    nasm_bin=${NASM:-$(command -v nasm || echo "/c/Program Files/NASM/nasm.exe")}
+    [ -x "$nasm_bin" ] || { echo "build_windows_bundle.sh: nasm not found (OpenSSL's assembly needs it; set NASM, or OPENSSL_NO_ASM=1 for the slow C fallbacks)" >&2; exit 1; }
+    export PATH="$(dirname "$nasm_bin"):$PATH"
+fi
+ossl_prefix="$cache/openssl-$openssl-$asm_tag-install"
 if [ ! -f "$ossl_prefix/lib/libssl.lib" ]; then
     echo "== openssl $openssl"
-    src="$cache/openssl-$openssl"
+    src="$cache/openssl-$openssl-$asm_tag"
     if [ ! -f "$src/libssl.lib" ]; then
         mkdir -p "$cache"
-        rm -rf "$src"
+        rm -rf "$src" "$cache/openssl-$openssl"
         curl -fsSL "https://github.com/openssl/openssl/releases/download/openssl-$openssl/openssl-$openssl.tar.gz" \
             | tar -xz -C "$cache"
+        mv "$cache/openssl-$openssl" "$src"
         ( cd "$src" &&
-          MSYS2_ARG_CONV_EXCL='*' "$perl" Configure VC-WIN64A no-shared no-asm no-tests no-docs no-apps \
+          MSYS2_ARG_CONV_EXCL='*' "$perl" Configure VC-WIN64A no-shared $asm_flag no-tests no-docs no-apps \
               no-dso no-engine no-module -GS- "CC=$(w "$tc/bin/clang-cl.exe")" \
               "--prefix=$(w "$ossl_prefix")" "--openssldir=$(w "$ossl_prefix/ssl")" > "$cache/configure.log" &&
           MSYS2_ARG_CONV_EXCL='*' nmake -nologo build_libs > "$cache/build.log" ) \
@@ -116,7 +131,8 @@ sources=$(cd "$here" && ls src/util/stb_ds_impl.c src/util/arena.c src/util/strb
     src/runtime/iron_panic.c src/runtime/iron_leakcheck.c src/runtime/iron_arena_rt.c \
     src/runtime/iron_os.c \
     src/stdlib/iron_math.c src/stdlib/iron_io.c src/stdlib/iron_time.c src/stdlib/iron_log.c \
-    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_websocket.c)
+    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_websocket.c \
+    src/stdlib/iron_encoding.c src/stdlib/iron_json.c)
 for s in $sources; do
     o="$work/objs/$(echo "$s" | tr '/' '_' | sed 's/\.c$/.obj/')"
     "$clang" "${cflags[@]}" -c "$here/$s" -o "$o"
@@ -124,11 +140,14 @@ done
 rm -f "$dest/lib/iron_rt.lib"
 "$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_rt.lib")" "$work"/objs/*.obj
 mkdir -p "$work/tls"
-"$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_tls.c" -o "$work/tls/iron_tls_none.obj"
-"$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
-    -c "$here/src/stdlib/iron_tls.c" -o "$work/tls/iron_tls.obj"
-"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls_none.lib")" "$work/tls/iron_tls_none.obj"
-"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls.lib")" "$work/tls/iron_tls.obj"
+# The crypto module rides with TLS: it needs the same libcrypto.
+for m in tls crypto; do
+    "$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_$m.c" -o "$work/tls/iron_${m}_none.obj"
+    "$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
+        -c "$here/src/stdlib/iron_$m.c" -o "$work/tls/iron_$m.obj"
+done
+"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls_none.lib")" "$work/tls/iron_tls_none.obj" "$work/tls/iron_crypto_none.obj"
+"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls.lib")" "$work/tls/iron_tls.obj" "$work/tls/iron_crypto.obj"
 cp "$ossl_prefix/lib/libssl.lib" "$ossl_prefix/lib/libcrypto.lib" "$dest/lib/"
 
 # raylib: each source is its own translation unit (rlgl.h and glad.h have
@@ -230,7 +249,7 @@ commit $commit
 target $target
 triple $triple
 libc ucrt
-tls openssl $openssl
+tls openssl $openssl $asm_tag
 llvm $llvm
 MANIFEST
 

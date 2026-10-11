@@ -1,0 +1,36 @@
+-- A tuple owns its elements: `return (local, n)` of an rc handle or a String
+-- local used to hand out a value the local's scope exit then released (a
+-- use after free), and destructuring retained the elements again; a `_`
+-- position now drops its element instead of leaking it.
+object Big {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+func make() -> (rc Big, Int) {
+    val b = rc Big(1)
+    return (b, 2)
+}
+func names() -> (String, Int) {
+    var s = "abcdefghijklmnopqrstuvwxyz0123456789"
+    s += "!"
+    return (s, 1)
+}
+func main() {
+    val (b, n) = make()
+    println("{b.id} {n}")
+    val (s, k) = names()
+    println("{s} {k}")
+    t2()
+}
+func pair() -> (String, rc Big) {
+    var s = "abcdefghijklmnopqrstuvwxyz0123456789"
+    s += "?"
+    return (s, rc Big(9))
+}
+func t2() {
+    val (_, b) = pair()
+    val (s, _) = pair()
+    println("{b.id} {s}")
+}

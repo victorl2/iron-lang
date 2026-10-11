@@ -1,0 +1,42 @@
+-- RSA-OAEP with PEM keys. The ciphertexts were made by Python's
+-- cryptography package (OpenSSL independent of this build's) from the
+-- public key below; OAEP is randomized, so they test decryption, and the
+-- round trips test encryption. The key is a throwaway made for this test.
+import crypto
+import encoding
+
+val PRIVATE_PKCS8 = "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDw2RK92q3h+eXu\n7Ah3m4eB0MQczVNPDpk+vfqZtt92H56Ettu/sUJaz97vpujRVFQaftRoAE87seFB\nzhQk6fS9cEY9QSXsNY87FYL8JOew6iHlp/cYU7qc+kX7f0FH+jofVmrzZYvQ1btZ\nKGs0TubG6XNWHWZIe7Bld2aQ7qDl8OMZR4yyF2nU7tE8U7OQ5+WCFpyCwmxHA3cC\n2AuB8XwLo8kwkhYdsd3GY8VCcLP+qFERBTXH16J7HTcsfKbaEmSO++L3ILK1DxCW\nPRetAgkoGrDCLER/YzJklsI9QBaiIjVjTdaxNSycFaUQcZ8bsF5IBD1FAy/DnS9B\nLk0QMyInAgMBAAECggEAHNhSp0xOcPcF88RvCywkYYbIRg7NQHWmIt6L6eb+Al6t\nFIX18ZJgORIWSCt8TL3FyNqRw9btpl+ac9Ajl3wxpJKSxvlLemu7uL7Nzjb5TLXt\n01x3eoFkozJSOVm3TtCIL4KhEn+B7EP8ySPPGxesCfyhpJmmy12M9coEDa2WtZMV\nlQ3aNNJz8ggVKf0ohx2lgRFLOBjutko5dIRAIvuHsA9EADiWfhh/UCaXY8ECaera\nhs2bQ1a5HFfXhrna/aMq8Zu/9wK2Y9OZfB0Hc8kClVjGUfTsLmjM1pXN9xqJ5x9n\ncJKJLziLVfH3k0jF0zsGBT1y7dkVqTr5lXUGN+zzYQKBgQD6GjjyY4pIE7ZWipxt\nvQMxpygujxDXR2K2G0a9AO9pEYDl/jergdO0x3dfjs+tBZ/JGK+/SOI+5mJqTelK\nm0rA5AhfNBxky7kHoFJCPJPaQ3rlZv7rHOaa3xbvwL+M6LGIYPpMyTc1xihbs4qB\nT/nwPRST2f0VLHTtoehC+9psNwKBgQD2hvwZ6OZHJipAotUqGHIaidsDjAlKqQkZ\nZjDn/EX9mDnIHB9sk3xl1d0M4Mnjnq3pE/R2PJ5rzEaP/XuXwK7Ea9E/5YCGMD4m\ndFnvzHTj1TfLRF7z+NAME79nm6IydL3b0DJovnswpa2zpiVonaoPcuZDUkz+Xh/Y\n+idLHd1hkQKBgCgNEPeIBzn5piZ/tgNA1IUcDqw+DuVasi0VeyODRdOekPTD3Chj\n9wIpOy2bUhiUIP10LZjFVC3ceQArD+P5sGPpYInWb4GYuj3FZ8bhqo+2ZLTd5I7E\nJw3AEg084a/wB5YeaZboViYPYKEmxFRm+VCGh4gRzZyZbPQtDGPFrznLAoGAOqbS\nw7dNUhAabVZQMLuwKfAyUx21+DVPHOPbLtYuMK9Oz/Ug5MwSBIhlFvNEFQtjhNhi\niN7TMgJfp1I/XVNSQRkFp5YKheJkZvG3k/2osavAonOZw6Gmnbj1CMlWRXrQ0MMv\nuwvWczR3pw4YSFN6akKD1fB2sO3j1dNuFcj9KoECgYBig18K/Umz63XR65U81zNB\ngY2beej4GMjxxKAIAxbUJqhXa6zeZsFD6R54VpIXiH7OQ95I844WPVPlraDZTMkC\nz+WCB0gRYkB9r2aVmf4FyBcGQP3ljjqQNHAC5Po1epMD+fNGf2Id376Bo4mdwaqh\n/PbbqqBOhcQP4/cbz2re4A==\n-----END PRIVATE KEY-----\n"
+val PRIVATE_PKCS1 = "-----BEGIN RSA PRIVATE KEY-----\nMIIEogIBAAKCAQEA8NkSvdqt4fnl7uwId5uHgdDEHM1TTw6ZPr36mbbfdh+ehLbb\nv7FCWs/e76bo0VRUGn7UaABPO7HhQc4UJOn0vXBGPUEl7DWPOxWC/CTnsOoh5af3\nGFO6nPpF+39BR/o6H1Zq82WL0NW7WShrNE7mxulzVh1mSHuwZXdmkO6g5fDjGUeM\nshdp1O7RPFOzkOflghacgsJsRwN3AtgLgfF8C6PJMJIWHbHdxmPFQnCz/qhREQU1\nx9eiex03LHym2hJkjvvi9yCytQ8Qlj0XrQIJKBqwwixEf2MyZJbCPUAWoiI1Y03W\nsTUsnBWlEHGfG7BeSAQ9RQMvw50vQS5NEDMiJwIDAQABAoIBABzYUqdMTnD3BfPE\nbwssJGGGyEYOzUB1piLei+nm/gJerRSF9fGSYDkSFkgrfEy9xcjakcPW7aZfmnPQ\nI5d8MaSSksb5S3pru7i+zc42+Uy17dNcd3qBZKMyUjlZt07QiC+CoRJ/gexD/Mkj\nzxsXrAn8oaSZpstdjPXKBA2tlrWTFZUN2jTSc/IIFSn9KIcdpYERSzgY7rZKOXSE\nQCL7h7APRAA4ln4Yf1Aml2PBAmnq2obNm0NWuRxX14a52v2jKvGbv/cCtmPTmXwd\nB3PJApVYxlH07C5ozNaVzfcaiecfZ3CSiS84i1Xx95NIxdM7BgU9cu3ZFak6+ZV1\nBjfs82ECgYEA+ho48mOKSBO2Voqcbb0DMacoLo8Q10dithtGvQDvaRGA5f43q4HT\ntMd3X47PrQWfyRivv0jiPuZiak3pSptKwOQIXzQcZMu5B6BSQjyT2kN65Wb+6xzm\nmt8W78C/jOixiGD6TMk3NcYoW7OKgU/58D0Uk9n9FSx07aHoQvvabDcCgYEA9ob8\nGejmRyYqQKLVKhhyGonbA4wJSqkJGWYw5/xF/Zg5yBwfbJN8ZdXdDODJ456t6RP0\ndjyea8xGj/17l8CuxGvRP+WAhjA+JnRZ78x049U3y0Re8/jQDBO/Z5uiMnS929Ay\naL57MKWts6YlaJ2qD3LmQ1JM/l4f2PonSx3dYZECgYAoDRD3iAc5+aYmf7YDQNSF\nHA6sPg7lWrItFXsjg0XTnpD0w9woY/cCKTstm1IYlCD9dC2YxVQt3HkAKw/j+bBj\n6WCJ1m+BmLo9xWfG4aqPtmS03eSOxCcNwBINPOGv8AeWHmmW6FYmD2ChJsRUZvlQ\nhoeIEc2cmWz0LQxjxa85ywKBgDqm0sO3TVIQGm1WUDC7sCnwMlMdtfg1Txzj2y7W\nLjCvTs/1IOTMEgSIZRbzRBULY4TYYoje0zICX6dSP11TUkEZBaeWCoXiZGbxt5P9\nqLGrwKJzmcOhpp249QjJVkV60NDDL7sL1nM0d6cOGEhTempCg9XwdrDt49XTbhXI\n/SqBAoGAYoNfCv1Js+t10euVPNczQYGNm3no+BjI8cSgCAMW1CaoV2us3mbBQ+ke\neFaSF4h+zkPeSPOOFj1T5a2g2UzJAs/lggdIEWJAfa9mlZn+BcgXBkD95Y46kDRw\nAuT6NXqTA/nzRn9iHd++gaOJncGqofz226qgToXED+P3G89q3uA=\n-----END RSA PRIVATE KEY-----\n"
+val PUBLIC_SPKI = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8NkSvdqt4fnl7uwId5uH\ngdDEHM1TTw6ZPr36mbbfdh+ehLbbv7FCWs/e76bo0VRUGn7UaABPO7HhQc4UJOn0\nvXBGPUEl7DWPOxWC/CTnsOoh5af3GFO6nPpF+39BR/o6H1Zq82WL0NW7WShrNE7m\nxulzVh1mSHuwZXdmkO6g5fDjGUeMshdp1O7RPFOzkOflghacgsJsRwN3AtgLgfF8\nC6PJMJIWHbHdxmPFQnCz/qhREQU1x9eiex03LHym2hJkjvvi9yCytQ8Qlj0XrQIJ\nKBqwwixEf2MyZJbCPUAWoiI1Y03WsTUsnBWlEHGfG7BeSAQ9RQMvw50vQS5NEDMi\nJwIDAQAB\n-----END PUBLIC KEY-----\n"
+val PUBLIC_PKCS1 = "-----BEGIN RSA PUBLIC KEY-----\nMIIBCgKCAQEA8NkSvdqt4fnl7uwId5uHgdDEHM1TTw6ZPr36mbbfdh+ehLbbv7FC\nWs/e76bo0VRUGn7UaABPO7HhQc4UJOn0vXBGPUEl7DWPOxWC/CTnsOoh5af3GFO6\nnPpF+39BR/o6H1Zq82WL0NW7WShrNE7mxulzVh1mSHuwZXdmkO6g5fDjGUeMshdp\n1O7RPFOzkOflghacgsJsRwN3AtgLgfF8C6PJMJIWHbHdxmPFQnCz/qhREQU1x9ei\nex03LHym2hJkjvvi9yCytQ8Qlj0XrQIJKBqwwixEf2MyZJbCPUAWoiI1Y03WsTUs\nnBWlEHGfG7BeSAQ9RQMvw50vQS5NEDMiJwIDAQAB\n-----END RSA PUBLIC KEY-----\n"
+
+func message() -> String {
+    return "mysql password" + String.from_byte(0) + "scramble"
+}
+
+func main() {
+    val sha1 = Crypto.rsa_decrypt_oaep(PRIVATE_PKCS8, HashAlgorithm.Sha1, Hex.decode("e69b5300dd45b3365f8368ced68433eb8dedea06138d93522389c1daa86c0e5717dd188eedbe6164b405bd37ed817bf06c5e90c3918c69676cc1f887ccaf536502f42111c5fcb0fbef1657e32726c27cafeb401f334df602dc6fb5c06fbe6e2e12909e417fb57eb1088d3dad3ac6bb5f293451e6c32bfeb8929c1a01e11c150e5797b9283386cd74f4e9597570f4dbbabbe0e879496c1d96fc0416f3702dcefd266c45cdfe203d15556339e585f517e1efd888dd98ea232620b73c9efb2787cdb9cb93de832c4503f18c997f8c36a1435ce9084d238b1f1fa01f2d3ef281bd3d2c3360285f6878abf7f50757d714423c0ee4f029b7ab9b2d91d53f619ba05e4f").data)
+    println("decrypt python SHA-1: {sha1.error} {sha1.data == message()}")
+    val sha256 = Crypto.rsa_decrypt_oaep(PRIVATE_PKCS1, HashAlgorithm.Sha256, Hex.decode("a4d4440b7d202336339e16fa14c3183c9f95e9b8dd75d59b697bb3e2bcff7b5998aff535a8912aa66457e2e5160f64d972279d81e8d23f8bc78a186c63dbab7bdca4f65b9dd6599e3b2711a3de183573482f3cae9fe9762bf533ac1ebdc3d6138b37f0564bc6dcdbf8f82d0f73b322073b6c16f11e7addc6d219690ece2ba132f2896d9d7b22c0a820320cf6ea08d23537f5177ef1a6f986041b121e7a9cb2a95b0fb939fd1b46aa88001efa65eb7b0a6cb3c4962f4963dd7289467b5f1402029d08b363c68ba5471423661cb7e569063830a410c55b5a1bf2745e6d1011e79647764ad14f693bf3194d412f0b65854aeeed27249acd633302bb890ff28ccc2c").data)
+    println("decrypt python SHA-256: {sha256.error} {sha256.data == message()}")
+
+    val e1 = Crypto.rsa_encrypt_oaep(PUBLIC_SPKI, HashAlgorithm.Sha1, message())
+    val d1 = Crypto.rsa_decrypt_oaep(PRIVATE_PKCS1, HashAlgorithm.Sha1, e1.data)
+    println("round trip SPKI SHA-1: {e1.error} {e1.data.byte_len()} {d1.data == message()}")
+    val e2 = Crypto.rsa_encrypt_oaep(PUBLIC_PKCS1, HashAlgorithm.Sha256, message())
+    val d2 = Crypto.rsa_decrypt_oaep(PRIVATE_PKCS8, HashAlgorithm.Sha256, e2.data)
+    println("round trip PKCS1 SHA-256: {e2.error} {e2.data.byte_len()} {d2.data == message()}")
+    val again = Crypto.rsa_encrypt_oaep(PUBLIC_SPKI, HashAlgorithm.Sha1, message())
+    println("randomized: {again.data != e1.data}")
+
+    val wrong_hash = Crypto.rsa_decrypt_oaep(PRIVATE_PKCS8, HashAlgorithm.Sha256, e1.data)
+    println("wrong hash: {wrong_hash.error} [{wrong_hash.data}]")
+    val bad_key = Crypto.rsa_encrypt_oaep("not a key", HashAlgorithm.Sha1, message())
+    println("bad public key: {bad_key.error} {bad_key.error_message}")
+    val pub_as_private = Crypto.rsa_decrypt_oaep(PUBLIC_SPKI, HashAlgorithm.Sha1, e1.data)
+    println("public key used to decrypt: {pub_as_private.error}")
+    -- 2048-bit key, SHA-256 OAEP: at most 256 - 2 * 32 - 2 = 190 bytes.
+    val fits = Crypto.rsa_encrypt_oaep(PUBLIC_SPKI, HashAlgorithm.Sha256, "x".repeat(190))
+    val too_long = Crypto.rsa_encrypt_oaep(PUBLIC_SPKI, HashAlgorithm.Sha256, "x".repeat(191))
+    println("length limit: {fits.error} {too_long.error} {too_long.error_message}")
+}

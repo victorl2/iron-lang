@@ -58,28 +58,23 @@ void Iron_assert(bool cond, Iron_String msg) {
 
 /* ── read_file ──────────────────────────────────────────────────────────── */
 
-/* The builtin read_file(path) outside comptime: the whole file as a String.
- * At compile time an unreadable file is a build error; at run time it is a
- * panic (IO.read_file returns a Result-style value for recoverable reads). */
-Iron_String Iron_read_file(Iron_String path) {
+/* read_file without the panic (the --debug wrapper in iron_runtime.h traps
+ * before panicking): 0 and the file's contents in *out; 1: it cannot be
+ * opened; 2: reading it failed. Nothing is left allocated on failure. */
+int iron_read_file_try(Iron_String path, Iron_String *out) {
     const char *p = iron_string_cstr(&path);
     FILE *f = fopen(p, "rb");
-    if (!f) {
-        fflush(stdout);
-        fprintf(stderr, "panic: read_file: cannot open '%s'\n", p);
-        fflush(stderr);
-        abort();
-    }
+    if (!f) return 1;
     size_t cap = 4096, len = 0;
     char *buf = (char *)malloc(cap);
-    if (!buf) iron_oom_abort("read_file");
+    if (!buf) { fclose(f); iron_oom_abort("read_file"); }
     size_t n;
     while ((n = fread(buf + len, 1, cap - len, f)) > 0) {
         len += n;
         if (len == cap) {
             cap *= 2;
             char *nb = (char *)realloc(buf, cap);
-            if (!nb) { free(buf); iron_oom_abort("read_file"); }
+            if (!nb) { free(buf); fclose(f); iron_oom_abort("read_file"); }
             buf = nb;
         }
     }
@@ -87,13 +82,27 @@ Iron_String Iron_read_file(Iron_String path) {
     fclose(f);
     if (failed) {
         free(buf);
+        return 2;
+    }
+    *out = iron_string_from_cstr(buf, len);
+    free(buf);
+    return 0;
+}
+
+/* The builtin read_file(path) outside comptime: the whole file as a String.
+ * At compile time an unreadable file is a build error; at run time it is a
+ * panic (IO.read_file returns a Result-style value for recoverable reads). */
+Iron_String Iron_read_file(Iron_String path) {
+    Iron_String s;
+    int err = iron_read_file_try(path, &s);
+    if (err != 0) {
         fflush(stdout);
-        fprintf(stderr, "panic: read_file: error reading '%s'\n", p);
+        fprintf(stderr, err == 1 ? "panic: read_file: cannot open '%s'\n"
+                                 : "panic: read_file: error reading '%s'\n",
+                iron_string_cstr(&path));
         fflush(stderr);
         abort();
     }
-    Iron_String s = iron_string_from_cstr(buf, len);
-    free(buf);
     return s;
 }
 

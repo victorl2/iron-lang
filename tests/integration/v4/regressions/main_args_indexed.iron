@@ -1,0 +1,14 @@
+-- main(args) that indexes or iterates its list: the array-parameter pass
+-- turned args into a pointer and a length, but the generated C main passes
+-- the list itself, so the program did not compile ("too few arguments to
+-- function call" in Iron_main).
+func main(args: [String]) {
+    var count = 0
+    for a in args {
+        count += a.len() * 0 + 1
+    }
+    if args.len() > 0 {
+        println(args[0])
+    }
+    println("{count} arguments")
+}

@@ -2675,6 +2675,80 @@ static bool emit_call_is_checked_list_method(IronLIR_Func *fn, EmitCtx *ctx,
                  strcmp(u, "_get") == 0);
 }
 
+/* --debug (#388): a list method whose bounds check runs in the runtime
+ * (`xs.pop()`, `xs.remove(i)`, `xs.insert(i, v)`, `xs.set(i, v)`,
+ * `xs.get(i)`) is preceded by the same check at the call site, which runs
+ * the debug trap in the Iron function (iron_dbg_list_check_* in
+ * iron_runtime.h): every debugger stops on the Iron line, and continuing
+ * runs the runtime's usual panic. The call is rewritten in place into
+ * `(iron_dbg_list_check_<m>((self)->count, ..., IRON_SITE), call)`; the
+ * receiver and the index are plain expressions (calls are never inlined
+ * into an argument), so reading them twice is harmless. */
+typedef struct {
+    const char *method;   /* "pop", "index" or "insert"; NULL: no check */
+    bool split;           /* Iron_SplitList_ (count in _order_count) */
+    size_t call_at;       /* where `name(` starts in the buffer */
+    size_t arg_at[2], arg_end[2];
+} EmitDebugListCall;
+
+static const char *emit_debug_list_method(IronLIR_Func *fn, EmitCtx *ctx,
+                                          IronLIR_Instr *instr, bool *split) {
+    if (!emit_call_is_checked_list_method(fn, ctx, instr)) return NULL;
+    const char *name = emit_resolve_func_c_name(
+        ctx, fn->value_table[instr->call.func_ptr]->func_ref.func_name);
+    const char *u = strrchr(name, '_');
+    *split = strncmp(name, "Iron_SplitList_", 15) == 0;
+    if (strcmp(u, "_pop") == 0) return instr->call.arg_count == 1 ? "pop" : NULL;
+    if (instr->call.arg_count < 2) return NULL;
+    if (strcmp(u, "_insert") == 0) return "insert";
+    return "index";
+}
+
+static void emit_debug_list_check(Iron_StrBuf *sb, const EmitDebugListCall *d, int argc) {
+    if (!d->method || d->call_at == (size_t)-1 || d->call_at > sb->len) return;
+    int need = strcmp(d->method, "pop") == 0 ? 1 : 2;
+    if (argc < need) return;
+    for (int i = 0; i < need; i++)
+        if (d->arg_at[i] < d->call_at || d->arg_end[i] < d->arg_at[i] ||
+            d->arg_end[i] > sb->len) return;
+    size_t call_len = sb->len - d->call_at;
+    char *call = (char *)malloc(call_len + 1);
+    if (!call) iron_oom_abort("emit_c.c:emit_debug_list_check");
+    memcpy(call, sb->data + d->call_at, call_len);
+    call[call_len] = '\0';
+    const char *count = d->split ? "_order_count" : "count";
+    sb->len = d->call_at;
+    sb->data[sb->len] = '\0';
+    iron_strbuf_appendf(sb, "(iron_dbg_list_check_%s((", d->method);
+    iron_strbuf_append(sb, call + (d->arg_at[0] - d->call_at), d->arg_end[0] - d->arg_at[0]);
+    iron_strbuf_appendf(sb, ")->%s, ", count);
+    if (need == 2) {
+        iron_strbuf_appendf(sb, "(int64_t)(");
+        iron_strbuf_append(sb, call + (d->arg_at[1] - d->call_at), d->arg_end[1] - d->arg_at[1]);
+        iron_strbuf_appendf(sb, "), ");
+    }
+    iron_strbuf_appendf(sb, "IRON_SITE), ");
+    iron_strbuf_append(sb, call, call_len);
+    iron_strbuf_appendf(sb, ")");
+    free(call);
+}
+
+/* --debug: the same check before an interface list's edit helper
+ * (emit_split.c), as a statement of its own; `method` is "index" or
+ * "insert". The helper's own panic then names this line. */
+static void emit_debug_split_check(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx, int ind,
+                                   const char *method, IronLIR_ValueId list,
+                                   IronLIR_ValueId index) {
+    emit_indent(sb, ind);
+    iron_strbuf_appendf(sb, "iron_list_call_site(IRON_SITE);\n");
+    emit_indent(sb, ind);
+    iron_strbuf_appendf(sb, "iron_dbg_list_check_%s((", method);
+    emit_receiver_addr(sb, fn, ctx, list, ctx->current_block_id);
+    iron_strbuf_appendf(sb, ")->_order_count, (int64_t)(");
+    emit_expr_to_buf(sb, index, fn, ctx, ctx->current_block_id, 0);
+    iron_strbuf_appendf(sb, "), IRON_SITE);\n");
+}
+
 static bool g_emit_line_directives;
 static const IronLIR_Func *g_line_fn;   /* function the next two describe */
 static unsigned g_line_fn_first;        /* its first line (entry block) */
@@ -2883,7 +2957,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         case '\\': iron_strbuf_appendf(lf, "\\\\"); break;
                         case '"':  iron_strbuf_appendf(lf, "\\\""); break;
                         default:
-                            if (ch < 0x20 || ch == 0x7f) iron_strbuf_appendf(lf, "\\x%02x", ch);
+                            if (ch < 0x20 || ch == 0x7f) iron_strbuf_appendf(lf, "\\%03o", ch);
                             else iron_strbuf_appendf(lf, "%c", (int)ch);
                             break;
                     }
@@ -2919,7 +2993,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 case '"':  iron_strbuf_appendf(sb, "\\\""); break;
                 default:
                     if (ch < 0x20 || ch == 0x7f) {
-                        iron_strbuf_appendf(sb, "\\x%02x", ch);
+                        iron_strbuf_appendf(sb, "\\%03o", ch);
                     } else {
                         iron_strbuf_appendf(sb, "%c", (int)ch);
                     }
@@ -4349,6 +4423,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 Iron_Type *vt = emit_get_value_type(fn, instr->index.value);
                 bool wrap = vt && vt->kind == IRON_TYPE_OBJECT && vt->object.decl &&
                             vt->object.decl->name;
+                if (g_emit_line_directives)
+                    emit_debug_split_check(sb, fn, ctx, ind, "index", instr->index.array,
+                                           instr->index.index);
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "Iron_SplitList_%s_set(", im);
                 emit_receiver_addr(sb, fn, ctx, instr->index.array, ctx->current_block_id);
@@ -4358,6 +4435,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (wrap) iron_strbuf_appendf(sb, "%s_from_%s(", im, vt->object.decl->name);
                 emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, "%s);\n", wrap ? ")" : "");
+                if (g_emit_line_directives) {
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "iron_list_call_line = 0;\n");
+                }
                 break;
             }
             /* Phase 23 VEC-01 / 2026-07 UNCHK-IDX + task #24: bounded-vector
@@ -5339,6 +5420,11 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                              * list by address, an inserted concrete object wrapped
                              * into the interface. */
                             bool returns = strcmp(coll_method, "remove") == 0;
+                            if (g_emit_line_directives && instr->call.arg_count >= 2 &&
+                                (returns || strcmp(coll_method, "insert") == 0))
+                                emit_debug_split_check(sb, fn, ctx, ind,
+                                                       returns ? "index" : "insert",
+                                                       self_arg, instr->call.args[1]);
                             emit_indent(sb, ind);
                             if (returns) {
                                 if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", sp_iface);
@@ -5768,6 +5854,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         }
 
         bool has_env_arg = false;  /* set true when closure .env is emitted as first arg */
+        EmitDebugListCall dbg_list = { 0 };
+        if (g_emit_line_directives && instr->call.self_by_addr && !instr->call.func_decl)
+            dbg_list.method = emit_debug_list_method(fn, ctx, instr, &dbg_list.split);
+        dbg_list.call_at = (size_t)-1;
         if (instr->call.func_decl) {
             /* Direct call: use the mangled function name */
             Iron_FuncDecl *fd = instr->call.func_decl;
@@ -5788,6 +5878,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 /* Direct call via known function name — honor extern_c_name */
                 const char *c_name = emit_resolve_func_c_name(
                     ctx, fn->value_table[fptr]->func_ref.func_name);
+                if (dbg_list.method) dbg_list.call_at = sb->len;
                 iron_strbuf_appendf(sb, "%s(", c_name);
                 emitted_direct = true;
             }
@@ -5979,8 +6070,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
         bool first_arg = !has_env_arg;  /* false when .env was already emitted */
         for (int i = 0; i < instr->call.arg_count; i++) {
+            if (i > 0 && i <= 2) dbg_list.arg_end[i - 1] = sb->len;
             if (!first_arg) iron_strbuf_appendf(sb, ", ");
             first_arg = false;
+            if (i < 2) dbg_list.arg_at[i] = sb->len;
             IronLIR_ValueId arg_id = instr->call.args[i];
 
             /* Pointer-receiver self: emit &arg for the first argument.
@@ -6298,7 +6391,11 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
             }
         }
-        iron_strbuf_appendf(sb, ");\n");
+        if (instr->call.arg_count >= 1 && instr->call.arg_count <= 2)
+            dbg_list.arg_end[instr->call.arg_count - 1] = sb->len;
+        iron_strbuf_appendf(sb, ")");
+        emit_debug_list_check(sb, &dbg_list, instr->call.arg_count);
+        iron_strbuf_appendf(sb, ";\n");
         /* `xs[i].m()` on an interface array: the element was unpacked from
          * its typed sub-array into a union temporary, so a mutating method
          * changed the temporary. Store the payload back into the element. */
@@ -9554,30 +9651,90 @@ static EmitValueName *debug_value_names(EmitCtx *ctx, IronLIR_Func *fn, Iron_Are
                                         EmitValueName **ref_names) {
     EmitValueName *map = NULL;
     DebugTakenName *taken = NULL;
+    EmitValueName *param_slots = NULL;  /* slots whose parameter took the name */
+    /* A list kept as a C array has its length beside it, `<name>_len`: a
+     * binding of that name (`val xs_len = ...` next to `xs`) is suffixed
+     * instead of redeclaring it. */
+    {
+        const char **cands = NULL;
+        for (int i = 0; i < fn->param_count; i++) arrput(cands, fn->params[i].name);
+        for (int bi = 0; bi < fn->block_count; bi++)
+            for (int ii = 0; ii < fn->blocks[bi]->instr_count; ii++) {
+                IronLIR_Instr *in = fn->blocks[bi]->instrs[ii];
+                if (in->kind == IRON_LIR_ALLOCA && !in->alloca.global_name)
+                    arrput(cands, in->alloca.name_hint);
+            }
+        for (ptrdiff_t i = 0; i < hmlen(fn->value_names); i++)
+            arrput(cands, fn->value_names[i].value);
+        for (ptrdiff_t i = 0; i < arrlen(cands); i++) {
+            const char *n = cands[i];
+            if (!n || c_name_reserved(n) || strlen(n) > 150) continue;
+            char lb[160];
+            snprintf(lb, sizeof(lb), "%s_len", n);
+            if (shgeti(taken, lb) < 0)
+                shput(taken, iron_arena_strdup(arena, lb, strlen(lb)), 1);
+        }
+        arrfree(cands);
+    }
     for (int i = 0; i < fn->param_count; i++) {
-        /* `_env` and the other synthetic parameters keep `_vN`: a C name
-         * starting with `_` is never an Iron binding (lib/debug hides it). */
         const char *pn = fn->params[i].name;
+        /* A closure's environment: C cannot leave a parameter out of the
+         * debug info (`nodebug` does not apply to parameters, and an
+         * unnamed one is still listed), so it is called `_env`, which
+         * debuggers driven by iron dap or lib/debug hide. */
+        if (pn && strcmp(pn, "_env") == 0 && i == 0) {
+            hmput(map, (IronLIR_ValueId)1, "_env");
+            continue;
+        }
+        /* The other synthetic parameters keep `_vN`: a C name starting
+         * with `_` is never an Iron binding (lib/debug hides it). */
         if (pn && pn[0] == '_') continue;
-        /* A list parameter passed as a C array is copied into a slot of its
-         * own name; the slot holds the current value, so it takes the name
-         * and the parameter keeps `_vN` (it showed twice, as xs and xs_3). */
-        bool has_slot = false;
-        bool c_array = fn->params[i].type && fn->params[i].type->kind == IRON_TYPE_ARRAY &&
+        /* Parameters cannot be marked nodebug, so a parameter copied into
+         * a slot of its own name must not show next to it:
+         *  - a list parameter passed as a C array (pointer + `_len`): when
+         *    the copy is the slot's only store (the parameter is never
+         *    rebound, the slot always equals it) the parameter takes the
+         *    Iron name and the slot stays a hidden temporary, so debuggers
+         *    list `xs` and `xs_len` once, which iron dap folds into the
+         *    list; otherwise the slot, which holds the current value,
+         *    takes the name and the parameter keeps `_vN`;
+         *  - a `var` parameter, a pointer to the caller's binding that the
+         *    body copies in and out of the slot: the slot is the binding
+         *    (it showed twice, as the pointer `n` and the value `n_2`),
+         *    the pointer keeps `_vN`. */
+        IronLIR_ValueId slot = IRON_LIR_VALUE_INVALID;
+        bool by_ref = fn->param_is_var && fn->param_is_var[i];
+        bool c_array = !by_ref && fn->params[i].type &&
+                       fn->params[i].type->kind == IRON_TYPE_ARRAY &&
                        emit_get_array_param_mode(ctx, fn->name, i) != ARRAY_PARAM_LIST;
-        for (int bi = 0; c_array && bi < fn->block_count && !has_slot; bi++) {
+        for (int bi = 0; (c_array || by_ref) && bi < fn->block_count && !slot; bi++) {
             IronLIR_Block *b = fn->blocks[bi];
             for (int ii = 0; ii < b->instr_count; ii++) {
                 IronLIR_Instr *in = b->instrs[ii];
                 if (in->kind == IRON_LIR_ALLOCA && !in->alloca.global_name &&
                     !in->alloca.is_boxed && in->alloca.name_hint && pn &&
                     strcmp(in->alloca.name_hint, pn) == 0) {
-                    has_slot = true;
+                    slot = in->id;
                     break;
                 }
             }
         }
-        if (has_slot) continue;
+        if (slot && by_ref) continue;
+        if (slot) {
+            int stores = 0;
+            bool from_param = false;
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *b = fn->blocks[bi];
+                for (int ii = 0; ii < b->instr_count; ii++) {
+                    IronLIR_Instr *in = b->instrs[ii];
+                    if (in->kind != IRON_LIR_STORE || in->store.ptr != slot) continue;
+                    stores++;
+                    from_param = in->store.value == (IronLIR_ValueId)(i + 1);
+                }
+            }
+            if (stores != 1 || !from_param) continue;
+            hmput(param_slots, slot, pn);
+        }
         debug_name_value(&map, &taken, (IronLIR_ValueId)(i + 1), pn, arena);
     }
     for (int bi = 0; bi < fn->block_count; bi++) {
@@ -9585,6 +9742,7 @@ static EmitValueName *debug_value_names(EmitCtx *ctx, IronLIR_Func *fn, Iron_Are
         for (int ii = 0; ii < b->instr_count; ii++) {
             IronLIR_Instr *in = b->instrs[ii];
             if (in->kind != IRON_LIR_ALLOCA || in->alloca.global_name) continue;
+            if (hmgeti(param_slots, in->id) >= 0) continue;
             const char *h = in->alloca.name_hint;
             if (!h || h[0] == '_') continue;
             /* A boxed slot (a var a closure captures) is reached through a
@@ -9602,6 +9760,7 @@ static EmitValueName *debug_value_names(EmitCtx *ctx, IronLIR_Func *fn, Iron_Are
     for (ptrdiff_t i = 0; i < hmlen(fn->value_names); i++) {
         debug_name_value(&map, &taken, fn->value_names[i].key, fn->value_names[i].value, arena);
     }
+    hmfree(param_slots);
     shfree(taken);
     return map;
 }

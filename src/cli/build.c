@@ -486,6 +486,13 @@ static int prepend_marked_file(char **source_io, const char *base_dir,
 /* iron_os.c: the platform behind the freestanding runtime header (#235);
  * passed to clang with the other runtime sources. */
 static char *s_rt_os = NULL;
+/* The encoding codecs (every program) and the crypto module (OpenSSL when
+ * the program imports crypto, http or websocket), kept like s_rt_os. */
+static char *s_sl_encoding = NULL;
+static char *s_sl_crypto = NULL;
+/* stdlib/iron_json.c, compiled only into programs that `import json`. */
+static char *s_sl_json = NULL;
+static bool s_imports_json = false;
 
 #ifdef _WIN32
 /* --debug on Windows (#312): Visual Studio views of Iron values. A natvis
@@ -661,6 +668,12 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     *sl_http_out    = make_path(base_dir, "stdlib/iron_http.c");
     *sl_tls_out     = make_path(base_dir, "stdlib/iron_tls.c");
     *sl_websocket_out = make_path(base_dir, "stdlib/iron_websocket.c");
+    free(s_sl_encoding);
+    s_sl_encoding   = make_path(base_dir, "stdlib/iron_encoding.c");
+    free(s_sl_crypto);
+    s_sl_crypto     = make_path(base_dir, "stdlib/iron_crypto.c");
+    free(s_sl_json);
+    s_sl_json = make_path(base_dir, "stdlib/iron_json.c");
 
     if (!*rt_stb_out || !*rt_arena_out || !*rt_strbuf_out || !*rt_string_out ||
         !*rt_rc_out || !*rt_builtin_out || !*rt_threads_out || !*rt_collect_out ||
@@ -668,7 +681,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         !*rt_panic_out || !*rt_leakcheck_out || !*rt_arena_rt_out ||
         !*sl_math_out || !*sl_io_out || !*sl_time_out || !*sl_log_out ||
         !*sl_hint_out || !*sl_net_out || !*sl_http_out || !*sl_tls_out ||
-        !*sl_websocket_out) {
+        !*sl_websocket_out || !s_sl_encoding || !s_sl_crypto ||
+        !s_sl_json) {
         return 1;
     }
 
@@ -742,6 +756,9 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_http_out;
     argv_buf[ai++] = *sl_tls_out;
     argv_buf[ai++] = *sl_websocket_out;
+    argv_buf[ai++] = s_sl_encoding;
+    if (opts.wants_tls) argv_buf[ai++] = s_sl_crypto;  /* only importers pay for it */
+    if (s_imports_json) argv_buf[ai++] = s_sl_json;
     if (opts.use_tls) {
         argv_buf[ai++] = "/DIRON_HAVE_OPENSSL=1";
 #ifdef IRON_CLI_OPENSSL_INCLUDE_DIR
@@ -853,6 +870,9 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_http_out;
     argv_buf[ai++] = *sl_tls_out;
     argv_buf[ai++] = *sl_websocket_out;
+    argv_buf[ai++] = s_sl_encoding;
+    if (opts.wants_tls) argv_buf[ai++] = s_sl_crypto;  /* only importers pay for it */
+    if (s_imports_json) argv_buf[ai++] = s_sl_json;
     if (opts.use_tls) {
         argv_buf[ai++] = "-DIRON_HAVE_OPENSSL=1";
 #ifdef IRON_CLI_OPENSSL_INCLUDE_DIR
@@ -998,6 +1018,9 @@ static void free_src_list(char *base_dir,
     free(rt_threads); free(rt_collect);
     free(rt_netinit); free(rt_oom);
     free(s_rt_os); s_rt_os = NULL;
+    free(s_sl_encoding); s_sl_encoding = NULL;
+    free(s_sl_crypto); s_sl_crypto = NULL;
+    free(s_sl_json); s_sl_json = NULL;
     free(rt_fmt);
     free(rt_heap_track);
     free(rt_panic);
@@ -1125,9 +1148,10 @@ static bool bundle_has_raylib(const IronRtBundle *rt) {
     return access(path, F_OK) == 0;
 }
 
-/* The bundle's TLS module for the link: built against the bundle's static
- * OpenSSL (plus libssl and libcrypto) for a program that imports http or
- * websocket, the stub that reports TLS as unavailable otherwise. Appends to
+/* The bundle's TLS and crypto modules for the link: built against the
+ * bundle's static OpenSSL (plus libssl and libcrypto) for a program that
+ * imports http, websocket or crypto, the stubs that report them as
+ * unavailable otherwise. Appends to
  * ld and returns the new count; paths are kept in `bufs`. */
 static int bundle_tls_inputs(const IronRtBundle *rt, bool wants_tls, char **ld, int li,
                              char bufs[3][4200]) {
@@ -1800,19 +1824,35 @@ int iron_build(const char *source_path, const char *output_path,
     }
 
     /* WebSocket shares HTTP upgrade models, so importing either module seats
-     * http.iron exactly once. */
+     * http.iron exactly once. crypto needs libcrypto, which comes with the
+     * same OpenSSL link (and, in a runtime bundle, the same libiron_tls). */
     bool imports_http = iron_detect_import(source, source_path, "http", &detect_arena);
     bool imports_websocket = iron_detect_import(
         source, source_path, "websocket", &detect_arena);
-    if (imports_http || imports_websocket) {
+    bool imports_crypto = iron_detect_import(source, source_path, "crypto", &detect_arena);
+    if (imports_http || imports_websocket || imports_crypto) {
         opts.wants_tls = true;
 #ifdef IRON_CLI_HAVE_OPENSSL
         opts.use_tls = true;
 #else
         opts.use_tls = false;
 #endif
+    }
+    if (imports_http || imports_websocket) {
         stdlib_prepended_lines +=
             prepend_marked_file(&source, base_dir, "stdlib/http.iron",
+                                line_markers);
+    }
+
+    /* Hex and Base64 codecs (no dependencies). */
+    if (iron_detect_import(source, source_path, "encoding", &detect_arena)) {
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/encoding.iron",
+                                line_markers);
+    }
+    if (imports_crypto) {
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/crypto.iron",
                                 line_markers);
     }
 
@@ -1820,6 +1860,14 @@ int iron_build(const char *source_path, const char *output_path,
     if (imports_websocket) {
         stdlib_prepended_lines +=
             prepend_marked_file(&source, base_dir, "stdlib/websocket.iron",
+                                line_markers);
+    }
+
+    /* `import json` prepends json.iron and links iron_json.c. */
+    s_imports_json = iron_detect_import(source, source_path, "json", &detect_arena);
+    if (s_imports_json) {
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/json.iron",
                                 line_markers);
     }
 

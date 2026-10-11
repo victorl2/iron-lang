@@ -972,10 +972,17 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 iron_hir_stmt_let(mod, tmp_id, tuple_ty, init_expr,
                                   false, span));
 
-            /* Emit one let per binding (skip wildcards). */
+            /* Emit one let per position. A wildcard gets a hidden binding:
+             * each element is moved out of the temporary, and the binding's
+             * scope exit drops what the program does not keep. */
             for (int i = 0; i < vd->binding_count; i++) {
                 const char *binding = vd->binding_names[i];
-                if (!binding) continue;  /* wildcard */
+                char hidden[32];
+                if (!binding) {
+                    snprintf(hidden, sizeof(hidden), "__tuple_skip_%d_%d", ctx->lift_counter++, i);
+                    binding = iron_arena_strdup(ctx->module->arena, hidden, strlen(hidden));
+                    if (!binding) iron_oom_abort("hir_lower.c:tuple wildcard");
+                }
                 Iron_Type *elem_ty = (i < tuple_ty->tuple.elem_count)
                     ? tuple_ty->tuple.elem_types[i]
                     : iron_type_make_primitive(IRON_TYPE_ERROR);

@@ -1561,8 +1561,9 @@ void iron_type_patch_registry_free(Iron_TypePatchRegistry *reg) {
 
 /* Stdlib modules an `import` may name (src/stdlib/<name>.iron). */
 static const char *const k_stdlib_modules[] = {
-    "arena", "box", "channel", "filehandle", "float", "hashable", "hint",
-    "http", "int", "io", "list", "log", "map", "math", "mutex", "net", "os",
+    "arena", "box", "channel", "crypto", "encoding", "filehandle", "float",
+    "hashable", "hint", "http", "int", "io", "json", "list", "log", "map", "math",
+    "mutex", "net", "os",
     "rawptr", "raylib", "rwlock", "set", "string", "time", "url",
     "websocket", NULL
 };

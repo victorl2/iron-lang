@@ -1,0 +1,11 @@
+-- A `main(args: [String])` that only reads its list (a for loop over it)
+-- qualified for the pointer+length list parameter ABI, but the generated
+-- C entry point calls main with the runtime's list, so the program did
+-- not compile ("too few arguments to function call").
+func main(args: [String]) {
+    var n = 0
+    for a in args {
+        n += a.len()
+    }
+    println("{args.len()} {n}")
+}
