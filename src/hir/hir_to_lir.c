@@ -3148,7 +3148,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             /* A call through a pointer (`p.m()`, p: *T) dispatches to T's
              * method; the emitter reads the receiver through the pointer. */
             if (obj_type->kind == IRON_TYPE_PTR && obj_type->ptr.pointee &&
-                obj_type->ptr.pointee->kind == IRON_TYPE_OBJECT) {
+                obj_type->ptr.pointee->kind != IRON_TYPE_PTR) {
+                /* (a String or number method through a pointer too, #575) */
                 obj_type = obj_type->ptr.pointee;
             }
             if (obj_type->kind == IRON_TYPE_OBJECT && obj_type->object.decl) {
@@ -3652,6 +3653,17 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 /* A temporary receiver (`build().len()`) is released after
                  * the call like any owned argument. */
                 note_owned_temp(ctx, &temps, expr->method_call.object, self_val, span);
+                /* A String or number method called through a pointer takes
+                 * the pointee: a checked load through the pointer (#575). */
+                Iron_Type *rt = expr->method_call.object->type;
+                if (rt && rt->kind == IRON_TYPE_PTR && rt->ptr.pointee &&
+                    rt->ptr.pointee->kind != IRON_TYPE_OBJECT &&
+                    rt->ptr.pointee->kind != IRON_TYPE_PTR &&
+                    self_val != IRON_LIR_VALUE_INVALID && ctx->current_block &&
+                    !block_is_terminated(ctx->current_block)) {
+                    self_val = iron_lir_ptr_load(ctx->current_func, ctx->current_block, self_val,
+                                                 IRON_LIR_GEN_STACK, rt->ptr.pointee, span)->id;
+                }
             }
             arrput(args, self_val);
         } else if (ufcs_static) {

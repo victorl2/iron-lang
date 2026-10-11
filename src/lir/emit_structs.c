@@ -440,6 +440,29 @@ void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et) {
     const char *bare_type = et->object.decl->name;
     if (!bare_type) return;
 
+    /* A list of Box[T] (#576): the element's C type is the per-T
+     * Iron_Box_<T> (emit_type_to_c emits its typedef first), not the
+     * surface name, and each element owns its heap cell, freed with the
+     * list. */
+    if (strcmp(bare_type, "Box") == 0 && et->object.elem) {
+        const char *bname = emit_type_to_c((Iron_Type *)et, ctx);
+        if (!bname || shgeti(ctx->emitted_mono_list_types, bname) >= 0) return;
+        shput(ctx->emitted_mono_list_types, bname, true);
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "/* A list of %s (#576) */\n"
+            "typedef struct Iron_List_%s {\n"
+            "    %s    *items;\n"
+            "    int64_t count;\n"
+            "    int64_t capacity;\n"
+            "} Iron_List_%s;\n"
+            "static void %s_free(%s *box);\n"
+            "static inline void %s_drop(%s *box) { %s_free(box); }\n"
+            "IRON_LIST_DECL(%s, %s)\n",
+            bname, bname, bname, bname, bname, bname, bname, bname, bname, bname, bname);
+        emit_list_impl_lifecycle(ctx, bname, true, false);
+        return;
+    }
+
     /* Mangle "Circle" -> "Iron_Circle".  Arena-allocated,
      * stable for the lifetime of the stb_ds dedup map. */
     const char *mangled = emit_mangle_name(bare_type, ctx->arena);

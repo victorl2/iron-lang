@@ -6212,6 +6212,22 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 /* Direct call via known function name — honor extern_c_name */
                 const char *c_name = emit_resolve_func_c_name(
                     ctx, fn->value_table[fptr]->func_ref.func_name);
+                /* A list of Box[T] (#576): the lowering names its methods
+                 * after the surface type (Iron_List_Iron_Box_push); the list
+                 * type is the per-T Iron_List_Iron_Box_<T>. */
+                if (c_name && strncmp(c_name, "Iron_List_Iron_Box_", 19) == 0 &&
+                    instr->call.arg_count > 0) {
+                    Iron_Type *lt = emit_get_value_type(fn, instr->call.args[0]);
+                    if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.elem &&
+                        lt->array.elem->kind == IRON_TYPE_OBJECT && lt->array.elem->object.elem) {
+                        const char *bname = emit_type_to_c(lt->array.elem, ctx);
+                        size_t n = strlen(bname) + strlen(c_name) + 16;
+                        char *buf = (char *)iron_arena_alloc(ctx->arena, n, 1);
+                        if (!buf) iron_oom_abort("emit_c.c:box list call");
+                        snprintf(buf, n, "Iron_List_%s_%s", bname, c_name + 19);
+                        c_name = buf;
+                    }
+                }
                 if (dbg_list.method) dbg_list.call_at = sb->len;
                 iron_strbuf_appendf(sb, "%s(", c_name);
                 emitted_direct = true;
@@ -6328,6 +6344,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
         /* PARAM-01/02: Resolve callee IR name for pointer-mode check */
         const char *callee_ir_name = NULL;
+        const char *callee_any_name = NULL;   /* an extern (runtime) callee too */
+        if (instr->call.func_decl && emit_find_ir_func(ctx, instr->call.func_decl->name))
+            callee_any_name = instr->call.func_decl->name;
         if (instr->call.func_decl && !instr->call.func_decl->is_extern) {
             callee_ir_name = instr->call.func_decl->name;
         } else if (!instr->call.func_decl) {
@@ -6339,6 +6358,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 const char *rn2 = fn->value_table[fptr2]->func_ref.func_name;
                 IronLIR_Func *cf = emit_find_ir_func(ctx, rn2);
                 if (cf && !cf->is_extern) callee_ir_name = rn2;
+                if (cf) callee_any_name = rn2;
             }
         }
 
@@ -6438,9 +6458,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
             /* A by-value receiver reached through a pointer: pass the
              * pointee (`p.m()` with p: *T and a readonly m). */
-            if (i == 0 && callee_ir_name) {
+            if (i == 0 && (callee_ir_name || callee_any_name)) {
                 Iron_Type *a0t = emit_get_value_type(fn, arg_id);
-                IronLIR_Func *cfn0 = emit_find_ir_func(ctx, callee_ir_name);
+                IronLIR_Func *cfn0 = emit_find_ir_func(ctx, callee_ir_name ? callee_ir_name
+                                                                           : callee_any_name);
                 Iron_Type *p0t = (cfn0 && cfn0->param_count > 0) ? cfn0->params[0].type : NULL;
                 if (a0t && a0t->kind == IRON_TYPE_RC && a0t->rc.inner &&
                     p0t && p0t->kind == IRON_TYPE_OBJECT &&
@@ -6452,7 +6473,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     continue;
                 }
                 if (a0t && a0t->kind == IRON_TYPE_PTR && a0t->ptr.pointee &&
-                    p0t && p0t->kind == IRON_TYPE_OBJECT &&
+                    p0t && p0t->kind != IRON_TYPE_PTR &&
                     iron_type_equals(a0t->ptr.pointee, p0t)) {
                     if (a0t->ptr.is_unchecked) {
                         iron_strbuf_appendf(sb, "(*");

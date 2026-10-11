@@ -1,0 +1,25 @@
+-- A list of Box[T] uses the per-T Box type and frees each element's cell
+-- with the list; it was emitted with the element type Iron_Box and did
+-- not compile (#576).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+    drop {
+        println("drop {self.hp}")
+    }
+}
+func main() {
+    var xs: [Box[Int]] = []
+    xs.push(Box(1))
+    xs.push(Box(2))
+    val p: *var unchecked Int = xs[1].unwrap()
+    println("{xs.len()} {p}")
+    var ys: [Box[P]] = []
+    ys.push(Box(P(7)))
+    ys.push(Box(P(8)))
+    val b = ys.pop()
+    println("popped {b.unwrap().hp}")
+    b.free()
+}
