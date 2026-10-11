@@ -315,12 +315,12 @@ object ConversionResult {
     val reply: Reply
 }
 
-func resolve_currency(app: rc App, route: Route, q: Query) -> ConversionResult {
+func resolve_currency(app: rc App, wk: *Worker, route: Route, q: Query) -> ConversionResult {
     if not q.has("currency") {
         return ConversionResult(no_conversion(), true, json_reply(route, 200, ""))
     }
     val code = q.get("currency").upper()
-    val found = lookup_rate(app.rates, app.metrics, app.db, code)
+    val found = lookup_rate(app.rates, wk.metrics, app.db, code)
     if found.status == 400 {
         return ConversionResult(no_conversion(), false, error_reply(route, 400, found.message))
     }
@@ -330,9 +330,9 @@ func resolve_currency(app: rc App, route: Route, q: Query) -> ConversionResult {
     return ConversionResult(Conversion(true, code, found.rate, found.stale, found.as_of, ""), true, json_reply(route, 200, ""))
 }
 
-func db_reply(app: rc App, route: Route, status: Int, err: MysqlError, message: String) -> Reply {
+func db_reply(wk: *Worker, route: Route, status: Int, err: MysqlError, message: String) -> Reply {
     if status >= 500 {
-        app.metrics.db_error()
+        wk.metrics.db_error()
         logger_warn("database error").str("route", route_name(route_index(route))).int("code", err.code).str("error", err.message).emit()
         if status == 503 {
             return error_reply(route, 503, "database unavailable, retry later")
@@ -344,7 +344,7 @@ func db_reply(app: rc App, route: Route, status: Int, err: MysqlError, message: 
 
 -- ── Handlers ──────────────────────────────────────────────────────────────
 
-func create_item_handler(app: rc App, request: HttpRequest) -> Reply {
+func create_item_handler(app: rc App, wk: *Worker, request: HttpRequest) -> Reply {
     val route = Route.ItemCreate
     val body = json_body(route, request)
     if not body.ok {
@@ -379,29 +379,29 @@ func create_item_handler(app: rc App, request: HttpRequest) -> Reply {
     }
     val r = create_item(app.db, NewItem(sku, name, category, price, quantity))
     if r.error.failed() or not r.found {
-        return db_reply(app, route, r.status, r.error, r.message)
+        return db_reply(wk, route, r.status, r.error, r.message)
     }
     val w = JsonWriter.compact()
     write_item(w, r.item, no_conversion())
     return json_reply(route, 201, w.finish())
 }
 
-func get_item_handler(app: rc App, id: Int, q: Query) -> Reply {
+func get_item_handler(app: rc App, wk: *Worker, id: Int, q: Query) -> Reply {
     val route = Route.ItemGet
-    val conv = resolve_currency(app, route, q)
+    val conv = resolve_currency(app, wk, route, q)
     if not conv.ok {
         return conv.reply
     }
     val r = get_item(app.db, id)
     if not r.found {
-        return db_reply(app, route, r.status, r.error, r.message)
+        return db_reply(wk, route, r.status, r.error, r.message)
     }
     val w = JsonWriter.compact()
     write_item(w, r.item, conv.conv)
     return json_reply(route, 200, w.finish())
 }
 
-func list_items_handler(app: rc App, q: Query) -> Reply {
+func list_items_handler(app: rc App, wk: *Worker, q: Query) -> Reply {
     val route = Route.ItemList
     var f = ItemFilter()
     f.category = q.get("category")
@@ -420,13 +420,13 @@ func list_items_handler(app: rc App, q: Query) -> Reply {
     if f.name_prefix.len() > 200 or f.category.len() > 64 {
         return error_reply(route, 400, "filter too long")
     }
-    val conv = resolve_currency(app, route, q)
+    val conv = resolve_currency(app, wk, route, q)
     if not conv.ok {
         return conv.reply
     }
     val page = list_items(app.db, f)
     if page.status != 200 {
-        return db_reply(app, route, page.status, page.error, "")
+        return db_reply(wk, route, page.status, page.error, "")
     }
     val w = JsonWriter.compact()
     w.begin_object()
@@ -446,7 +446,7 @@ func list_items_handler(app: rc App, q: Query) -> Reply {
     return json_reply(route, 200, w.finish())
 }
 
-func update_item_handler(app: rc App, id: Int, request: HttpRequest) -> Reply {
+func update_item_handler(app: rc App, wk: *Worker, id: Int, request: HttpRequest) -> Reply {
     val route = Route.ItemUpdate
     val body = json_body(route, request)
     if not body.ok {
@@ -484,14 +484,14 @@ func update_item_handler(app: rc App, id: Int, request: HttpRequest) -> Reply {
     }
     val r = update_item(app.db, id, p)
     if not r.found {
-        return db_reply(app, route, r.status, r.error, r.message)
+        return db_reply(wk, route, r.status, r.error, r.message)
     }
     val w = JsonWriter.compact()
     write_item(w, r.item, no_conversion())
     return json_reply(route, 200, w.finish())
 }
 
-func stock_handler(app: rc App, id: Int, request: HttpRequest) -> Reply {
+func stock_handler(app: rc App, wk: *Worker, id: Int, request: HttpRequest) -> Reply {
     val route = Route.ItemStock
     val body = json_body(route, request)
     if not body.ok {
@@ -526,7 +526,7 @@ func stock_handler(app: rc App, id: Int, request: HttpRequest) -> Reply {
         return json_reply(route, 409, w.finish())
     }
     if r.status != 200 {
-        return db_reply(app, route, r.status, r.error, r.message)
+        return db_reply(wk, route, r.status, r.error, r.message)
     }
     val w = JsonWriter.compact()
     w.begin_object()
@@ -537,7 +537,7 @@ func stock_handler(app: rc App, id: Int, request: HttpRequest) -> Reply {
     return json_reply(route, 200, w.finish())
 }
 
-func movements_handler(app: rc App, id: Int, q: Query) -> Reply {
+func movements_handler(app: rc App, wk: *Worker, id: Int, q: Query) -> Reply {
     val route = Route.ItemMovements
     val limit = query_int(q, "limit", 20, 1, 200)
     if limit == null {
@@ -545,7 +545,7 @@ func movements_handler(app: rc App, id: Int, q: Query) -> Reply {
     }
     val page = list_movements(app.db, id, limit)
     if page.status != 200 {
-        return db_reply(app, route, page.status, page.error, "item not found")
+        return db_reply(wk, route, page.status, page.error, "item not found")
     }
     val w = JsonWriter.compact()
     w.begin_object()
@@ -565,19 +565,19 @@ func movements_handler(app: rc App, id: Int, q: Query) -> Reply {
     return json_reply(route, 200, w.finish())
 }
 
-func report_handler(app: rc App, q: Query) -> Reply {
+func report_handler(app: rc App, wk: *Worker, q: Query) -> Reply {
     val route = Route.Report
     val window = query_int(q, "window", 86400, 1, 31536000)
     if window == null {
         return error_reply(route, 400, "window must be 1 to 31536000 seconds")
     }
-    val conv = resolve_currency(app, route, q)
+    val conv = resolve_currency(app, wk, route, q)
     if not conv.ok {
         return conv.reply
     }
     val report = category_report(app.db, window)
     if report.status != 200 {
-        return db_reply(app, route, report.status, report.error, "")
+        return db_reply(wk, route, report.status, report.error, "")
     }
     var currency = app.cfg.rates_base
     var rate = 1.0
@@ -620,9 +620,9 @@ func report_handler(app: rc App, q: Query) -> Reply {
     return json_reply(route, 200, w.finish())
 }
 
-func rate_handler(app: rc App, code: String) -> Reply {
+func rate_handler(app: rc App, wk: *Worker, code: String) -> Reply {
     val route = Route.RateGet
-    val found = lookup_rate(app.rates, app.metrics, app.db, code)
+    val found = lookup_rate(app.rates, wk.metrics, app.db, code)
     if found.status != 0 {
         return error_reply(route, found.status, found.message)
     }
@@ -658,7 +658,7 @@ func ready_handler(app: rc App) -> Reply {
             rates_state = "stale"
         }
     }
-    val draining = app.state.is_draining()
+    val draining = app.poller.closed()
     val w = JsonWriter.compact()
     w.begin_object()
     if db_ok and not draining {
@@ -689,7 +689,7 @@ func metrics_handler(app: rc App) -> Reply {
     val gauges = Gauges(app.db.size(), app.db.idle(), app.db.in_use(), app.state.is_db_ready(),
         app.poller.parked(), app.poller.accepted(), app.poller.expired(),
         max(snap.age_ms, 0), snap.count, snap.breaker_open)
-    return Reply(Route.MetricsPage, 200, render_metrics(app.metrics, gauges, Time.now_ms()), true, "")
+    return Reply(Route.MetricsPage, 200, render_metrics(app.metrics_set, gauges, Time.now_ms()), true, "")
 }
 
 -- An id path segment: a positive integer.
@@ -701,7 +701,7 @@ func path_id(s: String) -> Int {
     return v
 }
 
-pub func dispatch(app: rc App, request: HttpRequest) -> Reply {
+pub func dispatch(app: rc App, wk: *Worker, request: HttpRequest) -> Reply {
     val path = request.path
     val method = request.method
     if path == "/healthz" {
@@ -729,10 +729,10 @@ pub func dispatch(app: rc App, request: HttpRequest) -> Reply {
     if n >= 3 and segs[2] == "items" {
         if n == 3 or (n == 4 and segs[3] == "") {
             if method == "POST" {
-                return create_item_handler(app, request)
+                return create_item_handler(app, wk, request)
             }
             if method == "GET" {
-                return list_items_handler(app, q)
+                return list_items_handler(app, wk, q)
             }
             return method_not_allowed(Route.ItemList, "GET, POST")
         }
@@ -742,35 +742,35 @@ pub func dispatch(app: rc App, request: HttpRequest) -> Reply {
         }
         if n == 4 {
             if method == "GET" {
-                return get_item_handler(app, id, q)
+                return get_item_handler(app, wk, id, q)
             }
             if method == "PATCH" {
-                return update_item_handler(app, id, request)
+                return update_item_handler(app, wk, id, request)
             }
             return method_not_allowed(Route.ItemGet, "GET, PATCH")
         }
         if n == 5 and segs[4] == "stock" {
             if method == "POST" {
-                return stock_handler(app, id, request)
+                return stock_handler(app, wk, id, request)
             }
             return method_not_allowed(Route.ItemStock, "POST")
         }
         if n == 5 and segs[4] == "movements" {
             if method == "GET" {
-                return movements_handler(app, id, q)
+                return movements_handler(app, wk, id, q)
             }
             return method_not_allowed(Route.ItemMovements, "GET")
         }
     }
     if n == 4 and segs[2] == "reports" and segs[3] == "categories" {
         if method == "GET" {
-            return report_handler(app, q)
+            return report_handler(app, wk, q)
         }
         return method_not_allowed(Route.Report, "GET")
     }
     if n == 4 and segs[2] == "rates" {
         if method == "GET" {
-            return rate_handler(app, segs[3])
+            return rate_handler(app, wk, segs[3])
         }
         return method_not_allowed(Route.RateGet, "GET")
     }

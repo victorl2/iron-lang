@@ -17,7 +17,9 @@
 #
 # environment: IRON_MYSQL_URL (required), BENCH_ITEMS (10000), BENCH_SECONDS
 # (15), WRK_THREADS (4), SERVICE_CPUS (0-3), WRK_CPUS (4-7), BENCH_OUT
-# (bench-results.md), BENCH_KEEP=1 to keep the database.
+# (bench-results.md), BENCH_KEEP=1 to keep the database, BENCH_REUSE=1 to
+# reuse a kept one, BENCH_MYSQL_TLS=1 for TLS to MySQL (off by default for
+# both targets, as in go-sql-driver), BENCH_POOL (32) for the pool size.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 app=$(cd "$here/.." && pwd)
@@ -56,9 +58,21 @@ if [[ ,$targets, == *,go,* ]]; then
     (cd "$here/go-baseline" && go build -o "$work/go-baseline" .) || exit 1
 fi
 
+# TLS to MySQL is off by default for both targets (go-sql-driver's default;
+# Iron's client prefers TLS when the server offers it). BENCH_MYSQL_TLS=1
+# turns it on for both.
 db_url=$(python3 -c 'import sys,urllib.parse as u; p=u.urlsplit(sys.argv[1]); print(u.urlunsplit((p.scheme,p.netloc,"/inventory_bench",p.query,"")))' "$IRON_MYSQL_URL")
-go_dsn=$(python3 -c 'import sys,urllib.parse as u; p=u.urlsplit(sys.argv[1]); print(f"{u.unquote(p.username or "")}:{u.unquote(p.password or "")}@tcp({p.hostname}:{p.port or 3306})/inventory_bench?parseTime=true")' "$IRON_MYSQL_URL")
-"$work/dbtool" drop "$IRON_MYSQL_URL" inventory_bench && "$work/dbtool" create "$IRON_MYSQL_URL" inventory_bench || exit 1
+go_tls=""
+if [ "${BENCH_MYSQL_TLS:-0}" = 1 ]; then
+    go_tls="&tls=skip-verify"
+else
+    case $db_url in *\?*) db_url="$db_url&tls=disabled" ;; *) db_url="$db_url?tls=disabled" ;; esac
+fi
+go_dsn=$(python3 -c 'import sys,urllib.parse as u; p=u.urlsplit(sys.argv[1]); print(f"{u.unquote(p.username or "")}:{u.unquote(p.password or "")}@tcp({p.hostname}:{p.port or 3306})/inventory_bench?parseTime=true")' "$IRON_MYSQL_URL")$go_tls
+if [ "${BENCH_REUSE:-0}" != 1 ]; then
+    "$work/dbtool" drop "$IRON_MYSQL_URL" inventory_bench
+fi
+"$work/dbtool" create "$IRON_MYSQL_URL" inventory_bench || exit 1
 
 "$work/stub/target/fxstub" 18090 >"$work/stub.log" 2>&1 &
 stub_pid=$!
@@ -97,6 +111,9 @@ hz=$(getconf CLK_TCK)
 seeded=0
 seed() {
     [ $seeded = 1 ] && return
+    local have
+    have=$("$work/dbtool" scalar "$db_url" "SELECT COUNT(*) FROM items WHERE sku LIKE 'SEED-%'")
+    if [ "${have:-0}" -ge "$ITEMS" ]; then seeded=1; return; fi
     # 10 * 10 * 10 * 10 rows from a cross join of digits, then more blocks.
     local blocks=$(( (ITEMS + 9999) / 10000 )) b
     for b in $(seq 0 $((blocks - 1))); do

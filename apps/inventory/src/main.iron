@@ -83,7 +83,8 @@ func main(args: [String]) {
         OS.exit(1)
     }
 
-    val metrics = rc Metrics(Time.now_ms())
+    val metrics_set = rc MetricsSet(Time.now_ms())
+    val metrics = metrics_set.new_shard()
     val rates = rc RateService(cfg.rates_url, cfg.rates_base, cfg.rates_ttl_ms, cfg.rates_timeout_ms,
         cfg.rates_retries, cfg.rates_backoff_ms, cfg.breaker_threshold, cfg.breaker_cooldown_ms)
     if not rates.client_ok {
@@ -91,7 +92,7 @@ func main(args: [String]) {
         OS.exit(2)
     }
     val state = rc ServiceState()
-    val app = rc App(cfg, db, rates, metrics, state, poller)
+    val app = rc App(cfg, db, rates, metrics_set, metrics, state, poller)
 
     logger_info("listening").str("host", cfg.host).int("port", HttpServer.port(server))
         .str("version", VERSION).str("config", cfg.source).int("pid", OS.pid()).emit()
@@ -121,19 +122,23 @@ func main(args: [String]) {
 
     -- Shutdown: stop accepting, finish what is in flight (answers now say
     -- Connection: close), then release the database and the upstream pool.
-    logger_info("shutting down").int("signal", OS.shutdown_signal()).int("in_flight", state.running_tasks()).emit()
-    state.start_draining()
+    logger_info("shutting down").int("signal", OS.shutdown_signal()).emit()
     HttpServer.close(server)
     poller.close()
+    -- Each serving thread finishes the request it holds and stops.
     val deadline = Time.now_ms() + cfg.shutdown_grace_ms
-    while state.running_tasks() > 0 and Time.now_ms() < deadline {
+    while state.running_workers() > 0 and Time.now_ms() < deadline {
         Time.sleep(10)
     }
-    val left = state.running_tasks()
+    val left = state.running_workers()
+    if left > 0 {
+        logger_error("requests still running after the grace period").int("threads", left).emit()
+        OS.exit(1)
+    }
     val served = await serving
     await db_task
     await refresher
     db.close()
     HttpClient.close(rates.client)
-    logger_info("stopped").int("abandoned_requests", left).int("requests_served", served).emit()
+    logger_info("stopped").int("abandoned_requests", 0).int("requests_served", served).emit()
 }

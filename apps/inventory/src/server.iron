@@ -8,23 +8,27 @@ func crlf() -> String {
     return String.from_byte(13) + "\n"
 }
 
+-- Header blocks built once.
+val JSON_HEADERS = "Content-Type: application/json"
+val TEXT_HEADERS = "Content-Type: text/plain; version=0.0.4; charset=utf-8"
+val RETRY_HEADERS = JSON_HEADERS + crlf() + "Retry-After: 1"
+
 func build_response(reply: Reply) -> HttpResponse {
-    var headers = "Content-Type: application/json"
-    if reply.text {
-        headers = "Content-Type: text/plain; version=0.0.4; charset=utf-8"
+    if reply.allow.len() > 0 {
+        return Http.response(reply.status, JSON_HEADERS + crlf() + "Allow: " + reply.allow, reply.body)
     }
     if reply.status == 503 {
-        headers = headers + crlf() + "Retry-After: 1"
+        return Http.response(reply.status, RETRY_HEADERS, reply.body)
     }
-    if reply.allow.len() > 0 {
-        headers = headers + crlf() + "Allow: " + reply.allow
+    if reply.text {
+        return Http.response(reply.status, TEXT_HEADERS, reply.body)
     }
-    return Http.response(reply.status, headers, reply.body)
+    return Http.response(reply.status, JSON_HEADERS, reply.body)
 }
 
 -- Answer a request that could not be read, when the client can still
 -- hear it, and close.
-func reject_unreadable(app: rc App, connection: HttpConnection, error: Int) {
+func reject_unreadable(wk: *Worker, connection: HttpConnection, error: Int) {
     var status = 0
     var message = ""
     if error == 5004 {
@@ -40,35 +44,32 @@ func reject_unreadable(app: rc App, connection: HttpConnection, error: Int) {
     if status != 0 {
         val reply = error_reply(Route.BadRequest, status, message)
         HttpConnection.send_response(connection, build_response(reply), 1000)
-        app.metrics.request_finished(Route.BadRequest, status, 0)
+        wk.metrics.request_finished(Route.BadRequest, status, 0)
     }
 }
 
-pub func serve_one(app: rc App, connection: HttpConnection) -> Int {
-    val cfg = app.cfg
-    val request = HttpConnection.read_request(connection, cfg.max_header_bytes, cfg.max_body_bytes, cfg.request_timeout_ms)
+pub func serve_one(app: rc App, wk: *Worker, connection: HttpConnection) -> Int {
+    val request = HttpConnection.read_request(connection, wk.max_header_bytes, wk.max_body_bytes, wk.request_timeout_ms)
     if request.error != 0 {
         -- A peer that went away between requests (EOF, reset, timeout)
         -- needs no answer.
-        reject_unreadable(app, connection, request.error)
+        reject_unreadable(wk, connection, request.error)
         app.poller.discard(connection)
-        app.state.task_finished()
         return 0
     }
     val started = Time.now_ns()
-    app.metrics.request_started()
-    val reply = dispatch(app, request)
-    val keep = request.keep_alive and not app.state.is_draining()
-    val response = build_response(reply)
+    val reply = dispatch(app, wk, request)
+    -- While draining (the poller is closed) answers close the connection.
+    val keep = request.keep_alive and not app.poller.closed()
     var sent = 0
     if request.method == "HEAD" {
-        sent = HttpConnection.send_response_keep_alive(connection, Http.response(reply.status, "Content-Type: application/json", ""), keep, cfg.request_timeout_ms)
+        sent = HttpConnection.send_response_keep_alive(connection, Http.response(reply.status, JSON_HEADERS, ""), keep, wk.request_timeout_ms)
     } else {
-        sent = HttpConnection.send_response_keep_alive(connection, response, keep, cfg.request_timeout_ms)
+        sent = HttpConnection.send_response_keep_alive(connection, build_response(reply), keep, wk.request_timeout_ms)
     }
     val us = (Time.now_ns() - started) / 1000
-    app.metrics.request_finished(reply.route, reply.status, us)
-    if cfg.log_requests {
+    wk.metrics.request_finished(reply.route, reply.status, us)
+    if wk.log_requests {
         logger_info("request").str("method", request.method).str("path", request.path)
             .int("status", reply.status).int("duration_us", us).str("route", route_name(route_index(reply.route))).emit()
     }
@@ -77,21 +78,25 @@ pub func serve_one(app: rc App, connection: HttpConnection) -> Int {
     } else {
         app.poller.discard(connection)
     }
-    app.state.task_finished()
     return 0
 }
 
 -- One serving thread: take a connection whose request has arrived, serve
 -- it, repeat, until the poller closes. Several of these share the poller.
 func serve_loop(app: rc App) -> Int {
+    val cfg = app.cfg
+    val wk = Worker(app.metrics_set.new_shard(), cfg.max_header_bytes, cfg.max_body_bytes,
+        cfg.request_timeout_ms, cfg.log_requests)
+    val poller = app.poller
+    app.state.worker_started()
     var served = 0
     while true {
-        val ready = app.poller.next(1000)
+        val ready = poller.next(1000)
         if ready.error == 0 {
-            app.state.task_started()
-            serve_one(app, ready.connection)
+            serve_one(app, wk, ready.connection)
             served += 1
         } elif ready.error == 1013 {
+            app.state.worker_stopped()
             return served
         } elif ready.error != 1004 {
             logger_error("connection poller failed").int("code", ready.error).str("error", ready.error_message).emit()

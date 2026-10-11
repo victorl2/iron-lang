@@ -1,9 +1,9 @@
 -- Request, upstream and cache metrics, rendered in the Prometheus text
 -- exposition format by GET /metrics.
 --
--- One rc Metrics is shared by every task. Writers take METRICS_LOCK for a
--- handful of array updates; the hot path records a request with a single
--- lock acquisition.
+-- Each serving thread records into its own shard (an rc Metrics with its
+-- own lock, uncontended); background work has a shard too. GET /metrics
+-- sums the shards of the MetricsSet.
 
 pub enum Route {
     Health,
@@ -49,8 +49,6 @@ val STATUS_COUNT = 14
 val BUCKETS_US = [250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000, 2500000]
 val BUCKET_COUNT = 14
 
-val METRICS_LOCK = Mutex(0)
-
 pub func route_name(route: Int) -> String {
     if route == 0 { return "health" }
     if route == 1 { return "ready" }
@@ -89,7 +87,10 @@ func bucket_index(us: Int) -> Int {
     return BUCKET_COUNT - 1
 }
 
+-- One set of counters. Every serving thread has its own (a shard), so the
+-- hot path takes an uncontended lock; GET /metrics adds the shards up.
 pub object Metrics {
+    val lock: Mutex[Int]
     var requests: [Int]       -- ROUTE_COUNT x STATUS_COUNT
     var latency: [Int]        -- ROUTE_COUNT x BUCKET_COUNT
     var latency_sum_us: [Int] -- ROUTE_COUNT
@@ -100,11 +101,9 @@ pub object Metrics {
     var cache_stale: Int
     var cache_misses: Int
     var db_errors: Int
-    var db_reconnect_waits: Int
-    var inflight: Int
-    var started_ms: Int
 
-    pub init(now_ms: Int) {
+    pub init() {
+        self.lock = Mutex(0)
         self.requests = fill(ROUTE_COUNT * STATUS_COUNT, 0)
         self.latency = fill(ROUTE_COUNT * BUCKET_COUNT, 0)
         self.latency_sum_us = fill(ROUTE_COUNT, 0)
@@ -115,33 +114,19 @@ pub object Metrics {
         self.cache_stale = 0
         self.cache_misses = 0
         self.db_errors = 0
-        self.db_reconnect_waits = 0
-        self.inflight = 0
-        self.started_ms = now_ms
-    }
-
-    pub func request_started() {
-        val g = METRICS_LOCK.lock()
-        self.inflight += 1
     }
 
     pub func request_finished(r: Route, status: Int, us: Int) {
         val route = route_index(r)
-        val g = METRICS_LOCK.lock()
-        self.inflight -= 1
+        val g = self.lock.lock()
         self.requests[route * STATUS_COUNT + status_index(status)] += 1
         self.latency[route * BUCKET_COUNT + bucket_index(us)] += 1
         self.latency_sum_us[route] += us
     }
 
-    pub readonly func inflight_now() -> Int {
-        val g = METRICS_LOCK.lock()
-        return self.inflight
-    }
-
     -- outcome: 0 ok, 1 http error, 2 transport error, 3 malformed, 4 breaker open
     pub func upstream_call(outcome: Int, us: Int) {
-        val g = METRICS_LOCK.lock()
+        val g = self.lock.lock()
         self.upstream[outcome] += 1
         if outcome != 4 {
             self.upstream_latency[bucket_index(us)] += 1
@@ -149,9 +134,12 @@ pub object Metrics {
         }
     }
 
-    -- kind: 0 fresh hit, 1 stale hit, 2 miss
+    -- kind: 0 fresh hit, 1 stale hit, 2 miss, -1 nothing to record
     pub func cache_lookup(kind: Int) {
-        val g = METRICS_LOCK.lock()
+        if kind < 0 {
+            return
+        }
+        val g = self.lock.lock()
         if kind == 0 {
             self.cache_hits += 1
         } elif kind == 1 {
@@ -162,8 +150,89 @@ pub object Metrics {
     }
 
     pub func db_error() {
-        val g = METRICS_LOCK.lock()
+        val g = self.lock.lock()
         self.db_errors += 1
+    }
+
+    -- Add this shard's counters into `total` (the caller owns total).
+    func add_into(var total: Totals) {
+        val g = self.lock.lock()
+        for i in range(self.requests.len()) {
+            total.requests[i] += self.requests[i]
+        }
+        for i in range(self.latency.len()) {
+            total.latency[i] += self.latency[i]
+        }
+        for i in range(self.latency_sum_us.len()) {
+            total.latency_sum_us[i] += self.latency_sum_us[i]
+        }
+        for i in range(self.upstream.len()) {
+            total.upstream[i] += self.upstream[i]
+        }
+        for i in range(self.upstream_latency.len()) {
+            total.upstream_latency[i] += self.upstream_latency[i]
+        }
+        total.upstream_latency_sum_us += self.upstream_latency_sum_us
+        total.cache_hits += self.cache_hits
+        total.cache_stale += self.cache_stale
+        total.cache_misses += self.cache_misses
+        total.db_errors += self.db_errors
+    }
+}
+
+object Totals {
+    var requests: [Int]
+    var latency: [Int]
+    var latency_sum_us: [Int]
+    var upstream: [Int]
+    var upstream_latency: [Int]
+    var upstream_latency_sum_us: Int
+    var cache_hits: Int
+    var cache_stale: Int
+    var cache_misses: Int
+    var db_errors: Int
+
+    init() {
+        self.requests = fill(ROUTE_COUNT * STATUS_COUNT, 0)
+        self.latency = fill(ROUTE_COUNT * BUCKET_COUNT, 0)
+        self.latency_sum_us = fill(ROUTE_COUNT, 0)
+        self.upstream = fill(5, 0)
+        self.upstream_latency = fill(BUCKET_COUNT, 0)
+        self.upstream_latency_sum_us = 0
+        self.cache_hits = 0
+        self.cache_stale = 0
+        self.cache_misses = 0
+        self.db_errors = 0
+    }
+}
+
+-- Every shard: one for background work (rate refreshes) and one per
+-- serving thread, registered when the thread starts.
+pub object MetricsSet {
+    val lock: Mutex[Int]
+    var shards: [rc Metrics]
+    val started_ms: Int
+
+    pub init(now_ms: Int) {
+        self.lock = Mutex(0)
+        self.shards = []
+        self.started_ms = now_ms
+    }
+
+    pub func new_shard() -> rc Metrics {
+        val m = rc Metrics()
+        val g = self.lock.lock()
+        self.shards.push(m)
+        return m
+    }
+
+    func totals() -> Totals {
+        var t = Totals()
+        val g = self.lock.lock()
+        for m in self.shards {
+            m.add_into(t)
+        }
+        return t
     }
 }
 
@@ -200,9 +269,9 @@ pub object Gauges {
     pub val breaker_open: Bool
 }
 
-pub func render_metrics(m: rc Metrics, gauges: Gauges, now_ms: Int) -> String {
+pub func render_metrics(set: rc MetricsSet, gauges: Gauges, now_ms: Int) -> String {
     var out: [String] = []
-    val g = METRICS_LOCK.lock()
+    val m = set.totals()
     out.push("# HELP inventory_http_requests_total HTTP requests by route and status code.")
     out.push("# TYPE inventory_http_requests_total counter")
     for r in range(ROUTE_COUNT) {
@@ -235,9 +304,6 @@ pub func render_metrics(m: rc Metrics, gauges: Gauges, now_ms: Int) -> String {
         out.push("inventory_http_request_duration_seconds_sum\{route=\"{route_name(r)}\"} {seconds_text(m.latency_sum_us[r])}")
         out.push("inventory_http_request_duration_seconds_count\{route=\"{route_name(r)}\"} {total}")
     }
-    out.push("# HELP inventory_http_inflight_requests Requests being handled.")
-    out.push("# TYPE inventory_http_inflight_requests gauge")
-    out.push("inventory_http_inflight_requests {m.inflight}")
     out.push("# HELP inventory_upstream_requests_total Exchange rate API calls by outcome.")
     out.push("# TYPE inventory_upstream_requests_total counter")
     for i in range(5) {
@@ -261,7 +327,7 @@ pub func render_metrics(m: rc Metrics, gauges: Gauges, now_ms: Int) -> String {
     out.push("# TYPE inventory_db_errors_total counter")
     out.push("inventory_db_errors_total {m.db_errors}")
     out.push("# TYPE inventory_uptime_seconds gauge")
-    out.push("inventory_uptime_seconds {(now_ms - m.started_ms) / 1000}")
+    out.push("inventory_uptime_seconds {(now_ms - set.started_ms) / 1000}")
     out.push("# TYPE inventory_db_pool_connections gauge")
     out.push("inventory_db_pool_connections\{state=\"idle\"} {gauges.db_pool_idle}")
     out.push("inventory_db_pool_connections\{state=\"in_use\"} {gauges.db_pool_in_use}")

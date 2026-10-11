@@ -21,7 +21,7 @@ import math
 import mysql
 import time
 
-val RATES_LOCK = Mutex(0)
+val RATES_RW = RWLock(0)
 
 pub object RateService {
     val base: String
@@ -36,7 +36,7 @@ pub object RateService {
     pub val client_ok: Bool
     pub val client_error: String
 
-    -- Guarded by RATES_LOCK.
+    -- Guarded by RATES_RW (read lock to look up, write lock to change).
     var rates: Map[String, Float]
     var as_of: String
     var fetched_at: Int        -- Time.unix_ms of the table, 0 when none
@@ -101,7 +101,7 @@ object Fetched {
 }
 
 pub func rates_snapshot(svc: rc RateService) -> RateSnapshot {
-    val g = RATES_LOCK.lock()
+    val g = RATES_RW.read()
     val now = Time.now_ms()
     var age = -1
     if svc.fetched_mono > 0 {
@@ -116,7 +116,7 @@ pub func seed_rates(svc: rc RateService, stored: [StoredRate]) -> Int {
     if stored.len() == 0 {
         return 0
     }
-    val g = RATES_LOCK.lock()
+    val g = RATES_RW.write()
     if svc.fetched_mono > 0 {
         return 0
     }
@@ -210,7 +210,7 @@ func fetch_with_retries(svc: rc RateService, metrics: rc Metrics) -> Fetched {
 -- whether a refresh ran (successfully or not).
 pub func refresh_rates(svc: rc RateService, metrics: rc Metrics, db: rc MysqlPool) -> Bool {
     if true {
-        val g = RATES_LOCK.lock()
+        val g = RATES_RW.write()
         if svc.refreshing {
             return false
         }
@@ -223,7 +223,7 @@ pub func refresh_rates(svc: rc RateService, metrics: rc Metrics, db: rc MysqlPoo
     val fetched = fetch_with_retries(svc, metrics)
     var to_store: [StoredRate] = []
     if true {
-        val g = RATES_LOCK.lock()
+        val g = RATES_RW.write()
         svc.refreshing = false
         svc.refreshes += 1
         if fetched.ok {
@@ -273,7 +273,7 @@ pub func lookup_rate(svc: rc RateService, metrics: rc Metrics, db: rc MysqlPool,
     while true {
         var refresh_now = false
         if true {
-            val g = RATES_LOCK.lock()
+            val g = RATES_RW.read()
             val now = Time.now_ms()
             if svc.fetched_mono > 0 {
                 val age = now - svc.fetched_mono
@@ -319,7 +319,7 @@ pub func lookup_rate(svc: rc RateService, metrics: rc Metrics, db: rc MysqlPool,
 -- Background refresh: keep the table younger than half the TTL. Returns
 -- when `stop` says so.
 pub func refresh_due(svc: rc RateService) -> Bool {
-    val g = RATES_LOCK.lock()
+    val g = RATES_RW.read()
     if svc.refreshing or Time.now_ms() < svc.open_until {
         return false
     }
