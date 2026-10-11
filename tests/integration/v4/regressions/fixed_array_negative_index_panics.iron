@@ -1,0 +1,16 @@
+-- @expect-panic: index: -1 is negative, bound: 4
+-- A negative index into a fixed array must panic like an index past the
+-- end: the check compared signed, so -1 passed it and read the length
+-- field in front of the elements (#674).
+func get(a: [Int; 4], i: Int) -> Int {
+    return a[i]
+}
+
+func main() {
+    val a: [Int; 4] = [1, 2, 3, 4]
+    println("{get(a, 3)}")
+    var k = 0
+    k -= 1
+    println("{get(a, k)}")
+    println("not reached")
+}
