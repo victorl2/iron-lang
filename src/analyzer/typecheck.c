@@ -4263,7 +4263,21 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_BINARY: {
             Iron_BinaryExpr *be = (Iron_BinaryExpr *)node;
             Iron_Type *lt = check_expr(ctx, be->left);
-            Iron_Type *rt = check_expr(ctx, be->right);
+            Iron_Type *rt;
+            if (be->op == IRON_TOK_AND || be->op == IRON_TOK_OR) {
+                /* The right operand runs only when the left one is true
+                 * (`and`) or false (`or`), so it sees what that proves:
+                 * `x != null and x > 0`, `s == null or s.len() == 0`. */
+                NarrowEntry *saved = narrowing_copy(ctx);
+                int mark = narrowing_mark(ctx);
+                narrow_for_cond(ctx, be->left, be->op == IRON_TOK_AND);
+                rt = check_expr(ctx, be->right);
+                shfree(ctx->narrowed);
+                ctx->narrowed = saved;
+                narrowing_reapply_kills(ctx, mark);
+            } else {
+                rt = check_expr(ctx, be->right);
+            }
 
             /* A numeric literal operand takes the other operand's numeric
              * type: `x + 1` with `x: Int8` is Int8 arithmetic.  An integer
@@ -4375,7 +4389,20 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                         (iron_type_is_float(lt) && iron_type_is_float(rt)) ||
                         types_assignable(lt, rt) ||
                         types_assignable(rt, lt);
-                    if (!comparable) {
+                    bool ordering = op == IRON_TOK_LESS || op == IRON_TOK_GREATER ||
+                                    op == IRON_TOK_LESS_EQ || op == IRON_TOK_GREATER_EQ;
+                    if (comparable && ordering &&
+                        (lt->kind == IRON_TYPE_NULLABLE || rt->kind == IRON_TYPE_NULLABLE)) {
+                        /* `x < 5` with `x: Int?` has no answer when x is
+                         * null (and emitted C that did not compile). */
+                        char msg[512];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot order '%s' and '%s': a nullable value may be null",
+                                 iron_type_to_string(lt, ctx->arena),
+                                 iron_type_to_string(rt, ctx->arena));
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, be->span, msg,
+                                   "check for null first: `x != null and x < y`");
+                    } else if (!comparable) {
                         char msg[512];
                         snprintf(msg, sizeof(msg),
                                  "cannot compare '%s' with '%s'",

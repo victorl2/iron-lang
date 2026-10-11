@@ -263,7 +263,12 @@ first is an error (`E0204`); compare with `null` first. `x != null`
 narrows `x` to `T` inside an `if` or `while` body (and after an early
 return in the other branch) until `x` is assigned a value that may be
 null: `while cur != null { total += cur.value; cur = cur.next }` walks a
-linked list. A binding assigned inside a loop or a closure is not
+linked list. The right operand of `and` is narrowed by a true left
+operand and the right operand of `or` by a false one, so
+`x != null and x > 0` and `s == null or s.len() == 0` need no `if`.
+`==` and `!=` compare a `T?` with a `T` or another `T?` (equal when both
+are null, or both hold equal values); ordering a nullable value with
+`<`, `>`, `<=` or `>=` is an error (`E0202`). A binding assigned inside a loop or a closure is not
 narrowed there by an outer check, since the assignment may already have
 run. Comparing a value whose type is not nullable with `null` warns
 (`W0616`): the answer is known before the program runs.
@@ -292,6 +297,7 @@ func main() {
     var s: String? = null
     s = "now"
     println("{s}")
+    println("{idx != null and idx > 1} {s == "now"} {missing == null or missing > 1}")
 }
 ```
 
@@ -299,6 +305,7 @@ func main() {
 found at 2
 missing
 now
+true true true
 ```
 
 A nullable type may also be the element type of a list, fixed array or
