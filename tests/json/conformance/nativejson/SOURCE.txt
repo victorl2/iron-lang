@@ -1,0 +1,8 @@
+Copied unchanged from https://github.com/miloyip/nativejson-benchmark
+(commit 478d5727c2a4048e835a29c65adecc7d795360d5), MIT license (LICENSE here):
+
+  jsonchecker/  the JSON_checker suite of json.org (pass*.json, fail*.json)
+  roundtrip/    single-value documents that must survive parse + serialize
+
+gen_cases.py turns them into manifest lines; the expectations (including
+the two fail*_EXCLUDE.json files Iron accepts) are recorded there.

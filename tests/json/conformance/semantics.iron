@@ -1,0 +1,198 @@
+-- semantics.iron -- the json module's documented behaviour beyond accept /
+-- reject: duplicate keys, number kinds, equality, limits, deep and large
+-- documents, JsonReader. Run by run_conformance.sh; prints
+-- "PASS semantics <name>" or "FAIL semantics <name>: <detail>" per check.
+import json
+
+object Tally {}
+
+func ok(t: Tally, name: String, cond: Bool, detail: String) {
+    if cond {
+        println("PASS semantics {name}")
+    } else {
+        println("FAIL semantics {name}: {detail}")
+    }
+}
+
+func is_int(v: Int?, want: Int) -> Bool {
+    return v != null and v == want
+}
+
+func parsed(text: String) -> Json {
+    val r = Json.parse(text)
+    if r.error != 0 {
+        println("FAIL semantics parse: {r.error_message}")
+    }
+    return r.value
+}
+
+func duplicate_keys(t: Tally) {
+    val v = parsed("\{\"a\":1,\"b\":2,\"a\":3}")
+    ok(t, "dup get", is_int(v.get_int("a"), 3), "get returns the last member, got {v.get("a")}")
+    ok(t, "dup len", v.len() == 3, "len counts every member, got {v.len()}")
+    ok(t, "dup distinct", v.distinct_keys() == 2, "distinct_keys {v.distinct_keys()}")
+    ok(t, "dup keys", v.keys().len() == 3, "keys() lists every member")
+    ok(t, "dup serialize", v.to_string() == "\{\"a\":1,\"b\":2,\"a\":3}", "to_string keeps both: {v}")
+    ok(t, "dup sorted", v.format(0, true) == "\{\"a\":3,\"b\":2}", "sorted output has the last value once: {v.format(0, true)}")
+    ok(t, "dup equals", v.equals(parsed("\{\"b\":2,\"a\":3}")), "equal to the object of the last values")
+    ok(t, "dup not equals", not v.equals(parsed("\{\"b\":2,\"a\":1}")), "not equal to the first value")
+    ok(t, "dup pointer", v.path("a") != null and v.get("a").int_or(0) == 3, "pointer finds the last")
+    val w = parsed("\{\"a\":1,\"b\":2,\"a\":3}")
+    w.set("a", Json.int(9))
+    ok(t, "dup set", w.to_string() == "\{\"a\":1,\"b\":2,\"a\":9}", "set replaces the last member: {w}")
+    ok(t, "dup remove", w.remove("a") and w.to_string() == "\{\"b\":2}", "remove drops every member: {w}")
+}
+
+func numbers(t: Tally) {
+    val z = parsed("-0")
+    ok(t, "-0 is Int", z.is_int() and z.int_or(1) == 0, "-0 parses as the Int 0: {z.type_name()} {z}")
+    val zf = parsed("-0.0")
+    ok(t, "-0.0 keeps sign", zf.is_float() and zf.to_string() == "-0.0", "got {zf}")
+    ok(t, "-0.0 equals 0.0", zf.equals(parsed("0.0")), "numeric equality ignores the sign of zero")
+    ok(t, "int max", parsed("9223372036854775807").int_or(0) == 9223372036854775807, "INT64_MAX exact")
+    ok(t, "int max + 1", parsed("9223372036854775808").is_float(), "INT64_MAX + 1 is a Float")
+    ok(t, "int min", parsed("-9223372036854775808").is_int(), "INT64_MIN is an Int")
+    ok(t, "1 == 1.0", parsed("1").equals(parsed("1.0")), "an Int and a Float with the same value are equal")
+    ok(t, "1.0 == 1", parsed("1.0").equals(parsed("1")), "symmetric")
+    val big = parsed("9007199254740993")
+    val near = parsed("9007199254740992.0")
+    ok(t, "2^53+1 != 2^53", not big.equals(near), "an Int and a Float with different values are not equal")
+    ok(t, "2^53 != 2^53+1", not near.equals(big), "symmetric")
+    ok(t, "int max != 2^63", not parsed("9223372036854775807").equals(parsed("9223372036854775808")),
+       "INT64_MAX is not 2^63")
+    ok(t, "2^63 != int max", not parsed("9223372036854775808").equals(parsed("9223372036854775807")), "symmetric")
+    ok(t, "int min == -2^63", parsed("-9223372036854775808").equals(parsed("-9223372036854775808.0")),
+       "INT64_MIN equals -2^63 as a Float")
+    ok(t, "big int float", parsed("12345678901234567890").to_string() == "12345678901234567000.0",
+       "a 20 digit integer is the nearest Float: {parsed("12345678901234567890")}")
+    val nan = Json.float(0.0 / 0.0)
+    ok(t, "nan writes null", nan.to_string() == "null", "non-finite floats are written as null: {nan}")
+    val inf = Json.float(1.0 / 0.0)
+    ok(t, "inf writes null", inf.to_string() == "null", "got {inf}")
+    ok(t, "as_float of int", parsed("3").as_float() != null, "as_float converts an Int")
+    ok(t, "as_int of float", parsed("3.0").as_int() == null, "as_int does not convert a Float")
+}
+
+func limits(t: Tally) {
+    val max = 67108864
+    val fits = " ".repeat(max - 2) + "[]"
+    val r1 = Json.parse(fits)
+    ok(t, "64 MiB fits", r1.error == 0, "a document of exactly 64 MiB is accepted: {r1.error_message}")
+    val r2 = Json.parse(fits + " ")
+    ok(t, "64 MiB + 1", r2.error == 4002, "one byte more is too large: {r2.error}")
+    val r3 = Json.parse_with(fits + " ", JsonLimits(512, -1))
+    ok(t, "no size limit", r3.error == 0, "bytes -1 removes the limit: {r3.error_message}")
+    val r4 = Json.parse_with("[[1]]", JsonLimits(0, -1))
+    ok(t, "depth 0", r4.error == 4001, "a depth limit below 1 behaves as 1: {r4.error}")
+    -- Depth limits above the maximum are clamped to it.
+    -- Depth limits above the maximum (4096) are clamped to it.
+    val deep = "[".repeat(4097) + "]".repeat(4097)
+    val r5 = Json.parse_with(deep, JsonLimits(1000000, -1))
+    ok(t, "depth ceiling", r5.error == 4001, "nesting deeper than 4096 is rejected even with a higher limit: {r5.error}")
+    val ok_deep = "[".repeat(4096) + "]".repeat(4096)
+    val r6 = Json.parse_with(ok_deep, JsonLimits(1000000, -1))
+    ok(t, "depth 4096", r6.error == 0, "4096 levels parse with a raised limit: {r6.error_message}")
+    ok(t, "depth 4096 serialize", r6.value.to_string() == ok_deep, "and serialize")
+    ok(t, "depth 4096 pretty", Json.parse_with(r6.value.pretty(), JsonLimits(4096, -1)).error == 0, "pretty output parses")
+    ok(t, "depth 4096 equals", r6.value.equals(r6.value.clone()), "a deep clone equals the original")
+    var rd = JsonReader.with_limits(ok_deep, JsonLimits(4096, -1))
+    rd.skip()
+    ok(t, "depth 4096 reader", rd.error == 0 and rd.pos == rd.tape.ops.len(), "JsonReader skips it")
+}
+
+-- Trees built in code have no depth limit: serializing, comparing and
+-- cloning them must not use the call stack per level.
+func built_deep(t: Tally) {
+    val n = 200000
+    val root = Json.array()
+    var cur = root
+    for i in range(n) {
+        val next = Json.array()
+        cur.push(next)
+        cur = next
+    }
+    cur.push(Json.obj())
+    val s = root.to_string()
+    ok(t, "built deep serialize", s.byte_len() == 2 * n + 4, "length {s.byte_len()}")
+    -- (Indented output of n levels is O(n^2) bytes: compact sorted only.)
+    ok(t, "built deep format", root.format(0, true) == s, "sorted output")
+    val c = root.clone()
+    ok(t, "built deep clone", c.equals(root) and root.equals(c), "clone equals")
+    cur.push(Json.int(1))
+    ok(t, "built deep not equal", not c.equals(root), "a change at the bottom is seen")
+    -- Unlink level by level so dropping does not recurse 200000 times.
+    var x = root
+    while x.len() > 0 {
+        val next = x.at(0)
+        x.clear()
+        x = next
+    }
+    var y = c
+    while y.len() > 0 {
+        val next = y.at(0)
+        y.clear()
+        y = next
+    }
+}
+
+func large(t: Tally) {
+    val n = 1000000
+    val arr = Json.array()
+    for i in range(n) {
+        arr.push(Json.int(i * 7919 - 3000000))
+    }
+    val text = arr.to_string()
+    val back = Json.parse(text)
+    ok(t, "1M ints", back.error == 0 and back.value.len() == n and back.value.equals(arr), "round trip")
+    val obj = Json.obj()
+    for i in range(100000) {
+        obj.attach("key{i}", Json.int(i))
+    }
+    val otext = obj.to_string()
+    val oback = Json.parse(otext)
+    ok(t, "100k keys", oback.error == 0 and oback.value.len() == 100000, "parse")
+    ok(t, "100k keys equal", oback.value.equals(obj), "equals on a large object")
+    ok(t, "100k keys lookup", is_int(oback.value.get_int("key99999"), 99999), "lookup")
+    val long = "ab\"\\é\n".repeat(2000000)
+    val sdoc = Json.str(long).to_string()
+    val sback = Json.parse(sdoc)
+    ok(t, "16 MB string", sback.error == 0 and sback.value.string_or("") == long, "a long string with escapes")
+}
+
+func reader(t: Tally) {
+    var r = JsonReader("\{\"id\": 7, \"tags\": [\"a\", 2, null], \"x\": \{\"y\": [1, \{\"z\": 1}]}, \"f\": 1.5}")
+    var id = 0
+    var tags = 0
+    var f = 0.0
+    if r.begin_object() {
+        var key = r.next_key()
+        while key != null {
+            if key == "id" {
+                id = r.int_or(0)
+            } elif key == "tags" {
+                if r.begin_array() {
+                    while r.next_item() {
+                        r.skip()
+                        tags += 1
+                    }
+                }
+            } elif key == "f" {
+                f = r.float_or(0.0)
+            } else {
+                r.skip()
+            }
+            key = r.next_key()
+        }
+    }
+    ok(t, "reader", id == 7 and tags == 3 and f == 1.5, "id {id} tags {tags} f {f}")
+}
+
+func main() {
+    val t = Tally()
+    duplicate_keys(t)
+    numbers(t)
+    limits(t)
+    built_deep(t)
+    large(t)
+    reader(t)
+}

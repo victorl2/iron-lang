@@ -1,0 +1,64 @@
+-- jcanon.iron -- the json module's side of the differential fuzzer
+-- (difffuzz.py). Reads a batch file (one document per line, hex encoded)
+-- and prints one line per document: "ERR <code>" or "OK <canonical form>".
+--
+-- Canonical form: null, true, false; i:<n> for an Int; f:<text> for a
+-- Float (the module's own shortest text, which reads back exactly);
+-- s:<hex of the UTF-8 bytes> for a string; [a,b] and {k:v} with keys as
+-- s:<hex>, members in document order (duplicates kept).
+import io
+import json
+import encoding
+
+func canon(v: Json) -> String {
+    match v.node {
+        JsonNode.Null -> return "null"
+        JsonNode.Bool(b) -> {
+            if b {
+                return "true"
+            }
+            return "false"
+        }
+        JsonNode.Int(i) -> return "i:{i}"
+        JsonNode.Float(f) -> return "f:" + Json.float(f).to_string()
+        JsonNode.Str(s) -> return "s:" + Hex.encode(s)
+        JsonNode.Arr(xs) -> {
+            var parts: [String] = []
+            for x in xs {
+                parts.push(canon(x))
+            }
+            return "[" + ",".join(parts) + "]"
+        }
+        JsonNode.Obj(o) -> {
+            var parts: [String] = []
+            for i in range(o.keys.len()) {
+                parts.push("s:" + Hex.encode(o.keys[i]) + ":" + canon(o.values[i]))
+            }
+            return "\{" + ",".join(parts) + "}"
+        }
+    }
+    return "?"
+}
+
+func main(args: [String]) {
+    val file = IO.read_bytes(args[0], 1073741824)
+    if file.error != 0 {
+        println("cannot read {args[0]}: {file.error_message}")
+        return
+    }
+    for line in file.data.split("\n") {
+        if line == "" {
+            continue
+        }
+        var doc = ""
+        if line != "-" {
+            doc = Hex.decode(line).data
+        }
+        val r = Json.parse(doc)
+        if r.error != 0 {
+            println("ERR {r.error}")
+        } else {
+            println("OK " + canon(r.value))
+        }
+    }
+}
