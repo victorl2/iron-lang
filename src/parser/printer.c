@@ -948,7 +948,17 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             Iron_IndexExpr *n = (Iron_IndexExpr *)node;
             print_node(ctx, n->object);
             iron_strbuf_appendf(ctx->sb, "[");
-            print_node(ctx, n->index);
+            if (n->type_args && n->type_arg_count > 0) {
+                /* `Map[K, V]`: every type argument (a generic instance is
+                 * re-parsed from this text; printing the first alone made
+                 * `Map[K, Int]()` in a generic body `Map[K]()`). */
+                for (int i = 0; i < n->type_arg_count; i++) {
+                    if (i > 0) iron_strbuf_appendf(ctx->sb, ", ");
+                    print_node(ctx, n->type_args[i]);
+                }
+            } else {
+                print_node(ctx, n->index);
+            }
             iron_strbuf_appendf(ctx->sb, "]");
             break;
         }

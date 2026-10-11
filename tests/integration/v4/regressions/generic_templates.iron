@@ -1,0 +1,104 @@
+-- Generic functions and objects (manual 2.8, 9.10):
+--  - a type argument inferred from a generic enum argument (`res_ok(r)`
+--    with r: Res[Int, String]) or an rc handle was "cannot infer";
+--  - `Map[K, Int]()` in a generic body lost its second type argument when
+--    the instance was printed ("'Map' takes 2 type argument(s), got 1"), and
+--    `Map[K, Int]` in the signature of `f[K: Hashable]` was E0206;
+--  - an instance requested while one of its argument types was still
+--    unresolved (`ident(Opt.Some(Pair(s, p)))` before Pair[String, Pt]
+--    existed) produced a clone that did not parse;
+--  - an object named like an enum variant (`object Pair` and
+--    `Tok.Pair(Int, Int)`) was a duplicate declaration.
+enum Tok {
+    Pair(Int, Int),
+    End,
+}
+
+object Pt impl Hashable {
+    val x: Int
+    val y: Int
+    pure func hash() -> Int {
+        return self.x * 31 + self.y
+    }
+    pure func equals(other: Hashable) -> Bool {
+        if other is Pt {
+            return self.x == other.x and self.y == other.y
+        }
+        return false
+    }
+}
+
+object Pair[A, B] {
+    val first: A
+    val second: B
+}
+
+object Cell[T] {
+    var v: T
+    init(v: T) {
+        self.v = v
+    }
+    readonly func get() -> T {
+        return self.v
+    }
+}
+
+enum Opt[T] {
+    Some(T),
+    None,
+}
+
+enum Res[T, E] {
+    Ok(T),
+    Err(E),
+}
+
+func ident[T](x: T) -> T {
+    return x
+}
+
+func res_ok[T, E](r: Res[T, E]) -> Bool {
+    match r {
+        Res.Ok(v) -> return true
+        Res.Err(e) -> return false
+    }
+    return false
+}
+
+func cell_of[T](c: rc Cell[T]) -> T {
+    return c.get()
+}
+
+func tally[K: Hashable](xs: [K]) -> Map[K, Int] {
+    var m = Map[K, Int]()
+    for x in xs {
+        m.put(x, m.get_or(x, 0) + 1)
+    }
+    return m
+}
+
+func is_some[T](o: Opt[T]) -> Bool {
+    match o {
+        Opt.Some(v) -> return true
+        Opt.None -> return false
+    }
+    return false
+}
+
+func main() {
+    val r: Res[Int, String] = Res.Ok(3)
+    val e: Res[Pt, Int] = Res.Err(4)
+    println("{res_ok(r)} {res_ok(e)} {cell_of(rc Cell(7))}")
+    val t = tally([Pt(1, 2), Pt(1, 2), Pt(3, 4)])
+    val w = tally(["a", "b", "a"])
+    println("{t.get_or(Pt(1, 2), 0)} {t.len()} {w.get_or("a", 0)}")
+    val s = "xy"
+    val o = ident(Opt.Some(Pair(s, Pt(5, 6))))
+    println("{is_some(o)}")
+    val tok = Tok.Pair(1, 2)
+    val p = Pair(tok, 3)
+    match p.first {
+        Tok.Pair(a, b) -> println("{a + b} {p.second}")
+        Tok.End -> println("end")
+    }
+}

@@ -375,8 +375,29 @@ static const char *type_mangle_component(const Iron_Type *t, Iron_Arena *arena) 
          * NULLABLE, FUNC, TUPLE, POINTER, ERROR, NULL) flow through the
          * iron_type_to_string fallback which already handles each variant. */
         default:
-            /* Fallback: use iron_type_to_string but replace brackets with underscores */
-            return iron_type_to_string(t, arena);
+            /* Fallback: iron_type_to_string with every character a C
+             * identifier cannot hold replaced (`rc Pt`, `[Int]`, `Int?`
+             * went into the enum's C name verbatim). */
+        {
+            const char *s = iron_type_to_string(t, arena);
+            if (!s) return "unknown";
+            size_t n = strlen(s);
+            char *o = (char *)iron_arena_alloc(arena, n + 1, 1);
+            if (!o) return "unknown";
+            size_t k = 0;
+            for (size_t i = 0; i < n; i++) {
+                char c = s[i];
+                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                    (c >= '0' && c <= '9') || c == '_')
+                    o[k++] = c;
+                else if (c == '[') o[k++] = 'L';
+                else if (c == '?') o[k++] = 'N';
+                else if (c == ']') continue;
+                else o[k++] = '_';
+            }
+            o[k] = '\0';
+            return o;
+        }
     }
 }
 
@@ -1425,8 +1446,8 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
         return false;
     }
     if (iron_type_equals(decl_t, init_t)) return true;
-    /* Int32 -> Int: implicit widening (always safe) */
-    if (decl_t->kind == IRON_TYPE_INT && init_t->kind == IRON_TYPE_INT32) return true;
+    /* No implicit numeric conversion, Int32 -> Int included (manual 2):
+     * `a *= b` with a: Int and b: Int32 built while `b *= a` did not. */
 
     /* Phase 20 PTR-13 (nullable accept): a `null` literal is assignable to
      * any nullable type `T?`. Required so `val p: ?*Point = null` analyzes
@@ -1525,6 +1546,43 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
  * the types match without a spurious type-mismatch error.
  * This does NOT validate that the inferred args are compatible — that is
  * enforced by the construct's own argument type-check above. */
+/* Once a generic enum construct has its type (`Opt.Some(x)` completed to
+ * Opt[Opt[Int]] by an annotation), a payload that is itself a construct
+ * with open type arguments (`Opt.None` there) takes the payload type: it
+ * was left an `Opt[unknown]` and emitted C that did not compile. */
+static void fill_open_payload_constructs(Iron_Node *node, Iron_Type *et, int depth) {
+    if (!node || node->kind != IRON_NODE_ENUM_CONSTRUCT || !et || depth > 16 ||
+        et->kind != IRON_TYPE_ENUM || !et->enu.decl || !et->enu.variant_payload_types)
+        return;
+    Iron_EnumConstruct *ec = (Iron_EnumConstruct *)node;
+    Iron_EnumDecl *ed = et->enu.decl;
+    int vi = -1;
+    for (int j = 0; j < ed->variant_count; j++) {
+        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+        if (ev && ev->name && ec->variant_name && strcmp(ev->name, ec->variant_name) == 0) {
+            vi = j;
+            break;
+        }
+    }
+    if (vi < 0 || !et->enu.variant_payload_types[vi]) return;
+    Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+    for (int k = 0; k < ec->arg_count && k < ev->payload_count; k++) {
+        Iron_Node *a = ec->args[k];
+        Iron_Type *pt = et->enu.variant_payload_types[vi][k];
+        if (!a || a->kind != IRON_NODE_ENUM_CONSTRUCT || !pt || pt->kind != IRON_TYPE_ENUM)
+            continue;
+        Iron_EnumConstruct *ac = (Iron_EnumConstruct *)a;
+        Iron_Type *at = ac->resolved_type;
+        if (at && at->kind == IRON_TYPE_ENUM && at->enu.decl == pt->enu.decl &&
+            !iron_type_equals(at, pt) &&
+            (!at->enu.type_args ||
+             (at->enu.mangled_name && strstr(at->enu.mangled_name, "_unknown")))) {
+            ac->resolved_type = pt;
+        }
+        fill_open_payload_constructs(a, ac->resolved_type, depth + 1);
+    }
+}
+
 static void maybe_fill_missing_generic_args(Iron_Node *init_node,
                                              Iron_Type *decl_type) {
     if (!init_node || !decl_type) return;
@@ -1538,6 +1596,7 @@ static void maybe_fill_missing_generic_args(Iron_Node *init_node,
     /* Both are instantiations of the same generic enum.
      * Replace ec->resolved_type with decl_type to fill in any missing args. */
     ec->resolved_type = decl_type;
+    fill_open_payload_constructs(init_node, decl_type, 0);
 }
 
 static bool try_get_constant_int(Iron_Node *node, long long *out);
@@ -1733,6 +1792,11 @@ static bool type_satisfies_constraint(TypeCtx *ctx, Iron_Type *concrete_type,
                                        const char *constraint_name) {
     if (!concrete_type || !constraint_name) return true;
     if (concrete_type->kind == IRON_TYPE_ERROR) return true;
+    /* A type parameter of the generic being checked (`Map[K, Int]` in the
+     * signature of `func f[K: Hashable]`): every instance is checked again
+     * with its concrete type argument, which is where the constraint
+     * applies; rejecting K here rejected every generic Map key. */
+    if (concrete_type->kind == IRON_TYPE_GENERIC_PARAM) return true;
 
     /* Phase 33 OQ-01 / GA1: primitive-key carve-out. The built-in hashable
      * primitives satisfy `Hashable` directly — without an explicit
@@ -3914,7 +3978,24 @@ static void unify_generic(Iron_Node *ann_node, Iron_Type *actual,
             return;
         }
     }
+    if (ta->is_rc && ta->rc_inner) {
+        /* `rc Cell[T]` against an rc handle. */
+        if (t->kind == IRON_TYPE_RC && t->rc.inner)
+            unify_generic(ta->rc_inner, t->rc.inner, gps, ngp, bind);
+        return;
+    }
     if (!ta->name) return;
+    if (ta->generic_arg_count > 0 && t->kind == IRON_TYPE_ENUM) {
+        /* `Res[T, E]` against a generic enum value: an enum instance keeps
+         * its template declaration and carries the arguments (`r_ok(r)`
+         * with r: Res[Int, String] could not infer T). */
+        if (!t->enu.decl || !t->enu.decl->name || strcmp(t->enu.decl->name, ta->name) != 0 ||
+            !t->enu.type_args)
+            return;
+        for (int i = 0; i < ta->generic_arg_count && i < t->enu.type_arg_count; i++)
+            unify_generic(ta->generic_args[i], t->enu.type_args[i], gps, ngp, bind);
+        return;
+    }
     if (ta->generic_arg_count > 0) {
         /* `Pair[T]` against an instance of Pair: unify each written type
          * argument with the instance's. */
@@ -4367,14 +4448,18 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                      *     and literal narrowing)
                      *   - either side assignable to the other (nullable vs
                      *     inner type, interface vs implementor, ...) */
+                    /* Two different integer types (or Float and Float32)
+                     * are not compared implicitly (manual 2.1: mixing widths
+                     * is E0202): `u < -1` with u: UInt64 compared the bit
+                     * patterns and was true for u = 0. A literal operand
+                     * already took its partner's type above. */
                     bool comparable =
                         iron_type_equals(lt, rt) ||
                         lt->kind == IRON_TYPE_NULL ||
                         rt->kind == IRON_TYPE_NULL ||
-                        (iron_type_is_integer(lt) && iron_type_is_integer(rt)) ||
-                        (iron_type_is_float(lt) && iron_type_is_float(rt)) ||
-                        types_assignable(lt, rt) ||
-                        types_assignable(rt, lt);
+                        (!(iron_type_is_integer(lt) && iron_type_is_integer(rt)) &&
+                         !(iron_type_is_float(lt) && iron_type_is_float(rt)) &&
+                         (types_assignable(lt, rt) || types_assignable(rt, lt)));
                     if (!comparable) {
                         char msg[512];
                         snprintf(msg, sizeof(msg),
@@ -8657,10 +8742,16 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
                 Iron_Type *a = t->enu.type_args[i];
                 Iron_Type *e = expected->enu.type_args ? expected->enu.type_args[i] : NULL;
                 if (!a) open = true;
+                /* an argument itself left open (`Opt.Some(Opt.None)`) */
+                else if (a->kind == IRON_TYPE_ENUM && a->enu.mangled_name &&
+                         strstr(a->enu.mangled_name, "_unknown") && e &&
+                         e->kind == IRON_TYPE_ENUM && e->enu.decl == a->enu.decl)
+                    open = true;
                 else if (!e || !iron_type_equals(a, e)) agree = false;
             }
             if (open && agree) {
                 ((Iron_EnumConstruct *)node)->resolved_type = expected;
+                fill_open_payload_constructs(node, expected, 0);
                 return expected;
             }
         }
@@ -9392,6 +9483,29 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             }
             if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS)
                 reject_narrowed_view_write(ctx, as->target, as->span);
+            /* A field is written only through `*var T` (manual 6.4): a
+             * `var` binding holding a `*T` or `?*T` changed the pointee,
+             * even a `val` one. */
+            if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_Node *cur = as->target;
+                bool through_ro = false;
+                while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
+                    Iron_Node *obj = ((Iron_FieldAccess *)cur)->object;
+                    Iron_Type *ot = obj ? ((Iron_ExprNode *)obj)->resolved_type : NULL;
+                    if (ot && ot->kind == IRON_TYPE_NULLABLE) ot = ot->nullable.inner;
+                    if (ot && ot->kind == IRON_TYPE_PTR && !ot->ptr.is_var) {
+                        through_ro = true;
+                        break;
+                    }
+                    cur = obj;
+                }
+                if (through_ro) {
+                    emit_error(ctx, IRON_ERR_MUT_FIELD_IMMUT_RECV, as->span,
+                               "cannot write a field through a read-only pointer",
+                               "a field is written through a *var T pointer (&x of a var binding)");
+                    lhs_is_var_ptr_auto_deref = true;   /* one error is enough */
+                }
+            }
             if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
                 Iron_Node *cur = as->target;
                 while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {

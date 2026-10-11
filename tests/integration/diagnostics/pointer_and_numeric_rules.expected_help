@@ -1,0 +1,7 @@
+error[E0234]: cannot write a field through a read-only pointer
+pointer_and_numeric_rules.iron:20:5
+pointer_and_numeric_rules.iron:24:9
+error[E0202]: type mismatch: expected 'Int', got 'Int32'
+pointer_and_numeric_rules.iron:28:5
+pointer_and_numeric_rules.iron:29:21
+error[E0217]: argument 1 type mismatch: expected 'Int', got 'Int32'

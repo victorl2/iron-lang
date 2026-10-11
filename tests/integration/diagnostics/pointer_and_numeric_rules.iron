@@ -1,0 +1,31 @@
+-- A field is written only through a `*var T` pointer (manual 6.4): a `var`
+-- binding holding a read-only `*T` or `?*T` wrote the pointee, even a
+-- `val` object. And there is no implicit numeric conversion (manual 2):
+-- an Int32 value went into an Int binding, parameter or compound
+-- assignment silently, while the other direction was E0202.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+func take(n: Int) -> Int {
+    return n
+}
+
+func main() {
+    var a = P(1)
+    var r: *P = &a
+    r.hp = 5
+    val c = P(2)
+    var q: ?*P = &c
+    if q != null {
+        q.hp = 4
+    }
+    var total: Int = 1
+    val small: Int32 = 2
+    total *= small
+    val wide: Int = small
+    println("{take(small)} {wide} {total} {a.hp} {c.hp}")
+}
