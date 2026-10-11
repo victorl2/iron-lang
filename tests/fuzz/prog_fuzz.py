@@ -99,6 +99,8 @@ def expected_of(g, cached=False):
                  panic=getattr(m, 'panic', None) or getattr(g, 'expect_panic', None))
     e.leaks_ok = bool(getattr(m, 'leaks_ok', False) or getattr(g, 'leaks_ok', False)
                       or e.panic)
+    # files the program reads (comptime read_file), written next to it
+    e.files = dict(getattr(g, 'files', None) or {})
     return e
 
 
@@ -173,6 +175,9 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
     exe = os.path.join(d, f'{name}.bin')
     with open(src, 'w', encoding='utf-8') as f:
         f.write(src_text)
+    for fname, content in (getattr(expected, 'files', None) or {}).items():
+        with open(os.path.join(d, fname), 'w', encoding='utf-8', newline='') as f:
+            f.write(content)
     errors = getattr(expected, 'errors', None)
     panic = getattr(expected, 'panic', None)
     with open(os.path.join(d, 'expected.txt'), 'w', encoding='utf-8') as f:
@@ -454,6 +459,8 @@ def run(ironc, outdir, area, seeds, mode='plain', rtlib=None, quiet=False, jobs=
                 p = os.path.join(outdir, k, fn)
                 if os.path.exists(p):
                     shutil.copy(p, os.path.join(d, out))
+            for p in glob.glob(os.path.join(outdir, k, 'data_*')):
+                shutil.copy(p, os.path.join(d, os.path.basename(p)))
             print(f'{area} seed {seed}: {st.upper()} {os.path.join(d, k + ".iron")}\n'
                   + '\n'.join('    ' + l for l in msg.splitlines()[:30]), flush=True)
         elif not quiet:

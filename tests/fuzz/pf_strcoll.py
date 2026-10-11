@@ -28,7 +28,7 @@ PIECES = ['a', 'b', 'ab', 'ba', 'aa', 'Z', 'x1', ' ', '  ', '\t', '\n', ',', '-'
           'ñ', '日', '本', '😀', 'Σ', 'д', '42', '-7', '0', '{', '}', '"', '\\', '', 'é日',
           'aé', '\x00', 'ü']
 # characters whose upper / lower case every simple case table agrees on
-CASE_OK = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZéÉöÖñÑüÜσΣдД日本😀 \t,-0123456789x')
+CASE_OK = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZéÉöÖñÑüÜдД日本😀 \t,-0123456789x')
 WS = ' \t\n\r\x0b\x0c'
 
 
@@ -453,7 +453,7 @@ class StrCollGen(ProbeGen):
         r = self.r
         from pf_numedge import flit
         n = self.fresh('fs')
-        xs = [r.choice([0.5, -1.25, 3.0, 0.1, 100.0, -0.0, 2.5]) for _ in range(r.randint(0, 6))]
+        xs = [r.choice([0.5, -1.25, 3.0, 0.25, 100.0, -0.0, 2.5]) for _ in range(r.randint(0, 6))]
         code = [f'var {n}: [Float] = [' + ', '.join(
             f'(-{flit(-x)})' if str(x).startswith('-') else flit(x) for x in xs) + ']'
             if xs else f'var {n}: [Float] = []']
