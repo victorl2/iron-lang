@@ -57,7 +57,11 @@ Any value may be the top-level value.
 `Json.parse_with(text, JsonLimits(max_depth, max_bytes))` bounds untrusted
 input: nesting deeper than `max_depth` arrays and objects and input longer
 than `max_bytes` (`-1` for no limit) are errors. `Json.parse` uses
-`Json.default_limits()`, depth 512 and 64 MiB.
+`Json.default_limits()`, depth 512 and 64 MiB. A depth limit above 4096 is
+treated as 4096: dropping a tree uses the call stack once per level, and
+4096 levels stay well inside the smallest stack an Iron program runs on.
+Everything else (serializing, `equals`, `clone`) walks a tree of any depth
+without recursion, including trees built in code.
 
 ```iron
 func main() {
@@ -119,8 +123,10 @@ null
 ```
 
 - A number without a fraction or exponent that fits in 64 bits is an `Int`
-  and keeps its exact value (`9223372036854775807` survives a round trip).
-  Every other number, including a larger integer, is a `Float`.
+  and keeps its exact value (`9223372036854775807` survives a round trip;
+  `-0` is the Int `0`). Every other number, including a larger integer, is
+  the nearest `Float` (correctly rounded; `-0.0` keeps its sign, and a
+  number too small for a double, such as `1e-400`, is `0.0` with its sign).
 - Strings are stored decoded, as UTF-8 Iron strings.
 - An object keeps its members in the order they were written or added.
   Parsed objects keep duplicate keys as written; lookups return the last
@@ -151,7 +157,7 @@ null
 | `key_at(i)`, `value_at(i)` | member `i` of an object by position |
 | `pointer(p)` | RFC 6901 JSON Pointer (`"/users/0/name"`, `~1` for `/`, `~0` for `~`), or `null` |
 | `path(p)` | dotted path (`"users.0.name"`), or `null` |
-| `equals(other)` | deep equality; members in any order, an Int equals a Float of the same value |
+| `equals(other)` | deep equality; members in any order (the last of duplicate keys counts), an Int equals a Float of exactly the same value |
 
 ```iron
 func main() {
@@ -422,6 +428,30 @@ func main() {
 2 3 {"x":1,"y":2}
 ```
 
+## Conformance
+
+`tests/json/conformance` checks the module against RFC 8259 and ECMA-404:
+JSONTestSuite, the JSON_checker files, hard cases for parsing and printing
+doubles (halfway points, subnormals, the int64 and double limits, huge
+exponents), every escape and UTF-8 byte sequence class, structure, nesting
+and size limits, against an independent model of the behaviour described
+here. `tests/json/fuzz` compares it with Python's `json` and yyjson (and
+simdjson when available) on random and mutated documents. Where the RFC
+leaves a choice (JSONTestSuite's `i_` cases), the module:
+
+| Input | Result |
+|---|---|
+| integer beyond 64 bits (`-123123123123123123123123123123`) | accepted as the nearest Float |
+| number that rounds to infinity (`1e400`, `-1e9999`) | rejected (4005) |
+| number that underflows (`123e-10000000`) | accepted as `0.0` (sign kept) |
+| ill-formed UTF-8, overlong forms, encoded surrogates, above U+10FFFF | rejected (4003) |
+| `\u` escape with an unpaired surrogate (`"\uD800"`, `"\uDC00\uD800"`) | rejected (4004) |
+| UTF-8 byte order mark before the value | rejected (4000) |
+| UTF-16 or UTF-32 text | rejected |
+| 500 nested arrays | accepted (default depth limit 512) |
+| noncharacters (U+FFFF, U+FDD0, U+10FFFE), raw or escaped | accepted |
+| duplicate keys | accepted, kept in order; lookups use the last |
+
 ## Performance
 
 The scanner validates and decodes in one pass in C (strings eight bytes at
@@ -435,5 +465,6 @@ the pull request that added the module compare `Json.parse`,
 
 Lookups by key scan an object's members (from the end, so the last
 duplicate wins): fine for the objects APIs return, linear for an object
-with thousands of keys. For a large map, copy it into a `Map[String, Json]`
+with thousands of keys (`equals` hashes the keys, so comparing large
+objects stays linear). For a large map, copy it into a `Map[String, Json]`
 once.
