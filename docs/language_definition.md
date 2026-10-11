@@ -2220,9 +2220,12 @@ rules, all enforced at compile time with `E0328`:
   callee may move its elements while the other parameter refers to them);
   pass `xs.copy()` for the other one.
 - A lambda may capture a list only when the lambda is passed directly as a
-  call argument; a lambda that is bound, returned or stored cannot capture a
-  list. A `spawn` body that captures a list must be awaited in the block
-  that started it.
+  call argument to a callee that only calls it (3.7); a lambda that is
+  bound, returned or stored, or given to a callee that keeps it, cannot
+  capture a list. A `spawn` body that captures a list must be awaited in the
+  block that started it, by a later statement that always runs (no
+  `return`, `break` or `continue` before it). `nocopy` values follow the
+  same rules (6.7).
 - To share a list, use `rc [T]`.
 
 <!-- doctest-expect-error: E0328 -->
