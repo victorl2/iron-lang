@@ -19,7 +19,7 @@
 
 /* Phase 33 STDLIB-07/08 (Plan 33-05): forward decl — defined below near the
  * emit_ensure_mutex/channel synthesis. Used by emit_type_to_c's resource arms. */
-static const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem);
+const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem);
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
 
@@ -1021,7 +1021,7 @@ void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
 /* Phase 33 STDLIB-07/08 (Plan 33-05): build the escaped element-C suffix shared
  * by the Mutex/Channel glue mangling (mirrors emit_ensure_box's name builder).
  * Returns an arena string like "int64_t" with space/`*` escaped to `_`. */
-static const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem) {
+const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem) {
     const char *elem_c = emit_type_to_c(elem, ctx);
     if (!elem_c) return NULL;
     Iron_StrBuf sb = iron_strbuf_create(32);
@@ -1229,7 +1229,7 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type) {
     /* Typedefs (lock + read/write guards) into struct_bodies. */
     iron_strbuf_appendf(&ctx->struct_bodies,
         "/* Phase 33 STDLIB-07: RWLock[%s] per-T glue */\n"
-        "typedef struct { iron_rwlock_t lk; %s value; } %s;\n"
+        "typedef struct { iron_rwlock_t lk; iron_atomic_u64 refs; %s value; } %s;\n"
         "typedef struct { %s *owner; } Iron_RWReadGuard_%s;\n"
         "typedef struct { %s *owner; } Iron_RWWriteGuard_%s;\n",
         elem_c, elem_c, lock_name,
@@ -1247,13 +1247,20 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type) {
         "static %s *Iron_RWLock_%s_new(%s value) {\n"
         "    %s *l = (%s *)iron_mem_alloc(sizeof(%s));\n"
         "    if (!l) iron_oom_abort(\"RWLock new\");\n"
-        "    IRON_RWLOCK_INIT(l->lk); l->value = value; return l;\n"
+        "    IRON_RWLOCK_INIT(l->lk); IRON_ATOMIC_U64_INIT(l->refs, 1);\n"
+        "    l->value = value; return l;\n"
+        "}\n"
+        /* a spawned task's reference (manual 7.1); destroy drops one */
+        "static void Iron_RWLock_%s_retain(%s *l) {\n"
+        "    if (l) (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(l->refs, 1);\n"
         "}\n",
-        /* _new */      lock_name, esc, elem_c, lock_name, lock_name, lock_name);
+        /* _new */      lock_name, esc, elem_c, lock_name, lock_name, lock_name,
+        /* _retain */   esc, lock_name);
     if (rw_elem_drop && elem_type->kind == IRON_TYPE_RC) {
         iron_strbuf_appendf(&ctx->lifted_funcs,
             "static void Iron_RWLock_%s_destroy(%s **l) {\n"
             "    /* Phase 37 M5: release the parked rc element before free */\n"
+            "    if (l && *l && !iron_shared_release(&(*l)->refs)) { *l = NULL; return; }\n"
             "    if (l && *l) {\n"
             "        iron_rc_release((void *)(*l)->value);\n"
             "        IRON_RWLOCK_DESTROY((*l)->lk); iron_mem_free(*l); *l = NULL;\n"
@@ -1264,6 +1271,7 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type) {
         iron_strbuf_appendf(&ctx->lifted_funcs,
             "static void Iron_RWLock_%s_destroy(%s **l) {\n"
             "    /* Phase 37 M5: run the element drop on the parked value before free */\n"
+            "    if (l && *l && !iron_shared_release(&(*l)->refs)) { *l = NULL; return; }\n"
             "    if (l && *l) {\n"
             "        %s_drop(&(*l)->value);\n"
             "        IRON_RWLOCK_DESTROY((*l)->lk); iron_mem_free(*l); *l = NULL;\n"
@@ -1273,6 +1281,7 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type) {
     } else {
         iron_strbuf_appendf(&ctx->lifted_funcs,
             "static void Iron_RWLock_%s_destroy(%s **l) {\n"
+            "    if (l && *l && !iron_shared_release(&(*l)->refs)) { *l = NULL; return; }\n"
             "    if (l && *l) { IRON_RWLOCK_DESTROY((*l)->lk); iron_mem_free(*l); *l = NULL; }\n"
             "}\n",
             /* _destroy */  esc, lock_name);

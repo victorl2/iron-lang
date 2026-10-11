@@ -832,9 +832,40 @@ static bool emit_call_param_is_arena(EmitCtx *ctx, IronLIR_Func *fn,
  */
 /* A spawned body's env owns a share of each captured string (#182):
  * released after the body ran, before the env block is freed. */
-static void emit_spawn_env_string_releases(Iron_StrBuf *sb, const Iron_CaptureEntry *caps,
-                                           int count) {
+/* A val capture a spawned task must keep alive: an rc handle, or a Mutex,
+ * Channel, RWLock or Arena, which the owning block destroys at its end
+ * while a task that was never awaited may still use it (manual 7.1).
+ * Returns the kind: 'r' rc, 'm' Mutex, 'c' Channel, 'w' RWLock, 'a' Arena. */
+static char spawn_shared_capture(const Iron_CaptureEntry *cap) {
+    if (cap->is_mutable || cap->is_heap_handle || !cap->type) return 0;
+    const Iron_Type *t = cap->type;
+    if (t->kind == IRON_TYPE_RC) return 'r';
+    if (t->kind != IRON_TYPE_OBJECT || !t->object.decl || !t->object.decl->name) return 0;
+    const char *n = t->object.decl->name;
+    if (strcmp(n, "Arena") == 0) return 'a';
+    if (!t->object.elem) return 0;
+    if (strcmp(n, "Mutex") == 0) return 'm';
+    if (strcmp(n, "Channel") == 0) return 'c';
+    if (strcmp(n, "RWLock") == 0) return 'w';
+    return 0;
+}
+
+static void emit_spawn_env_string_releases(Iron_StrBuf *sb, EmitCtx *ctx,
+                                           const Iron_CaptureEntry *caps, int count) {
     for (int ci = 0; ci < count; ci++) {
+        char shared = spawn_shared_capture(&caps[ci]);
+        if (shared) {
+            /* the task's reference, taken in emit_spawn_env_cell_retains */
+            const char *f = cap_c_name(caps[ci].name);
+            const char *esc = shared == 'm' || shared == 'c' || shared == 'w'
+                ? emit_elem_c_escaped(ctx, caps[ci].type->object.elem) : NULL;
+            if (shared == 'r') iron_strbuf_appendf(sb, "    iron_rc_release((void *)_e->%s);\n", f);
+            else if (shared == 'a') iron_strbuf_appendf(sb, "    iron_arena_rt_destroy(_e->%s);\n", f);
+            else if (shared == 'm') iron_strbuf_appendf(sb, "    Iron_Mutex_%s_destroy(&_e->%s);\n", esc, f);
+            else if (shared == 'c') iron_strbuf_appendf(sb, "    Iron_Channel_%s_destroy(&_e->%s);\n", esc, f);
+            else iron_strbuf_appendf(sb, "    Iron_RWLock_%s_destroy(&_e->%s);\n", esc, f);
+            continue;
+        }
         if (caps[ci].is_mutable && caps[ci].is_boxed) {
             /* the env's share of a captured var's cell (taken when the
              * task started, see emit_spawn_env_cell_retains) */
@@ -856,9 +887,26 @@ static void emit_spawn_env_string_releases(Iron_StrBuf *sb, const Iron_CaptureEn
  * never awaited always may): like a closure env (#210), its env takes a
  * share of the var's cell, released when the task's env is freed. Without
  * it the block's end freed the cell while the task still read it. */
-static void emit_spawn_env_cell_retains(Iron_StrBuf *sb, int ind, unsigned env_id,
+static void emit_spawn_env_cell_retains(Iron_StrBuf *sb, EmitCtx *ctx, int ind, unsigned env_id,
                                         const Iron_CaptureEntry *caps, int count) {
     for (int ci = 0; ci < count; ci++) {
+        char shared = spawn_shared_capture(&caps[ci]);
+        if (shared) {
+            const char *f = cap_c_name(caps[ci].name);
+            emit_indent(sb, ind);
+            if (shared == 'r')
+                iron_strbuf_appendf(sb, "iron_rc_retain((void *)_env_%u->%s);\n", env_id, f);
+            else if (shared == 'a')
+                iron_strbuf_appendf(sb, "iron_arena_rt_retain(_env_%u->%s);\n", env_id, f);
+            else if (shared == 'm')
+                iron_strbuf_appendf(sb, "Iron_mutex_retain(_env_%u->%s);\n", env_id, f);
+            else if (shared == 'c')
+                iron_strbuf_appendf(sb, "Iron_channel_retain(_env_%u->%s);\n", env_id, f);
+            else
+                iron_strbuf_appendf(sb, "Iron_RWLock_%s_retain(_env_%u->%s);\n",
+                                    emit_elem_c_escaped(ctx, caps[ci].type->object.elem), env_id, f);
+            continue;
+        }
         if (!caps[ci].is_mutable || !caps[ci].is_boxed) continue;
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "iron_cell_retain(_env_%u->%s);\n", env_id,
@@ -8089,7 +8137,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     iron_strbuf_appendf(&spawn_wrap,
                         "    %s _result = %s(_e);\n", ret_c, c_func_name);
                     emit_spawn_publish_result(&spawn_wrap, lifted_fn->return_type, ret_c);
-                    emit_spawn_env_string_releases(&spawn_wrap, cap_meta, cap_count);
+                    emit_spawn_env_string_releases(&spawn_wrap, ctx, cap_meta, cap_count);
                     iron_strbuf_appendf(&spawn_wrap, "%s", iron_strbuf_get(&spawn_obj_drops));
                     iron_strbuf_appendf(&spawn_wrap,
                         "    iron_mem_free(_arg);\n");
@@ -8098,7 +8146,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         "    %s *_e = (%s *)_arg;\n", env_type, env_type);
                     iron_strbuf_appendf(&spawn_wrap,
                         "    %s(_e);\n", c_func_name);
-                    emit_spawn_env_string_releases(&spawn_wrap, cap_meta, cap_count);
+                    emit_spawn_env_string_releases(&spawn_wrap, ctx, cap_meta, cap_count);
                     iron_strbuf_appendf(&spawn_wrap, "%s", iron_strbuf_get(&spawn_obj_drops));
                     iron_strbuf_appendf(&spawn_wrap, "    iron_mem_free(_arg);\n");
                 }
@@ -8172,7 +8220,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         emit_copy_fixup_lvalue(sb, ind, ctx, cap_meta[ci].type, lv);
                     }
                 }
-                emit_spawn_env_cell_retains(sb, ind, instr->id, cap_meta, cap_count);
+                emit_spawn_env_cell_retains(sb, ctx, ind, instr->id, cap_meta, cap_count);
                 /* Result wrappers receive both env and handle so the value is
                  * visible to await before completion is signalled. */
                 emit_indent(sb, ind);
@@ -8247,7 +8295,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         emit_copy_fixup_lvalue(sb, ind, ctx, cap_meta[ci].type, lv);
                     }
                 }
-                emit_spawn_env_cell_retains(sb, inner, instr->id, cap_meta, cap_count);
+                emit_spawn_env_cell_retains(sb, ctx, inner, instr->id, cap_meta, cap_count);
                 /* Emit a simple wrapper that calls with env and frees */
                 Iron_StrBuf ff_wrapper_sb = iron_strbuf_create(64);
                 iron_strbuf_appendf(&ff_wrapper_sb, "%s_ff_wrapper", c_func_name);
@@ -8264,7 +8312,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     Iron_StrBuf ff_call = iron_strbuf_create(64);
                     emit_ff_spawn_call(&ff_call, ctx, func_name, c_func_name, "_e");
                     Iron_StrBuf ff_drops = iron_strbuf_create(64);
-                    emit_spawn_env_string_releases(&ff_drops, cap_meta, cap_count);
+                    emit_spawn_env_string_releases(&ff_drops, ctx, cap_meta, cap_count);
                     for (int ci = 0; ci < cap_count; ci++) {
                         if (cap_meta[ci].is_mutable) continue;
                         Iron_Type *ct = cap_meta[ci].type;
