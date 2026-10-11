@@ -711,7 +711,9 @@ def parity_check(doc, lsp_diags, ironc, env):
         # Recovery differs after the first error (the CLI stops reporting
         # inside a broken statement, so the parse of what follows can be
         # reported differently): the first syntax error must agree.
-        first = min(c_syn, key=lambda cp: (cp[1], cp[0]))
+        # the first one ironc reports (lexer errors come before parser ones)
+        first = next((d[1], to_pos(d[4], d[5])) for d in mine
+                     if d[1].startswith('E') and int(d[1][1:]) < 200)
         if first not in l_syn:
             return f'the server does not report the first syntax error {first} (server: {sorted(l_syn)[:12]})'
         return None
@@ -1166,18 +1168,19 @@ class Session:
             if not opened or k < 0.02:
                 d = r.choice(self.docs)
                 if not d.open:
-                    d.open = True
-                    d.version = r.choice([1, d.version + 1])
-                    d.history = {d.version: d.text}
-                    # A publish from before the close may carry this version
-                    # again: wait for the cleared (unversioned) publish the
-                    # server sends after stopping the closed document's worker.
+                    # A publish from before the close may carry the version
+                    # the reopened document starts with: first wait for the
+                    # cleared (unversioned) publish the server sends after
+                    # stopping the closed document's worker.
                     end = time.monotonic() + 10
                     while not self.ctx.get('cleared', {}).get(d.uri) and time.monotonic() < end:
                         self.check_notes()
                         with self.srv.cv:
                             self.srv.cv.wait(0.02)
                     self.ctx.get('diag_ver', {}).pop(d.uri, None)
+                    d.open = True
+                    d.version = r.choice([1, d.version + 1])
+                    d.history = {d.version: d.text}
                     self.srv.notify('textDocument/didOpen', {'textDocument': {
                         'uri': d.uri, 'languageId': 'iron', 'version': d.version, 'text': d.text}})
                 elif len(self.docs) < 6:
@@ -1214,7 +1217,10 @@ class Session:
 
     def parity(self, doc):
         diags = self.settle(doc)
-        if 'comptime' in doc.text or 'import' in doc.text:
+        # comptime file access and imports differ by design; `-- @file:` is
+        # the test harness's file marker (it moves the diagnostics after it
+        # to another file, outside the comparison)
+        if 'comptime' in doc.text or 'import' in doc.text or '@file:' in doc.text:
             self.stats['parity_skipped'] += 1
             return
         why = parity_check(doc, diags, self.args.ironc, self.env)

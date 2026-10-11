@@ -456,3 +456,21 @@ async def test_range_formatting_last_line_without_newline(lsp_binary, tmp_path):
         assert _apply_utf16(text, edits) == "func main() {\n    println(\"é\")\n}"
     finally:
         await _stop(c)
+
+
+@pytest.mark.asyncio
+async def test_no_repeated_diagnostics_from_generic_instances(lsp_binary, tmp_path):
+    # The same error was published twice at the same range: once per
+    # generic instance of a broken body (their spans differ, their ranges
+    # do not).
+    c = await _utf16_client(lsp_binary)
+    try:
+        uri = (tmp_path / "dup.iron").as_uri()
+        text = 'func fold[T(xs:T\nvar g0=4\nfunc main){fold("",fold(g0'
+        _open(c, uri, text)
+        diags = await _diagnostics_for_version(c, uri, 1)
+        keys = [(d.range.start.line, d.range.start.character, d.range.end.line,
+                 d.range.end.character, d.code, d.message) for d in diags]
+        assert len(keys) == len(set(keys)), keys
+    finally:
+        await _stop(c)
