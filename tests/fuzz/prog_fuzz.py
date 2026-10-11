@@ -500,7 +500,7 @@ SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure'
          # them (#466 .. #505); about a minute per ctest entry
          'numedge': range(1, 49), 'strcoll': range(1, 49), 'genedge': range(1, 49),
          'ptredge': range(1, 49), 'ctedge': range(1, 25), 'dropord': range(1, 25),
-         'ptrlife': range(1, 41)}
+         'ptrlife': range(1, 41), 'ptrlife_opts': range(1001, 1013)}
 # `--suite IRONC OUTDIR` runs these; the other areas have ctest entries of
 # their own (`--suite IRONC OUTDIR conc`, `... num generic ptr comptime`).
 SUITE_DEFAULT = ('stmt', 'coll', 'obj', 'closure')
@@ -515,15 +515,21 @@ def main(argv):
         return 0
     if argv[0] == '--suite':
         ironc, outdir = os.path.abspath(argv[1]), argv[2]
-        areas = argv[3:] or SUITE_DEFAULT
+        rest = argv[3:]
+        mode = 'plain'
+        if rest and rest[0] == '--opts':
+            mode, rest = 'opts', rest[1:]
+        areas = rest or SUITE_DEFAULT
         jobs = min(4, os.cpu_count() or 1)
         bad = 0
-        for area in areas:
-            seeds = SUITE[area]
+        for key in areas:
+            # `<area>_opts` names a second seed set of the area (--opts runs)
+            area = key[:-5] if key.endswith('_opts') else key
+            seeds = SUITE[key]
             if area not in available():
                 continue
-            n = run(ironc, outdir, area, seeds, quiet=True, jobs=jobs)
-            print(f'{area}: {len(seeds) - n}/{len(seeds)} ok')
+            n = run(ironc, outdir, area, seeds, mode=mode, quiet=True, jobs=jobs)
+            print(f'{key}: {len(seeds) - n}/{len(seeds)} ok')
             bad += n
         return 1 if bad else 0
     mode, rtlib, jobs, reduce = 'plain', None, 1, False
