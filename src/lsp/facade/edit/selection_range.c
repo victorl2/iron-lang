@@ -25,6 +25,8 @@
 #include "lsp/facade/edit/selection_range.h"
 
 #include "lsp/store/document.h"
+#include "lsp/store/line_index.h"
+#include "lsp/facade/span.h"
 #include "lsp/server/server.h"
 #include "lexer/lexer.h"
 #include "parser/parser.h"
@@ -53,26 +55,26 @@ static bool span_covers_1b(const Iron_Span *sp, uint32_t line, uint32_t col) {
     return true;
 }
 
+/* Range conversion context: spans are 1-based byte columns, the client
+ * counts in the negotiated encoding. */
+typedef struct {
+    const IronLsp_Document  *doc;
+    IronLsp_PositionEncoding enc;
+} RungCtx;
+
 /* Allocate a new rung in the caller's arena. */
-static IronLsp_SelectionRange *alloc_rung(Iron_Arena *arena, Iron_Span span) {
+static IronLsp_SelectionRange *alloc_rung(Iron_Arena *arena, const RungCtx *rc,
+                                          Iron_Span span) {
     IronLsp_SelectionRange *r = (IronLsp_SelectionRange *)iron_arena_alloc(
         arena, sizeof(*r), _Alignof(IronLsp_SelectionRange));
     if (!r) return NULL;
-    /* Convert 1-based Iron_Span to 0-based LSP Range. */
-    uint32_t sl = span.line > 0 ? span.line - 1 : 0;
-    uint32_t sc = span.col  > 0 ? span.col  - 1 : 0;
-    uint32_t el = span.end_line > 0 ? span.end_line - 1 : sl;
-    uint32_t ec = span.end_col  > 0 ? span.end_col  - 1 : sc;
-    /* LSP end.character is exclusive in many conventions; Iron_Span's
-     * end_col is inclusive (covers the last byte). Clients still
-     * interpret the range as spanning [start, end], so pass end_col
-     * directly rather than end_col-1. This matches the translation
-     * used by ilsp_span_to_lsp_range in facade/span.c. */
-    (void)ec;
-    r->range_start_line = sl;
-    r->range_start_char = sc;
-    r->range_end_line   = el;
-    r->range_end_char   = span.end_col;  /* LSP wants exclusive-like byte col */
+    /* The same conversion diagnostics use: encoding-aware, clamped to the
+     * document (the program span ends at the EOF token, past the text). */
+    IronLsp_Range lr = ilsp_span_to_lsp_range(span, rc->doc, rc->enc);
+    r->range_start_line = lr.start.line;
+    r->range_start_char = lr.start.character;
+    r->range_end_line   = lr.end.line;
+    r->range_end_char   = lr.end.character;
     r->parent           = NULL;
     return r;
 }
@@ -80,7 +82,8 @@ static IronLsp_SelectionRange *alloc_rung(Iron_Arena *arena, Iron_Span span) {
 /* Descend into `node` as long as a child's span covers (line, col).
  * Append a new rung for each descent step. Returns the innermost
  * rung. The chain is linked via `parent`. */
-static IronLsp_SelectionRange *descend_chain(Iron_Node              *node,
+static IronLsp_SelectionRange *descend_chain(const RungCtx          *rc,
+                                                Iron_Node              *node,
                                                 uint32_t                line,
                                                 uint32_t                col,
                                                 IronLsp_SelectionRange *parent,
@@ -94,7 +97,7 @@ static IronLsp_SelectionRange *descend_chain(Iron_Node              *node,
         if (!span_covers_1b(&es, line, col)) return parent;
     }
 
-    IronLsp_SelectionRange *cur = alloc_rung(arena, node->span);
+    IronLsp_SelectionRange *cur = alloc_rung(arena, rc, node->span);
     if (!cur) return parent;
     cur->parent = parent;
 
@@ -377,7 +380,7 @@ static IronLsp_SelectionRange *descend_chain(Iron_Node              *node,
             break;
     }
 
-    if (child) return descend_chain(child, line, col, cur, arena);
+    if (child) return descend_chain(rc, child, line, col, cur, arena);
     return cur;
 }
 
@@ -429,6 +432,10 @@ void ilsp_facade_selection_range(struct IronLsp_Server      *server,
         }
     }
 
+    RungCtx rc = { doc, server ? server->position_encoding : ILSP_ENC_UTF16 };
+    uint32_t nlines = doc->line_idx.starts
+                      ? (uint32_t)arrlenu(doc->line_idx.starts) : 1;
+
     /* Allocate out[] array. */
     IronLsp_SelectionRange **arr = (IronLsp_SelectionRange **)iron_arena_alloc(
         arena, effective_n * sizeof(*arr), _Alignof(IronLsp_SelectionRange *));
@@ -438,8 +445,17 @@ void ilsp_facade_selection_range(struct IronLsp_Server      *server,
     for (size_t i = 0; i < effective_n; i++) {
         if (cancel && atomic_load(cancel)) break;
 
-        uint32_t line = positions[i].line + 1;       /* 1-based */
-        uint32_t col  = positions[i].character + 1;
+        /* LSP position (negotiated encoding) -> 1-based line + byte
+         * column, the units of Iron_Span. A line past the end stays past
+         * it (no declaration covers it: module-only chain). */
+        uint32_t line = positions[i].line + 1;
+        uint32_t col  = 1;
+        if (positions[i].line < nlines) {
+            size_t b  = ilsp_document_position_to_byte(
+                doc, positions[i].line, positions[i].character, rc.enc);
+            size_t ls = ilsp_byte_of_line(&doc->line_idx, positions[i].line);
+            col = (uint32_t)(b - ls) + 1;
+        }
 
         /* Build the module rung regardless. */
         Iron_Span prog_span;
@@ -451,7 +467,7 @@ void ilsp_facade_selection_range(struct IronLsp_Server      *server,
             prog_span.line = 1; prog_span.col = 1;
             prog_span.end_line = 1; prog_span.end_col = 1;
         }
-        IronLsp_SelectionRange *module_rung = alloc_rung(arena, prog_span);
+        IronLsp_SelectionRange *module_rung = alloc_rung(arena, &rc, prog_span);
         if (!module_rung) continue;
         module_rung->parent = NULL;
 
@@ -476,7 +492,7 @@ void ilsp_facade_selection_range(struct IronLsp_Server      *server,
         if (!covering) { arr[i] = module_rung; continue; }
 
         IronLsp_SelectionRange *innermost = descend_chain(
-            covering, line, col, module_rung, arena);
+            &rc, covering, line, col, module_rung, arena);
         arr[i] = innermost ? innermost : module_rung;
     }
 
