@@ -1,0 +1,17 @@
+-- @expect-panic: arena restored to a stale save point
+-- A save point belongs to the arena that took it; restoring another arena
+-- to it set that arena's offset to a meaningless value. It is rejected
+-- like a save point a reset invalidated (manual 6.6, #432).
+object Pt {
+    val x: Int
+}
+
+func main() {
+    val a = Arena(4096)
+    val b = Arena(4096)
+    val p = heap(in: b) Pt(1)
+    val m = a.save()
+    println("{p.x}")
+    b.restore(m)
+    println("restored")
+}

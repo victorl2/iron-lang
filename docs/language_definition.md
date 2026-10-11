@@ -2144,8 +2144,8 @@ arena value after `reset` or `restore` is a stale pointer error at run
 time, also through a pointer kept in another object or read in a callee
 (section 6.4). A save point is only valid while everything allocated
 before it is: restoring to one taken before a `reset`, or before an
-earlier `restore` to an older save point, aborts with `arena restored to a
-stale save point`. A value allocated after a restore never reuses the
+earlier `restore` to an older save point, or to a save point of another
+arena, aborts with `arena restored to a stale save point`. A value allocated after a restore never reuses the
 validity of one the restore ended. `rc` allocation inside an `in arena`
 block is an error (`E0301`).
 `a.used()` and `a.capacity()` report the arena's byte counts. An arena

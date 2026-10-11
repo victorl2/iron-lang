@@ -47,6 +47,10 @@ static inline uint64_t iron_arena_rt_align16(uint64_t n) {
     return (n + 15u) & ~(uint64_t)15u;
 }
 
+/* Arena epochs are unique across all arenas, so a save point taken in
+ * another arena's first segment never passes for one of this arena. */
+static iron_atomic_u64 s_arena_epoch = 1;
+
 /* Open a fresh segment: a new generation for the allocations from here on. */
 static void arena_seg_open(Iron_Arena_RT *a) {
     if (a->nsegs == a->segcap) {
@@ -81,7 +85,7 @@ Iron_Arena_RT *iron_arena_rt_new(uint64_t capacity, bool threadsafe,
     a->segs       = NULL;
     a->nsegs      = 0;
     a->segcap     = 0;
-    a->epoch      = 1;
+    a->epoch      = IRON_ATOMIC_U64_FETCH_ADD_RELAXED(s_arena_epoch, 1);
     IRON_ATOMIC_U64_INIT(a->atomic_offset, 0);
     IRON_ATOMIC_U64_INIT(a->gen, 0);
     IRON_ATOMIC_U64_INIT(a->used, 0);
@@ -139,7 +143,7 @@ void iron_arena_rt_reset(Iron_Arena_RT *a) {                  /* ARENA-06 */
     /* Every segment ends: every outstanding pointer goes stale, and so does
      * every save point (a new epoch). */
     arena_seg_end_from(a, 0);
-    a->epoch++;
+    a->epoch = IRON_ATOMIC_U64_FETCH_ADD_RELAXED(s_arena_epoch, 1);
     arena_seg_open(a);
 }
 

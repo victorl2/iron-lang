@@ -583,7 +583,8 @@ void iron_panic_arena_stale_save(const char *arena_name) {
         fprintf(stderr, "{\"panic\":\"arena_stale_save\",\"arena\":\"%s\"}\n", an);
     } else {
         fputs("iron: arena restored to a stale save point\n", stderr);
-        fprintf(stderr, "  arena: %s (reset, or restored to an earlier save point, after the save)\n", an);
+        fprintf(stderr, "  arena: %s (reset, or restored to an earlier save point, after the save,"
+                        " or the save point is another arena's)\n", an);
     }
     fflush(stdout);
     fflush(stderr);
