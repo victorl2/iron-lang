@@ -812,8 +812,9 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
         if (!f || !f->type_ann || !f->resolved_type ||
             f->resolved_type->kind == IRON_TYPE_ERROR) continue;
         Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
+        /* (Any list: a list of Int16, UInt32... is declared on demand.) */
         if (ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || ta->is_pointer ||
-            (ta->is_array && (ta->bounded || ta->array_size || ta->array_elem_ann)))
+            ta->is_array)
             (void)emit_type_to_c(f->resolved_type, ctx);
         /* A `T?` field of a user type: its Iron_Optional_T typedef wraps
          * T by value, so it is declared here, after T's struct (the
