@@ -1,0 +1,19 @@
+-- The boxed payload of a recursive enum read inside an expression is
+-- dereferenced (#578). The test also builds it with copy propagation left
+-- out (IRON_LIR_SKIP=copyprop), where the read was inlined as a pointer.
+enum Lst[T] {
+    Nil,
+    Cons(T, Lst[T]),
+}
+
+func lsum(l: Lst[Int]) -> Int {
+    match l {
+        Lst.Nil -> return 0
+        Lst.Cons(h, t) -> return h + lsum(t)
+    }
+}
+
+func main() {
+    val l = Lst.Cons(1, Lst.Cons(2, Lst.Cons(3, Lst.Nil)))
+    println("{lsum(l)}")
+}

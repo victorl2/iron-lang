@@ -513,6 +513,9 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_INDEX_OUT_OF_BOUNDS    312
 #define IRON_ERR_INVALID_SLICE_BOUNDS   313
 #define IRON_ERR_POSSIBLY_UNINITIALIZED 314
+/* Global initializers that depend on each other (directly, or through the
+ * functions they call): no order initializes every one before it is read. */
+#define IRON_ERR_GLOBAL_INIT_CYCLE      315
 
 /* Phase 93 VIS-03: cross-module visibility. Fired by name resolution when a
  * top-level symbol lookup matches a non-`pub` decl whose declaring file

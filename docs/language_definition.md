@@ -1638,6 +1638,28 @@ functions); a global `var` is a mutable variable shared by the whole
 program (and by all threads, without synchronization). Globals cannot be
 `pub`. A `pure` method may not read a global `var` (`E0241`).
 
+Like every declaration, a global is visible in the whole file, also above
+its declaration. The globals are initialized in an order where each
+initializer runs after the initializers of the globals it reads, directly
+or through the functions it calls (declaration order among the others), so
+no initializer sees a global that is not set yet. Initializers that read
+each other, such as `val a = b + 1` and `val b = a`, or `val a = f()` with
+`f` reading `a`, are an error (`E0315`).
+
+```iron
+val AREA = WIDTH * HEIGHT
+val WIDTH = 4
+val HEIGHT = WIDTH + 1
+
+func main() {
+    println("{AREA} {WIDTH} {HEIGHT}")
+}
+```
+
+```output
+20 4 5
+```
+
 ```iron
 val LIMIT = 10
 val ANSWER = compute()
@@ -3129,6 +3151,7 @@ codes cited in this manual:
 | E0299, E0301 | dereferencing a `weak rc`; `rc` inside an arena block |
 | E0310, E0311, E0312 | invalid cast; constant does not fit; constant index out of range |
 | E0314 | possibly uninitialized `var` |
+| E0315 | global initializers that read each other |
 | E0320, E0321 | private declaration used from another file; standalone `func Type.method` form |
 | E0322, E0323, E0324, E0325, E0326 | unsupported `is`; unsupported match subject; lambda parameter type; awaited twice; thread pools |
 | E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element |

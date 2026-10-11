@@ -1562,7 +1562,9 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
     const char *bv_c = emit_type_to_c(bt, ctx);
     const char *elem_c = emit_type_to_c(bt->array.elem, ctx);
     bool has_result = instr->type && instr->type->kind != IRON_TYPE_VOID;
-    if (has_result) {
+    /* A hoisted result is declared already: `_vN;` alone was an unused
+     * expression statement (clang warned on the generated C). */
+    if (has_result && (!is_hoisted || strcmp(m, "contains") == 0)) {
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
@@ -1832,6 +1834,75 @@ static void emit_shift_expr(Iron_StrBuf *sb, IronLIR_Instr *instr, IronLIR_Func 
     emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
     if (ucount) iron_strbuf_appendf(sb, ")");
     iron_strbuf_appendf(sb, ", IRON_SITE)");
+}
+
+/* The GET_FIELD reads a boxed slot of a recursive enum payload (field path
+ * "data.Variant._N" with slot N boxed): the C field is a pointer to the value.
+ * Both the statement and the inlined expression forms dereference it. */
+static bool emit_field_is_boxed_payload(IronLIR_Func *fn, IronLIR_Instr *instr) {
+    bool needs_deref = false;
+    if (instr->field.field) {
+        const char *last_dot = strrchr(instr->field.field, '.');
+        if (last_dot && last_dot[1] == '_' && last_dot[2] >= '0' && last_dot[2] <= '9') {
+            const char *data_pos = strstr(instr->field.field, "data.");
+            if (data_pos) {
+                const char *vname_start = data_pos + 5; /* skip "data." */
+                const char *vname_end = strchr(vname_start, '.');
+                if (vname_end) {
+                    int slot_idx = atoi(last_dot + 2);
+                    /* Resolve the object's enum type through LOAD/ALLOCA */
+                    Iron_Type *obj_enum_type = NULL;
+                    IronLIR_ValueId obj_vid = instr->field.object;
+                    /* First try direct type */
+                    Iron_Type *direct_t = emit_get_value_type(fn, obj_vid);
+                    if (direct_t && direct_t->kind == IRON_TYPE_ENUM) {
+                        obj_enum_type = direct_t;
+                    } else if (obj_vid != IRON_LIR_VALUE_INVALID &&
+                               obj_vid < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                               fn->value_table[obj_vid] &&
+                               fn->value_table[obj_vid]->kind == IRON_LIR_LOAD) {
+                        /* LOAD from ALLOCA: look at the alloca type */
+                        IronLIR_ValueId ptr = fn->value_table[obj_vid]->load.ptr;
+                        if (ptr != IRON_LIR_VALUE_INVALID &&
+                            ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                            fn->value_table[ptr] &&
+                            fn->value_table[ptr]->kind == IRON_LIR_ALLOCA) {
+                            Iron_Type *at = fn->value_table[ptr]->alloca.alloc_type;
+                            if (at && at->kind == IRON_TYPE_ENUM) obj_enum_type = at;
+                        }
+                    }
+                    if (obj_enum_type && obj_enum_type->enu.decl &&
+                        obj_enum_type->enu.payload_is_boxed) {
+                        Iron_EnumDecl *ged = obj_enum_type->enu.decl;
+                        size_t vname_len = (size_t)(vname_end - vname_start);
+                        char vname[128];
+                        if (vname_len < sizeof(vname)) {
+                            memcpy(vname, vname_start, vname_len);
+                            vname[vname_len] = '\0';
+                            for (int vi = 0; vi < ged->variant_count; vi++) {
+                                /* PROT-03 row 34 (AUDIT-01 M-severity):
+                                 * loop-bound + non-NULL assert before the
+                                 * Iron_EnumVariant cast from a void**
+                                 * variants array. */
+                                assert(vi >= 0 && vi < ged->variant_count);
+                                assert(ged->variants[vi] != NULL);
+                                Iron_EnumVariant *gev = (Iron_EnumVariant *)ged->variants[vi];
+                                if (strcmp(gev->name, vname) == 0) {
+                                    if (obj_enum_type->enu.payload_is_boxed[vi] &&
+                                        slot_idx < gev->payload_count &&
+                                        obj_enum_type->enu.payload_is_boxed[vi][slot_idx]) {
+                                        needs_deref = true;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return needs_deref;
 }
 
 void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
@@ -2420,6 +2491,12 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             iron_strbuf_appendf(sb, "((%s *)", obj_type ? obj_type : "void");
             emit_expr_to_buf(sb, instr->field.object, fn, ctx, use_block_id, depth+1);
             iron_strbuf_appendf(sb, ".addr)->%s", instr->field.field);
+        } else if (emit_field_is_boxed_payload(fn, instr)) {
+            /* a boxed recursive payload: the slot holds a pointer (the
+             * statement form dereferenced it, this one passed the pointer) */
+            iron_strbuf_appendf(sb, "(*(");
+            emit_expr_to_buf(sb, instr->field.object, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, "%s%s))", obj_is_ptr ? "->" : ".", instr->field.field);
         } else {
             emit_expr_to_buf(sb, instr->field.object, fn, ctx, use_block_id, depth+1);
             iron_strbuf_appendf(sb, "%s%s", obj_is_ptr ? "->" : ".", instr->field.field);
@@ -4001,68 +4078,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
         /* Check if this field access is on a boxed recursive ADT slot:
          * field path format is "data.VariantName._N" — if slot N is boxed, wrap with *() */
-        bool needs_deref = false;
-        if (instr->field.field) {
-            const char *last_dot = strrchr(instr->field.field, '.');
-            if (last_dot && last_dot[1] == '_' && last_dot[2] >= '0' && last_dot[2] <= '9') {
-                const char *data_pos = strstr(instr->field.field, "data.");
-                if (data_pos) {
-                    const char *vname_start = data_pos + 5; /* skip "data." */
-                    const char *vname_end = strchr(vname_start, '.');
-                    if (vname_end) {
-                        int slot_idx = atoi(last_dot + 2);
-                        /* Resolve the object's enum type through LOAD/ALLOCA */
-                        Iron_Type *obj_enum_type = NULL;
-                        IronLIR_ValueId obj_vid = instr->field.object;
-                        /* First try direct type */
-                        Iron_Type *direct_t = emit_get_value_type(fn, obj_vid);
-                        if (direct_t && direct_t->kind == IRON_TYPE_ENUM) {
-                            obj_enum_type = direct_t;
-                        } else if (obj_vid != IRON_LIR_VALUE_INVALID &&
-                                   obj_vid < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                                   fn->value_table[obj_vid] &&
-                                   fn->value_table[obj_vid]->kind == IRON_LIR_LOAD) {
-                            /* LOAD from ALLOCA: look at the alloca type */
-                            IronLIR_ValueId ptr = fn->value_table[obj_vid]->load.ptr;
-                            if (ptr != IRON_LIR_VALUE_INVALID &&
-                                ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                                fn->value_table[ptr] &&
-                                fn->value_table[ptr]->kind == IRON_LIR_ALLOCA) {
-                                Iron_Type *at = fn->value_table[ptr]->alloca.alloc_type;
-                                if (at && at->kind == IRON_TYPE_ENUM) obj_enum_type = at;
-                            }
-                        }
-                        if (obj_enum_type && obj_enum_type->enu.decl &&
-                            obj_enum_type->enu.payload_is_boxed) {
-                            Iron_EnumDecl *ged = obj_enum_type->enu.decl;
-                            size_t vname_len = (size_t)(vname_end - vname_start);
-                            char vname[128];
-                            if (vname_len < sizeof(vname)) {
-                                memcpy(vname, vname_start, vname_len);
-                                vname[vname_len] = '\0';
-                                for (int vi = 0; vi < ged->variant_count; vi++) {
-                                    /* PROT-03 row 34 (AUDIT-01 M-severity):
-                                     * loop-bound + non-NULL assert before the
-                                     * Iron_EnumVariant cast from a void**
-                                     * variants array. */
-                                    assert(vi >= 0 && vi < ged->variant_count);
-                                    assert(ged->variants[vi] != NULL);
-                                    Iron_EnumVariant *gev = (Iron_EnumVariant *)ged->variants[vi];
-                                    if (strcmp(gev->name, vname) == 0) {
-                                        if (obj_enum_type->enu.payload_is_boxed[vi] &&
-                                            slot_idx < gev->payload_count &&
-                                            obj_enum_type->enu.payload_is_boxed[vi][slot_idx]) {
-                                            needs_deref = true;
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        bool needs_deref = emit_field_is_boxed_payload(fn, instr);
 
         if (obj_is_fat_ptr) {
             /* Phase 21 Pitfall 1: fat-ptr (HEAP_ALLOC or ADDR_OF) needs .addr cast.

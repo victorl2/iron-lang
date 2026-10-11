@@ -3732,10 +3732,12 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
  * IronHIR_Global list on the module.
  *
  * Ordering contract (documented in hir.h): initializer assignments appear in
- * DECLARATION order regardless of discovery order. Statics are zero-
- * initialized, so an initializer that reads a later-declared global observes
- * zero (C semantics). emit_c.c calls the function from main() after
- * iron_runtime_init() and before Iron_main().
+ * DECLARATION order regardless of discovery order. The resolver has already
+ * put the globals' declarations in dependency order (order_global_inits in
+ * resolve.c: a global whose initializer reads another, also through the
+ * functions it calls, comes after it; a cycle is E0315), so no initializer
+ * reads a global before it is set. emit_c.c calls the function from main()
+ * after iron_runtime_init() and before Iron_main().
  *
  * Fixed point: lowering one global's initializer can activate further
  * globals (its init reads them, or a lambda literal inside it captures

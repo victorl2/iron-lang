@@ -49,3 +49,19 @@ if(NOT WIN32)
     set_tests_properties(cg_c_warning_free_noopt PROPERTIES LABELS "codegen" TIMEOUT 120
         ENVIRONMENT "IRON_LIR_SKIP=all;IRON_CC_FLAGS=-O0")
 endif()
+
+if(NOT WIN32)
+    # #578: a boxed recursive payload read inline, copy propagation left out.
+    add_test(NAME cg_recursive_payload_inline
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_check.sh $<TARGET_FILE:ironc>
+            ${_cg_reg}/recursive_payload_inline.iron ${_cg_reg}/recursive_payload_inline.expected
+            ${CMAKE_BINARY_DIR}/cg_check/recursive_payload_inline)
+    set_tests_properties(cg_recursive_payload_inline PROPERTIES LABELS "codegen" TIMEOUT 120
+        ENVIRONMENT "IRON_LIR_SKIP=copyprop")
+    # #579: bounded vector pop with the result unused, without optimization.
+    add_test(NAME cg_bvec_pop_discard
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_check.sh $<TARGET_FILE:ironc>
+            ${_cg_reg}/bvec_pop_discard.iron ${_cg_reg}/bvec_pop_discard.expected
+            ${CMAKE_BINARY_DIR}/cg_check/bvec_pop_discard --no-optimize)
+    set_tests_properties(cg_bvec_pop_discard PROPERTIES LABELS "codegen" TIMEOUT 120)
+endif()
