@@ -1,0 +1,124 @@
+-- Http.poller serves more keep-alive clients than there are pool workers
+-- (#521), and persistent HttpClient requests no longer wait ~40 ms each for
+-- a delayed ACK (#520): requests and responses leave in one write.
+import http
+import time
+
+val STOP = Mutex(0)
+
+object Flag {
+    var stop: Bool
+    init() {
+        self.stop = false
+    }
+}
+
+func stopped(f: rc Flag) -> Bool {
+    val g = STOP.lock()
+    return f.stop
+}
+
+func serve_one(poller: HttpPoller, connection: HttpConnection) -> Int {
+    val request = HttpConnection.read_request(connection, 16384, 65536, 5000)
+    if request.error != 0 {
+        poller.discard(connection)
+        return 0
+    }
+    val body = "\{\"len\":{request.body.len()}}"
+    val sent = HttpConnection.send_response_keep_alive(connection, Http.json_response(200, body), request.keep_alive, 5000)
+    if sent == 0 and request.keep_alive {
+        poller.park(connection)
+    } else {
+        poller.discard(connection)
+    }
+    return 0
+}
+
+-- One client: its own persistent connection, `n` POSTs. Returns the number
+-- answered correctly, or -1 when the mean latency is out of line.
+func client(port: Int, n: Int) -> Int {
+    val opened = HttpClient.open("http://127.0.0.1:{port}", "", false, 1, 30000)
+    if opened.error != 0 {
+        return 0
+    }
+    var ok = 0
+    val t0 = Time.now_ms()
+    for i in range(n) {
+        val r = HttpClient.request(opened.client, "POST", "/echo", "Content-Type: application/json", "\{\"i\":{i}}", 65536, 5000)
+        if r.error == 0 and r.status == 200 and r.body.starts_with("\{\"len\":") {
+            ok += 1
+        }
+    }
+    val elapsed = Time.now_ms() - t0
+    HttpClient.close(opened.client)
+    if elapsed > n * 15 {
+        return -1
+    }
+    return ok
+}
+
+func main() {
+    val listening = Http.listen("127.0.0.1", 0)
+    if listening.error != 0 {
+        println("listen failed")
+        return
+    }
+    val server = listening.server
+    val port = HttpServer.port(server)
+    val poller = Http.poller(server, 10000)
+    val flag = rc Flag()
+    val loop = spawn("accept") {
+        while not stopped(flag) {
+            val ready = poller.next(50)
+            if ready.error == 0 {
+                val c = ready.connection
+                spawn("request") {
+                    return serve_one(poller, c)
+                }
+            }
+        }
+        return 0
+    }
+    -- 8 clients at once, each on one connection for its whole run.
+    val c0 = spawn("c0") { return client(port, 40) }
+    val c1 = spawn("c1") { return client(port, 40) }
+    val c2 = spawn("c2") { return client(port, 40) }
+    val c3 = spawn("c3") { return client(port, 40) }
+    val c4 = spawn("c4") { return client(port, 40) }
+    val c5 = spawn("c5") { return client(port, 40) }
+    val c6 = spawn("c6") { return client(port, 40) }
+    val c7 = spawn("c7") { return client(port, 40) }
+    var total = await c0
+    total += await c1
+    total += await c2
+    total += await c3
+    total += await c4
+    total += await c5
+    total += await c6
+    total += await c7
+    -- Idle connections stay parked off the workers while many more open.
+    var opened: [HttpClient] = []
+    for i in range(40) {
+        val o = HttpClient.open("http://127.0.0.1:{port}", "", false, 1, 30000)
+        val r = HttpClient.request(o.client, "GET", "/", "", "", 65536, 5000)
+        if r.error == 0 and r.status == 200 {
+            total += 1
+        }
+        opened.push(o.client)
+    }
+    for o in opened {
+        val r = HttpClient.request(o, "GET", "/", "", "", 65536, 5000)
+        if r.error == 0 and r.status == 200 {
+            total += 1
+        }
+        HttpClient.close(o)
+    }
+    println("answered {total} of 400, connections {poller.accepted()}")
+    if true {
+        val g = STOP.lock()
+        flag.stop = true
+    }
+    await loop
+    poller.close()
+    HttpServer.close(server)
+}

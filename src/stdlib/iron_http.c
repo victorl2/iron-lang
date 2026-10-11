@@ -31,6 +31,7 @@
   #include <sys/socket.h>
   #include <netinet/in.h>
   #include <arpa/inet.h>
+  #include <netinet/tcp.h>
   #include <pthread.h>
 #endif
 
@@ -48,6 +49,59 @@ static Iron_String http_str(const char *s) {
 
 static Iron_String http_slice(const char *s, size_t n) {
     return iron_string_from_cstr(s ? s : "", s ? n : 0);
+}
+
+/* Assemble a request head and body into one buffer so it leaves in one
+ * write. Sent in pieces (request line, headers, separator, body), a request
+ * on a persistent connection meets Nagle's algorithm and the server's
+ * delayed ACK and waits ~40 ms on Linux. *out is malloc'd; 0 or an error. */
+static int64_t http_build_request(char **out, size_t *out_len,
+                                  const char *head, size_t head_len,
+                                  const char *headers, size_t headers_len,
+                                  const char *body, size_t body_len) {
+    int headers_need_crlf = headers_len &&
+        (headers_len < 2 || headers[headers_len - 2] != '\r' ||
+         headers[headers_len - 1] != '\n');
+    size_t total = head_len + headers_len + (headers_need_crlf ? 2 : 0) + 2;
+    if (body_len > SIZE_MAX - total) return IRON_ERR_HTTP_INVALID_ARGUMENT;
+    total += body_len;
+    char *msg = (char *)malloc(total ? total : 1);
+    if (!msg) return IRON_ERR_NET_NO_MEMORY;
+    size_t at = 0;
+    memcpy(msg, head, head_len);
+    at += head_len;
+    if (headers_len) {
+        memcpy(msg + at, headers, headers_len);
+        at += headers_len;
+        if (headers_need_crlf) {
+            memcpy(msg + at, "\r\n", 2);
+            at += 2;
+        }
+    }
+    memcpy(msg + at, "\r\n", 2);
+    at += 2;
+    if (body_len) memcpy(msg + at, body, body_len);
+    *out = msg;
+    *out_len = total;
+    return 0;
+}
+
+static void http_set_nodelay(int64_t fd) {
+#ifdef _WIN32
+    BOOL one = TRUE;
+    setsockopt((SOCKET)fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof(one));
+#else
+    int one = 1;
+    setsockopt((int)fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+#endif
+}
+
+/* Free the strings of a response being discarded (a retried attempt). */
+static void http_response_dispose(Iron_HttpResponse *r) {
+    iron_string_release(&r->reason);
+    iron_string_release(&r->headers);
+    iron_string_release(&r->body);
+    iron_string_release(&r->error_message);
 }
 
 static const char *http_error_message(int64_t code) {
@@ -1460,19 +1514,24 @@ static Iron_HttpResponse http_request_tls_options(
     Iron_Result_TcpSocket_Error dr = Iron_net_tcp_dial(
         host, parsed.port, Iron_deadline_remaining_ms(deadline));
     if (dr.v1.code != 0) {
+        iron_string_release(&host);
         http_response_error(&out, dr.v1.code);
         return out;
     }
+    http_set_nodelay(dr.v0.fd);
     HttpTransport transport = { dr.v0, NULL };
     if (parsed.secure) {
         Iron_TlsStreamResult tls = iron_tls_client_connect(
             dr.v0, host, ca_file, insecure, deadline);
+        iron_string_release(&host);
         if (tls.error.code != 0) {
             Iron_tcpsocket_close(dr.v0);
             http_response_error(&out, tls.error.code);
             return out;
         }
         transport.tls = tls.stream;
+    } else {
+        iron_string_release(&host);
     }
     size_t prefix_cap = method_len + strlen(parsed.target) + strlen(parsed.host_header) +
                         headers_len + 256;
@@ -1491,19 +1550,14 @@ static Iron_HttpResponse http_request_tls_options(
         http_response_error(&out, IRON_ERR_HTTP_INVALID_ARGUMENT);
         return out;
     }
-    int64_t err = send_all(transport, (const uint8_t *)prefix, (size_t)n, deadline);
+    char *msg = NULL;
+    size_t msg_len = 0;
+    int64_t err = http_build_request(&msg, &msg_len, prefix, (size_t)n,
+                                     headers_c, headers_len,
+                                     iron_string_cstr(&body), body_len);
     free(prefix);
-    if (!err && headers_len) {
-        err = send_all(transport, (const uint8_t *)headers_c, headers_len, deadline);
-        if (!err && (headers_len < 2 || headers_c[headers_len - 2] != '\r' ||
-                     headers_c[headers_len - 1] != '\n')) {
-            err = send_all(transport, (const uint8_t *)"\r\n", 2, deadline);
-        }
-    }
-    if (!err) err = send_all(transport, (const uint8_t *)"\r\n", 2, deadline);
-    if (!err && body_len) {
-        err = send_all(transport, (const uint8_t *)iron_string_cstr(&body), body_len, deadline);
-    }
+    if (!err) err = send_all(transport, (const uint8_t *)msg, msg_len, deadline);
+    free(msg);
     if (err) {
         transport_close(transport);
         http_response_error(&out, err);
@@ -1713,19 +1767,27 @@ static int64_t http_client_connect_slot(HttpClientState *client,
     Iron_String host = http_str(client->origin.host);
     Iron_Result_TcpSocket_Error dial = Iron_net_tcp_dial(
         host, client->origin.port, Iron_deadline_remaining_ms(deadline));
-    if (dial.v1.code != 0) return dial.v1.code;
+    if (dial.v1.code != 0) {
+        iron_string_release(&host);
+        return dial.v1.code;
+    }
+    http_set_nodelay(dial.v0.fd);
     slot->transport.socket = dial.v0;
     slot->transport.tls = NULL;
     if (client->origin.secure) {
         Iron_String ca = http_slice(client->ca_file, client->ca_file_length);
         Iron_TlsStreamResult tls = iron_tls_client_connect(
             dial.v0, host, ca, client->insecure != 0, deadline);
+        iron_string_release(&ca);
+        iron_string_release(&host);
         if (tls.error.code != 0) {
             Iron_tcpsocket_close(dial.v0);
             slot->transport.socket.fd = -1;
             return tls.error.code;
         }
         slot->transport.tls = tls.stream;
+    } else {
+        iron_string_release(&host);
     }
     slot->connected = 1;
     return 0;
@@ -1750,25 +1812,13 @@ static int64_t http_client_send_request(
         free(fixed);
         return IRON_ERR_HTTP_INVALID_ARGUMENT;
     }
-    int64_t error = send_all(slot->transport, (const uint8_t *)fixed,
-                             (size_t)length, deadline);
+    char *msg = NULL;
+    size_t msg_len = 0;
+    int64_t error = http_build_request(&msg, &msg_len, fixed, (size_t)length,
+                                       headers, headers_length, body, body_length);
     free(fixed);
-    if (!error && headers_length) {
-        error = send_all(slot->transport, (const uint8_t *)headers,
-                         headers_length, deadline);
-        if (!error && (headers_length < 2 ||
-            headers[headers_length - 2] != '\r' ||
-            headers[headers_length - 1] != '\n')) {
-            error = send_all(slot->transport, (const uint8_t *)"\r\n", 2,
-                             deadline);
-        }
-    }
-    if (!error)
-        error = send_all(slot->transport, (const uint8_t *)"\r\n", 2,
-                         deadline);
-    if (!error && body_length)
-        error = send_all(slot->transport, (const uint8_t *)body, body_length,
-                         deadline);
+    if (!error) error = send_all(slot->transport, (const uint8_t *)msg, msg_len, deadline);
+    free(msg);
     return error;
 }
 
@@ -1883,7 +1933,11 @@ Iron_HttpResponse Iron_httpclient_request(
                 error_code == IRON_ERR_TLS_IO ||
                 error_code == IRON_ERR_HTTP_TRUNCATED_MESSAGE;
             if (attempt == 0 && retry_safe && was_reused && stale_transport &&
-                Iron_deadline_remaining_ms(deadline) > 0) continue;
+                Iron_deadline_remaining_ms(deadline) > 0) {
+                http_response_dispose(&out);
+                out = http_response_empty();
+                continue;
+            }
             http_client_release(client, slot, 0);
             return out;
         }
@@ -2160,22 +2214,11 @@ static void http_poller_wake(HttpPollerState *st) {
 }
 
 static void http_poller_set_socket_options(int64_t fd) {
-    int one = 1;
-    setsockopt((
-#ifdef _WIN32
-        SOCKET
-#else
-        int
-#endif
-        )fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof(one));
+    http_set_nodelay(fd);
 }
 
 static int64_t http_poller_accept_one(int64_t listen_fd) {
-#if defined(__linux__)
-    int fd = accept4((int)listen_fd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
-    if (fd < 0) return -1;
-    return fd;
-#elif defined(_WIN32)
+#if defined(_WIN32)
     SOCKET fd = accept((SOCKET)listen_fd, NULL, NULL);
     if (fd == INVALID_SOCKET) return -1;
     u_long mode = 1;
