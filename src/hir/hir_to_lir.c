@@ -2626,8 +2626,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                      expr->float_lit.value, type, span)->id;
 
     case IRON_HIR_EXPR_STRING_LIT:
-        return iron_lir_const_string(ctx->current_func, ctx->current_block,
-                                      expr->string_lit.value, type, span)->id;
+    {
+        IronLIR_Instr *cs = iron_lir_const_string(ctx->current_func, ctx->current_block,
+                                                  expr->string_lit.value, type, span);
+        cs->const_str.len = expr->string_lit.len;   /* may hold zero bytes (#453) */
+        return cs->id;
+    }
 
     case IRON_HIR_EXPR_BOOL_LIT:
         return iron_lir_const_bool(ctx->current_func, ctx->current_block,

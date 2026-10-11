@@ -871,6 +871,8 @@ typedef struct {
     Iron_NodeKind      kind;   /* IRON_NODE_STRING_LIT */
     struct Iron_Type  *resolved_type;  /* set by type checker */
     const char        *value;
+    size_t             len;    /* byte length of value, which may hold zero
+                                * bytes (`\0`, #453); 0 means strlen(value) */
 } Iron_StringLit;
 
 typedef struct {

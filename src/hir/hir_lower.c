@@ -2039,7 +2039,9 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── String literal ──────────────────────────────────────────────────── */
     case IRON_NODE_STRING_LIT: {
         Iron_StringLit *lit = (Iron_StringLit *)node;
-        return iron_hir_expr_string_lit(mod, lit->value, lit->resolved_type, span);
+        IronHIR_Expr *se = iron_hir_expr_string_lit(mod, lit->value, lit->resolved_type, span);
+        se->string_lit.len = lit->len;   /* may hold zero bytes (#453) */
+        return se;
     }
 
     /* ── Interpolated string ─────────────────────────────────────────────── */

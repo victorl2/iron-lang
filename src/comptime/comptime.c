@@ -608,7 +608,7 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
         case IRON_NODE_STRING_LIT: {
             Iron_StringLit *lit = (Iron_StringLit *)node;
             const char *s = lit->value ? lit->value : "";
-            return cval_string(ctx, s, strlen(s));
+            return cval_string(ctx, s, lit->len ? lit->len : strlen(s));
         }
 
         case IRON_NODE_NULL_LIT: {
@@ -1382,6 +1382,7 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
             lit->resolved_type = resolved_type;
             lit->value = iron_arena_strdup(arena, val->as_string.data,
                                             val->as_string.len);
+            lit->len   = val->as_string.len;
             if (!lit->value) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast StringLit value) */ return NULL; }
             return (Iron_Node *)lit;
         }

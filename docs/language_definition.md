@@ -205,16 +205,39 @@ A string literal is at most 4095 bytes. The escape sequences are:
 
 | Escape | Meaning |
 |---|---|
-| `\n` | newline |
-| `\t` | tab |
+| `\n` | newline (byte 10) |
+| `\r` | carriage return (byte 13) |
+| `\t` | tab (byte 9) |
+| `\0` | the zero byte |
+| `\xHH` | the byte `HH`: exactly two hex digits, `\x00` to `\xFF` |
 | `\\` | backslash |
 | `\"` | double quote |
 | `\{` and `\}` | literal braces (not interpolation) |
 | `\u{H}` | the Unicode scalar `H` (1 to 6 hex digits), encoded as UTF-8 |
 
 Any other character after a backslash is kept together with the backslash.
-A literal cannot contain the zero byte: `\u{0}` is an error (`E0002`);
-build such strings with `String.from_byte(0)`.
+`\0` is only the zero byte: a digit after it is an ordinary character
+(`"\012"` is the three bytes 0, `1`, `2`; there are no octal escapes). A
+`\x` that is not followed by two hex digits, and a `\u` that does not
+name a Unicode scalar, are errors (`E0002`).
+
+`\xHH` writes one byte, not a character. A string holds bytes (binary
+data is a `String`, section 9.12), so every value is allowed, but a byte
+from `\x80` to `\xFF` on its own is not UTF-8 text: write characters as
+`\u{...}` (`"\u{e9}"` is the two bytes `\xC3\xA9`) and keep `\x80` and
+above for binary data. A literal may contain zero bytes anywhere; they are
+part of its value and its `byte_len()`:
+
+```iron
+func main() {
+    val s = "a\0b\x41\r\n"
+    println("{s.byte_len()} {s.byte_at(1)} {s.byte_at(3)} {s.byte_at(4)}")
+}
+```
+
+```output
+6 0 65 13
+```
 
 A string literal that contains an unescaped `{` is an **interpolated
 string**: each `{expression}` is evaluated and its text spliced in (section
@@ -310,7 +333,7 @@ strings.
 | `Float` | 64-bit IEEE double (the default float type) |
 | `Float32`, `Float64` | floats of the given width |
 | `Bool` | `true` or `false` |
-| `String` | an immutable sequence of Unicode characters, stored as UTF-8 |
+| `String` | an immutable sequence of Unicode characters, stored as UTF-8 (it may also hold arbitrary bytes, section 1.4) |
 | `Void` | the result type of a function without `-> T` (never written) |
 
 Arithmetic on the same integer type wraps on overflow (two's complement).

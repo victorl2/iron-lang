@@ -307,6 +307,7 @@ static Iron_Token iron_make_token(Iron_Lexer *l, Iron_TokenKind kind,
     t.line     = start_line;
     t.col      = start_col;
     t.len      = len;
+    t.value_len = 0;
     /* Phase 93 VIS-03 multi-file marker: tokens carry the lexer's current
      * filename so the parser's span builder can prefer the per-token value
      * over its own. The lexer mutates `l->filename` when it sees a
@@ -476,6 +477,47 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
             switch (esc) {
                 case 'n':  PUSH_CHAR('\n'); break;
                 case 't':  PUSH_CHAR('\t'); break;
+                case 'r':  PUSH_CHAR('\r'); break;
+                /* `\0` is the zero byte (#453). Literals carry their byte
+                 * length, so it does not end the value; a digit after it
+                 * is an ordinary character (no octal escapes). */
+                case '0':  PUSH_CHAR('\0'); break;
+                case 'x': {
+                    /* \xHH: one byte, exactly two hex digits. Any value is
+                     * allowed: strings hold bytes (binary data is a String,
+                     * manual 9.12), and \u{...} is the escape for text. */
+                    int hv[2];
+                    int got = 0;
+                    for (; got < 2; got++) {
+                        char h = iron_peek_char(l);
+                        hv[got] = (h >= '0' && h <= '9') ? h - '0'
+                                : (h >= 'a' && h <= 'f') ? h - 'a' + 10
+                                : (h >= 'A' && h <= 'F') ? h - 'A' + 10 : -1;
+                        if (hv[got] < 0) break;
+                        iron_advance_char(l);
+                    }
+                    if (got < 2) {
+                        Iron_Span span = iron_span_make(l->filename, l->line, l->col,
+                                                         l->line, l->col);
+                        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                                       IRON_ERR_INVALID_CHAR, span,
+                                       "invalid byte escape",
+                                       "write it as \\xHH with exactly two hex digits, "
+                                       "as in \\x0A or \\xFF");
+                        break;
+                    }
+                    char bv = (char)(unsigned char)(hv[0] * 16 + hv[1]);
+                    /* A brace is a literal brace, as `\{` is, and a byte
+                     * equal to a lexer marker is stored behind the marker
+                     * prefix, as raw bytes are (lexer.h). */
+                    if (bv == '{') { PUSH_CHAR(IRON_LEX_LITERAL_LBRACE); break; }
+                    if (bv == '}') { PUSH_CHAR(IRON_LEX_LITERAL_RBRACE); break; }
+                    if (bv == IRON_LEX_LITERAL_LBRACE || bv == IRON_LEX_LITERAL_RBRACE ||
+                        bv == IRON_LEX_LITERAL_ESC)
+                        PUSH_CHAR(IRON_LEX_LITERAL_ESC);
+                    PUSH_CHAR(bv);
+                    break;
+                }
                 case '\\': PUSH_CHAR('\\'); break;
                 case '"':  PUSH_CHAR('"');  break;
                 /* `\{` and `\}` escape the interpolation delimiters to a
@@ -521,19 +563,10 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
                                        "naming a Unicode scalar value");
                         break;
                     }
-                    if (cp == 0) {
-                        /* Literals are carried as C strings up to the
-                         * emitter, which would end the value here and
-                         * silently drop the rest (issue filed). */
-                        Iron_Span span = iron_span_make(l->filename, l->line, l->col,
-                                                         l->line, l->col);
-                        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
-                                       IRON_ERR_INVALID_CHAR, span,
-                                       "a string literal cannot contain the zero byte \\u{0}",
-                                       "build the value with String.from_byte(0) and +");
-                        break;
-                    }
-                    if (cp < 0x80) {
+                    if (cp == '{' || cp == '}') {
+                        /* A literal brace, as `\{` is: not a delimiter. */
+                        PUSH_CHAR(cp == '{' ? IRON_LEX_LITERAL_LBRACE : IRON_LEX_LITERAL_RBRACE);
+                    } else if (cp < 0x80) {
                         if (cp == (uint32_t)IRON_LEX_LITERAL_LBRACE ||
                             cp == (uint32_t)IRON_LEX_LITERAL_RBRACE)
                             PUSH_CHAR(IRON_LEX_LITERAL_ESC);
@@ -649,7 +682,11 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
     }
     uint32_t tok_len = (uint32_t)(l->pos - start_pos);
     Iron_TokenKind kind = has_interp ? IRON_TOK_INTERP_STRING : IRON_TOK_STRING;
-    return iron_make_token(l, kind, value, start_line, start_col, tok_len);
+    Iron_Token tok = iron_make_token(l, kind, value, start_line, start_col, tok_len);
+    /* The value may hold zero bytes (`\0`, `\x00`, `\u{0}`): its length
+     * travels with it (#453). */
+    tok.value_len = (uint32_t)buf_len;
+    return tok;
 }
 
 /* ── Number lexing ───────────────────────────────────────────────────────── */
