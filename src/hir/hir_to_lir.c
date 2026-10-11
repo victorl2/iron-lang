@@ -203,6 +203,13 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
              ft->nullable.inner->kind == IRON_TYPE_STRING))
             return true;
         if (ft->kind == IRON_TYPE_FUNC) return true;
+        /* A Mutex, RWLock or Channel field is destroyed with its object. */
+        if (!want_copy && ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
+            ft->object.decl->name && ft->object.elem &&
+            (strcmp(ft->object.decl->name, "Mutex") == 0 ||
+             strcmp(ft->object.decl->name, "RWLock") == 0 ||
+             strcmp(ft->object.decl->name, "Channel") == 0))
+            return true;
         /* An enum field whose payloads own something (a String, an rc
          * handle, a list) makes the holder need glue too: without this an
          * `object W { val node: N }` binding was never dropped. */
