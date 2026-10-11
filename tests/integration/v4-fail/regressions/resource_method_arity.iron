@@ -1,0 +1,9 @@
+-- Argument counts of push and of the resource methods are checked (E0216,
+-- #634).
+func main() {
+    var xs = [1, 2]
+    xs.push()
+    val m = Mutex(0)
+    val g = m.lock()
+    println("{g.get([1, 2])}")
+}

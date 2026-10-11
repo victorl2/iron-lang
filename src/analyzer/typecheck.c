@@ -3416,7 +3416,16 @@ static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc
         strcmp(m, "sort") == 0 || strcmp(m, "set_unchecked") == 0) {
         check_array_mutable(ctx, mc->object, mc->span, "modify");
     }
-    /* get_unchecked / set_unchecked and push keep their dedicated checks. */
+    /* get_unchecked / set_unchecked and push keep their dedicated checks
+     * (push's argument type; its count is checked here: `xs.push()` was
+     * accepted and failed in the C compiler). */
+    if (strcmp(m, "push") == 0 && mc->arg_count != 1) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "list method 'push' expects 1 argument(s), got %d",
+                 mc->arg_count);
+        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+        return result;
+    }
     if (strcmp(m, "get_unchecked") == 0 || strcmp(m, "set_unchecked") == 0 ||
         strcmp(m, "push") == 0)
         return result;
@@ -6726,6 +6735,44 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     break;
                 }
 
+                /* The resource methods typed below never looked at their
+                 * arguments: `g.get([1, 2])` and `ch.send()` passed the
+                 * checker and failed in the C compiler. */
+                {
+                    int want = -1;          /* argument count; -1: not one of these */
+                    bool want_elem = false; /* the one argument is the element */
+                    const char *mm = mc->method;
+                    if ((strcmp(rn, "Mutex") == 0 && strcmp(mm, "lock") == 0) ||
+                        (strcmp(rn, "RWLock") == 0 &&
+                         (strcmp(mm, "read") == 0 || strcmp(mm, "write") == 0)) ||
+                        ((strcmp(rn, "MutexGuard") == 0 || strcmp(rn, "RWReadGuard") == 0 ||
+                          strcmp(rn, "RWWriteGuard") == 0) && strcmp(mm, "get") == 0) ||
+                        (strcmp(rn, "Channel") == 0 && strcmp(mm, "recv") == 0) ||
+                        (strcmp(rn, "FileHandle") == 0 && strcmp(mm, "close") == 0))
+                        want = 0;
+                    else if (((strcmp(rn, "MutexGuard") == 0 || strcmp(rn, "RWWriteGuard") == 0) &&
+                              strcmp(mm, "set") == 0) ||
+                             (strcmp(rn, "Channel") == 0 && strcmp(mm, "send") == 0)) {
+                        want = 1;
+                        want_elem = true;
+                    }
+                    if (want >= 0 && mc->arg_count != want) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "'%s.%s' expects %d argument(s), got %d",
+                                 rn, mm, want, mc->arg_count);
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                    } else if (want_elem && elem && mc->arg_count == 1) {
+                        Iron_Type *at = check_expr_with_expected(ctx, mc->args[0], elem);
+                        if (at && at->kind != IRON_TYPE_ERROR && !types_assignable(elem, at)) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "'%s.%s' takes a '%s', got '%s'", rn, mm,
+                                     iron_type_to_string(elem, ctx->arena),
+                                     iron_type_to_string(at, ctx->arena));
+                            emit_error(ctx, IRON_ERR_ARG_TYPE, mc->span, msg, NULL);
+                        }
+                    }
+                }
                 if (strcmp(rn, "Mutex") == 0 &&
                     strcmp(mc->method, "lock") == 0) {
                     /* m.lock() -> MutexGuard[elem]. Build a fresh MutexGuard
