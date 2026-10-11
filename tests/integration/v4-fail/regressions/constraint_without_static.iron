@@ -1,0 +1,22 @@
+-- T.f() needs f to be a static function of T's constraint (#455).
+interface Show {
+    readonly func show() -> String
+}
+
+object A impl Show {
+    val n: Int
+    static func make() -> A {
+        return A(1)
+    }
+    readonly func show() -> String {
+        return "a"
+    }
+}
+
+func build[T: Show]() -> String {
+    return T.make().show()
+}
+
+func main() {
+    println(build[A]())
+}

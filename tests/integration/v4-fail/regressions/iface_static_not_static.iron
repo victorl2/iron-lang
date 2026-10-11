@@ -1,0 +1,15 @@
+-- An interface's static function is implemented by a static function (#455).
+interface Zero {
+    static func zero() -> Self
+}
+
+object P impl Zero {
+    val x: Int
+    readonly func zero() -> P {
+        return P(0)
+    }
+}
+
+func main() {
+    println("{P(1).x}")
+}

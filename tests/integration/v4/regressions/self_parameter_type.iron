@@ -1,0 +1,22 @@
+-- Self as a method parameter type names the enclosing object (#661).
+object Word {
+    val w: String
+    readonly func same(o: Self) -> Bool {
+        return o.w == self.w
+    }
+    readonly func longest(others: [Self]) -> Self {
+        var best = Word(self.w)
+        for o in others {
+            if o.w.len() > best.w.len() {
+                best = Word(o.w)
+            }
+        }
+        return best
+    }
+}
+
+func main() {
+    val a = Word("a")
+    println("{a.same(Word("a"))} {a.same(Word("b"))}")
+    println(a.longest([Word("bbb"), Word("cc")]).w)
+}

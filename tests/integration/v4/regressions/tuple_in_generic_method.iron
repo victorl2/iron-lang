@@ -1,0 +1,21 @@
+-- A tuple literal in a generic method body: instances are made by printing
+-- the method and parsing it again, and the printer wrote (a, b) as [a, b]
+-- (#648).
+object Crate {
+    val name: String
+    readonly func with_tag[T](tag: T) -> (String, T) {
+        return (self.name, tag)
+    }
+}
+
+func swap[A, B](a: A, b: B) -> (B, A) {
+    return (b, a)
+}
+
+func main() {
+    val b = Crate("box")
+    val (n, t) = b.with_tag(7)
+    println("{n} {t}")
+    val (x, y) = swap("s", 2)
+    println("{x} {y}")
+}

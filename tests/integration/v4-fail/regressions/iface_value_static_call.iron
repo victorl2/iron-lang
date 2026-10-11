@@ -1,0 +1,24 @@
+-- A static function has no receiver to dispatch on: it cannot be called
+-- through an interface value (#455).
+interface Make {
+    static func make() -> Self
+    readonly func get() -> Int
+}
+
+object A impl Make {
+    val n: Int
+    static func make() -> A {
+        return A(1)
+    }
+    readonly func get() -> Int {
+        return self.n
+    }
+}
+
+func use(m: Make) -> Int {
+    return m.make().get()
+}
+
+func main() {
+    println("{use(A(2))}")
+}

@@ -3766,7 +3766,12 @@ static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
         Iron_Node *pn = params[first + i];
         if (!pn || pn->kind != IRON_NODE_PARAM || !mc->args[i]) continue;
         Iron_Param *mp = (Iron_Param *)pn;
+        /* `Self` in the callee's signature names the callee's type, not
+         * the caller's. */
+        const char *saved_enc = ctx->enclosing_type_name;
+        if (owner && iron_type_ann_mentions_self(mp->type_ann)) ctx->enclosing_type_name = owner;
         Iron_Type *pt = resolve_type_annotation(ctx, mp->type_ann);
+        ctx->enclosing_type_name = saved_enc;
         if (!((Iron_ExprNode *)mc->args[i])->resolved_type && pt &&
             pt->kind != IRON_TYPE_ERROR && !type_mentions_generic(pt))
             check_expr_with_expected(ctx, mc->args[i], pt);
@@ -7555,8 +7560,12 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                  * pointee → set is_auto_address_target on
                                  * the existing AST node (Pitfall 4 lock).
                                  * E0270 on rvalue, E0267 on val→*var T. */
+                                const char *saved_enc_mp = ctx->enclosing_type_name;
+                                if (iron_type_ann_mentions_self(mp->type_ann))
+                                    ctx->enclosing_type_name = md->type_name;
                                 Iron_Type *mp_t = resolve_type_annotation(
                                     ctx, mp->type_ann);
+                                ctx->enclosing_type_name = saved_enc_mp;
                                 Iron_Type *ma_t = mc->args[ai]
                                     ? ((Iron_ExprNode *)mc->args[ai])->resolved_type
                                     : NULL;
@@ -12836,7 +12845,6 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
              * later in the file (or in a later file) used to be typed Void. */
             if (!md->resolved_return_type || stale_signature_type(md->resolved_return_type, 0))
                 md->resolved_return_type = ret_type;
-            ctx.enclosing_type_name = NULL;  /* restore after pre-pass sig build */
             /* Method signatures are looked up by mangled name (type_method).
              * Phase 33 OQ-02: lookup runs against the REAL global scope, but
              * param-annotation resolution below stays under the generic scope
@@ -12859,6 +12867,8 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                 }
                 sym->type = iron_type_make_func(ctx.arena, param_types, pc, ret_type);
             }
+            /* Restored after the parameters too: `o: Self` names the type. */
+            ctx.enclosing_type_name = NULL;
             ctx.global_scope = pp_md_saved;  /* Phase 33 OQ-02: restore */
         } else if (decl->kind == IRON_NODE_INTERFACE_DECL) {
             /* An interface method's parameter types, for the dispatcher the
@@ -12875,7 +12885,8 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                     if (!p || p->resolved_type || !p->type_ann ||
                         p->type_ann->kind != IRON_NODE_TYPE_ANNOTATION) continue;
                     Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)p->type_ann;
-                    if (ta->is_self_type || (ta->name && strcmp(ta->name, "Self") == 0)) continue;
+                    (void)ta;
+                    if (iron_type_ann_mentions_self(p->type_ann)) continue;
                     Iron_Type *pt = resolve_type_annotation(&ctx, p->type_ann);
                     if (pt && pt->kind != IRON_TYPE_ERROR) p->resolved_type = pt;
                 }

@@ -1,0 +1,12 @@
+-- A method called through the type name had no receiver and read an
+-- uninitialized self (#644).
+object P {
+    val x: Int
+    readonly func get() -> Int {
+        return self.x
+    }
+}
+
+func main() {
+    println("{P.get()}")
+}
