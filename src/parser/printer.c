@@ -366,10 +366,6 @@ static void print_args(PrintCtx *ctx, Iron_Node **args, int count) {
  * param list to match the source shape (`func name(args)` not
  * `func name(self: T, args)`). */
 static void print_method_in_block(PrintCtx *ctx, Iron_MethodDecl *m) {
-    /* `pub` survives: a generic object is instantiated from this text, and
-     * its pub init and methods became private to the declaring file
-     * (E0320 from another file of the package, #592). */
-    if (m->is_pub && !m->is_drop && !m->is_copy) iron_strbuf_appendf(ctx->sb, "pub ");
     if (m->is_private) iron_strbuf_appendf(ctx->sb, "private ");
     /* Init form precedes any tier modifier; tier modifiers on init are
      * rejected at parse time (parser.c:3219-3228), so this branch never
@@ -532,9 +528,6 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                 MethodOwnerArr *slot = method_index_lookup(map, key);
                 if (slot) {
                     for (ptrdiff_t i = 0; i < arrlen(slot->methods); i++) {
-                        /* A pub field's accessors come back from the field
-                         * when the text is parsed again. */
-                        if (slot->methods[i]->is_synth_accessor) continue;
                         print_indent(ctx);
                         print_method_in_block(ctx, slot->methods[i]);
                         iron_strbuf_appendf(ctx->sb, "\n");

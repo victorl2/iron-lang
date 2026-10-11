@@ -1,4 +1,0 @@
-[package]
-name = "generic_pub"
-version = "0.1.0"
-type = "bin"

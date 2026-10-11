@@ -1,8 +1,0 @@
-func main() {
-    var b = Bag[Int]()
-    b.add(3)
-    b.add(4)
-    var s = Bag[String]()
-    s.add("x")
-    println("{b.size()} {s.size()}")
-}
