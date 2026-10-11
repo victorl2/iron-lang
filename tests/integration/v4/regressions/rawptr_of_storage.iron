@@ -1,0 +1,18 @@
+-- RawPtr.of(x) points at the storage of x, so the pointer sees later
+-- writes to it; it pointed at a copy taken at the call. (#500)
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+func main() {
+    var n: Int = 7
+    val p: *unchecked Int = Ptr.cast[Int](RawPtr.of(n))
+    n = 9
+    var o = P(3)
+    val q = Ptr.cast[P](RawPtr.of(o))
+    o.hp = 4
+    println("{p} {q.hp}")
+}

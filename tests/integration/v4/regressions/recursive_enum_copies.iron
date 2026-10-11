@@ -1,0 +1,64 @@
+-- A recursive enum keeps its recursive payloads in heap cells. A payload
+-- bound by match and stored in a new value shared the cells of the
+-- original, and both freed them (heap use after free); a copied binding
+-- did the same. A copy now gets cells of its own. (#483)
+enum Tree[T] {
+    Leaf,
+    Node(Tree[T], T, Tree[T]),
+}
+
+enum Lst {
+    Nil,
+    Cons(String, Lst),
+}
+
+func tins(t: Tree[Int], v: Int) -> Tree[Int] {
+    match t {
+        Tree.Leaf -> return Tree.Node(Tree.Leaf, v, Tree.Leaf)
+        Tree.Node(l, x, r) -> {
+            if v < x {
+                return Tree.Node(tins(l, v), x, r)
+            }
+            return Tree.Node(l, x, tins(r, v))
+        }
+    }
+    return Tree.Leaf
+}
+
+func torder(t: Tree[Int]) -> String {
+    match t {
+        Tree.Leaf -> return ""
+        Tree.Node(l, x, r) -> return torder(l) + "{x}," + torder(r)
+    }
+    return ""
+}
+
+func ljoin(l: Lst) -> String {
+    match l {
+        Lst.Nil -> return ""
+        Lst.Cons(h, t) -> return h + ljoin(t)
+    }
+    return ""
+}
+
+func lrev(l: Lst, acc: Lst) -> Lst {
+    match l {
+        Lst.Nil -> return acc
+        Lst.Cons(h, t) -> return lrev(t, Lst.Cons(h, acc))
+    }
+    return acc
+}
+
+func main() {
+    var t: Tree[Int] = Tree.Leaf
+    for v in [12, 13, -14, 7, 30, 1] {
+        t = tins(t, v)
+    }
+    val u = t
+    t = tins(t, 99)
+    println("{torder(t)} {torder(u)}")
+    val l = Lst.Cons("a", Lst.Cons("b", Lst.Cons("c", Lst.Nil)))
+    val r = lrev(l, Lst.Nil)
+    val c = r
+    println("{ljoin(l)} {ljoin(r)} {ljoin(c)}")
+}

@@ -1,0 +1,11 @@
+-- A generic nocopy object cannot be copied (E0286, manual 6.7): the
+-- template printer dropped the keyword and the copy built. (#503)
+nocopy object U[T] {
+    val v: T
+}
+
+func main() {
+    val a = U(3)
+    val b = a
+    println("{b.v}")
+}

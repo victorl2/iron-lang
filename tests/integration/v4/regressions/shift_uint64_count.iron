@@ -1,0 +1,15 @@
+-- A UInt64 shift count of 2^63 or more is a count past the width (the
+-- result is 0, or the sign for `>>`), not a negative count (manual 3.2).
+-- The shift helpers took the count as int64_t and panicked. (#467)
+func pk(n: Int) -> Int {
+    return n
+}
+
+func main() {
+    val big = UInt64(pk(-1))
+    val x: Int32 = Int32(pk(-5))
+    val y: UInt8 = UInt8(pk(200))
+    println("{x >> big} {x << big} {pk(7) >> big} {pk(-7) >> big} {y >> big}")
+    val c: UInt = UInt(pk(-9223372036854775807) - 1)
+    println("{pk(1) << c} {UInt64(pk(9)) >> c}")
+}

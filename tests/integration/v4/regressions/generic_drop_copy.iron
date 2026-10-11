@@ -1,0 +1,33 @@
+-- A generic object keeps its drop and copy blocks (manual 6.7). Instances
+-- are made by printing the template and parsing it again, and the printer
+-- wrote the blocks as methods: drop was E0237 and copy never ran. (#468)
+object H[T] {
+    val item: T
+    copy {
+        println("copy {self.item}")
+    }
+    drop {
+        println("drop {self.item}")
+    }
+}
+
+object Wrap[T] {
+    var inner: H[T]
+    init(inner: H[T]) {
+        self.inner = inner
+    }
+    drop {
+        println("drop wrap")
+    }
+}
+
+func main() {
+    val a = H(1)
+    val b = a
+    {
+        val s = H("s")
+        println("inner")
+    }
+    val w = Wrap(H(7))
+    println("{b.item} {w.inner.item}")
+}

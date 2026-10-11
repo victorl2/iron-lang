@@ -416,6 +416,64 @@ uint64_t iron_heap_next_gen(void);
  * elision works on each path with the same template. */
 extern _Thread_local uint64_t iron_stack_gen;
 
+/* Frame identity (#471). The counter above used to be bumped on entry to
+ * and exit from every function that takes a local address, and a stack
+ * pointer was valid only while it still equalled the value captured at
+ * `&`: any such call in between made a live pointer to an outer frame look
+ * dangling. Now each such frame gets a fresh id, recorded per depth, and
+ * iron_stack_gen is the current frame's tag:
+ *     bit 63      set (a stack pointer; heap and arena generations never
+ *                 reach it)
+ *     bits 47-62  the frame's depth (saturated at 0xFFFF)
+ *     bits 35-46  the thread's number (1-4095; 0 for no frame)
+ *     bits 0-34   the frame's id
+ * A pointer is live while its frame is: its depth is at most the current
+ * depth and the id recorded there is still its id. Depth 0 (no frame,
+ * globals) is always live; frames deeper than IRON_STACK_FRAMES_MAX are
+ * not recorded and are only checked by depth. A pointer into another
+ * thread's stack (a spawn body reading its parent's local) cannot be
+ * checked against this thread's frames and passes. */
+#define IRON_STACK_TAG        (1ULL << 63)
+#define IRON_STACK_ID_MASK    ((1ULL << 35) - 1)
+#define IRON_STACK_THREAD(g)  (((g) >> 35) & 0xFFF)
+#define IRON_STACK_FRAMES_MAX 1024
+#define IRON_STACK_GEN_INIT   IRON_STACK_TAG
+extern _Thread_local uint32_t iron_stack_depth;
+extern _Thread_local uint64_t iron_stack_next_id;
+extern _Thread_local uint64_t iron_stack_ids[IRON_STACK_FRAMES_MAX];
+extern _Thread_local uint32_t iron_stack_thread;
+uint32_t iron_stack_thread_number(void);
+
+/* Entry to a frame that takes a local address: returns the tag to restore
+ * on every exit (iron_stack_leave). */
+IRON_CHECK_FN uint64_t iron_stack_enter(void) {
+    uint64_t saved = iron_stack_gen;
+    uint32_t d = ++iron_stack_depth;
+    uint64_t id = (++iron_stack_next_id) & IRON_STACK_ID_MASK;
+    if (!iron_stack_thread) iron_stack_thread = iron_stack_thread_number();
+    if (d < IRON_STACK_FRAMES_MAX) iron_stack_ids[d] = id;
+    iron_stack_gen = IRON_STACK_TAG | ((uint64_t)(d < 0xFFFF ? d : 0xFFFF) << 47) |
+                     ((uint64_t)iron_stack_thread << 35) | id;
+    return saved;
+}
+
+IRON_CHECK_FN void iron_stack_leave(uint64_t saved) {
+    iron_stack_depth--;
+    iron_stack_gen = saved;
+}
+
+/* Whether the frame a stack pointer's generation names is still live. A
+ * generation without the stack tag is a heap or arena one (a pointer that
+ * came through a parameter or a field): not a stack pointer, true. */
+IRON_CHECK_FN bool iron_stack_gen_live(uint64_t gen) {
+    if (!(gen & IRON_STACK_TAG)) return true;
+    if (IRON_STACK_THREAD(gen) != iron_stack_thread) return true;
+    uint64_t d = (gen >> 47) & 0xFFFF;
+    if (d > iron_stack_depth) return false;
+    if (d < IRON_STACK_FRAMES_MAX && iron_stack_ids[d] != (gen & IRON_STACK_ID_MASK)) return false;
+    return true;
+}
+
 /* Phase 20 PTR-10: stack-pointer panic variant (NEW Plan 20-02b).
  * Same emission channels as iron_panic_stale_pointer (text + JSON);
  * different header text "dangling stack pointer to frame" and JSON
@@ -591,11 +649,39 @@ IRON_CHECK_FN uint64_t iron_umod64(uint64_t a, uint64_t b,
     return a % b;
 }
 
+/* Float to integer conversions. In C a value outside the target's range
+ * (or NaN) is undefined: Int(1.0 / 0.0) printed whatever the optimizer
+ * left in a register. Iron saturates: NaN converts to 0, a value above the
+ * largest (below the smallest) value of the type to that largest
+ * (smallest) value, anything else truncates toward zero (manual 2.9). */
+#define IRON_F2I_SAT(name, T, lo, hi, lo_d, hi_d)                         \
+    IRON_CHECK_FN T name(double x) {                                      \
+        if (x != x) return 0;                                             \
+        if (x >= (hi_d)) return (hi);                                     \
+        if (x <= (lo_d)) return (lo);                                     \
+        return (T)x;                                                      \
+    }
+IRON_F2I_SAT(iron_f2i_i8,  int8_t,   INT8_MIN,  INT8_MAX,  -128.0, 127.0)
+IRON_F2I_SAT(iron_f2i_i16, int16_t,  INT16_MIN, INT16_MAX, -32768.0, 32767.0)
+IRON_F2I_SAT(iron_f2i_i32, int32_t,  INT32_MIN, INT32_MAX, -2147483648.0, 2147483647.0)
+IRON_F2I_SAT(iron_f2i_i64, int64_t,  INT64_MIN, INT64_MAX,
+             -9223372036854775808.0, 9223372036854775808.0)
+IRON_F2I_SAT(iron_f2i_u8,  uint8_t,  0, UINT8_MAX,  0.0, 255.0)
+IRON_F2I_SAT(iron_f2i_u16, uint16_t, 0, UINT16_MAX, 0.0, 65535.0)
+IRON_F2I_SAT(iron_f2i_u32, uint32_t, 0, UINT32_MAX, 0.0, 4294967295.0)
+IRON_F2I_SAT(iron_f2i_u64, uint64_t, 0, UINT64_MAX, 0.0, 18446744073709551616.0)
+#undef IRON_F2I_SAT
+
 /* Shifts. In C a count outside 0..width-1, or a left shift of a negative
  * value, is undefined (it gave garbage, e.g. 1 << 65). Iron defines them:
  * a count of the width or more gives 0 for <<, and for >> the sign fill
  * (0 or -1); a negative count panics. Left shifts work on the unsigned
  * bits, so -1 << 3 is -8. */
+/* A UInt64 / UInt count above the largest Int is a count past the width,
+ * not a negative one: clamp it before it reaches the int64_t parameter. */
+IRON_CHECK_FN int64_t iron_shift_count_u64(uint64_t n) {
+    return n > (uint64_t)INT64_MAX ? INT64_MAX : (int64_t)n;
+}
 IRON_CHECK_FN int64_t iron_shl_i64(int64_t a, int64_t n, const char *site_file, int site_line) {
     if (n < 0) iron_panic_negative_shift(site_file, site_line, n);
     if (n >= 64) return 0;
@@ -727,7 +813,7 @@ IRON_CHECK_FN void iron_check_stack_pointer_gen(Iron_FatPtr fp,
     if (!fp.addr) {
         iron_panic_stale_pointer(deref_file, deref_line, NULL);
     }
-    if (fp.gen != iron_stack_gen) {
+    if (!iron_stack_gen_live(fp.gen)) {
         iron_panic_stale_stack_pointer(deref_file, deref_line, fp.gen);
     }
 }
@@ -895,6 +981,10 @@ typedef struct {
 Iron_String  iron_string_from_cstr(const char *cstr, size_t byte_len);
 /* printf-style formatting of interpolation parts (iron_fmt.c). */
 Iron_String  iron_string_format(const char *fmt, ...);
+/* String interpolation: fmt holds only the conversions %lld, %llu, %s
+ * (a C string) and %S (a const Iron_String *, copied whole: zero bytes
+ * included). */
+Iron_String  iron_string_interp(const char *fmt, ...);
 Iron_String  iron_string_from_literal(const char *lit, size_t byte_len);
 const char  *iron_string_cstr(const Iron_String *s);
 size_t       iron_string_byte_len(const Iron_String *s);

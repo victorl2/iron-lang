@@ -1,0 +1,17 @@
+-- An element list read off a temporary list (`grid(3)[1]`) is copied and
+-- the temporary released; the temporary was left to leak. (#513)
+func grid(n: Int, v: Int) -> [[Int]] {
+    var g = fill(n, fill(n, 0))
+    for i in range(n) {
+        g[i][i] = v + i
+    }
+    return g
+}
+func names() -> [[String]] {
+    return [["a", "b"], ["c"]]
+}
+func main() {
+    println("{grid(3, 5)[1][1]} {grid(2, 1)[0].len()} {names()[1][0]} {names()[0].len()}")
+    val row = grid(3, 7)[2].copy()
+    println("{row[2]} {row.len()}")
+}

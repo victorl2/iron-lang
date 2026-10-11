@@ -1,0 +1,10 @@
+copy 1
+inner
+drop s
+copy 7
+drop 7
+1 7
+drop wrap
+drop 7
+drop 1
+drop 1

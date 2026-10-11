@@ -1,0 +1,18 @@
+-- A string may hold the zero byte (built with String.from_byte(0), manual
+-- 1.4). The search methods used strstr and stopped at it (contains,
+-- index_of, count, split, replace); count of a pattern starting with it
+-- ran past the end of the string; to_int / to_float stopped parsing there
+-- and accepted "12\0x"; trim removed it as whitespace; println and
+-- interpolation printed up to it only. (#479)
+func main() {
+    val z = String.from_byte(0)
+    val s = "a" + z + "b" + z + "b"
+    println("{s.len()} {s.byte_len()} {s.contains("b")} {s.index_of("b")} {s.rindex_of("b")}")
+    println("{s.count("b")} {s.count(z + "b")} {s.split("b").len()} {s.split(z).len()}")
+    println("{s.replace("b", "cc").byte_len()} {s.replace(z, "-")}")
+    println("{("12" + z).to_int()} {(z + "3").to_int()} {("1.5" + z).to_float()} {(" 7 ").to_int()}")
+    println("{(z + " x " + z).trim().byte_len()} {(" \t" + z + "\n").trim().byte_len()}")
+    val t = "[" + s + "]"
+    println("{t.byte_len()} {"<{s}>".byte_len()}")
+    println(s.replace(z, "0"))
+}

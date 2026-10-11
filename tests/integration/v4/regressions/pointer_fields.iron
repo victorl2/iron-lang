@@ -1,0 +1,48 @@
+-- Checked pointers as object fields (`*T`, `*var T`, `?*T`): the struct
+-- emitter spelled the field from its annotation name and wrote
+-- `Iron_* p;`, C that did not compile. (#469)
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object View {
+    val p: *P
+}
+
+object Editor {
+    val p: *var P
+    func hit(n: Int) {
+        self.p.hp -= n
+    }
+}
+
+object Maybe {
+    var p: ?*P
+    init() {
+        self.p = null
+    }
+}
+
+func total(v: View, w: View) -> Int {
+    return v.p.hp + w.p.hp
+}
+
+func main() {
+    var a = P(10)
+    var b = P(20)
+    val v = View(&a)
+    var e = Editor(&b)
+    e.hit(5)
+    a.hp = 11
+    println("{v.p.hp} {b.hp} {total(v, View(&b))}")
+    var m = Maybe()
+    println("{m.p == null}")
+    m.p = &a
+    val q = m.p
+    if q != null {
+        println("{q.hp}")
+    }
+}
