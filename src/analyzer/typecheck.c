@@ -9067,6 +9067,31 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
         }
         return check_expr(ctx, node);
     }
+    /* A tuple literal where a tuple is expected (an annotation, a return,
+     * an argument) types each element against its component, so `null`
+     * and a plain `T` fill a `T?` component as they fill a `T?` binding:
+     * `return (null, "n")` from a function returning `(Int?, String)`. */
+    if (node && node->kind == IRON_NODE_ARRAY_LIT && expected &&
+        expected->kind == IRON_TYPE_TUPLE) {
+        Iron_ArrayLit *al = (Iron_ArrayLit *)node;
+        if (al->type_ann && al->type_ann->kind == IRON_NODE_TYPE_ANNOTATION &&
+            ((Iron_TypeAnnotation *)al->type_ann)->is_tuple &&
+            al->element_count == expected->tuple.elem_count) {
+            bool fits = true;
+            for (int i = 0; i < al->element_count; i++) {
+                Iron_Type *et = check_expr_with_expected(ctx, al->elements[i],
+                                                         expected->tuple.elem_types[i]);
+                if (!et || et->kind == IRON_TYPE_ERROR ||
+                    !types_assignable(expected->tuple.elem_types[i], et))
+                    fits = false;
+            }
+            if (fits) {
+                al->resolved_type = expected;
+                return expected;
+            }
+        }
+        return check_expr(ctx, node);
+    }
     if (node && node->kind == IRON_NODE_ARRAY_LIT && expected &&
         expected->kind == IRON_TYPE_ARRAY) {
         Iron_ArrayLit *al = (Iron_ArrayLit *)node;

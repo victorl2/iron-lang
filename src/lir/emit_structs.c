@@ -145,6 +145,17 @@ static void ir_topo_visit_type(IrTopoState *state, int idx, const Iron_Type *t) 
         break;
     }
     if (!t) return;
+    /* A Map or Set instance is emitted with the struct that holds it, and
+     * its table stores the key and value inline (sizeof): they come first.
+     * An object field `Map[String, Opt[[Int]]]` was emitted before the
+     * enum's struct, an incomplete type. */
+    if (t->kind == IRON_TYPE_OBJECT && t->object.decl && t->object.decl->name &&
+        t->object.elem && (strcmp(t->object.decl->name, "Map") == 0 ||
+                           strcmp(t->object.decl->name, "Set") == 0)) {
+        ir_topo_visit_type(state, idx, t->object.elem);
+        if (t->object.elem2) ir_topo_visit_type(state, idx, t->object.elem2);
+        return;
+    }
     const char *name = NULL;
     if (t->kind == IRON_TYPE_OBJECT && t->object.decl) name = t->object.decl->name;
     else if (t->kind == IRON_TYPE_ENUM)

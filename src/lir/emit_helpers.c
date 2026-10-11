@@ -804,12 +804,17 @@ void emit_ensure_tuple(EmitCtx *ctx, const Iron_Type *tuple_ty) {
         }
     }
 
-    iron_strbuf_appendf(&ctx->struct_bodies, "typedef struct { ");
+    /* The element C names first: emit_type_to_c may append the typedef of
+     * an element (an optional, a list) to struct_bodies, which landed in
+     * the middle of this struct (a `T?` component). */
+    Iron_StrBuf fields = iron_strbuf_create(128);
     for (int i = 0; i < tuple_ty->tuple.elem_count; i++) {
         const char *c_elem = emit_type_to_c(tuple_ty->tuple.elem_types[i], ctx);
-        iron_strbuf_appendf(&ctx->struct_bodies, "%s v%d; ", c_elem, i);
+        iron_strbuf_appendf(&fields, "%s v%d; ", c_elem, i);
     }
-    iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n", struct_name);
+    iron_strbuf_appendf(&ctx->struct_bodies, "typedef struct { %s} %s;\n",
+                        iron_strbuf_get(&fields), struct_name);
+    iron_strbuf_free(&fields);
 }
 
 /* Phase 23 VEC-01: synthesise a C typedef for a bounded vector on demand.

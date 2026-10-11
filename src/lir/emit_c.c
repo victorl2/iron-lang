@@ -914,6 +914,16 @@ static void emit_spawn_env_cell_retains(Iron_StrBuf *sb, EmitCtx *ctx, int ind, 
     }
 }
 
+/* ASCII case-insensitive string equality. */
+static bool emit_ascii_caseeq(const char *a, const char *b) {
+    for (; *a && *b; a++, b++) {
+        char x = (*a >= 'A' && *a <= 'Z') ? (char)(*a + 32) : *a;
+        char y = (*b >= 'A' && *b <= 'Z') ? (char)(*b + 32) : *b;
+        if (x != y) return false;
+    }
+    return *a == *b;
+}
+
 /* The value a `val` capture stores into an environment. Scalar copy
  * coalescing may hand the capture the variable's slot in place of a load
  * from it; a read-only parameter's slot is not declared (the parameter
@@ -12877,7 +12887,16 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                             IronLIR_Func *f = ctx.module->funcs[fi];
                             if (!f || !f->name) continue;
                             const char *cname = emit_mangle_func_name(f->name, ctx.arena);
-                            if (cname && strcmp(cname, want) == 0) {
+                            /* The method of a generic instance keeps the case
+                             * of its type arguments (Iron_gh__Gp__Int_show for
+                             * GH[Gp[Int]]): call it by its own name. */
+                            if (cname && emit_ascii_caseeq(cname, want)) {
+                                size_t cl = strlen(cname) - strlen(sig->name) - 1;
+                                char *own = (char *)iron_arena_alloc(ctx.arena, cl + 1, 1);
+                                if (!own) iron_oom_abort("emit_c.c:iface dispatch impl name");
+                                memcpy(own, cname, cl);
+                                own[cl] = '\0';
+                                impl_lower = own;
                                 /* Same predicate emit_func_signature uses to
                                  * decide `T *_v1` for the receiver slot. */
                                 recv_is_ptr = f->is_mut_receiver_method &&

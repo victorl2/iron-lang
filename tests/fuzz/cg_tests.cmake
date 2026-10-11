@@ -83,3 +83,16 @@ if(NOT WIN32)
     set_tests_properties(cg_interface_list_count PROPERTIES LABELS "codegen" TIMEOUT 120
         ENVIRONMENT "IRON_LIR_SKIP=copyprop")
 endif()
+
+if(NOT WIN32)
+    # #598 .. #601: nullable enum payloads, T? tuple components, a Map of a
+    # generic enum in an object field, dispatch to generic instances.
+    foreach(_cg_t enum_nullable_payload tuple_nullable_component map_field_generic_enum
+                  iface_generic_instance_dispatch)
+        add_test(NAME cg_${_cg_t}
+            COMMAND ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_check.sh $<TARGET_FILE:ironc>
+                ${_cg_reg}/${_cg_t}.iron ${_cg_reg}/${_cg_t}.expected
+                ${CMAKE_BINARY_DIR}/cg_check/${_cg_t})
+        set_tests_properties(cg_${_cg_t} PROPERTIES LABELS "codegen" TIMEOUT 120)
+    endforeach()
+endif()

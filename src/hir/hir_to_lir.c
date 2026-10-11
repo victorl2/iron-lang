@@ -4090,6 +4090,10 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                              vi >= 0 && et->enu.variant_payload_types[vi])
                             ? et->enu.variant_payload_types[vi][i] : NULL;
             if (!pt && ae) pt = ae->type;
+            /* A plain T or null into a T? payload is wrapped like a T? field
+             * or argument: the C stored `5` into the Optional's value with
+             * has_value false and failed to compile on null (#598). */
+            av = coerce_to_optional(ctx, av, pt, span);
             if (pt && type_is_rc_like(pt)) {
                 if (!rc_expr_transfers_ownership(ae))
                     emit_rc_retain_for_type(ctx, pt, av, span);
