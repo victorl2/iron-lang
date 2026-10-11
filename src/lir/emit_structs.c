@@ -524,7 +524,26 @@ void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et) {
  * <Enum>_drop / <Enum>_copied, emitted with its struct. The stdlib's
  * Address list is declared by the runtime header. */
 static void emit_ensure_enum_list(EmitCtx *ctx, const Iron_Type *et) {
-    if (!et || et->kind != IRON_TYPE_ENUM || !et->enu.decl || !et->enu.decl->has_payloads) return;
+    if (!et || et->kind != IRON_TYPE_ENUM || !et->enu.decl) return;
+    if (!et->enu.decl->has_payloads) {
+        /* A list of a plain enum (`[Color]`): its struct wrapper has no
+         * forward-declared list, and the list was never declared (the C
+         * named an unknown Iron_List_Iron_Color, #643). */
+        const char *mangled = et->enu.mangled_name ? et->enu.mangled_name
+                                                   : emit_mangle_name(et->enu.decl->name, ctx->arena);
+        if (shgeti(ctx->emitted_mono_list_types, mangled) >= 0) return;
+        shput(ctx->emitted_mono_list_types, mangled, true);
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "typedef struct Iron_List_%s {\n"
+            "    %s    *items;\n"
+            "    int64_t count;\n"
+            "    int64_t capacity;\n"
+            "} Iron_List_%s;\n"
+            "IRON_LIST_DECL(%s, %s)\n"
+            "IRON_LIST_IMPL(%s, %s)\n\n",
+            mangled, mangled, mangled, mangled, mangled, mangled, mangled);
+        return;
+    }
     const char *mangled = et->enu.mangled_name ? et->enu.mangled_name
                                                : emit_mangle_name(et->enu.decl->name, ctx->arena);
     if (shgeti(ctx->emitted_mono_list_types, mangled) >= 0) return;
