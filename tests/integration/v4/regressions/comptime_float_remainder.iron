@@ -1,0 +1,37 @@
+-- % on floats at compile time is fmod, as at run time (issue 505): it was
+-- rejected with E0231 though the manual lists % among the comptime
+-- operators. The comptime results match the run-time ones, including the
+-- sign of a negative dividend, a zero result, subnormals and a NaN.
+val D = comptime md(5.5, 2.0)
+val NEG = comptime md(-5.5, 2.0)
+val NEGDIV = comptime md(5.5, -2.0)
+val EXACT = comptime md(6.0, 2.0)
+val TENTH = comptime md(1.0, 0.1)
+val BIG = comptime md(123456789012345678.0, 3.7)
+val SUB = comptime subnormal_rem()
+val NAN_IS_NAN = comptime is_nan(md(1.0, 0.0))
+
+func md(x: Float, y: Float) -> Float {
+    return x % y
+}
+
+func is_nan(x: Float) -> Bool {
+    return x != x
+}
+
+-- Operands of 2^-1060 times 7 and 4, below the smallest normal double.
+func subnormal_rem() -> Float {
+    var a = 1.0
+    var i = 0
+    while i < 1060 {
+        a = a / 2.0
+        i += 1
+    }
+    return (a * 7.0) % (a * 4.0)
+}
+
+func main() {
+    println("{D} {NEG} {NEGDIV} {EXACT}")
+    println("{TENTH == md(1.0, 0.1)} {BIG == md(123456789012345678.0, 3.7)} {NAN_IS_NAN}")
+    println("{SUB == subnormal_rem()} {SUB > 0.0}")
+}

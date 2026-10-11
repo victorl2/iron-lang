@@ -357,6 +357,9 @@ static Iron_ComptimeVal *eval_binary_vals(Iron_ComptimeCtx *ctx, Iron_OpKind op,
                     return cval_null(ctx);
                 }
                 return cval_float(ctx, l / r);
+            case IRON_TOK_PERCENT:
+                /* fmod, as at run time (#505): a zero divisor gives NaN. */
+                return cval_float(ctx, iron_comptime_fmod(l, r));
             case IRON_TOK_EQUALS:     return cval_bool(ctx, l == r);
             case IRON_TOK_NOT_EQUALS: return cval_bool(ctx, l != r);
             case IRON_TOK_LESS:       return cval_bool(ctx, l < r);
@@ -392,6 +395,71 @@ static Iron_ComptimeVal *eval_binary_vals(Iron_ComptimeCtx *ctx, Iron_OpKind op,
                         "& | ^ ~ << >>, and, or and not on numbers and booleans");
     }
     return cval_null(ctx);
+}
+
+/* fmod without libm (#505). The remainder of two doubles is exact, so it
+ * is computed on the significands by binary long division: align the
+ * exponents, subtract y's significand while x's is larger, shifting one
+ * bit per exponent step, then renormalize. Special cases follow C: a NaN
+ * operand, an infinite x or a zero y give NaN; an infinite y or |x| < |y|
+ * give x; |x| == |y| gives a zero with x's sign. */
+double iron_comptime_fmod(double x, double y) {
+    uint64_t ux, uy;
+    memcpy(&ux, &x, sizeof ux);
+    memcpy(&uy, &y, sizeof uy);
+    int ex = (int)(ux >> 52 & 0x7ff);
+    int ey = (int)(uy >> 52 & 0x7ff);
+    uint64_t sx = ux >> 63;
+    uint64_t i;
+
+    if ((uy << 1) == 0 || y != y || ex == 0x7ff) {
+        volatile double v = x * y;   /* not folded away: a NaN at run time too */
+        return v / v;
+    }
+    if ((ux << 1) <= (uy << 1)) {
+        if ((ux << 1) == (uy << 1)) return 0 * x;
+        return x;
+    }
+    /* Significands with the implicit bit, subnormals normalized (their
+     * exponent goes below 1). */
+    if (ex == 0) {
+        for (i = ux << 12; (i >> 63) == 0; ex--, i <<= 1) {}
+        ux <<= -ex + 1;
+    } else {
+        ux &= UINT64_MAX >> 12;
+        ux |= (uint64_t)1 << 52;
+    }
+    if (ey == 0) {
+        for (i = uy << 12; (i >> 63) == 0; ey--, i <<= 1) {}
+        uy <<= -ey + 1;
+    } else {
+        uy &= UINT64_MAX >> 12;
+        uy |= (uint64_t)1 << 52;
+    }
+    for (; ex > ey; ex--) {
+        i = ux - uy;
+        if ((i >> 63) == 0) {
+            if (i == 0) return 0 * x;
+            ux = i;
+        }
+        ux <<= 1;
+    }
+    i = ux - uy;
+    if ((i >> 63) == 0) {
+        if (i == 0) return 0 * x;
+        ux = i;
+    }
+    for (; (ux >> 52) == 0; ux <<= 1, ex--) {}
+    if (ex > 0) {
+        ux -= (uint64_t)1 << 52;
+        ux |= (uint64_t)ex << 52;
+    } else {
+        ux >>= -ex + 1;   /* a subnormal result */
+    }
+    ux |= sx << 63;
+    double r;
+    memcpy(&r, &ux, sizeof r);
+    return r;
 }
 
 /* Map a compound-assignment token to its binary operator. */

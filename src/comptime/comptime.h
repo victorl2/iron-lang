@@ -96,6 +96,10 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx, Iron_Node *node
  * relative path against the directory of the calling file. */
 void iron_comptime_set_package_root(const char *dir);
 const char *iron_comptime_package_root(void);   /* NULL outside a package */
+/* The floating-point remainder of x / y with the sign of x, exactly as C's
+ * fmod (and Iron's run-time `%` on floats) computes it, written with
+ * integer operations only: the compiler does not link libm. */
+double iron_comptime_fmod(double x, double y);
 
 /* Convert a comptime value back to a literal AST node suitable for codegen.
  * The resolved_type is copied from the original COMPTIME node so codegen
