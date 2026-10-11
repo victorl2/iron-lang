@@ -1,0 +1,41 @@
+-- A module object's function may take type parameters (issue 452):
+-- Json.encode_list[T: JsonEncodable] and Json.decode_list[T] -> [T]?,
+-- instantiated per element type like a generic top-level function, next to
+-- the top-level json_encode_list of the same element type.
+import json
+
+object Pt impl JsonEncodable {
+    val x: Int
+    readonly func write_json(w: JsonWriter) {
+        w.begin_object()
+        w.field_int("x", self.x)
+        w.end_object()
+    }
+}
+
+func int_of(j: Json) -> Int {
+    val v = j.as_int()
+    if v == null {
+        return -1
+    }
+    return v
+}
+
+func pt_of(j: Json) -> Pt {
+    return Pt(j.get("x").int_or(0))
+}
+
+func main() {
+    val xs = [Pt(1), Pt(2)]
+    println(Json.encode_list(xs))
+    println(json_encode_list(xs))
+    val ints = Json.decode_list(Json.parse("[1, 2, 3]").value, int_of)
+    if ints != null {
+        println("{ints.len()} {ints[2]}")
+    }
+    val pts = Json.decode_list(Json.parse("[\{\"x\": 7}]").value, pt_of)
+    if pts != null {
+        println("{pts[0].x} {Json.encode_list(pts)}")
+    }
+    println("{Json.decode_list(Json.parse("7").value, int_of) == null}")
+}

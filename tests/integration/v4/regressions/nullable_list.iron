@@ -1,0 +1,64 @@
+-- A nullable list `[T]?` (issue 452) is a return type, a parameter, a
+-- field and a binding; `[T]?` did not parse. Its payload follows the list
+-- ownership rules (a fresh list or null goes in; a narrowed list is grown
+-- in place), and a list of strings is released once.
+object Bag {
+    val items: [String]?
+}
+
+func evens(n: Int) -> [Int]? {
+    if n < 0 {
+        return null
+    }
+    var out: [Int] = []
+    for i in range(n) {
+        if i % 2 == 0 {
+            out.push(i)
+        }
+    }
+    return out
+}
+
+func names(n: Int) -> [String]? {
+    if n < 0 {
+        return null
+    }
+    var out: [String] = []
+    for i in range(n) {
+        out.push("name number {i} long enough for the heap")
+    }
+    return out
+}
+
+func count(xs: [String]?) -> Int {
+    if xs == null {
+        return -1
+    }
+    return xs.len()
+}
+
+func main() {
+    val xs = evens(5)
+    if xs != null {
+        println("{xs.len()} {xs[2]}")
+    }
+    println("{evens(-1) == null}")
+    var a = names(3)
+    println("{count(a)} {count(names(-1))} {count(null)}")
+    var b: [String]? = null
+    println("{count(b)}")
+    b = names(2)
+    if b != null {
+        b.push("pushed")
+        println("{b.len()} {b[2]}")
+    }
+    val bag = Bag(names(1))
+    val empty = Bag(null)
+    println("{count(bag.items)} {count(empty.items)}")
+    if a != null {
+        val moved = a.take()
+        println("{moved.len()} {a.len()}")
+    }
+    val grid: [[Int]?] = [evens(3), null]
+    println("{grid[1] == null}")
+}

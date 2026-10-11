@@ -1361,8 +1361,32 @@ func Json.encode(v: JsonEncodable) -> String {
     return w.finish()
 }
 
--- Generic helpers are top-level functions: a module object's functions
--- cannot take type parameters yet.
+/// A JSON array of every element of `xs`, as compact text.
+func Json.encode_list[T: JsonEncodable](xs: [T]) -> String {
+    val w = JsonWriter.compact()
+    w.begin_array()
+    for x in xs {
+        x.write_json(w)
+    }
+    w.end_array()
+    return w.finish()
+}
+
+/// Every element of the array `v` decoded with `f`, or null when `v` is
+/// not an array.
+func Json.decode_list[T](v: Json, f: func(Json) -> T) -> [T]? {
+    if not v.is_array() {
+        return null
+    }
+    var out: [T] = []
+    for i in range(v.len()) {
+        out.push(f(v.at(i)))
+    }
+    return out
+}
+
+-- The earlier top-level forms of the two (from before a module object's
+-- functions could take type parameters and lists could be nullable).
 
 /// A JSON array of every element of `xs`, as compact text.
 func json_encode_list[T: JsonEncodable](xs: [T]) -> String {
