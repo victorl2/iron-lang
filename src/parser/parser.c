@@ -6466,6 +6466,12 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub) {
                 } else {
                     v->explicit_value = (int)parsed;
                 }
+            } else {
+                /* `P =` with no ordinal was accepted as a plain `P`. */
+                iron_emit_diag_help(p, IRON_ERR_EXPECTED_EXPR,
+                                    iron_token_span(p, iron_current(p)),
+                                    "expected an integer after '=' in an enum variant",
+                                    "write the ordinal, as in 'Red = 1', or drop the '='");
             }
         }
         arrput(variants, (Iron_Node *)v);
@@ -6761,8 +6767,18 @@ Iron_Node *iron_parse(Iron_Parser *p) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_EOF)) break;
 
-        /* Skip stray closing braces from incomplete declarations */
+        /* Skip stray closing braces from incomplete declarations. In a file
+         * with no error so far the brace is the error itself (it used to be
+         * skipped silently, so `}` alone was a valid file); after an error
+         * it is recovery debris, not worth a report. */
         if (iron_check(p, IRON_TOK_RBRACE)) {
+            if (p->diags->error_count == 0) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "unexpected '}' at top level",
+                               "remove it, or check the braces of the declaration above");
+            }
             iron_advance(p);
             iron_skip_newlines(p);
             continue;
