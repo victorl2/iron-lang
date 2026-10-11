@@ -350,7 +350,7 @@ Iterating a string with `for` yields one-character strings.
 
 `T?` is a type whose values are either a `T` or `null`. A nullable type can
 be written for any non-pointer type (`Int?`, `String?`, `Node?`,
-`Result[Int, String]?`). A plain `T` converts to `T?` implicitly, so a
+`Result[Int, String]?`, `[Int]?` for a list that may be absent). A plain `T` converts to `T?` implicitly, so a
 function declared `-> Int?` may `return i` or `return null`. Reading a
 field or calling a method through a nullable value without checking it
 first is an error (`E0204`); compare with `null` first. `x != null`
@@ -400,6 +400,41 @@ found at 2
 missing
 now
 true true true
+```
+
+A nullable list `[T]?` (or a nullable map, set, or object holding a list)
+follows the list ownership rules of section 2.3: it has one owner, so
+binding it to a second name, storing it in a field or returning a
+parameter is an error (`E0328`); check it for `null`, then write
+`xs.copy()` or `xs.take()`. A function returning `[T]?` returns a fresh
+list or `null`:
+
+```iron
+func evens(n: Int) -> [Int]? {
+    if n < 0 {
+        return null
+    }
+    var out: [Int] = []
+    for i in range(n) {
+        if i % 2 == 0 {
+            out.push(i)
+        }
+    }
+    return out
+}
+
+func main() {
+    val xs = evens(5)
+    if xs != null {
+        println("{xs.len()} {xs[2]}")
+    }
+    println("{evens(-1) == null}")
+}
+```
+
+```output
+3 4
+true
 ```
 
 A nullable type may also be the element type of a list, fixed array or
@@ -2936,7 +2971,10 @@ The standard library is a set of Iron declarations (in `src/stdlib/`)
 whose bodies are provided by the C runtime. Modules marked *import* must be
 imported by name (section 5.9); the rest is always available. Functions on a
 module object are called as `Module.function(args)`; methods are called on
-values.
+values. A module function may be generic, like a top-level function
+(section 5.2): its type arguments are inferred from the arguments, as in
+`Json.encode_list(points)` (`func Json.encode_list[T: JsonEncodable](xs:
+[T]) -> String`).
 
 ### 9.1 Built-in functions
 

@@ -1175,9 +1175,31 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         }
 
         iron_expect(p, IRON_TOK_RBRACKET);
-        /* `[T]?`: a nullable list (manual 2.2: `T?` for any non-pointer
-         * type); the `?` was left unparsed. */
-        if (!ann->is_nullable) ann->is_nullable = iron_match(p, IRON_TOK_QUESTION);
+        /* `[T]?`: a nullable list (#452), section 2.2. The element moves to
+         * array_elem_ann first: on an annotation that names its element
+         * directly, is_nullable is read as the element's (`[Int?]`). */
+        if (iron_check(p, IRON_TOK_QUESTION)) {
+            iron_advance(p);
+            if (!ann->array_elem_ann) {
+                Iron_TypeAnnotation *elem = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+                if (!elem) { p->in_error_recovery = true; return iron_make_error(p); }
+                memset(elem, 0, sizeof(*elem));
+                elem->kind             = IRON_NODE_TYPE_ANNOTATION;
+                elem->span             = iron_token_span(p, start);
+                elem->name             = ann->name;
+                elem->is_func          = ann->is_func;
+                elem->func_params      = ann->func_params;
+                elem->func_param_count = ann->func_param_count;
+                elem->func_return      = ann->func_return;
+                ann->array_elem_ann    = (Iron_Node *)elem;
+                ann->name              = NULL;
+                ann->is_func           = false;
+                ann->func_params       = NULL;
+                ann->func_param_count  = 0;
+                ann->func_return       = NULL;
+            }
+            ann->is_nullable = true;
+        }
         ann->span = iron_span_merge(iron_token_span(p, start),
                                     iron_prev_token_span(p, iron_token_span(p, start)));
         return (Iron_Node *)ann;
