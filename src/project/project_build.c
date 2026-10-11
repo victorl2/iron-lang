@@ -1103,6 +1103,12 @@ static int cmd_build(bool run_after, int argc, char **argv) {
 
     /* 2. Parse iron.toml */
     IronProject *proj = iron_toml_parse(toml_path);
+    if (proj && proj->error) {
+        iron_print_error(colors, proj->error);
+        free(toml_path);
+        iron_toml_free(proj);
+        return 1;
+    }
     if (!proj || !proj->name || !proj->version) {
         iron_print_error(colors, "invalid iron.toml: missing required fields (name, version)");
         free(toml_path);
@@ -1392,6 +1398,12 @@ static int cmd_check(int argc, char **argv) {
     }
 
     IronProject *proj = iron_toml_parse(toml_path);
+    if (proj && proj->error) {
+        iron_print_error(colors, proj->error);
+        free(toml_path);
+        iron_toml_free(proj);
+        return 1;
+    }
     if (!proj || !proj->name) {
         iron_print_error(colors, "invalid iron.toml");
         free(toml_path);
@@ -1488,6 +1500,12 @@ static int cmd_test(int argc, char **argv) {
         return 1;
     }
     IronProject *proj = iron_toml_parse(toml_path);
+    if (proj && proj->error) {
+        iron_print_error(colors, proj->error);
+        free(toml_path);
+        iron_toml_free(proj);
+        return 1;
+    }
     if (!proj || !proj->name) {
         iron_print_error(colors, "invalid iron.toml");
         free(toml_path);

@@ -164,6 +164,24 @@ int cmd_init(int argc, char **argv) {
 #endif
     pkg_name = (pkg_name != NULL) ? pkg_name + 1 : cwd;
 
+    /* The directory's name may hold characters a package name cannot (a
+     * quote broke the manifest): keep letters, digits, '_' and '-', write
+     * '_' for anything else (#565). */
+    char safe_name[65];
+    size_t sn = 0;
+    for (const char *c = pkg_name; *c && sn < sizeof(safe_name) - 1; c++) {
+        unsigned char ch = (unsigned char)*c;
+        bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                  (ch >= '0' && ch <= '9') || ch == '_' || ch == '-';
+        safe_name[sn++] = ok ? (char)ch : '_';
+    }
+    safe_name[sn] = '\0';
+    if (sn == 0 || safe_name[0] == '-') {
+        safe_name[0] = '_';
+        if (sn == 0) safe_name[1] = '\0';
+    }
+    pkg_name = safe_name;
+
     /* ── iron.toml ──────────────────────────────────────────────────────── */
     /* Phase 95 PIN-04: emit the [package].iron field with a major.minor.0
      * floor computed from IRON_VERSION_STRING so the scaffolded project

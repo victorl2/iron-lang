@@ -36,12 +36,15 @@ static char *trim(char *s) {
     return s;
 }
 
-/* ── Helper: strip inline comment (everything from # onwards) ───────────── */
-
+/* ── Helper: strip a comment outside strings ─────────────────────────────
+ * A '#' starts a comment unless it is inside a basic string; a backslash
+ * escape inside a string (\") does not end it. */
 static void strip_comment(char *s) {
     bool in_quote = false;
     for (char *p = s; *p; p++) {
-        if (*p == '"') {
+        if (in_quote && *p == '\\' && p[1]) {
+            p++;
+        } else if (*p == '"') {
             in_quote = !in_quote;
         } else if (*p == '#' && !in_quote) {
             *p = '\0';
@@ -50,34 +53,123 @@ static void strip_comment(char *s) {
     }
 }
 
-/* ── Helper: extract string value from   key = "value"  or  key = bare ──── */
+static void put_utf8(char *out, size_t *n, unsigned long cp) {
+    if (cp < 0x80) out[(*n)++] = (char)cp;
+    else if (cp < 0x800) {
+        out[(*n)++] = (char)(0xC0 | (cp >> 6));
+        out[(*n)++] = (char)(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        out[(*n)++] = (char)(0xE0 | (cp >> 12));
+        out[(*n)++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[(*n)++] = (char)(0x80 | (cp & 0x3F));
+    } else {
+        out[(*n)++] = (char)(0xF0 | (cp >> 18));
+        out[(*n)++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+        out[(*n)++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[(*n)++] = (char)(0x80 | (cp & 0x3F));
+    }
+}
 
-static char *extract_value(const char *raw) {
-    /* raw points to the value portion (after '='), already stripped */
+/* ── Helper: the value of `key = "value"` or `key = bare` ─────────────────
+ * Basic strings decode the TOML escapes (\" \\ \b \f \n \r \t \uXXXX
+ * \UXXXXXXXX); nothing but blanks may follow the closing quote (comments
+ * are already stripped). On a malformed value returns NULL and sets *err. */
+static char *extract_value_checked(const char *raw, const char **err) {
     const char *v = raw;
     while (*v && isspace((unsigned char)*v)) v++;
 
     if (*v == '"') {
-        /* Quoted string */
         v++;
-        const char *end = strchr(v, '"');
-        if (!end) return NULL;
-        size_t len = (size_t)(end - v);
-        char *result = (char *)malloc(len + 1);
+        size_t cap = strlen(v) * 4 + 1;
+        char *result = (char *)malloc(cap);
         if (!result) return NULL;
-        memcpy(result, v, len);
-        result[len] = '\0';
-        return result;
-    } else {
-        /* Bare word */
-        size_t len = strlen(v);
-        if (len == 0) return NULL;
-        char *result = (char *)malloc(len + 1);
-        if (!result) return NULL;
-        memcpy(result, v, len);
-        result[len] = '\0';
+        size_t n = 0;
+        for (;;) {
+            unsigned char c = (unsigned char)*v;
+            if (c == 0) { free(result); *err = "unterminated string"; return NULL; }
+            if (c == '"') { v++; break; }
+            if (c == '\\') {
+                v++;
+                switch (*v) {
+                    case '"': result[n++] = '"'; v++; break;
+                    case '\\': result[n++] = '\\'; v++; break;
+                    case 'b': result[n++] = '\b'; v++; break;
+                    case 'f': result[n++] = '\f'; v++; break;
+                    case 'n': result[n++] = '\n'; v++; break;
+                    case 'r': result[n++] = '\r'; v++; break;
+                    case 't': result[n++] = '\t'; v++; break;
+                    case 'u': case 'U': {
+                        int digits = *v == 'u' ? 4 : 8;
+                        unsigned long cp = 0;
+                        v++;
+                        for (int i = 0; i < digits; i++) {
+                            char h = v[i];
+                            int d = (h >= '0' && h <= '9') ? h - '0'
+                                  : (h >= 'a' && h <= 'f') ? h - 'a' + 10
+                                  : (h >= 'A' && h <= 'F') ? h - 'A' + 10 : -1;
+                            if (d < 0) { free(result); *err = "malformed \\u escape"; return NULL; }
+                            cp = cp * 16 + (unsigned long)d;
+                        }
+                        if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+                            free(result); *err = "\\u escape is not a character"; return NULL;
+                        }
+                        v += digits;
+                        put_utf8(result, &n, cp);
+                        break;
+                    }
+                    default: free(result); *err = "unknown escape in string"; return NULL;
+                }
+                continue;
+            }
+            if (c < 0x20 && c != '\t') { free(result); *err = "control character in string"; return NULL; }
+            result[n++] = (char)c;
+            v++;
+        }
+        while (*v && isspace((unsigned char)*v)) v++;
+        if (*v) { free(result); *err = "unexpected text after the string"; return NULL; }
+        result[n] = '\0';
         return result;
     }
+    /* Bare word */
+    size_t len = strlen(v);
+    if (len == 0) { *err = "missing value"; return NULL; }
+    for (size_t i = 0; i < len; i++) {
+        if (v[i] == '"') { *err = "stray quote in value"; return NULL; }
+    }
+    char *result = (char *)malloc(len + 1);
+    if (!result) return NULL;
+    memcpy(result, v, len);
+    result[len] = '\0';
+    return result;
+}
+
+bool iron_toml_valid_package_name(const char *name) {
+    if (!name || !name[0] || name[0] == '-') return false;
+    size_t n = strlen(name);
+    if (n > 64) return false;
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)name[i];
+        if (!(isalnum(c) || c == '_' || c == '-')) return false;
+    }
+    return true;
+}
+
+/* The parser's current line, for error messages. */
+static int g_toml_line = 0;
+static char *g_toml_error = NULL;
+
+static void toml_error(const char *problem) {
+    if (g_toml_error) return;
+    char buf[512];
+    snprintf(buf, sizeof(buf), "iron.toml:%d: %s", g_toml_line, problem);
+    g_toml_error = strdup(buf);
+}
+
+static char *extract_value(const char *raw) {
+    const char *err = NULL;
+    char *v = extract_value_checked(raw, &err);
+    if (!v && err) toml_error(err);
+    return v;
 }
 
 /* ── Helper: Levenshtein distance for misspelled-section detection ──────── */
@@ -226,10 +318,29 @@ IronProject *iron_toml_parse(const char *path) {
      * 2 = [dependencies] (legacy), 3 = [web], 4 = [fmt] */
     int section = 0;
 
-    char line[1024];
-    while (fgets(line, sizeof(line), f)) {
-        /* Strip trailing newline */
-        size_t len = strlen(line);
+    g_toml_line = 0;
+    g_toml_error = NULL;
+    char *line = NULL;
+    size_t line_cap = 0;
+    for (;;) {
+        /* Whole lines, however long (a fixed buffer split long lines and
+         * parsed the tail as a line of its own). */
+        size_t len = 0;
+        int ch;
+        while ((ch = fgetc(f)) != EOF && ch != '\n') {
+            if (len + 2 > line_cap) {
+                size_t nc = line_cap ? line_cap * 2 : 256;
+                char *grown = (char *)realloc(line, nc);
+                if (!grown) { ch = EOF; break; }
+                line = grown;
+                line_cap = nc;
+            }
+            line[len++] = (char)ch;
+        }
+        if (ch == EOF && len == 0) break;
+        if (!line) { line = (char *)malloc(1); line_cap = 1; if (!line) break; }
+        line[len] = '\0';
+        g_toml_line++;
         while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
             line[--len] = '\0';
         }
@@ -283,7 +394,10 @@ IronProject *iron_toml_parse(const char *path) {
 
         /* Key = value line */
         char *eq = strchr(s, '=');
-        if (!eq) continue;
+        if (!eq) {
+            if (section == 1) toml_error("expected key = value");
+            continue;
+        }
 
         *eq = '\0';
         char *key = trim(s);
@@ -294,6 +408,8 @@ IronProject *iron_toml_parse(const char *path) {
             if (strcmp(key, "name") == 0) {
                 free(proj->name);
                 proj->name = extract_value(val_str);
+                if (proj->name && !iron_toml_valid_package_name(proj->name))
+                    toml_error("name must be 1 to 64 of A-Z, a-z, 0-9, _ and - (it names files in target/)");
             } else if (strcmp(key, "version") == 0) {
                 free(proj->version);
                 proj->version = extract_value(val_str);
@@ -303,6 +419,8 @@ IronProject *iron_toml_parse(const char *path) {
             } else if (strcmp(key, "type") == 0) {
                 free(proj->type);
                 proj->type = extract_value(val_str);
+                if (proj->type && strcmp(proj->type, "bin") != 0 && strcmp(proj->type, "lib") != 0)
+                    toml_error("type must be \"bin\" or \"lib\"");
             } else if (strcmp(key, "description") == 0) {
                 free(proj->description);
                 proj->description = extract_value(val_str);
@@ -426,7 +544,10 @@ IronProject *iron_toml_parse(const char *path) {
         }
     }
 
+    free(line);
     fclose(f);
+    proj->error = g_toml_error;
+    g_toml_error = NULL;
     return proj;
 }
 
@@ -449,5 +570,6 @@ void iron_toml_free(IronProject *proj) {
     }
     free(proj->web.assets);
     free(proj->toml_dir);
+    free(proj->error);
     free(proj);
 }

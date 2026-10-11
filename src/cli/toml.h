@@ -46,7 +46,17 @@ typedef struct {
      * Used by web builds to resolve [web].assets paths relative to iron.toml's
      * location rather than the shell's cwd (WEB-ASSET-04). */
     char *toml_dir;
+
+    /* The first malformed line, as "iron.toml:<line>: <problem>", or NULL.
+     * Set for an unterminated or otherwise malformed string, text after a
+     * value, a package name that is not a plain file name, and a type other
+     * than "bin" or "lib". Callers report it instead of using the values. */
+    char *error;
 } IronProject;
+
+/* Whether `name` is usable as a package name: 1 to 64 of A-Z, a-z, 0-9,
+ * '_' and '-', not starting with '-' (it becomes a file name in target/). */
+bool iron_toml_valid_package_name(const char *name);
 
 /* Parse iron.toml at the given path.
  * Returns a heap-allocated IronProject on success, NULL on error.
