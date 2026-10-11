@@ -28,7 +28,7 @@ import queue
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from dap_client import Client  # noqa: E402
+from dap_client import Client, launch  # noqa: E402
 
 
 def fail(msg):
@@ -37,12 +37,12 @@ def fail(msg):
 
 
 def start(argv, src, breakpoints, extra=None):
-    c = Client(argv)
     out = []
+    c = Client(argv, out)
     seq = c.send("initialize", {"clientID": "iron-test", "adapterID": "iron",
                                 "linesStartAt1": True, "columnsStartAt1": True,
                                 "pathFormat": "path"})
-    r = c.wait(lambda m: m.get("type") == "response" and m.get("request_seq") == seq)
+    r = c.response(seq, "initialize")
     if not r.get("success"):
         if "no debugger found" in (r.get("message") or ""):
             print("no DAP debugger (lldb-dap, gdb 14+): skipped")
@@ -53,35 +53,14 @@ def start(argv, src, breakpoints, extra=None):
                 "supportsLogPoints"):
         if not caps.get(cap):
             fail("initialize does not report %s" % cap)
-    launch = c.send("launch", dict({"program": src}, **(extra or {})))
-    c.event("initialized", timeout=180)
-    c.call("setBreakpoints", {"source": {"path": src}, "breakpoints": breakpoints})
-    c.call("configurationDone")
-    c.wait(lambda m: m.get("type") == "response" and m.get("request_seq") == launch, 180)
-
-    def wait(pred, timeout=60):
-        for m in list(c.seen):
-            if pred(m):
-                c.seen.remove(m)
-                return m
-        while True:
-            m = c.q.get(timeout=timeout)
-            if m is None:
-                raise RuntimeError("adapter exited")
-            if m.get("type") == "event" and m.get("event") == "output":
-                out.append(m["body"].get("output", ""))
-                continue
-            if pred(m):
-                return m
-            c.seen.append(m)
-    c.wait = wait
+    launch(c, src, extra, breakpoints)
     return c, out
 
 
 def next_stop(c):
     try:
         m = c.wait(lambda m: m.get("type") == "event" and
-                   m.get("event") in ("stopped", "exited", "terminated"), 120)
+                   m.get("event") in ("stopped", "exited", "terminated"), 90, "next stop")
     except queue.Empty:
         print("the debugger did not start the program here: skipped")
         sys.exit(77)
@@ -94,18 +73,14 @@ def next_stop(c):
 
 def ev(c, top, expr):
     seq = c.send("evaluate", {"expression": expr, "frameId": top["id"], "context": "watch"})
-    r = c.wait(lambda m: m.get("type") == "response" and m.get("request_seq") == seq, 30)
+    r = c.response(seq, "evaluate %r" % expr, 30)
     if not r.get("success"):
         fail("evaluate %r: %s" % (expr, r.get("message")))
     return (r.get("body") or {}).get("result")
 
 
 def finish(c):
-    try:
-        c.call("disconnect", {"terminateDebuggee": True}, timeout=20)
-    except Exception:
-        pass
-    c.p.kill()
+    c.close()
 
 
 def main():

@@ -13,19 +13,33 @@ With --panic [--expect=func:line:text[:trap]] it checks the stop on a
 panic instead (see check_panic).
 Exit 0 on success, 1 on a failed check, 77 when no DAP debugger is found.
 """
+import atexit
 import json
 import os
 import queue
+import signal
 import subprocess
 import sys
 import threading
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
+
+
+class StepTimeout(queue.Empty):
+    """A wait that ran out of time (#412). A queue.Empty, so a caller that
+    treats a missing first stop as "cannot run a program here" still
+    does."""
 
 
 def frame(msg):
     body = json.dumps(msg).encode()
     return b"Content-Length: %d\r\n\r\n" % len(body) + body
+
+
+def trace(text):
+    if os.environ.get("DAP_TRACE"):
+        sys.stderr.write("%s %s\n" % (time.strftime("%H:%M:%S"), text[:400]))
 
 
 def reader(stream, q):
@@ -39,53 +53,147 @@ def reader(stream, q):
             header += c
         n = int(header.split(b"Content-Length:")[1].split(b"\r\n")[0])
         m = json.loads(stream.read(n))
-        if os.environ.get("DAP_TRACE"):
-            sys.stderr.write("<- %s\n" % json.dumps(m)[:400])
+        trace("<- %s" % json.dumps(m))
         q.put(m)
 
 
 class Client:
-    def __init__(self, argv):
-        self.p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    """One `iron dap` session. Every wait has a deadline (#412): a debugger
+    that never answers fails the step that waited, naming it, instead of
+    blocking the test until ctest's timeout. The adapter runs in a process
+    group of its own, so the end of the session (or of this script, on
+    any failure) takes down iron, the adapter, the debugger and the
+    debuggee, and none is left holding the test's output open."""
+
+    def __init__(self, argv, out=None):
+        posix = os.name == "posix"
+        self.p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  start_new_session=posix)
         self.q = queue.Queue()
         self.seq = 0
         self.seen = []
+        self.out = out          # a list collects the output events; else stderr
+        self.closed = False
         threading.Thread(target=reader, args=(self.p.stdout, self.q), daemon=True).start()
+        atexit.register(self.kill)
 
     def send(self, command, args=None):
         self.seq += 1
+        trace("-> %s" % command)
         self.p.stdin.write(frame({"seq": self.seq, "type": "request", "command": command,
                                   "arguments": args or {}}))
         self.p.stdin.flush()
         return self.seq
 
-    def wait(self, pred, timeout=60):
+    def wait(self, pred, timeout=60, what=None):
         # Messages seen earlier while waiting for something else.
         for m in self.seen:
             if pred(m):
                 self.seen.remove(m)
                 return m
+        deadline = time.monotonic() + timeout
         while True:
-            m = self.q.get(timeout=timeout)
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise StepTimeout("no %s from the adapter within %ds" %
+                                  (what or "awaited message", timeout))
+            try:
+                m = self.q.get(timeout=left)
+            except queue.Empty:
+                continue
             if m is None:
-                raise RuntimeError("adapter exited")
+                raise RuntimeError("the adapter exited while waiting for %s" %
+                                   (what or "a message"))
             if m.get("type") == "event" and m.get("event") == "output":
-                sys.stderr.write(m["body"].get("output", ""))
+                text = m["body"].get("output", "")
+                if self.out is not None:
+                    self.out.append(text)
+                else:
+                    sys.stderr.write(text)
                 continue
             if pred(m):
                 return m
             self.seen.append(m)
 
-    def call(self, command, args=None, timeout=120):
-        seq = self.send(command, args)
-        r = self.wait(lambda m: m.get("type") == "response" and m.get("request_seq") == seq,
-                      timeout)
+    def response(self, seq, command, timeout=60):
+        return self.wait(lambda m: m.get("type") == "response" and m.get("request_seq") == seq,
+                         timeout, "response to %s" % command)
+
+    def call(self, command, args=None, timeout=60):
+        r = self.response(self.send(command, args), command, timeout)
         if not r.get("success"):
             raise RuntimeError("%s failed: %s" % (command, r.get("message")))
         return r.get("body") or {}
 
     def event(self, name, timeout=60):
-        return self.wait(lambda m: m.get("type") == "event" and m.get("event") == name, timeout)
+        return self.wait(lambda m: m.get("type") == "event" and m.get("event") == name,
+                         timeout, "%s event" % name)
+
+    def kill(self):
+        """Ends the adapter's whole process group (on POSIX also what is
+        left of it once iron itself has exited)."""
+        try:
+            if os.name == "posix":
+                os.killpg(self.p.pid, signal.SIGKILL)
+            elif self.p.poll() is None:
+                self.p.kill()
+        except OSError:
+            pass
+        try:
+            self.p.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+
+    def close(self):
+        """disconnect, then give the adapter a moment to end the debugger
+        and the debuggee before killing what is left."""
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self.call("disconnect", {"terminateDebuggee": True}, timeout=20)
+        except Exception:
+            pass
+        try:
+            self.p.stdin.close()
+            self.p.wait(timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        self.kill()
+
+
+def report_failure(kind, value, tb):
+    """A step that timed out, or an adapter that exited or refused a
+    request, is a failed check: say which, not a traceback."""
+    if isinstance(value, (StepTimeout, RuntimeError)):
+        print("FAIL: %s" % value)   # the exit status is 1 all the same
+        sys.stdout.flush()
+        return
+    sys.__excepthook__(kind, value, tb)
+
+
+sys.excepthook = report_failure
+
+
+def launch(c, src, args=None, breakpoints=None):
+    """launch, set the breakpoints, configurationDone. A launch the adapter
+    refuses (the --debug build failed) fails at once instead of waiting
+    for an initialized event that never comes."""
+    seq = c.send("launch", dict({"program": src}, **(args or {})))
+    m = c.wait(lambda m: (m.get("type") == "event" and m.get("event") == "initialized") or
+               (m.get("type") == "response" and m.get("request_seq") == seq), 180,
+               "initialized event (the --debug build and the debugger's start)")
+    if m.get("type") == "response":
+        if not m.get("success"):
+            raise RuntimeError("launch failed: %s" % m.get("message"))
+        c.event("initialized", 60)
+        m = None
+    c.call("setBreakpoints", {"source": {"path": src}, "breakpoints": breakpoints or []})
+    c.call("configurationDone")
+    if m is not None:
+        r = c.response(seq, "launch", 120)
+        if not r.get("success"):
+            raise RuntimeError("launch failed: %s" % r.get("message"))
 
 
 def fail(msg):
@@ -119,15 +227,12 @@ def check_panic(c, stop, tid, expect):
     if mode == "trap":
         c.call("continue", {"threadId": tid})
         end = c.wait(lambda m: m.get("type") == "event" and
-                     m.get("event") in ("stopped", "exited", "terminated"), 60)
+                     m.get("event") in ("stopped", "exited", "terminated"), 60,
+                     "end of the program after continuing from the panic")
         if end.get("event") == "stopped":
             fail("continuing from the panic stopped again: %s" % end.get("body"))
         print("dap: continuing from the panic ends the program (%s)" % end.get("event"))
-    try:
-        c.call("disconnect", {"terminateDebuggee": True}, timeout=20)
-    except Exception:
-        pass
-    c.p.kill()
+    c.close()
     print("PASS")
 
 
@@ -145,21 +250,17 @@ def main():
     seq = c.send("initialize", {"clientID": "iron-test", "adapterID": "iron",
                                 "linesStartAt1": True, "columnsStartAt1": True,
                                 "pathFormat": "path"})
-    r = c.wait(lambda m: m.get("type") == "response" and m.get("request_seq") == seq)
+    r = c.response(seq, "initialize")
     if not r.get("success"):
         if "no debugger found" in (r.get("message") or ""):
             print("no DAP debugger (lldb-dap, gdb 14+): skipped")
             sys.exit(77)
         fail("initialize: %s" % r.get("message"))
-    launch = c.send("launch", {"program": src})
-    c.event("initialized", timeout=180)
-    lines = [] if panic else [{"line": 3}, {"line": 12}]
-    c.call("setBreakpoints", {"source": {"path": src}, "breakpoints": lines})
-    c.call("configurationDone")
-    c.wait(lambda m: m.get("type") == "response" and m.get("request_seq") == launch, 180)
+    launch(c, src, breakpoints=[] if panic else [{"line": 3}, {"line": 12}])
     try:
         stop = c.wait(lambda m: m.get("type") == "event" and
-                      m.get("event") in ("stopped", "exited", "terminated"), 120)
+                      m.get("event") in ("stopped", "exited", "terminated"), 90,
+                      "first stop")
     except queue.Empty:
         # No event at all: the debugger cannot run a program on this host
         # (no debugserver, no ptrace permission).
@@ -215,11 +316,7 @@ def main():
     if elems[:2] != ['"a"', '"b"']:
         fail("main's names is %s with elements %s, want \"a\", \"b\"" % (loc.get("names"), elems))
     print("dap: value formatters loaded (names = %s, elements %s)" % (loc["names"], elems))
-    try:
-        c.call("disconnect", {"terminateDebuggee": True}, timeout=20)
-    except Exception:
-        pass
-    c.p.kill()
+    c.close()
     print("PASS")
 
 

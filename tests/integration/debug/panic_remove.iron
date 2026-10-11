@@ -1,0 +1,10 @@
+func drop_at(i: Int) -> Int {
+    var xs = [1, 2, 3]
+    val removed = xs.remove(i)
+    return removed
+}
+
+func main() {
+    println("{drop_at(1)}")
+    println("{drop_at(5)}")
+}

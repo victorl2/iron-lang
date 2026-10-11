@@ -9,6 +9,7 @@
  */
 
 #include "lir/emit_split.h"
+#include "lir/emit_c.h"
 #include "parser/ast.h"
 #include "vendor/stb_ds.h"
 
@@ -200,8 +201,21 @@ static void lower_impl_name(char *out, size_t cap, const char *name) {
     out[n] = '\0';
 }
 
+/* The site an edit helper's bounds panic reports: the C line, or in a
+ * --debug build the helper's name with line 0, like the runtime's list
+ * bodies: the panic then names the Iron line of the call (recorded by
+ * iron_list_call_site) and does not trap inside the helper, since the
+ * call site already ran the debug trap (#388, emit_debug_list_check). */
+static const char *split_site(char *buf, size_t cap, const char *iface_mangled,
+                              const char *method) {
+    if (!iron_lir_emit_debug_build()) return "__FILE__, __LINE__";
+    snprintf(buf, cap, "\"Iron_SplitList_%s_%s\", 0", iface_mangled, method);
+    return buf;
+}
+
 static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *iface_mangled,
                                     Iron_IfaceEntry *entry, bool all_unordered) {
+    char site[320];
     bool edits = ctx->iface_elem_assigned &&
                  shgeti(ctx->iface_elem_assigned, iface_mangled) >= 0;
     for (int j = 0; j < entry->impl_count; j++) {
@@ -263,7 +277,7 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
 
     iron_strbuf_appendf(sb,
         "static inline void Iron_SplitList_%s_insert(Iron_SplitList_%s *_sl, int64_t _i, %s _val) {\n"
-        "    if ((uint64_t)_i > (uint64_t)_sl->_order_count) iron_panic_index_oob(__FILE__, __LINE__, _i, _sl->_order_count);\n"
+        "    if ((uint64_t)_i > (uint64_t)_sl->_order_count) iron_panic_index_oob(%s, _i, _sl->_order_count);\n"
         "    if (!Iron_SplitList_%s__append(_sl, _val)) return;\n"
         "    int64_t _n = _sl->_order_count;\n"
         "    unsigned char _t[sizeof(*_sl->_order)];\n"
@@ -271,7 +285,8 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
         "    iron_mem_move(&_sl->_order[_i + 1], &_sl->_order[_i], (size_t)(_n - 1 - _i) * sizeof(*_sl->_order));\n"
         "    iron_mem_copy(&_sl->_order[_i], _t, sizeof(_t));\n"
         "}\n\n",
-        iface_mangled, iface_mangled, iface_mangled, iface_mangled);
+        iface_mangled, iface_mangled, iface_mangled, split_site(site, sizeof(site), iface_mangled, "insert"),
+        iface_mangled);
 
     if (!edits) return;
 
@@ -304,11 +319,12 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
     /* set */
     iron_strbuf_appendf(sb,
         "static inline void Iron_SplitList_%s_set(Iron_SplitList_%s *_sl, int64_t _i, %s _val) {\n"
-        "    if ((uint64_t)_i >= (uint64_t)_sl->_order_count) iron_panic_index_oob(__FILE__, __LINE__, _i, _sl->_order_count);\n"
+        "    if ((uint64_t)_i >= (uint64_t)_sl->_order_count) iron_panic_index_oob(%s, _i, _sl->_order_count);\n"
         "    uint8_t _ot = _sl->_order[_i].tag;\n"
         "    int64_t _oi = _sl->_order[_i].idx;\n"
         "    switch (_ot) {\n",
-        iface_mangled, iface_mangled, iface_mangled);
+        iface_mangled, iface_mangled, iface_mangled,
+        split_site(site, sizeof(site), iface_mangled, "set"));
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive || !impl2->decl || !od_needs_drop(ctx, impl2->decl)) continue;
@@ -353,13 +369,14 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
     /* remove */
     iron_strbuf_appendf(sb,
         "static inline %s Iron_SplitList_%s_remove(Iron_SplitList_%s *_sl, int64_t _i) {\n"
-        "    if ((uint64_t)_i >= (uint64_t)_sl->_order_count) iron_panic_index_oob(__FILE__, __LINE__, _i, _sl->_order_count);\n"
+        "    if ((uint64_t)_i >= (uint64_t)_sl->_order_count) iron_panic_index_oob(%s, _i, _sl->_order_count);\n"
         "    uint8_t _ot = _sl->_order[_i].tag;\n"
         "    int64_t _oi = _sl->_order[_i].idx;\n"
         "    %s _out;\n"
         "    iron_mem_set(&_out, 0, sizeof(_out));\n"
         "    switch (_ot) {\n",
-        iface_mangled, iface_mangled, iface_mangled, iface_mangled);
+        iface_mangled, iface_mangled, iface_mangled,
+        split_site(site, sizeof(site), iface_mangled, "remove"), iface_mangled);
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive) continue;

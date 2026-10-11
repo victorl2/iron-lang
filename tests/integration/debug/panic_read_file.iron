@@ -1,0 +1,7 @@
+func load(path: String, tries: Int) -> String {
+    return read_file(path)
+}
+
+func main() {
+    println(load("/nonexistent/iron-panic-test", 2))
+}

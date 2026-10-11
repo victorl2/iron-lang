@@ -66,7 +66,9 @@ PANIC_FUNCTIONS = ("abort", "__abort", "raise", "__pthread_kill", "pthread_kill"
 # LLDB's answer to `command script import` when it was built without Python.
 NO_SCRIPTING = re.compile(r"does not support importing modules|"
                           r"built without scripting language support")
-PANIC_LINE = re.compile(r"^(panic|assertion failed|error: index|.*out of bounds)", re.I)
+# The runtime's own panics print "iron: <what happened>" (out of memory, an
+# arena full, a missing map key...).
+PANIC_LINE = re.compile(r"^(panic|assertion failed|error: index|iron: |.*out of bounds)", re.I)
 
 
 # ── DAP framing ───────────────────────────────────────────────────────────────
@@ -335,16 +337,18 @@ def test_name(test):
     return test
 
 
-def build_plan(iron, program, test=False):
+def build_plan(iron, program, test=False, out_dir=None):
     """(argv, cwd, binary) that builds `program` with --debug (and its test
     blocks with `test`), None when `program` is already a binary, or a str
-    error."""
+    error. A .iron file's binary goes to out_dir: each session has its own
+    (#412), since two sessions building the same file into one shared path
+    replace or delete the binary under each other's debugger."""
     exe = ".exe" if os.name == "nt" else ""
     program = os.path.abspath(program)
     if program.endswith(".iron"):
-        out = os.path.join(tempfile.gettempdir(), "iron-debug",
-                           os.path.basename(program)[:-5] + ("_test" if test else "") + exe)
-        os.makedirs(os.path.dirname(out), exist_ok=True)
+        out_dir = out_dir or os.path.join(tempfile.gettempdir(), "iron-debug")
+        out = os.path.join(out_dir, os.path.basename(program)[:-5] + ("_test" if test else "") + exe)
+        os.makedirs(out_dir, exist_ok=True)
         argv = [iron, "build", program, "--debug"] + (["--test"] if test else []) + ["-o", out]
         return argv, os.path.dirname(program), out
     if test:
@@ -754,6 +758,7 @@ class Proxy:
         self.test = None         # the test block this session debugs, if any
         self.adapter_path = None
         self.warned_no_scripting = False
+        self.build_dir = None    # this session's --debug builds (see build_plan)
 
     # Output to the client.
     def send(self, msg):
@@ -786,7 +791,9 @@ class Proxy:
         slot = [threading.Event(), None]
         self.own[seq] = slot
         self.to_child({"seq": seq, "type": "request", "command": command, "arguments": args})
-        slot[0].wait(timeout)
+        if not slot[0].wait(timeout):
+            sys.stderr.write("iron dap: %s did not answer %s within %ss\n" %
+                             (self.kind or "the debugger", command, timeout))
         self.own.pop(seq, None)
         return slot[1] or {"success": False}
 
@@ -904,7 +911,10 @@ class Proxy:
             return None
         binary = program
         test = self.test = test_name(a.get("test"))
-        plan = build_plan(self.iron, program, bool(test)) if a.get("build", True) else None
+        if self.build_dir is None and a.get("build", True):
+            self.build_dir = tempfile.mkdtemp(prefix="iron-debug-")
+        plan = build_plan(self.iron, program, bool(test), self.build_dir) \
+            if a.get("build", True) else None
         if isinstance(plan, str):
             self.respond_error(req, plan)
             return None
@@ -1403,8 +1413,11 @@ class Proxy:
         if self.child:
             try:
                 self.child.terminate()
-            except OSError:
+                self.child.wait(timeout=10)
+            except (OSError, subprocess.TimeoutExpired):
                 pass
+        if self.build_dir:
+            shutil.rmtree(self.build_dir, ignore_errors=True)
 
 
 def main(argv):
