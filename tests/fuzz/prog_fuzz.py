@@ -249,8 +249,10 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
 
 def run_once(cmd, env, expected, panic, d, mode):
     try:
+        # helgrind and DRD run a threaded program 20 to 100 times slower
+        slow = 4 if mode in ('helgrind', 'drd') else 1
         r = subprocess.run(cmd, capture_output=True, text=True,
-                           timeout=int(os.environ.get('PF_TIMEOUT', '120')), env=env,
+                           timeout=int(os.environ.get('PF_TIMEOUT', '120')) * slow, env=env,
                            encoding='utf-8',
                            errors='replace')
     except subprocess.TimeoutExpired:
