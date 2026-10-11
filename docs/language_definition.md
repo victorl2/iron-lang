@@ -2158,7 +2158,12 @@ the initializer of a `val` or `var`, or as a statement (its result is then
 discarded and the thread is never awaited). The body may read `val` bindings of the enclosing
 function and use `Mutex`, `Channel` and `rc` values; a list captured by a
 spawn must be awaited in the same block (`E0328`). Writing a captured
-`var` from a thread is a data race and warns (`W0604`). Named thread pools
+`var` from a thread is a data race and warns (`W0604`). A thread keeps what
+it captured alive until it finishes, even when the block that declared it
+ends first (always possible for a spawn that is never awaited): it holds its
+own reference to each captured `Mutex`, `Channel`, `RWLock`, `Arena`, `rc`
+value and `var`, and its own copy of the other values. A thread that is still
+running when the program ends is stopped with it. Named thread pools
 are not implemented: `spawn("name", pool)` is rejected (`E0326`).
 
 ```iron

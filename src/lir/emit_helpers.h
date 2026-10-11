@@ -418,6 +418,9 @@ void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et);
  * when the value at `lv` was duplicated, and a `void (*)(void *)` thunk
  * that drops a value of type t ("NULL" when nothing needs to run). */
 void emit_drop_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx, Iron_Type *t, const char *lv);
+/* The C name of a container element type with spaces and `*` as `_`, as
+ * the per-T Mutex / Channel / RWLock glue names spell it. */
+const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem);
 void emit_copy_fixup_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
                             Iron_Type *t, const char *lv);
 const char *emit_cell_drop_fn(EmitCtx *ctx, Iron_Type *t);

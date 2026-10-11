@@ -1248,6 +1248,7 @@ typedef struct Iron_Channel Iron_Channel;
 
 /* Channel API */
 Iron_Channel *Iron_channel_create(int capacity);
+void          Iron_channel_retain(Iron_Channel *ch);
 void          Iron_channel_send(Iron_Channel *ch, void *item);
 void         *Iron_channel_recv(Iron_Channel *ch);
 bool          Iron_channel_try_recv(Iron_Channel *ch, void **out);
@@ -1269,10 +1270,19 @@ typedef struct {
     iron_mutex_t    lock;
     void           *value;
     size_t          value_size;
+    iron_atomic_u64 refs;       /* the owner's and each spawned task's */
 } Iron_Mutex;
 
 /* Mutex API */
+/* A spawned task keeps the Mutex, Channel or Arena it captured alive until
+ * it finishes (manual 7.1): its env takes a reference with *_retain, and
+ * destroy drops one, freeing on the last. Without it the owning block's end
+ * freed the object while a task that was never awaited still used it. */
 Iron_Mutex *Iron_mutex_create(void *initial_value, size_t size);
+void        Iron_mutex_retain(Iron_Mutex *m);
+/* Drop one reference of such a shared object; true when it was the last
+ * (the caller then frees it). Used by the RWLock glue too. */
+bool        iron_shared_release(iron_atomic_u64 *refs);
 void       *Iron_mutex_lock(Iron_Mutex *m);   /* returns pointer to value */
 void        Iron_mutex_unlock(Iron_Mutex *m);
 void        Iron_mutex_destroy(Iron_Mutex *m);
