@@ -1,0 +1,3 @@
+expected expression
+expected identifier or '_' in tuple destructure binding
+tuple destructure requires at least 2 binding names

@@ -1256,6 +1256,29 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
 /* ── Block: { stmt* } ────────────────────────────────────────────────────── */
 
 /* HARD-08: wrapper — see iron_parse_type_annotation for the pattern. */
+/* CLI mode replaces a statement with a parse error by an error node, so
+ * checking it adds no follow-on errors. A declaration keeps its names
+ * (with an error initializer, which the checker accepts silently):
+ * dropping it would turn every later use of the name into an "undefined
+ * identifier" error that is only a consequence of the first. */
+static Iron_Node *iron_drop_broken_stmt(Iron_Parser *p, Iron_Node *s) {
+    if (s && s->kind == IRON_NODE_VAL_DECL) {
+        Iron_ValDecl *d = (Iron_ValDecl *)s;
+        if (d->name || d->binding_count > 0) {
+            d->init = iron_make_error(p);
+            return s;
+        }
+    } else if (s && s->kind == IRON_NODE_VAR_DECL) {
+        Iron_VarDecl *d = (Iron_VarDecl *)s;
+        if (d->name) {
+            d->init = iron_make_error(p);
+            d->requires_mutable = true;   /* its uses may be in the broken text */
+            return s;
+        }
+    }
+    return iron_make_error(p);
+}
+
 static Iron_Node *iron_parse_block(Iron_Parser *p) {
     if (iron_parser_depth_exceeded(p)) {
         return iron_make_error(p);
@@ -1303,7 +1326,7 @@ static Iron_Node *iron_parse_block_impl(Iron_Parser *p) {
             /* The error is reported; checking what was parsed of the broken
              * statement would only add follow-on errors. The LSP keeps the
              * partial tree for hover and completion. */
-            if (p->mode != IRON_ANALYSIS_MODE_LSP) s = iron_make_error(p);
+            if (p->mode != IRON_ANALYSIS_MODE_LSP) s = iron_drop_broken_stmt(p, s);
         }
         p->stmt_errored = outer_errored;
         arrput(stmts, s);
@@ -3389,12 +3412,17 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
                 iron_advance(p);
                 arrput(names, NULL);  /* sentinel for wildcard */
             } else {
-                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                               IRON_ERR_UNEXPECTED_TOKEN,
+                iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
                                iron_token_span(p, iron_current(p)),
-                               "expected identifier or '_' in tuple destructure binding", NULL);
-                if (iron_peek(p) != IRON_TOK_EOF) iron_advance(p);
-                break;
+                               "expected identifier or '_' in tuple destructure binding");
+                /* Skip the bad element and keep it as a wildcard, so the
+                 * names after it still bind and the arity is kept. */
+                while (!iron_check(p, IRON_TOK_COMMA) && !iron_check(p, IRON_TOK_RPAREN) &&
+                       !iron_check(p, IRON_TOK_ASSIGN) && !iron_check(p, IRON_TOK_NEWLINE) &&
+                       !iron_check(p, IRON_TOK_EOF))
+                    iron_advance(p);
+                if (!iron_check(p, IRON_TOK_COMMA) && !iron_check(p, IRON_TOK_RPAREN)) break;
+                arrput(names, NULL);
             }
             iron_skip_newlines(p);
             if (!iron_check(p, IRON_TOK_COMMA)) break;
@@ -3404,12 +3432,24 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
         iron_expect(p, IRON_TOK_RPAREN);
         int count = (int)arrlen(names);
         if (count < 2) {
-            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                           IRON_ERR_UNEXPECTED_TOKEN,
-                           iron_token_span(p, start),
-                           "tuple destructure requires at least 2 binding names", NULL);
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN, iron_token_span(p, start),
+                           "tuple destructure requires at least 2 binding names");
+            /* Bind a lone name anyway (`val (a, = 1`, `val (a) = 1`), so its
+             * uses are not reported as undefined. */
+            const char *only = count == 1 ? names[0] : NULL;
             arrfree(names);
-            return iron_make_error(p);
+            Iron_Node *init = NULL;
+            if (iron_match(p, IRON_TOK_ASSIGN)) init = iron_parse_expr(p);
+            if (!only) return iron_make_error(p);
+            Iron_ValDecl *n = ARENA_ALLOC(p->arena, Iron_ValDecl);
+            if (!n) { p->in_error_recovery = true; return iron_make_error(p); }
+            memset(n, 0, sizeof(*n));
+            n->kind = IRON_NODE_VAL_DECL;
+            n->span = iron_span_merge(iron_token_span(p, start),
+                                      init ? init->span : iron_token_span(p, iron_current(p)));
+            n->name = only;
+            n->init = init ? init : iron_make_error(p);
+            return (Iron_Node *)n;
         }
         /* Transfer binding names into arena. */
         const char **arena_names = (const char **)iron_arena_arr_new(

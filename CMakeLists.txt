@@ -1049,6 +1049,16 @@ add_test(NAME diag_error_receiver
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/error_receiver.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 
+# A declaration with a syntax error still binds its names (no undefined
+# identifier cascade in `ironc check`).
+add_test(NAME diag_broken_declaration
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/broken_declaration.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/broken_declaration.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/broken_declaration.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+
 # A mutating call on a val suggests `readonly` when the method never
 # changes self.
 add_test(NAME diag_readonly_hint
