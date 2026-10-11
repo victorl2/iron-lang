@@ -327,7 +327,10 @@ class Service:
             raise Fail(f"service exited early; output: {self.output()[-2000:]}")
         self.client = Client(self.port)
         if wait_ready:
-            wait_for(lambda: self.client.get("/readyz").status == 200, 60 if ARGS.wrap else 20, "service readiness")
+            try:
+                wait_for(lambda: self.client.get("/readyz").status == 200, 60 if ARGS.wrap else 20, "service readiness")
+            except Fail as e:
+                raise Fail(f"{e}; service output:\n{self.output()[-3000:]}\n{self.stderr()[-2000:]}")
 
     def _read(self):
         for line in self.proc.stdout:
