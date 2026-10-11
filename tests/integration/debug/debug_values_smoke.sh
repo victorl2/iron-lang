@@ -43,7 +43,7 @@ if command -v gdb >/dev/null 2>&1; then
         echo "gdb cannot run the program here: skipped"
     else
         expect gdb "$out" "${common[@]}" 'color = Green' \
-            'rc [2] = {"a", "b"} (strong=2, weak=0)'
+            'rc ["a", "b"] (strong=2, weak=0)'
         echo "gdb: values"
     fi
 else
@@ -56,7 +56,7 @@ if command -v lldb >/dev/null 2>&1 && lldb --version >/dev/null 2>&1; then
     if ! grep -q "stop reason = breakpoint" <<< "$out"; then
         echo "lldb cannot run the program here: skipped"
     else
-        expect lldb "$out" "${common[@]}" 'color = Iron_Color_Green' \
+        expect lldb "$out" "${common[@]}" 'color = Green' \
             'letters = 0x' 'rc ["a", "b"] (strong=2, weak=0)'
         echo "lldb: values"
     fi

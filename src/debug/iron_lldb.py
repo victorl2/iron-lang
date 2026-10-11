@@ -45,9 +45,57 @@ def _string(valobj):
     return data.decode("utf-8", errors="replace")
 
 
+def iron_quote(s):
+    """A string as an Iron literal: the escapes of the manual (\\n, \\t,
+    \\\\, \\"), any other control character (a zero byte too) as \\u{H}."""
+    out = []
+    for ch in s:
+        o = ord(ch)
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\t":
+            out.append("\\t")
+        elif o < 0x20 or o == 0x7f:
+            out.append("\\u{%x}" % o)
+        else:
+            out.append(ch)
+    return '"%s"' % "".join(out)
+
+
 def string_summary(valobj, _dict):
     s = _string(valobj.GetNonSyntheticValue())
-    return "<invalid string>" if s is None else '"%s"' % s.replace('"', '\\"')
+    return NOT_ASSIGNED if s is None else iron_quote(s)
+
+
+def _list_count(v):
+    """A list's element count, or None when the struct holds no list yet
+    (a binding read before the statement that assigns it: the debugger
+    lists it with whatever its memory holds)."""
+    count = v.GetChildMemberWithName("count").GetValueAsUnsigned(0)
+    cap = v.GetChildMemberWithName("capacity")
+    items = v.GetChildMemberWithName("items").GetValueAsUnsigned(0)
+    if count > (1 << 40) or (count and not items):
+        return None
+    if cap.IsValid() and cap.GetValueAsUnsigned(0) < count:
+        return None
+    return count
+
+
+def _table_count(v):
+    """A map's or set's entry count, or None when it holds no table yet."""
+    count = v.GetChildMemberWithName("count").GetValueAsUnsigned(0)
+    cap = v.GetChildMemberWithName("cap").GetValueAsUnsigned(0)
+    st = v.GetChildMemberWithName("st").GetValueAsUnsigned(0)
+    if cap > (1 << 30) or count > cap or (cap and not st):
+        return None
+    return count
+
+
+NOT_ASSIGNED = "<not assigned yet>"
 
 
 class ListProvider:
@@ -55,7 +103,7 @@ class ListProvider:
         self.valobj = valobj
 
     def update(self):
-        self.count = self.valobj.GetChildMemberWithName("count").GetValueAsUnsigned(0)
+        self.count = _list_count(self.valobj) or 0
         self.items = self.valobj.GetChildMemberWithName("items")
         self.elem = self.items.GetType().GetPointeeType()
         return False
@@ -88,6 +136,8 @@ class SlotProvider:
         cap = v.GetChildMemberWithName("cap").GetValueAsUnsigned(0)
         st = v.GetChildMemberWithName("st").GetValueAsUnsigned(0)
         err = lldb.SBError()
+        if _table_count(v) is None:
+            cap = 0
         states = v.GetProcess().ReadMemory(st, cap, err) if cap and st else b""
         self.full = [i for i, s in enumerate(states or b"") if s == 1]
         return False
@@ -196,14 +246,62 @@ def panic_stop_command(debugger, command, result, _dict):
     _command(debugger, "target stop-hook add -P %s.PanicStopHook" % __name__)
 
 
+def float_text(v, is_f32=False):
+    """A float as Iron prints it (src/runtime/iron_fmt.c): the shortest
+    digits that read back to the value, no trailing .0, inf / -inf / NaN."""
+    import math
+    import struct
+    if math.isnan(v):
+        return "NaN"
+    if math.isinf(v):
+        return "inf" if v > 0 else "-inf"
+    if v == 0:
+        return "0"
+
+    def f32(x):
+        return struct.unpack("f", struct.pack("f", x))[0]
+    for p in range(1, 10 if is_f32 else 18):
+        sci = "%.*e" % (p - 1, v)
+        if (f32(float(sci)) == f32(v)) if is_f32 else float(sci) == v:
+            break
+    neg = sci.startswith("-")
+    mant, e = sci.lstrip("-").split("e")
+    e = int(e)
+    digits = mant.replace(".", "").rstrip("0") or "0"
+    n = len(digits)
+    out = "-" if neg else ""
+    if -6 <= e < 21:
+        if e >= 0:
+            out += "".join(digits[i] if i < n else "0" for i in range(e + 1))
+            if n > e + 1:
+                out += "." + digits[e + 1:]
+        else:
+            out += "0." + "0" * (-e - 1) + digits
+    else:
+        out += digits[0] + ("." + digits[1:] if n > 1 else "")
+        out += "e%s%d" % ("-" if e < 0 else "+", abs(e))
+    return out
+
+
+def float_summary(valobj, _dict):
+    v = valobj.GetNonSyntheticValue()
+    data = v.GetData()
+    err = lldb.SBError()
+    if v.GetByteSize() == 4:
+        return float_text(data.GetFloat(err, 0), True)
+    return float_text(data.GetDouble(err, 0))
+
+
 def size_summary(valobj, _dict):
-    return "size=%d" % valobj.GetNonSyntheticValue().GetChildMemberWithName(
-        "count").GetValueAsUnsigned(0)
+    n = _table_count(valobj.GetNonSyntheticValue())
+    return NOT_ASSIGNED if n is None else "size=%d" % n
 
 
 def list_summary(valobj, _dict):
     """A list as Iron writes it: [1, 2, 3] (the first 20 elements)."""
-    n = valobj.GetNonSyntheticValue().GetChildMemberWithName("count").GetValueAsUnsigned(0)
+    n = _list_count(valobj.GetNonSyntheticValue())
+    if n is None:
+        return NOT_ASSIGNED
     shown = min(n, 20)
     parts = [_text(valobj.GetChildAtIndex(i)) for i in range(shown)]
     return "[%s%s]" % (", ".join(parts), ", ..." if n > shown else "")
@@ -213,8 +311,14 @@ def list_summary(valobj, _dict):
 
 
 def _short(name):
-    """An Iron type's C name as Iron writes it: Iron_Point is Point."""
-    return name[5:] if name.startswith("Iron_") else name
+    """An Iron type's C name as Iron writes it: Iron_Point is Point, and a
+    generic instance Iron_Box__Int is Box[Int] (arguments that are plain
+    type names; others keep the compiler's spelling)."""
+    name = name[5:] if name.startswith("Iron_") else name
+    parts = name.split("__")
+    if len(parts) > 1 and all(p and p[0].isalpha() and p.isalnum() for p in parts):
+        return "%s[%s]" % (parts[0], ", ".join(parts[1:]))
+    return name
 
 
 def _text(v):
@@ -262,7 +366,10 @@ def tagged_summary(valobj, _dict):
     if payload.GetChildAtIndex(0).GetName() == "_0":
         return "%s(%s)" % (variant, ", ".join(
             _text(payload.GetChildAtIndex(i)) for i in range(payload.GetNumChildren())))
-    return "%s %s" % (variant, _text(payload))
+    text = _text(payload)
+    if text.startswith(_short(payload.GetTypeName() or "").replace("struct ", "") + " {"):
+        return text
+    return "%s %s" % (variant, text)
 
 
 class TaggedProvider:
@@ -405,7 +512,15 @@ class ClosureProvider:
         return self.env.GetIndexOfChildWithName(name) if self.env is not None else -1
 
     def get_child_at_index(self, i):
-        return self.env.GetChildAtIndex(i)
+        c = self.env.GetChildAtIndex(i)
+        t = c.GetType()
+        # A captured var: a pointer to its cell (<env>_cell_<name>), shown
+        # as the value it holds.
+        if t.IsPointerType() and "_cell_" in (t.GetPointeeType().GetName() or ""):
+            addr = c.GetValueAsUnsigned(0)
+            if addr:
+                return self.valobj.CreateValueFromAddress(c.GetName(), addr, t.GetPointeeType())
+        return c
 
 
 def _register_values(debugger):
@@ -424,8 +539,24 @@ def _register_values(debugger):
     for kind, fn, rec in (("summary", "-F %s.tagged_summary", "is_tagged"),
                           ("synthetic", "-l %s.TaggedProvider", "is_tagged"),
                           ("summary", "-F %s.rc_summary", "is_rc_pointer"),
-                          ("summary", "-F %s.object_summary", "is_object")):
+                          ("summary", "-F %s.object_summary", "is_object"),
+                          ("summary", "-v -F %s.enum_summary", "is_plain_enum")):
         run('type %s add %s --recognizer-function %s.%s' % (kind, fn % m, m, rec))
+
+
+def is_plain_enum(sbtype, _dict):
+    t = sbtype.GetCanonicalType()
+    name = (sbtype.GetName() or "").replace("enum ", "")
+    return (t.GetTypeClass() == lldb.eTypeClassEnumeration and name.startswith("Iron_") and
+            not name.endswith("_Tag"))
+
+
+def enum_summary(valobj, _dict):
+    """An enum without payloads: Green rather than Iron_Color_Green."""
+    v = valobj.GetNonSyntheticValue()
+    text = v.GetValue() or ""
+    prefix = (v.GetTypeName() or "").replace("enum ", "") + "_"
+    return text[len(prefix):] if text.startswith(prefix) else text
 
 
 RUNTIME_TYPES = ("Iron_String", "Iron_RcHeader", "Iron_Closure", "Iron_Arena_RT",
@@ -520,4 +651,9 @@ def __lldb_init_module(debugger, _dict):
     run('type synthetic add -x "^Iron_(Map|Set)_" -l %s.SlotProvider' % m)
     run('type summary add -e -x "^Iron_(Map|Set)_" -F %s.size_summary' % m)
     run('type summary add -x "^Iron_Optional_" -F %s.optional_summary' % m)
+    # Int8 and UInt8 are numbers, not characters; floats print as Iron's
+    # text (0.1, not 0.10000000000000001).
+    run('type format add -f decimal int8_t')
+    run('type format add -f unsigned uint8_t')
+    run('type summary add -v -F %s.float_summary double float' % m)
     _register_values(debugger)
