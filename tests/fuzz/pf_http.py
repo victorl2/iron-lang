@@ -309,7 +309,27 @@ class HttpGen(SegProgram):
         """An Iron expression for raw request bytes (ASCII and UTF-8);
         literals are at most 4095 bytes, so a long one is joined from
         pieces."""
-        s = req.decode('utf-8')
+        try:
+            s = req.decode('utf-8')
+        except UnicodeDecodeError:
+            # a chunk boundary inside a multibyte character: the bytes that
+            # are not UTF-8 on their own are written with String.from_byte
+            parts, run = [], bytearray()
+            for b in req:
+                if b < 0x80 and len(run) < 1000:
+                    run.append(b)
+                    continue
+                if b < 0x80:
+                    parts.append(iron_lit(run.decode()))
+                    run = bytearray([b])
+                    continue
+                if run:
+                    parts.append(iron_lit(run.decode()))
+                    run = bytearray()
+                parts.append(f'String.from_byte({b})')
+            if run:
+                parts.append(iron_lit(run.decode()))
+            return ' + '.join(parts)
         if len(s) <= 1000:
             return iron_lit(s)
         return ' + '.join(iron_lit(s[i:i + 1000]) for i in range(0, len(s), 1000))
