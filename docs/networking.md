@@ -94,14 +94,15 @@ bounded general form:
 val response = Http.request(
     "PUT",
     "http://127.0.0.1:8080/api/items/42",
-    "Authorization: Bearer dev-token\r\nContent-Type: application/json",
+    "Authorization: Bearer dev-token\u{d}\nContent-Type: application/json",
     "\{\"name\":\"hammer\"\}",
     1048576,  -- maximum decoded response body
     5000,     -- complete request budget
 )
 ```
 
-User headers are raw `Name: value` lines separated by CRLF. `Host`,
+User headers are raw `Name: value` lines separated by CRLF, written
+`\u{d}\n` in an Iron string (Iron has no `\r` escape). `Host`,
 `Connection`, `Content-Length`, and `Transfer-Encoding` are owned by the
 client and rejected in the user block to avoid ambiguous message framing.
 
