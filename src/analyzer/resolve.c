@@ -368,8 +368,22 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
                  * pub bit. This matches the locked decision in CONTEXT.md
                  * (no per-variant visibility). */
                 vsym->is_pub = ed->is_pub;
-                /* Silently skip duplicate variant names — a separate check can
-                 * catch this later. For now just attempt to define. */
+                /* A variant named twice in one enum (the C defined its tag
+                 * twice, #640). Variant names of different enums may repeat:
+                 * the global define just keeps the first. */
+                for (int j = 0; j < i; j++) {
+                    Iron_EnumVariant *pv = (Iron_EnumVariant *)ed->variants[j];
+                    if (pv && pv->name && ev->name && strcmp(pv->name, ev->name) == 0) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "enum '%s' declares variant '%s' twice",
+                                 ed->name ? ed->name : "?", ev->name);
+                        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                       IRON_ERR_DUPLICATE_DECL, ev->span,
+                                       iron_arena_strdup(ctx->arena, msg, strlen(msg)),
+                                       NULL);
+                        break;
+                    }
+                }
                 iron_scope_define(ctx->global_scope, ctx->arena, vsym);
             }
             break;

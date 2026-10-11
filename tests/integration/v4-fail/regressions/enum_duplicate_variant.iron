@@ -1,0 +1,9 @@
+-- A variant declared twice in one enum is E0201 (#640).
+enum Tok {
+    Num(Int),
+    Num(Int),
+}
+
+func main() {
+    println("x")
+}
