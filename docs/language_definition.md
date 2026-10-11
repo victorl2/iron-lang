@@ -951,7 +951,8 @@ value that has a text form may be interpolated: numbers, booleans,
 strings, enums (the variant name), objects with a
 `readonly func to_string() -> String` method (through that method, also
 behind `rc`), the nullable forms of all of these (`null` when there is no
-value), and the results of calls and field accesses. Interpolating a
+value; for an object `T?` or `rc T?`, `to_string()` runs only when there is
+a value), and the results of calls and field accesses. Interpolating a
 value with no text form, such as an object without `to_string()`, is an
 error (`E0334`). Floats print the shortest
 decimal that reads back to the same value, without a trailing `.0`

@@ -2058,6 +2058,26 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 p = iron_hir_expr_deref(mod, p, ptr_gen_source(is->parts[i]),
                                         p->type->ptr.pointee, span);
             }
+            /* A T? of an object with to_string() (#451, the checker allowed
+             * it) prints "null" or the method's text. The part becomes
+             * `$opt_to_string(p, v.to_string())`: hir_to_lir evaluates p
+             * once, and only when it is not null binds v to its payload
+             * and runs the call. */
+            if (p && p->type && p->type->kind == IRON_TYPE_NULLABLE &&
+                p->type->nullable.inner &&
+                (p->type->nullable.inner->kind == IRON_TYPE_OBJECT ||
+                 (p->type->nullable.inner->kind == IRON_TYPE_RC &&
+                  p->type->nullable.inner->rc.inner &&
+                  p->type->nullable.inner->rc.inner->kind == IRON_TYPE_OBJECT))) {
+                Iron_Type *inner = p->type->nullable.inner;
+                Iron_Type *str_t = iron_type_make_primitive(IRON_TYPE_STRING);
+                IronHIR_VarId vid = iron_hir_alloc_var(mod, "__interp_opt", inner, false);
+                IronHIR_Expr *recv = iron_hir_expr_ident(mod, vid, "__interp_opt", inner, span);
+                IronHIR_Expr **cargs = NULL;
+                arrput(cargs, iron_hir_expr_method_call(mod, recv, "to_string", NULL, 0,
+                                                        str_t, span));
+                p = iron_hir_expr_method_call(mod, p, "$opt_to_string", cargs, 1, str_t, span);
+            }
             /* FIX-03 / AUDIT-04 §7: SAFETY — lower_expr_hir may return NULL
              * (e.g., unrecognized inner node kind); storing NULL here is
              * safe — consumers tolerate NULL entries (see emit_c.c

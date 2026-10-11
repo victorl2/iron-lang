@@ -2969,6 +2969,49 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             IronLIR_ValueId v = lower_expr(ctx, src);
             return copy_for_new_owner(ctx, src, v, expr->type, span);
         }
+        /* `$opt_to_string(p, v.to_string())` (hir_lower, #451): an
+         * interpolated T? of an object. p is evaluated once; when it is not
+         * null, v is bound to its payload and the call gives the text,
+         * otherwise the text is "null". */
+        if (expr->method_call.method &&
+            strcmp(expr->method_call.method, "$opt_to_string") == 0 &&
+            expr->method_call.arg_count == 1 && expr->method_call.args[0] &&
+            expr->method_call.args[0]->kind == IRON_HIR_EXPR_METHOD_CALL &&
+            expr->method_call.args[0]->method_call.object &&
+            expr->method_call.args[0]->method_call.object->kind == IRON_HIR_EXPR_IDENT) {
+            IronHIR_Expr *opt = expr->method_call.object;
+            IronHIR_Expr *call = expr->method_call.args[0];
+            IronHIR_Expr *recv = call->method_call.object;
+            IronLIR_ValueId ov = lower_expr(ctx, opt);
+            TempOwned *opt_temps = NULL;
+            note_owned_temp(ctx, &opt_temps, opt, ov, span);
+            IronLIR_ValueId has = iron_lir_is_not_null(ctx->current_func, ctx->current_block,
+                                                       ov, span)->id;
+            IronLIR_Block *some_b  = new_block(ctx, make_label(ctx, "opt_text_some"));
+            IronLIR_Block *none_b  = new_block(ctx, make_label(ctx, "opt_text_null"));
+            IronLIR_Block *merge_b = new_block(ctx, make_label(ctx, "opt_text_merge"));
+            if (!block_is_terminated(ctx->current_block))
+                iron_lir_branch(ctx->current_func, ctx->current_block, has,
+                                some_b->id, none_b->id, span);
+            switch_block(ctx, some_b);
+            IronLIR_ValueId payload = iron_lir_cast(ctx->current_func, ctx->current_block, ov,
+                                                    recv->type, span)->id;
+            hmput(ctx->val_binding_map, recv->ident.var_id, payload);
+            IronLIR_ValueId text = lower_expr(ctx, call);
+            IronLIR_Block *some_end = ctx->current_block;
+            if (!block_is_terminated(some_end))
+                iron_lir_jump(ctx->current_func, some_end, merge_b->id, span);
+            switch_block(ctx, none_b);
+            IronLIR_Instr *null_text = iron_lir_const_string(ctx->current_func, none_b,
+                                                             "null", expr->type, span);
+            iron_lir_jump(ctx->current_func, none_b, merge_b->id, span);
+            switch_block(ctx, merge_b);
+            IronLIR_Instr *phi = iron_lir_phi(ctx->current_func, merge_b, expr->type, span);
+            iron_lir_phi_add_incoming(phi, text, some_end->id);
+            iron_lir_phi_add_incoming(phi, null_text->id, none_b->id);
+            release_owned_temps(ctx, &opt_temps, span);
+            return phi->id;
+        }
         /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset / Ptr.diff compiler builtins.
          * `Ptr.offset(p, n)` parses as IRON_NODE_METHOD_CALL (uppercase "Ptr" +
          * lowercase "offset" heuristic) and lowers to IRON_HIR_EXPR_METHOD_CALL

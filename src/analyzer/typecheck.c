@@ -5726,6 +5726,44 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     }
                     continue;
                 }
+                /* A T? of such an object (#451) prints "null" or the
+                 * to_string() text: hir_to_lir lowers the part to a null
+                 * test around the call. */
+                Iron_Type *opt_obj = part_type->kind == IRON_TYPE_NULLABLE ? part_type->nullable.inner : NULL;
+                if (opt_obj && opt_obj->kind == IRON_TYPE_RC) opt_obj = opt_obj->rc.inner;
+                if (opt_obj && opt_obj->kind == IRON_TYPE_OBJECT && opt_obj->object.decl &&
+                    is_stringifiable(ctx, opt_obj)) {
+                    const char *on = opt_obj->object.decl->name;
+                    Iron_MethodDecl *ts_md = NULL;
+                    for (int di = 0; di < ctx->program->decl_count; di++) {
+                        Iron_Node *d = ctx->program->decls[di];
+                        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+                        if (strcmp(md->type_name, on) == 0 &&
+                            strcmp(md->method_name, "to_string") == 0) { ts_md = md; break; }
+                    }
+                    if (ts_md && !ts_md->is_readonly && !ts_md->is_pure) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "'%s'.to_string() must be readonly to be interpolated",
+                                 on);
+                        emit_error(ctx, IRON_ERR_NOT_STRINGABLE, n->parts[i]->span, msg,
+                                   "declare it as `readonly func to_string() -> String`");
+                        continue;
+                    }
+                    bool returns_string = false;
+                    if (ts_md && ts_md->resolved_return_type)
+                        returns_string = ts_md->resolved_return_type->kind == IRON_TYPE_STRING;
+                    else if (ts_md && ts_md->return_type &&
+                             ts_md->return_type->kind == IRON_NODE_TYPE_ANNOTATION) {
+                        Iron_TypeAnnotation *rta = (Iron_TypeAnnotation *)ts_md->return_type;
+                        returns_string = rta->name && strcmp(rta->name, "String") == 0 &&
+                                         !rta->is_nullable && !rta->is_array;
+                    }
+                    if (!returns_string)
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, n->parts[i]->span,
+                                   "to_string() must return String to be used in interpolation", NULL);
+                    continue;
+                }
                 if (!is_stringifiable(ctx, part_type)) {
                     char msg[256];
                     const char *ts = iron_type_to_string(part_type, ctx->arena);
