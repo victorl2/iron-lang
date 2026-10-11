@@ -1,6 +1,8 @@
 /* json_float_check.c -- the json module's float formatter (Ryu, in
  * iron_json.c) against a brute-force shortest round-trip search, over random
- * bit patterns, decimal-looking values and subnormals.
+ * bit patterns, decimal-looking values and subnormals; and its number
+ * parser (exact fast path, Eisel-Lemire, strtod) against strtod on random
+ * decimal strings and on the shortest forms of random doubles.
  * usage: json_float_check [count] [seed] */
 #include "stdlib/iron_json.c"
 #include <time.h>
@@ -26,6 +28,58 @@ static int json_shortest_slow(double v, char *digits, int *exp, int *neg) {
 }
 static uint64_t rng = 88172645463325252ULL;
 static uint64_t next(void) { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; return rng; }
+/* Parse `text` as one JSON number with the scanner; returns the double
+ * (an integer result is converted) or NAN when it was rejected. */
+static double scan_number(const char *text) {
+    JsonScan j;
+    memset(&j, 0, sizeof j);
+    j.p = (const unsigned char *)text;
+    j.len = strlen(text);
+    j.max_depth = 8;
+    double d = NAN;
+    if (js_number(&j) && j.pos == j.len) {
+        if (j.ops[0] == IRON_JSON_OP_INT) d = (double)j.ops[1];
+        else d = j.fl[0];
+    }
+    iron_mem_free(j.ops);
+    iron_mem_free(j.fl);
+    return d;
+}
+
+static long check_parse(long n) {
+    long bad = 0;
+    char buf[64];
+    for (long i = 0; i < n; i++) {
+        int mode = (int)(i % 3);
+        if (mode == 0) {
+            /* Random digits, a fraction and an exponent: hits Eisel-Lemire. */
+            int nd = 1 + (int)(next() % 19), fd = (int)(next() % 20);
+            char *o = buf;
+            if (next() & 1) *o++ = '-';
+            *o++ = (char)('1' + next() % 9);
+            for (int k = 1; k < nd; k++) *o++ = (char)('0' + next() % 10);
+            if (fd) { *o++ = '.'; for (int k = 0; k < fd; k++) *o++ = (char)('0' + next() % 10); }
+            o += sprintf(o, "e%d", (int)(next() % 640) - 340);
+            *o = 0;
+        } else {
+            uint64_t b = next();
+            double v;
+            memcpy(&v, &b, 8);
+            if (!isfinite(v)) continue;
+            snprintf(buf, sizeof buf, mode == 1 ? "%.17g" : "%.16g", v);
+            if (!strchr(buf, '.') && !strchr(buf, 'e')) strcat(buf, ".0");
+        }
+        double want = strtod(buf, NULL);
+        if (!isfinite(want)) continue;          /* the scanner rejects these */
+        double got = scan_number(buf);
+        if (memcmp(&got, &want, 8) != 0 && !(got == 0 && want == 0 && signbit(got) == signbit(want))) {
+            if (bad < 10) printf("PARSE MISMATCH %s strtod=%.17g scan=%.17g\n", buf, want, got);
+            bad++;
+        }
+    }
+    return bad;
+}
+
 int main(int argc, char **argv) {
     long n = argc > 1 ? atol(argv[1]) : 1000000;
     if (argc > 2) rng = strtoull(argv[2], NULL, 10);
@@ -46,6 +100,8 @@ int main(int argc, char **argv) {
             bad++;
         }
     }
-    printf("checked %ld, mismatches %ld\n", n, bad);
-    return bad != 0;
+    printf("format: checked %ld, mismatches %ld\n", n, bad);
+    long pbad = check_parse(n);
+    printf("parse: checked %ld, mismatches %ld\n", n, pbad);
+    return bad != 0 || pbad != 0;
 }

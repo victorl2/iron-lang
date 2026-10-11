@@ -313,6 +313,58 @@ static int js_string(JsonScan *j, int64_t op) {
     return 1;
 }
 
+static inline uint64_t json_umul128(uint64_t a, uint64_t b, uint64_t *hi);
+
+static inline int json_clz64(uint64_t x) {
+#if defined(__GNUC__) || defined(__clang__)
+    return __builtin_clzll(x);
+#else
+    int n = 0;
+    while (!(x & (1ULL << 63))) { x <<= 1; n++; }
+    return n;
+#endif
+}
+
+/* Eisel-Lemire: the double nearest to w * 10^q for a nonzero w of at most
+ * 19 decimal digits, exact without a big-number fallback (Lemire, "Number
+ * Parsing at a Gigabyte per Second", 2021; Mushtak and Lemire, "Fast
+ * Number Parsing Without Fallback", 2023); structure after fast_float.
+ * Returns 0 when the caller should use strtod instead (q out of the table,
+ * a subnormal result, or overflow). */
+static int json_eisel_lemire(uint64_t w, int64_t q, int neg, double *out) {
+    if (w == 0 || q < -342 || q > 308) return 0;
+    int lz = json_clz64(w);
+    w <<= lz;
+    const uint64_t *t = json_pow5_128[q + 342];
+    uint64_t hi;
+    uint64_t lo = json_umul128(w, t[0], &hi);
+    if ((hi & 0x1FF) == 0x1FF) {
+        uint64_t hi2;
+        (void)json_umul128(w, t[1], &hi2);
+        lo += hi2;
+        if (hi2 > lo) hi++;
+    }
+    int upperbit = (int)(hi >> 63);
+    int shift = upperbit + 9;
+    uint64_t mantissa = hi >> shift;
+    int64_t power2 = (((152170 + 65536) * q) >> 16) + 63 + upperbit - lz + 1023;
+    if (power2 <= 0) return 0;               /* subnormal: strtod */
+    if (lo <= 1 && q >= -4 && q <= 23 && (mantissa & 3) == 1 &&
+        (mantissa << shift) == hi)
+        mantissa &= ~(uint64_t)1;            /* exactly halfway: to even */
+    mantissa += mantissa & 1;
+    mantissa >>= 1;
+    if (mantissa >= (2ULL << 52)) {
+        mantissa = 1ULL << 52;
+        power2++;
+    }
+    mantissa &= ~(1ULL << 52);
+    if (power2 >= 0x7FF) return 0;           /* overflow: reported by strtod path */
+    uint64_t bits = mantissa | ((uint64_t)power2 << 52) | ((uint64_t)neg << 63);
+    memcpy(out, &bits, sizeof bits);
+    return 1;
+}
+
 static const double json_pow10[] = {
     1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11,
     1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22
@@ -408,6 +460,8 @@ static int js_number(JsonScan *j) {
         if (neg) d = -d;
     } else if (mant == 0) {
         d = neg ? -0.0 : 0.0;
+    } else if (!nonzero_dropped && json_eisel_lemire(mant, e, neg, &d)) {
+        /* 16 to 19 significant digits or a large exponent: still exact. */
     } else {
         char small[64];
         size_t n = i - start;

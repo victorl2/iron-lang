@@ -24,3 +24,35 @@ for i in range(326):
     out.append("    { 0x%016xULL, 0x%016xULL }," % (lo, hi))
 out.append("};")
 print("\n".join(out))
+
+# Eisel-Lemire (fast_float) table for float parsing: for q in [-342, 308],
+# a 128-bit approximation of 5^q with its top bit set, as {high, low}
+# (truncated for q >= 0, rounded up for q < 0).
+pow5_128 = []
+for q in range(-342, 0):
+    power5 = 5 ** -q
+    z = 0
+    while (1 << z) < power5:
+        z += 1
+    if q >= -27:
+        b = z + 127
+        c = 2 ** b // power5 + 1
+    else:
+        b = 2 * z + 2 * 64
+        c = 2 ** b // power5 + 1
+        while c >= (1 << 128):
+            c //= 2
+    pow5_128.append(c)
+for q in range(0, 309):
+    power5 = 5 ** q
+    while power5 < (1 << 127):
+        power5 *= 2
+    while power5 >= (1 << 128):
+        power5 //= 2
+    pow5_128.append(power5)
+lines = ["static const uint64_t json_pow5_128[%d][2] = {" % len(pow5_128)]
+for c in pow5_128:
+    assert (1 << 127) <= c < (1 << 128)
+    lines.append("    { 0x%016xULL, 0x%016xULL }," % (c >> 64, c & ((1 << 64) - 1)))
+lines.append("};")
+print("\n".join(lines))
