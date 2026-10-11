@@ -1,0 +1,24 @@
+-- A static function called through its type's name (`Json.int(i)`,
+-- `Crypto.sha256(s)`, `Hasher.new(...)`) in a parallel for body was taken
+-- for a mutating method call on an outer variable named after the type
+-- (E0208). Found by the crypto program fuzzer (#488).
+import json
+import crypto
+import encoding
+
+func main() {
+    val m = Mutex(0)
+    for i in range(8) parallel {
+        val j = Json.int(i)
+        val d = Crypto.sha256("block {i}")
+        var h = Hasher.new(HashAlgorithm.Sha256)
+        h.update("block {i}")
+        val same = h.finish() == d
+        val g = m.lock()
+        if same {
+            g.set(g.get() + j.int_or(0) + Hex.encode(d).byte_len())
+        }
+    }
+    val g = m.lock()
+    println("{g.get()}")
+}
