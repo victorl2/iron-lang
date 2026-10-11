@@ -3878,6 +3878,9 @@ static void bind_from_expected_instance(Iron_Node *tmpl, Iron_Type *expd,
     if (!expd || expd->kind != IRON_TYPE_OBJECT || !expd->object.decl ||
         !expd->object.decl->name)
         return;
+    /* Instance names always contain "__"; the registry may hold names of
+     * a program already freed (several programs per process in tests). */
+    if (!strstr(expd->object.decl->name, "__")) return;
     Iron_Type **iargs = NULL;
     int iargc = 0;
     Iron_Node *inst_of = iron_generics_instance_of(expd->object.decl->name, &iargs, &iargc);
