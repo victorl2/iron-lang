@@ -4421,21 +4421,34 @@ static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
     }
     switch ((int)(in->kind)) {
     case IRON_LIR_PTR_LOAD:
-        if (!gencheck_is_checked_ptr(gencheck_value_type(fn, in->ptr_load.fp))) return false;
-        *out_ptr = in->ptr_load.fp;
-        *out_gen = gencheck_source_of(fn, in->ptr_load.fp);
+    case IRON_LIR_PTR_STORE: {
+        /* Every load or store through a pointer except an unchecked one. */
+        IronLIR_ValueId fp = in->kind == IRON_LIR_PTR_LOAD ? in->ptr_load.fp : in->ptr_store.fp;
+        Iron_Type *ft = gencheck_value_type(fn, fp);
+        if (ft && ft->kind == IRON_TYPE_PTR && ft->ptr.is_unchecked) return false;
+        *out_ptr = fp;
+        *out_gen = gencheck_source_of(fn, fp);
+        if (*out_gen == IRON_LIR_GEN_ANY) {
+            /* The deref's own tag when nothing better is known (it is the
+             * HIR's view of the pointer's root binding). */
+            IronLIR_GenSource dg = in->kind == IRON_LIR_PTR_LOAD ? in->ptr_load.gen_source
+                                                                : in->ptr_store.gen_source;
+            if (dg == IRON_LIR_GEN_ARENA) *out_gen = dg;
+        }
         return true;
-    case IRON_LIR_PTR_STORE:
-        if (!gencheck_is_checked_ptr(gencheck_value_type(fn, in->ptr_store.fp))) return false;
-        *out_ptr = in->ptr_store.fp;
-        *out_gen = gencheck_source_of(fn, in->ptr_store.fp);
-        return true;
+    }
     case IRON_LIR_GET_FIELD:
-    case IRON_LIR_SET_FIELD:
-        if (!gencheck_is_checked_ptr(gencheck_value_type(fn, in->field.object))) return false;
-        *out_ptr = in->field.object;
-        *out_gen = gencheck_source_of(fn, in->field.object);
+    case IRON_LIR_SET_FIELD: {
+        IronLIR_ValueId obj = in->field.object;
+        IronLIR_Instr *od = (obj != IRON_LIR_VALUE_INVALID &&
+                             obj < (IronLIR_ValueId)arrlen(fn->value_table)) ? fn->value_table[obj] : NULL;
+        if (!(od && od->kind == IRON_LIR_ADDR_OF) &&
+            !gencheck_is_checked_ptr(gencheck_value_type(fn, obj)))
+            return false;
+        *out_ptr = obj;
+        *out_gen = gencheck_source_of(fn, obj);
         return true;
+    }
     default:
         return false;
     }
@@ -4508,10 +4521,18 @@ void lower_genchecks(IronLIR_Module *module) {
                     for (int ai = 0; callee && ai < in->call.arg_count &&
                                      ai < callee->param_count; ai++) {
                         IronLIR_ValueId av = in->call.args[ai];
-                        if (!gencheck_is_checked_ptr(gencheck_value_type(fn, av))) continue;
                         Iron_Type *pt = callee->params[ai].type;
                         if (!pt || pt->kind == IRON_TYPE_PTR) continue;
-                        arrput(rebuilt, gencheck_new(fn, in, av, gencheck_source_of(fn, av)));
+                        IronLIR_GenSource src;
+                        if (gencheck_is_checked_ptr(gencheck_value_type(fn, av)))
+                            src = gencheck_source_of(fn, av);
+                        else if (gencheck_is_heap_handle(fn, av))
+                            src = IRON_LIR_GEN_HEAP;    /* `h.bump()` after `free h` */
+                        else if (gencheck_is_arena_handle(fn, av))
+                            src = IRON_LIR_GEN_ARENA;
+                        else
+                            continue;
+                        arrput(rebuilt, gencheck_new(fn, in, av, src));
                         inserted_any = true;
                     }
                 }
@@ -6663,8 +6684,155 @@ static int scope_of_place(IronLIR_Func *fn, IronLIR_ValueId v) {
     return 0;
 }
 
+/* Whether place `v` is (a field or inline element of) the receiver of the
+ * pointer-receiver method fn. */
+static bool place_from_self(IronLIR_Func *fn, IronLIR_ValueId v, int depth) {
+    if (!fn->is_mut_receiver_method || depth > 32) return false;
+    if (v == 1) return true;
+    if (v == IRON_LIR_VALUE_INVALID || v >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *d = fn->value_table[v];
+    if (!d) return false;
+    if (d->kind == IRON_LIR_GET_FIELD) {
+        Iron_Type *ot = gencheck_value_type(fn, d->field.object);
+        if (d->field.object != 1 && (!ot || ot->kind == IRON_TYPE_PTR || ot->kind == IRON_TYPE_RC))
+            return false;
+        return place_from_self(fn, d->field.object, depth + 1);
+    }
+    if (d->kind == IRON_LIR_GET_INDEX) {
+        Iron_Type *at = gencheck_value_type(fn, d->index.array);
+        if (!at || at->kind != IRON_TYPE_ARRAY || (at->array.size < 0 && !at->array.is_bounded))
+            return false;
+        return place_from_self(fn, d->index.array, depth + 1);
+    }
+    if (d->kind == IRON_LIR_CAST) return place_from_self(fn, d->cast.value, depth + 1);
+    return false;
+}
+
+static const char *call_callee_name(IronLIR_Func *fn, IronLIR_Instr *in) {
+    if (in->call.func_decl) return in->call.func_decl->name;
+    IronLIR_ValueId fptr = in->call.func_ptr;
+    if (fptr != IRON_LIR_VALUE_INVALID && fptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+        fn->value_table[fptr] && fn->value_table[fptr]->kind == IRON_LIR_FUNC_REF)
+        return fn->value_table[fptr]->func_ref.func_name;
+    return NULL;
+}
+
+/* Receiver provenance (#542): which pointer-receiver methods need their
+ * receiver's generation, to the fixed point (a method passing self to such
+ * a method needs it too), and which calls hand it over. */
+static void mark_self_gen(IronLIR_Module *module) {
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0 || !fn->is_mut_receiver_method) continue;
+        for (int bi = 0; bi < fn->block_count && !fn->needs_self_gen; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind == IRON_LIR_ADDR_OF && place_from_self(fn, in->addr_of.target, 0)) {
+                    fn->needs_self_gen = true;
+                    break;
+                }
+            }
+        }
+    }
+    for (bool changed = true; changed; ) {
+        changed = false;
+        for (int fi = 0; fi < module->func_count; fi++) {
+            IronLIR_Func *fn = module->funcs[fi];
+            if (fn->is_extern || fn->block_count == 0 || !fn->is_mut_receiver_method ||
+                fn->needs_self_gen) continue;
+            for (int bi = 0; bi < fn->block_count && !fn->needs_self_gen; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *in = blk->instrs[ii];
+                    if (in->kind != IRON_LIR_CALL || !in->call.self_by_addr || in->call.arg_count < 1)
+                        continue;
+                    IronLIR_Func *cf = gencheck_find_func(module, call_callee_name(fn, in));
+                    if (cf && cf->needs_self_gen && place_from_self(fn, in->call.args[0], 0)) {
+                        fn->needs_self_gen = true;
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+        if (fn->needs_self_gen) fn->takes_local_addr = true;
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind != IRON_LIR_CALL || !in->call.self_by_addr || in->call.arg_count < 1)
+                    continue;
+                IronLIR_Func *cf = gencheck_find_func(module, call_callee_name(fn, in));
+                if (!cf || !cf->needs_self_gen) continue;
+                in->call.pass_self_gen = true;
+                fn->takes_local_addr = true;
+            }
+        }
+    }
+}
+
+/* Whether place `v` is (a field or inline element of) an element of a
+ * growable list. */
+static bool place_in_list_elem(IronLIR_Func *fn, IronLIR_ValueId v, int depth) {
+    if (depth > 32 || v == IRON_LIR_VALUE_INVALID || v >= (IronLIR_ValueId)arrlen(fn->value_table))
+        return false;
+    IronLIR_Instr *d = fn->value_table[v];
+    if (!d) return false;
+    if (d->kind == IRON_LIR_GET_INDEX) {
+        Iron_Type *at = gencheck_value_type(fn, d->index.array);
+        if (!at || at->kind != IRON_TYPE_ARRAY) return false;
+        if (at->array.size < 0 && !at->array.is_bounded) return true;
+        return place_in_list_elem(fn, d->index.array, depth + 1);
+    }
+    if (d->kind == IRON_LIR_GET_FIELD) {
+        Iron_Type *ot = gencheck_value_type(fn, d->field.object);
+        if (!ot || ot->kind == IRON_TYPE_PTR || ot->kind == IRON_TYPE_RC) return false;
+        return place_in_list_elem(fn, d->field.object, depth + 1);
+    }
+    if (d->kind == IRON_LIR_CAST) return place_in_list_elem(fn, d->cast.value, depth + 1);
+    return false;
+}
+
+/* List element borrows (#543): a method called on a list element pins the
+ * list unless the callee provably changes no list (no allocation or free,
+ * no unknown or indirect call) and keeps no pointer to its receiver. */
+static void mark_pinned_receivers(IronLIR_Module *module) {
+    IronLIR_FuncSummaryEntry *summaries = NULL;
+    bool have = false;
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind != IRON_LIR_CALL || !in->call.self_by_addr || in->call.arg_count < 1)
+                    continue;
+                if (!place_in_list_elem(fn, in->call.args[0], 0)) continue;
+                const char *cname = call_callee_name(fn, in);
+                IronLIR_Func *cf = gencheck_find_func(module, cname);
+                bool pin = true;
+                if (cf && !cf->is_extern && !cf->needs_self_gen) {
+                    if (!have) { summaries = iron_lir_compute_func_summaries(module); have = true; }
+                    IronLIR_FuncSummary sm = iron_lir_func_summary_lookup(summaries, cname);
+                    pin = sm.may_free || sm.may_spawn;
+                }
+                in->call.pin_recv = pin;
+            }
+        }
+    }
+    if (have) iron_lir_func_summaries_free(summaries);
+}
+
 void iron_lir_prune_stack_scopes(IronLIR_Module *module) {
     if (!module) return;
+    mark_self_gen(module);
+    mark_pinned_receivers(module);
     for (int fi = 0; fi < module->func_count; fi++) {
         IronLIR_Func *fn = module->funcs[fi];
         if (fn->is_extern || fn->block_count == 0) continue;
@@ -6675,6 +6843,12 @@ void iron_lir_prune_stack_scopes(IronLIR_Module *module) {
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *in = blk->instrs[ii];
                 if (in->kind == IRON_LIR_SCOPE_ENTER) any_scope = true;
+                if (in->kind == IRON_LIR_CALL && in->call.pass_self_gen) {
+                    int rs = scope_of_place(fn, in->call.args[0]);
+                    in->call.recv_scope = rs;
+                    if (rs > 0) hmput(used, rs, true);
+                    continue;
+                }
                 if (in->kind != IRON_LIR_ADDR_OF) continue;
                 any_addr = true;
                 int sid = scope_of_place(fn, in->addr_of.target);

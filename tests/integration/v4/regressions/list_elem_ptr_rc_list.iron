@@ -1,0 +1,13 @@
+-- @expect-panic: list changed while a pointer to one of its elements is in use
+-- An element of an rc list grown through another handle (#543).
+func f(p: *Int, r: rc [Int]) -> String {
+    for i in range(1000) {
+        r.push(i)
+    }
+    return "{p}"
+}
+
+func main() {
+    val r: rc [Int] = rc [1, 2, 3]
+    println("{f(&r[0], r)}")
+}

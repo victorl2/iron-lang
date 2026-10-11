@@ -59,11 +59,13 @@ void test_arena_alloc_hdr_offsets(void) {
 /* ── Test C — Iron_ArenaSave is two uint64 (LP64) ──────────────────────── */
 
 void test_arena_save_covers_two_uint64(void) {
-    /* ArenaSave = { offset, gen_snapshot } — save() captures the current
-     * bump offset + the arena generation snapshot (28-CONTEXT.md GA1). On
-     * LP64 with two uint64 fields the struct is exactly 16B. */
-    TEST_ASSERT_EQUAL_UINT64(16, (uint64_t)sizeof(Iron_ArenaSave));
-    TEST_ASSERT_TRUE(sizeof(Iron_ArenaSave) >= 2 * sizeof(uint64_t));
+    /* ArenaSave = { offset, gen_snapshot, seg } — save() captures the
+     * current bump offset, the first segment of later allocations and the
+     * generation of the segment before it (#432). Three uint64: 24B. */
+    TEST_ASSERT_EQUAL_UINT64(24, (uint64_t)sizeof(Iron_ArenaSave));
+    TEST_ASSERT_EQUAL_UINT64(0, (uint64_t)offsetof(Iron_ArenaSave, offset));
+    TEST_ASSERT_EQUAL_UINT64(8, (uint64_t)offsetof(Iron_ArenaSave, gen_snapshot));
+    TEST_ASSERT_EQUAL_UINT64(16, (uint64_t)offsetof(Iron_ArenaSave, seg));
 }
 
 /* ── Unity entrypoint ─────────────────────────────────────────────────── */

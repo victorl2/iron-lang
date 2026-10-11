@@ -36,8 +36,16 @@
 
 void  *iron_mem_alloc(size_t size)                        { return malloc(size); }
 void  *iron_mem_calloc(size_t count, size_t size)         { return calloc(count, size); }
-void  *iron_mem_realloc(void *ptr, size_t size)           { return realloc(ptr, size); }
-void   iron_mem_free(void *ptr)                           { free(ptr); }
+/* A list buffer an element pointer is borrowed from (iron_list_pin) must
+ * not move or go away while the borrowing call runs (#543). */
+void  *iron_mem_realloc(void *ptr, size_t size) {
+    IRON_LIST_PIN_CHECK(ptr);
+    return realloc(ptr, size);
+}
+void   iron_mem_free(void *ptr) {
+    IRON_LIST_PIN_CHECK(ptr);
+    free(ptr);
+}
 void  *iron_mem_copy(void *dst, const void *src, size_t n) { return memcpy(dst, src, n); }
 void  *iron_mem_move(void *dst, const void *src, size_t n) { return memmove(dst, src, n); }
 void  *iron_mem_set(void *dst, int byte, size_t n)        { return memset(dst, byte, n); }

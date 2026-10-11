@@ -351,6 +351,18 @@ struct IronLIR_Instr {
              * if a future extern happens to share a prefix but takes its
              * receiver by value. */
             bool            self_by_addr;
+            /* Receiver provenance (#542): set by iron_lir_prune_stack_scopes
+             * when the callee is a pointer-receiver method that needs its
+             * receiver's generation (it takes `&self...`); the emitter then
+             * hands the generation over in iron_self_gen right before the
+             * call. recv_scope is the scope of the receiver when it is a
+             * local. */
+            bool            pass_self_gen;
+            int             recv_scope;
+            /* List element borrows (#543): the receiver is an element of a
+             * growable list and the callee might change lists (or needs
+             * the receiver's generation): pin the list for the call. */
+            bool            pin_recv;
             /* 2026-07 remediation (ARENA-10 arena-OOM panic name): when the
              * call is an Arena ctor stub (arena_new / arena_new_threadsafe /
              * arena_with_capacity) bound by a LET, hir_to_lir records the
@@ -678,6 +690,11 @@ struct IronLIR_Func {
      * through the receiver persist to the caller's binding — the MUT-07
      * mutation-persistence contract. Default false via lir.c memset. */
     bool               is_mut_receiver_method;
+    /* Receiver provenance (#542): a pointer-receiver method whose body
+     * takes the address of (a part of) self, directly or by passing self
+     * on to such a method. Its prologue takes the receiver's generation
+     * from iron_self_gen. */
+    bool               needs_self_gen;
 
     /* PARM-02: see the block comment above web_frame_captures. */
     bool              *param_is_var;

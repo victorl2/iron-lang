@@ -159,6 +159,64 @@ uint64_t iron_heap_next_gen(void) {
     return iron_gen_new(false);
 }
 
+/* ── List element borrows (iron_runtime.h, #543) ─────────────────────────
+ * The pinned buffers and their pin counts, in a small array under a spin
+ * lock: pins are few at any moment (one per call in progress that borrows
+ * an element). iron_list_pin_count is their total, read without the lock
+ * by the fast path of IRON_LIST_PIN_CHECK. */
+_Atomic uint64_t iron_list_pin_count;
+static atomic_flag s_pin_lock = ATOMIC_FLAG_INIT;
+static struct { const void *buf; uint64_t count; } *s_pins;
+static size_t s_npins, s_pincap;
+
+static void pin_lock(void)   { while (atomic_flag_test_and_set_explicit(&s_pin_lock, memory_order_acquire)) { } }
+static void pin_unlock(void) { atomic_flag_clear_explicit(&s_pin_lock, memory_order_release); }
+
+uint64_t iron_list_pin(const void *buf) {
+    if (buf) {
+        pin_lock();
+        size_t i = 0;
+        while (i < s_npins && s_pins[i].buf != buf) i++;
+        if (i == s_npins) {
+            if (s_npins == s_pincap) {
+                size_t cap = s_pincap ? s_pincap * 2 : 16;
+                void *n = realloc(s_pins, cap * sizeof(*s_pins));
+                if (!n) { pin_unlock(); iron_oom_abort("list pins"); }
+                s_pins = n;
+                s_pincap = cap;
+            }
+            s_pins[s_npins].buf = buf;
+            s_pins[s_npins].count = 0;
+            s_npins++;
+        }
+        s_pins[i].count++;
+        atomic_fetch_add_explicit(&iron_list_pin_count, 1, memory_order_relaxed);
+        pin_unlock();
+    }
+    return iron_gen_new(false);
+}
+
+void iron_list_unpin(const void *buf, uint64_t gen) {
+    (void)iron_gen_end(gen);
+    if (!buf) return;
+    pin_lock();
+    for (size_t i = 0; i < s_npins; i++) {
+        if (s_pins[i].buf != buf) continue;
+        if (--s_pins[i].count == 0) s_pins[i] = s_pins[--s_npins];
+        atomic_fetch_sub_explicit(&iron_list_pin_count, 1, memory_order_relaxed);
+        break;
+    }
+    pin_unlock();
+}
+
+bool iron_list_is_pinned(const void *buf) {
+    bool pinned = false;
+    pin_lock();
+    for (size_t i = 0; i < s_npins && !pinned; i++) pinned = s_pins[i].buf == buf;
+    pin_unlock();
+    return pinned;
+}
+
 /* ── Stack scopes (iron_runtime.h, #471 #537 #538 #541) ──────────────────
  *
  * Each thread that enters a scope takes a number (1..4095) and the scope
@@ -167,6 +225,7 @@ uint64_t iron_heap_next_gen(void) {
  * the table's id sequence, so a pointer into a dead thread's scope never
  * matches a scope of the thread that reuses the number. */
 _Thread_local uint64_t iron_stack_gen = IRON_STACK_GEN_INIT;
+_Thread_local uint64_t iron_self_gen = 0;
 _Thread_local IronStackState *iron_stack_st = NULL;
 _Atomic(IronStackState *) iron_stack_registry[IRON_STACK_THREADS];
 static atomic_flag s_stack_lock = ATOMIC_FLAG_INIT;

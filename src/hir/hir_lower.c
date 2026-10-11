@@ -3260,6 +3260,31 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
              * Methods inherit readonly when EITHER is_readonly OR is_pure
              * (pure >= readonly one-way subsumption per OQ-05). */
             f->is_readonly = md->is_readonly || md->is_pure;
+            /* PARM-02 for methods: a `var` parameter takes the caller's
+             * binding by address, as a function's does. Methods left
+             * param_is_var unset, so the method's writes reached a copy and
+             * were silently lost. The receiver form keeps the receiver as
+             * its first declared parameter; the classic form prepends self. */
+            if (!is_stub) {
+                int hoff = md->is_receiver_form ? 0 : 1;
+                bool any_var = false;
+                for (int p = 0; p < md->param_count; p++) {
+                    Iron_Param *ap = (Iron_Param *)md->params[p];
+                    if (ap && ap->is_var && !(hoff == 0 && p == 0)) { any_var = true; break; }
+                }
+                if (any_var && total_params == md->param_count + hoff) {
+                    bool *pv = (bool *)iron_arena_alloc(
+                        mod->arena, (size_t)total_params * sizeof(bool), _Alignof(bool));
+                    if (!pv) iron_oom_abort("hir_lower.c:method_decl param_is_var");
+                    memset(pv, 0, (size_t)total_params * sizeof(bool));
+                    for (int p = 0; p < md->param_count; p++) {
+                        Iron_Param *ap = (Iron_Param *)md->params[p];
+                        if (hoff == 0 && p == 0) continue;   /* the receiver */
+                        pv[p + hoff] = ap && ap->is_var;
+                    }
+                    f->param_is_var = pv;
+                }
+            }
             iron_hir_module_add_func(mod, f);
             break;
         }

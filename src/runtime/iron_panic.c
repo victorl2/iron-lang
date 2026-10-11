@@ -509,6 +509,28 @@ void iron_panic_arena_stale(const char *deref_file,
     abort();
 }
 
+/* A list whose element is borrowed by a call in progress was grown past its
+ * capacity, shrunk or freed (#543). */
+void iron_list_pinned_panic(const void *buf) {
+    (void)buf;
+    fflush(stdout);
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+    }
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"list_borrowed\"}\n", stderr);
+    } else {
+        fputs("iron: list changed while a pointer to one of its elements is in use\n", stderr);
+        fputs("  a call that received a pointer into the list (or a method called on one of\n"
+              "  its elements) is still running; the list cannot grow past its capacity,\n"
+              "  lose elements or be freed until it returns\n", stderr);
+    }
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
 /* restore() with a save point that is no longer valid: the arena was reset,
  * or restored to an earlier save point, after it was taken. */
 void iron_panic_arena_stale_save(const char *arena_name) {

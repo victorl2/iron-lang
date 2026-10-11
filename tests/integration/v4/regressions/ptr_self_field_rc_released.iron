@@ -1,0 +1,34 @@
+-- @expect-panic: stale pointer dereference
+-- A pointer to a field of an rc receiver, taken in a method, dies with
+-- the last strong handle (#542).
+object V {
+    val p: *Int
+}
+
+object Q {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func view() -> V {
+        return V(&self.n)
+    }
+    func view2() -> V {
+        return self.view()
+    }
+}
+
+object H {
+    var r: rc Q
+    init(r: rc Q) {
+        self.r = r
+    }
+}
+
+func main() {
+    var h = H(rc Q(4))
+    val v = h.r.view2()
+    println("live {v.p}")
+    h.r = rc Q(5)
+    println("{v.p}")
+}

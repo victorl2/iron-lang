@@ -1,0 +1,27 @@
+-- @expect-panic: stale pointer dereference
+-- A pointer to a field of a heap receiver taken in a method dies with
+-- the heap value (#542).
+object V {
+    val p: *Int
+}
+
+object Q {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func view() -> V {
+        return V(&self.n)
+    }
+    func view2() -> V {
+        return self.view()
+    }
+}
+
+func main() {
+    var h = heap Q(4)
+    val v = h.view()
+    println("live {v.p}")
+    free h
+    println("{v.p}")
+}

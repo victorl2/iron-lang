@@ -4961,16 +4961,67 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     ue->resolved_type = result;
                     break;
                 }
+                /* `&make().field` or `&make()[i]`: a place inside a
+                 * temporary that is destroyed at the end of the statement.
+                 * A place reached through a pointer or an rc handle is the
+                 * pointee's, and is checked at run time. */
+                {
+                    const Iron_Node *base = ue->operand;
+                    bool temp_base = false;
+                    for (int guard = 0; base && guard < 64; guard++) {
+                        const Iron_Node *obj = NULL;
+                        if (base->kind == IRON_NODE_FIELD_ACCESS)
+                            obj = ((const Iron_FieldAccess *)base)->object;
+                        else if (base->kind == IRON_NODE_INDEX)
+                            obj = ((const Iron_IndexExpr *)base)->object;
+                        else
+                            break;
+                        Iron_Type *ot = obj ? ((const Iron_ExprNode *)obj)->resolved_type : NULL;
+                        if (ot && (ot->kind == IRON_TYPE_PTR || ot->kind == IRON_TYPE_RC)) break;
+                        if (!obj || (obj->kind != IRON_NODE_IDENT &&
+                                     obj->kind != IRON_NODE_FIELD_ACCESS &&
+                                     obj->kind != IRON_NODE_INDEX)) {
+                            temp_base = obj != NULL;
+                            break;
+                        }
+                        base = obj;
+                    }
+                    if (temp_base) {
+                        emit_error(ctx, IRON_ERR_PTR_AMP_ON_RVALUE, ue->span,
+                                   "cannot take address of a place inside a temporary",
+                                   "the temporary is destroyed at the end of the statement;"
+                                   " bind it first (`val t = make()`, then `&t.field`)");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        ue->resolved_type = result;
+                        break;
+                    }
+                }
                 /* A growable list moves its elements when it grows, and
                  * its buffer carries no generation the pointer could be
                  * checked against; only fixed-size arrays give stable
                  * element addresses. A borrow for the duration of a call
                  * (`f(&list[i])`) is allowed, like auto-addressing. */
-                if (ue->operand->kind == IRON_NODE_INDEX && !ue->is_call_arg) {
-                    Iron_Node *lo = ((Iron_IndexExpr *)ue->operand)->object;
-                    Iron_Type *lt = lo ? ((Iron_ExprNode *)lo)->resolved_type : NULL;
-                    if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.size < 0 &&
-                        !lt->array.is_bounded) {
+                /* The place may also be a field of an element (`&xs[i].f`),
+                 * which moves with it (#543). */
+                bool in_list_elem = false;
+                for (const Iron_Node *pl = ue->operand; pl && !ue->is_call_arg; ) {
+                    if (pl->kind == IRON_NODE_INDEX) {
+                        Iron_Node *lo = ((const Iron_IndexExpr *)pl)->object;
+                        Iron_Type *lt = lo ? ((Iron_ExprNode *)lo)->resolved_type : NULL;
+                        if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.size < 0 &&
+                            !lt->array.is_bounded) { in_list_elem = true; break; }
+                        pl = lo;
+                    } else if (pl->kind == IRON_NODE_FIELD_ACCESS) {
+                        const Iron_Node *fo = ((const Iron_FieldAccess *)pl)->object;
+                        Iron_Type *ft = fo ? ((const Iron_ExprNode *)fo)->resolved_type : NULL;
+                        if (ft && (ft->kind == IRON_TYPE_PTR || ft->kind == IRON_TYPE_RC)) break;
+                        pl = fo;
+                    } else {
+                        break;
+                    }
+                }
+                if (in_list_elem) {
+                    {
                         emit_error(ctx, IRON_ERR_PTR_INTO_LIST, ue->span,
                                    "cannot take the address of a list element;"
                                    " the list may reallocate its elements",

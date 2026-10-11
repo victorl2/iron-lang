@@ -77,6 +77,28 @@ void  *iron_mem_alloc(size_t size);
 void  *iron_mem_calloc(size_t count, size_t size);
 void  *iron_mem_realloc(void *ptr, size_t size);
 void   iron_mem_free(void *ptr);
+
+/* ── List element borrows (#543) ─────────────────────────────────────────
+ * A call that receives a pointer into a growable list's element (`f(&xs[i])`,
+ * an auto-addressed `f(xs[i])`, the receiver of `xs[i].m()`) pins the
+ * list's buffer for its duration: growing the list past its capacity,
+ * removing, inserting, popping or clearing elements, or freeing the list
+ * while the buffer is pinned panics instead of leaving the pointer to freed
+ * or moved memory. The pointer's generation (from iron_list_pin) ends when
+ * the call returns, so a copy kept by the callee is stale afterwards. The
+ * fast path of the check is one relaxed load of the pin count. */
+extern _Atomic uint64_t iron_list_pin_count;
+uint64_t iron_list_pin(const void *buf);
+void     iron_list_unpin(const void *buf, uint64_t gen);
+void     iron_list_pinned_panic(const void *buf);
+bool     iron_list_is_pinned(const void *buf);
+#define IRON_LIST_PIN_CHECK(p)                                                      \
+    do {                                                                            \
+        const void *_pc = (const void *)(p);                                        \
+        if (_pc && atomic_load_explicit(&iron_list_pin_count, memory_order_relaxed) && \
+            iron_list_is_pinned(_pc))                                               \
+            iron_list_pinned_panic(_pc);                                            \
+    } while (0)
 void  *iron_mem_copy(void *dst, const void *src, size_t n);
 void  *iron_mem_move(void *dst, const void *src, size_t n);
 void  *iron_mem_set(void *dst, int byte, size_t n);
@@ -495,6 +517,9 @@ typedef struct IronStackState {
     _Atomic(iron_atomic_u64 *) more[IRON_STACK_CHUNKS]; /* deeper chunks */
 } IronStackState;
 extern _Thread_local uint64_t iron_stack_gen;          /* innermost scope's gen */
+/* The receiver's generation, handed from a call to the pointer-receiver
+ * method it calls (#542); 0 when none was handed over. */
+extern _Thread_local uint64_t iron_self_gen;
 extern _Thread_local IronStackState *iron_stack_st;    /* this thread's table */
 extern _Atomic(IronStackState *) iron_stack_registry[IRON_STACK_THREADS];
 IronStackState *iron_stack_attach(void);               /* first scope of a thread */
@@ -1664,12 +1689,14 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         /* LIST-01: pop on empty read items[-1] and corrupted count to -1 */ \
         if (self->count <= 0) \
             iron_panic_index_oob("Iron_List_" #suffix "_pop", 0, -1, self->count); \
+        IRON_LIST_PIN_CHECK(self->items); \
         return self->items[--self->count]; \
     } \
     T Iron_List_##suffix##_remove(Iron_List_##suffix *self, int64_t index) { \
         /* Removes and returns items[index], shifting the tail down. */ \
         if ((uint64_t)index >= (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_remove", 0, index, self->count); \
+        IRON_LIST_PIN_CHECK(self->items); \
         T removed = self->items[index]; \
         iron_mem_move(&self->items[index], &self->items[index + 1], \
                 (size_t)(self->count - index - 1) * sizeof(T)); \
@@ -1680,6 +1707,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         /* index == count appends. */ \
         if ((uint64_t)index > (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_insert", 0, index, self->count + 1); \
+        IRON_LIST_PIN_CHECK(self->items); \
         Iron_List_##suffix##_push(self, item); \
         iron_mem_move(&self->items[index + 1], &self->items[index], \
                 (size_t)(self->count - 1 - index) * sizeof(T)); \
@@ -1713,6 +1741,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return dst; \
     } \
     void Iron_List_##suffix##_clear(Iron_List_##suffix *self) { \
+        IRON_LIST_PIN_CHECK(self->items); \
         self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
@@ -1788,12 +1817,14 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         /* LIST-01: pop on empty read items[-1] and corrupted count to -1 */ \
         if (self->count <= 0) \
             iron_panic_index_oob("Iron_List_" #suffix "_pop", 0, -1, self->count); \
+        IRON_LIST_PIN_CHECK(self->items); \
         return self->items[--self->count]; \
     } \
     T Iron_List_##suffix##_remove(Iron_List_##suffix *self, int64_t index) { \
         /* Removes and returns items[index], shifting the tail down. */ \
         if ((uint64_t)index >= (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_remove", 0, index, self->count); \
+        IRON_LIST_PIN_CHECK(self->items); \
         T removed = self->items[index]; \
         iron_mem_move(&self->items[index], &self->items[index + 1], \
                 (size_t)(self->count - index - 1) * sizeof(T)); \
@@ -1804,6 +1835,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         /* index == count appends. */ \
         if ((uint64_t)index > (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_insert", 0, index, self->count + 1); \
+        IRON_LIST_PIN_CHECK(self->items); \
         Iron_List_##suffix##_push(self, item); \
         iron_mem_move(&self->items[index + 1], &self->items[index], \
                 (size_t)(self->count - 1 - index) * sizeof(T)); \
@@ -1820,6 +1852,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return self->count; \
     } \
     void Iron_List_##suffix##_clear(Iron_List_##suffix *self) { \
+        IRON_LIST_PIN_CHECK(self->items); \
         self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \

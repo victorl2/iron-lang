@@ -1,0 +1,23 @@
+-- @expect-panic: stale pointer dereference
+-- An element pointer the callee keeps is only valid during the call: the
+-- list may grow afterwards, so a later read panics (#543).
+object Keep {
+    var p: ?*Int
+    init() {
+        self.p = null
+    }
+}
+
+func keep(p: *Int, k: *var Keep) {
+    k.p = p
+}
+
+func main() {
+    var xs = [1, 2, 3]
+    var k = Keep()
+    keep(&xs[0], &k)
+    val q = k.p
+    if q != null {
+        println("{q}")
+    }
+}

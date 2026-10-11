@@ -15,6 +15,7 @@
 
 #include "hir/hir_to_lir.h"
 #include "lir/verify.h"
+#include "lir/lir_optimize.h"
 #include "diagnostics/diagnostics.h"
 #include "analyzer/types.h"
 #include "vendor/stb_ds.h"
@@ -3673,8 +3674,33 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         /* Arguments are borrowed; owned temporaries are released after the
          * call. (List push / insert take ownership on the collection path
          * above.) */
+        bool *m_by_addr = NULL;
+        bool m_any_by_addr = false;
         for (int i = (ufcs_static ? 1 : 0); i < expr->method_call.arg_count; i++) {
             IronHIR_Expr *ae = expr->method_call.args[i];
+            /* A `var` parameter of a method takes the binding by address,
+             * like a function's (PARM-02): the method's writes reached a
+             * copy and were lost. */
+            {
+                int vpi = (int)arrlen(args);
+                if (callee_tf && callee_tf->param_is_var && vpi < callee_tf->param_count &&
+                    callee_tf->param_is_var[vpi] && ae && ae->kind == IRON_HIR_EXPR_IDENT) {
+                    ptrdiff_t aai = hmgeti(ctx->var_alloca_map, ae->ident.var_id);
+                    if (aai >= 0) {
+                        if (!m_by_addr) {
+                            int total = expr->method_call.arg_count + 1;
+                            m_by_addr = (bool *)iron_arena_alloc(ctx->lir_arena,
+                                (size_t)total * sizeof(bool), _Alignof(bool));
+                            if (!m_by_addr) iron_oom_abort("hir_to_lir.c:METHOD_CALL by_addr");
+                            memset(m_by_addr, 0, (size_t)total * sizeof(bool));
+                        }
+                        m_by_addr[vpi] = true;
+                        m_any_by_addr = true;
+                        arrput(args, ctx->var_alloca_map[aai].value);
+                        continue;
+                    }
+                }
+            }
             IronLIR_ValueId av = lower_expr(ctx, ae);
             note_owned_temp(ctx, &temps, ae, av, span);
             /* A `T?` parameter takes a T argument (or null) wrapped, as a
@@ -3719,6 +3745,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             callee_is_mut_receiver) {
             call->call.self_by_addr = true;
         }
+        if (m_any_by_addr) call->call.args_by_addr = m_by_addr;
         arrfree(args);
         release_owned_temps(ctx, &temps, span);
         return call->id;
@@ -6571,6 +6598,12 @@ IronLIR_Module *iron_hir_to_lir(IronHIR_Module *hir, Iron_Program *program,
     arrfree(ctx.wb_alloca_ids);
     arrfree(ctx.wb_types);
     arrfree(ctx.loops);
+    arrfree(ctx.scope_ids);
+    hmfree(ctx.var_scope_map);
+
+    /* Stack scopes (#537): only blocks one of whose locals has its address
+     * taken keep their markers. */
+    iron_lir_prune_stack_scopes(lir_module);
 
     /* ── Verify output ── */
     /* Use lir_arena for verification so diagnostic message strings remain

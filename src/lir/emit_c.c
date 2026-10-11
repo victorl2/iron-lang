@@ -1340,8 +1340,55 @@ static const char *emit_scope_gen(IronLIR_Func *fn, int scope_id) {
 }
 
 static const char *emit_self_gen(IronLIR_Func *fn) {
-    (void)fn;
-    return "_iron_sg0";
+    return fn->needs_self_gen ? "_iron_self_gen" : "_iron_sg0";
+}
+
+/* An rc receiver of a pointer-receiver method call that the callee could
+ * release while it runs (#544): a handle read out of a field, a list, a
+ * global or a binding a closure can reassign. The call keeps it alive by
+ * holding a reference of its own. A parameter, a `val` binding, a plain
+ * local slot and a temporary already hold one that outlives the call. */
+static bool emit_rc_receiver_needs_pin(IronLIR_Func *fn, IronLIR_ValueId v, int depth) {
+    Iron_Type *t = emit_get_value_type(fn, v);
+    if (depth > 16 || !t || t->kind != IRON_TYPE_RC) return false;
+    IronLIR_Instr *d = emit_def_instr(fn, v);
+    if (!d) return false;                                  /* a parameter */
+    switch ((int)d->kind) {
+    case IRON_LIR_GET_FIELD:
+    case IRON_LIR_GET_INDEX:
+        return true;
+    case IRON_LIR_LOAD: {
+        IronLIR_Instr *a = emit_def_instr(fn, d->load.ptr);
+        if (!a || a->kind != IRON_LIR_ALLOCA) return true;
+        return a->alloca.global_name != NULL || a->alloca.is_boxed;
+    }
+    case IRON_LIR_CAST:
+        return emit_rc_receiver_needs_pin(fn, d->cast.value, depth + 1);
+    default:
+        return false;
+    }
+}
+
+/* The growable list whose element place `v` is in (a field or inline
+ * element of one included), or INVALID (#543). */
+static IronLIR_ValueId emit_elem_list(IronLIR_Func *fn, IronLIR_ValueId v, int depth) {
+    IronLIR_Instr *d = emit_def_instr(fn, v);
+    if (!d || depth > 32) return IRON_LIR_VALUE_INVALID;
+    if (d->kind == IRON_LIR_GET_INDEX) {
+        Iron_Type *at = emit_get_value_type(fn, d->index.array);
+        if (!at || at->kind != IRON_TYPE_ARRAY) return IRON_LIR_VALUE_INVALID;
+        if (at->array.size < 0 && !at->array.is_bounded) return d->index.array;
+        return emit_elem_list(fn, d->index.array, depth + 1);
+    }
+    if (d->kind == IRON_LIR_GET_FIELD) {
+        Iron_Type *ot = emit_get_value_type(fn, d->field.object);
+        if (!ot || ot->kind == IRON_TYPE_PTR || ot->kind == IRON_TYPE_RC) return IRON_LIR_VALUE_INVALID;
+        if (emit_val_is_any_fat_ptr(fn, d->field.object)) return IRON_LIR_VALUE_INVALID;
+        return emit_elem_list(fn, d->field.object, depth + 1);
+    }
+    if (emit_is_optional_unwrap(fn, d) || emit_is_iface_object_view(fn, d, NULL, NULL, NULL))
+        return emit_elem_list(fn, d->cast.value, depth + 1);
+    return IRON_LIR_VALUE_INVALID;
 }
 
 static void emit_place_gen(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
@@ -6079,6 +6126,58 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
 
+        /* Receiver provenance (#542): the callee takes the address of (a part
+         * of) its receiver; hand it the receiver's generation. Nothing runs
+         * between this store and the call. */
+        /* List element borrows (#543): pin the list of every element
+         * pointer argument (and of an element receiver the callee might
+         * outgrow) for the call; the pointer gets the pin's generation. */
+        bool lpinned[16] = { false };
+        for (int i = 0; i < instr->call.arg_count && i < 16; i++) {
+            IronLIR_ValueId av = instr->call.args[i];
+            IronLIR_ValueId lv = IRON_LIR_VALUE_INVALID;
+            if (instr->call.self_by_addr && i == 0) {
+                if (instr->call.pin_recv) lv = emit_elem_list(fn, av, 0);
+            } else if (emit_val_is_checked_ptr_typed(fn, av)) {
+                IronLIR_Instr *ad = emit_def_instr(fn, av);
+                if (ad && ad->kind == IRON_LIR_ADDR_OF)
+                    lv = emit_elem_list(fn, ad->addr_of.target, 0);
+            }
+            if (lv == IRON_LIR_VALUE_INVALID) continue;
+            lpinned[i] = true;
+            emit_indent(sb, ind);
+            if (get_stack_array_origin(ctx, lv) != IRON_LIR_VALUE_INVALID) {
+                /* A list the optimizer keeps as a stack array never moves,
+                 * but the pointer still lives only for the call, whatever
+                 * the list's representation (the same program must behave
+                 * the same at every optimization level). */
+                iron_strbuf_appendf(sb, "const void *_lpb%u_%d = NULL; uint64_t _lpg%u_%d = iron_list_pin(NULL);\n",
+                                    (unsigned)instr->id, i, (unsigned)instr->id, i);
+                continue;
+            }
+            iron_strbuf_appendf(sb, "const void *_lpb%u_%d = (const void *)(", (unsigned)instr->id, i);
+            emit_expr_to_buf(sb, lv, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ").items; uint64_t _lpg%u_%d = iron_list_pin(_lpb%u_%d);\n",
+                                (unsigned)instr->id, i, (unsigned)instr->id, i);
+        }
+        bool rc_pin = instr->call.self_by_addr && instr->call.arg_count > 0 &&
+                      emit_rc_receiver_needs_pin(fn, instr->call.args[0], 0);
+        if (rc_pin) {
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "void *_rcpin%u = (void *)(", (unsigned)instr->id);
+            emit_expr_to_buf(sb, instr->call.args[0], fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, "); iron_rc_retain(_rcpin%u);\n", (unsigned)instr->id);
+        }
+        if (instr->call.pass_self_gen && instr->call.arg_count > 0) {
+            g_addr_scope = instr->call.recv_scope;
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "iron_self_gen = ");
+            if (lpinned[0])
+                iron_strbuf_appendf(sb, "_lpg%u_0", (unsigned)instr->id);
+            else
+                emit_container_gen(sb, fn, ctx, instr->call.args[0], 0);
+            iron_strbuf_appendf(sb, ";\n");
+        }
         emit_indent(sb, ind);
         if (!is_void) {
             if (!is_hoisted) {
@@ -6319,6 +6418,13 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
              * and silently miscompile (and segfault) through the setter. */
             if (cell_release_call && i == 0) {
                 emit_receiver_addr(sb, fn, ctx, arg_id, ctx->current_block_id);
+                continue;
+            }
+            /* An element pointer into a pinned list: the pin's generation. */
+            if (i < 16 && lpinned[i] && !(self_by_addr && i == 0)) {
+                iron_strbuf_appendf(sb, "(Iron_FatPtr){ .addr = (");
+                emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ").addr, .gen = _lpg%u_%d }", (unsigned)instr->id, i);
                 continue;
             }
             if (self_by_addr && i == 0) {
@@ -6631,6 +6737,16 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, ")");
         emit_debug_list_check(sb, &dbg_list, instr->call.arg_count);
         iron_strbuf_appendf(sb, ";\n");
+        if (rc_pin) {
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "iron_rc_release(_rcpin%u);\n", (unsigned)instr->id);
+        }
+        for (int i = (instr->call.arg_count < 16 ? instr->call.arg_count : 16) - 1; i >= 0; i--) {
+            if (!lpinned[i]) continue;
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "iron_list_unpin(_lpb%u_%d, _lpg%u_%d);\n",
+                                (unsigned)instr->id, i, (unsigned)instr->id, i);
+        }
         /* `xs[i].m()` on an interface array: the element was unpacked from
          * its typed sub-array into a union temporary, so a mutating method
          * changed the temporary. Store the payload back into the element. */
@@ -11023,6 +11139,16 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
         iron_strbuf_appendf(sb, "uint64_t _iron_sg0 = iron_stack_gen;\n");
         emit_indent(sb, 1);
         iron_strbuf_appendf(sb, "(void)_iron_sg0;\n");
+    }
+    /* Receiver provenance (#542): the generation the caller handed over,
+     * cleared so no later call reads it; a caller that did not hand one
+     * over (an indirect call) leaves 0 and the method's own scope is used,
+     * which only lets such a pointer die early. */
+    if (fn->needs_self_gen) {
+        emit_indent(sb, 1);
+        iron_strbuf_appendf(sb, "uint64_t _iron_self_gen = iron_self_gen ? iron_self_gen : _iron_sg0;\n");
+        emit_indent(sb, 1);
+        iron_strbuf_appendf(sb, "iron_self_gen = 0;\n");
     }
     /* Inner block scopes (#537): their saved and current gens. */
     {

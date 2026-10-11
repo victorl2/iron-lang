@@ -1,0 +1,14 @@
+-- A pointer to a field of a list element kept in a binding (E0330): the
+-- element moves when the list grows. Only &xs[i].f was not covered. (#543)
+object P {
+    val hp: Int
+}
+
+func main() {
+    var xs = [P(1), P(2)]
+    val p = &xs[0].hp
+    for i in range(1000) {
+        xs.push(P(i))
+    }
+    println("{p}")
+}

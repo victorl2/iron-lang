@@ -1,0 +1,42 @@
+-- A pointer to a field of the receiver, taken in a method and kept after
+-- it returns, is valid while the receiver is: it carries the receiver's
+-- generation (a local of the caller, a heap or rc object, a pointee),
+-- not the method's own frame. It panicked as soon as the method
+-- returned. (#542)
+object V {
+    val p: *Int
+}
+
+object Q {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func view() -> V {
+        return V(&self.n)
+    }
+    func view2() -> V {
+        return self.view()
+    }
+}
+
+func via(p: *var Q) -> V {
+    return p.view2()
+}
+
+func main() {
+    var o = Q(4)
+    val v = o.view()
+    val w = o.view2()
+    o.n = 5
+    println("{v.p} {w.p}")
+    val u = via(&o)
+    println("{u.p}")
+    val r = rc Q(6)
+    val rv = r.view()
+    println("{rv.p}")
+    var h = heap Q(7)
+    defer free h
+    val hv = h.view2()
+    println("{hv.p}")
+}

@@ -1,0 +1,39 @@
+-- Element borrows that respect the rules never panic: the callee reads
+-- through element pointers, the list grows only after the call returns,
+-- methods on elements mutate them in place, and a method that changes
+-- another list is fine. (#543)
+object C {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func bump() {
+        self.n += 1
+    }
+    func log(var out: [Int]) {
+        out.push(self.n)
+    }
+}
+
+func show(p: *Int, q: *Int) -> String {
+    return "{p} {q}"
+}
+
+func main() {
+    var xs = [1, 2, 3]
+    println(show(&xs[0], &xs[2]))
+    for i in range(100) {
+        xs.push(i)
+    }
+    println(show(&xs[1], &xs[99]))
+    var cs = [C(1), C(2)]
+    cs[0].bump()
+    cs[1].bump()
+    var out: [Int] = []
+    cs[0].log(out)
+    cs[1].log(out)
+    for i in range(50) {
+        cs.push(C(i))
+    }
+    println("{cs[0].n} {cs[1].n} {out[0]} {out[1]} {cs.len()}")
+}

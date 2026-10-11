@@ -1,0 +1,19 @@
+-- @expect-panic: stale pointer dereference
+-- A mutating method called on a heap binding after it was freed wrote
+-- into the freed block: the receiver is checked at the call (#539).
+object Q {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+    func bump() {
+        self.hp += 1
+    }
+}
+
+func main() {
+    var h = heap Q(5)
+    free h
+    h.bump()
+    println("bumped")
+}

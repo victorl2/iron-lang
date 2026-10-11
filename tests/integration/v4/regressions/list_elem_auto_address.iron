@@ -1,0 +1,21 @@
+-- @expect-panic: list changed while a pointer to one of its elements is in use
+-- An element passed to a *T parameter (auto-address) while the callee
+-- grows the list through a var parameter (#543).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+func f(p: *P, var xs: [P]) -> Int {
+    for i in range(1000) {
+        xs.push(P(i))
+    }
+    return p.hp
+}
+
+func main() {
+    var xs = [P(1), P(2)]
+    println("{f(xs[0], xs)}")
+}

@@ -1,0 +1,18 @@
+-- &make().field addresses a place inside a temporary that is destroyed at
+-- the end of the statement (E0270); the pointer read the dead temporary.
+object P {
+    val hp: Int
+}
+
+object V {
+    val p: *Int
+}
+
+func make() -> P {
+    return P(3)
+}
+
+func main() {
+    val v = V(&make().hp)
+    println("{v.p}")
+}

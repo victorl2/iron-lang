@@ -1,0 +1,23 @@
+-- @expect-panic: list changed while a pointer to one of its elements is in use
+-- A method called on a list element that grows the list (through a
+-- lambda) would keep writing to the old buffer (#543).
+object C {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func run(f: func()) {
+        f()
+        self.n += 1
+    }
+}
+
+func main() {
+    var cs = [C(1)]
+    cs[0].run(func() {
+        for i in range(100) {
+            cs.push(C(i))
+        }
+    })
+    println("{cs[0].n}")
+}
