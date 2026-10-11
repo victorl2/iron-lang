@@ -1441,7 +1441,33 @@ static void stub_emit_generic_params(FILE *out, Iron_Node **gps, int count) {
 }
 
 /* Emit a top-level pub func: signature + empty body. */
+/* Documentation and directives in a stub, so the package's users see them
+ * on hover too. `indent` prefixes each comment line. */
+static void stub_emit_leading(FILE *out, const char *indent, const char *doc,
+                              const Iron_Directive *dirs, int count) {
+    if (doc) {
+        const char *line = doc;
+        for (;;) {
+            const char *nl = strchr(line, '\n');
+            int len = nl ? (int)(nl - line) : (int)strlen(line);
+            if (len > 0) fprintf(out, "%s// %.*s\n", indent, len, line);
+            else         fprintf(out, "%s//\n", indent);
+            if (!nl) break;
+            line = nl + 1;
+        }
+    }
+    for (int i = 0; i < count; i++)
+        if (!dirs[i].trailing)
+            fprintf(out, "%s//%s:%s\n", indent, dirs[i].key, dirs[i].value);
+}
+
+static void stub_emit_trailing(FILE *out, const Iron_Directive *dirs, int count) {
+    for (int i = 0; i < count; i++)
+        if (dirs[i].trailing) fprintf(out, "  //%s:%s", dirs[i].key, dirs[i].value);
+}
+
 static void stub_emit_func(FILE *out, Iron_FuncDecl *fd) {
+    stub_emit_leading(out, "", fd->doc_comment, fd->directives, fd->directive_count);
     fprintf(out, "pub func %s", fd->name ? fd->name : "?");
     stub_emit_generic_params(out, fd->generic_params, fd->generic_param_count);
     stub_emit_params(out, fd->params, fd->param_count);
@@ -1449,7 +1475,9 @@ static void stub_emit_func(FILE *out, Iron_FuncDecl *fd) {
         fprintf(out, " -> ");
         stub_emit_type_ann(out, fd->return_type);
     }
-    fprintf(out, " {\n}\n\n");
+    fprintf(out, " {");
+    stub_emit_trailing(out, fd->directives, fd->directive_count);
+    fprintf(out, "\n}\n\n");
 }
 
 /* Emit a method nested inside an object stub. Indented four spaces.
@@ -1462,6 +1490,7 @@ static void stub_emit_func(FILE *out, Iron_FuncDecl *fd) {
  * receivers. We must therefore skip params[0] when emitting nested method
  * decls so the round-trip is identity-preserving. */
 static void stub_emit_method(FILE *out, Iron_MethodDecl *md) {
+    stub_emit_leading(out, "    ", md->doc_comment, md->directives, md->directive_count);
     fprintf(out, "    pub ");
     if (md->is_init) {
         if (md->init_name) {
@@ -1494,21 +1523,27 @@ static void stub_emit_method(FILE *out, Iron_MethodDecl *md) {
         fprintf(out, " -> ");
         stub_emit_type_ann(out, md->return_type);
     }
-    fprintf(out, " {\n    }\n");
+    fprintf(out, " {");
+    stub_emit_trailing(out, md->directives, md->directive_count);
+    fprintf(out, "\n    }\n");
 }
 
 /* Emit a pub object: header line, fields preserved (type only), methods
  * regrouped from prog->decls by type_name (alphabetic by method_name). */
 static void stub_emit_object(FILE *out, Iron_ObjectDecl *od, Iron_Program *prog) {
+    stub_emit_leading(out, "", od->doc_comment, od->directives, od->directive_count);
     fprintf(out, "pub object %s", od->name ? od->name : "?");
     stub_emit_generic_params(out, od->generic_params, od->generic_param_count);
-    fprintf(out, " {\n");
+    fprintf(out, " {");
+    stub_emit_trailing(out, od->directives, od->directive_count);
+    fprintf(out, "\n");
 
     /* Fields: preserve types (no values; field initializers are not part of
      * the public surface — consumers construct via pub init). */
     for (int fi = 0; fi < od->field_count; fi++) {
         Iron_Field *f = (Iron_Field *)od->fields[fi];
         if (!f) continue;
+        stub_emit_leading(out, "    ", f->doc_comment, f->directives, f->directive_count);
         fprintf(out, "    %s %s",
                 f->is_var ? "var" : "val",
                 f->name ? f->name : "_");
@@ -1516,6 +1551,7 @@ static void stub_emit_object(FILE *out, Iron_ObjectDecl *od, Iron_Program *prog)
             fprintf(out, ": ");
             stub_emit_type_ann(out, f->type_ann);
         }
+        stub_emit_trailing(out, f->directives, f->directive_count);
         fprintf(out, "\n");
     }
 
@@ -1553,12 +1589,16 @@ static void stub_emit_object(FILE *out, Iron_ObjectDecl *od, Iron_Program *prog)
 /* Emit a pub enum: full variant list (variants are pure type defs; nothing
  * to strip). Uses payload type-annotation names directly. */
 static void stub_emit_enum(FILE *out, Iron_EnumDecl *ed) {
+    stub_emit_leading(out, "", ed->doc_comment, ed->directives, ed->directive_count);
     fprintf(out, "pub enum %s", ed->name ? ed->name : "?");
     stub_emit_generic_params(out, ed->generic_params, ed->generic_param_count);
-    fprintf(out, " {\n");
+    fprintf(out, " {");
+    stub_emit_trailing(out, ed->directives, ed->directive_count);
+    fprintf(out, "\n");
     for (int i = 0; i < ed->variant_count; i++) {
         Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
         if (!ev) continue;
+        stub_emit_leading(out, "    ", ev->doc_comment, ev->directives, ev->directive_count);
         fprintf(out, "    %s", ev->name ? ev->name : "?");
         if (ev->payload_count > 0) {
             fprintf(out, "(");
@@ -1568,7 +1608,9 @@ static void stub_emit_enum(FILE *out, Iron_EnumDecl *ed) {
             }
             fprintf(out, ")");
         }
-        fprintf(out, ",\n");
+        fprintf(out, ",");
+        stub_emit_trailing(out, ev->directives, ev->directive_count);
+        fprintf(out, "\n");
     }
     fprintf(out, "}\n\n");
 }

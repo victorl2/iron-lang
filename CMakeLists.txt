@@ -1628,6 +1628,13 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/json_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/json_fuzz)
     set_tests_properties(json_fuzz PROPERTIES LABELS "stdlib" TIMEOUT 900)
+    # Comments never change a program: random comments in every spelling
+    # over runnable fixtures, then fmt --migrate-comments and fmt
+    # (tests/fuzz/comment_fuzz.py). Fixed seeds.
+    add_test(NAME comment_fuzz
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/comment_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/comment_fuzz)
+    set_tests_properties(comment_fuzz PROPERTIES LABELS "unit" TIMEOUT 1800)
 endif()
 # `ironc fmt --migrate-comments` golden files: rewrite, idempotence, same
 # program output, refusals (tests/fmt/migrate/run.sh).

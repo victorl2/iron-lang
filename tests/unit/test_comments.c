@@ -11,6 +11,7 @@
 #include "diagnostics/diagnostics.h"
 #include "stb_ds.h"
 
+#include <stdio.h>
 #include <string.h>
 
 static Iron_Arena    arena;
@@ -223,6 +224,21 @@ static void test_printer_round_trips_docs_and_directives(void) {
     TEST_ASSERT_TRUE(f->directives[1].trailing);
 }
 
+static void test_stubs_carry_docs_and_directives(void) {
+    Iron_Program *p = parse("// Adds.\npub func add(a: Int) -> Int { return a } //k:v\n"
+                            "pub object P {\n    // x doc\n    //json:x\n    pub val x: Int\n}\n");
+    FILE *f = tmpfile();
+    TEST_ASSERT_NOT_NULL(f);
+    (void)iron_print_pub_stubs(p, f, "pkg", "0.1.0");
+    rewind(f);
+    char buf[4096];
+    size_t n = fread(buf, 1, sizeof buf - 1, f);
+    buf[n] = '\0';
+    fclose(f);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "// Adds.\npub func add(a: Int) -> Int {  //k:v\n"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "    // x doc\n    //json:x\n    val x: Int\n"));
+}
+
 /* ── Migration ───────────────────────────────────────────────────────────── */
 
 static void expect_migrate(const char *src, const char *want) {
@@ -290,6 +306,7 @@ int main(void) {
     RUN_TEST(test_iron_fusible_hint);
     RUN_TEST(test_unknown_or_misplaced_hint_warns);
     RUN_TEST(test_printer_round_trips_docs_and_directives);
+    RUN_TEST(test_stubs_carry_docs_and_directives);
     RUN_TEST(test_migrate_rewrites_comment_tokens_only);
     RUN_TEST(test_migrate_keeps_meaning_of_odd_bodies);
     RUN_TEST(test_migrate_fusible);
