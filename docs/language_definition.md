@@ -3082,6 +3082,11 @@ A slice `xs[a..b]` must lie within the list with `a <= b`; anything else
 is an index out of bounds panic, like `xs[i]`. `contains` compares with
 `==`, so a list never contains NaN.
 
+`pop()` on an empty list panics ("pop from an empty list"), and `get`,
+`set`, `remove`, `insert` and `xs[i]` with an index out of range panic
+("index out of bounds"), naming the Iron line of the call; this holds for
+every element type, lists of interface values included.
+
 The lambdas passed to `map`, `filter`, `reduce` and `forEach` must write
 their parameter types. `map` cannot produce tuples (a list cannot hold
 them, E0202). A chain of these calls may be fused into one loop (section

@@ -3432,14 +3432,19 @@ static void emit_debug_list_check(Iron_StrBuf *sb, const EmitDebugListCall *d, i
     free(call);
 }
 
-/* --debug: the same check before an interface list's edit helper
- * (emit_split.c), as a statement of its own; `method` is "index" or
- * "insert". The helper's own panic then names this line. */
+static bool g_emit_line_directives;
+
+/* Before an interface list's edit helper (emit_split.c): record the Iron
+ * line of the call, so the helper's bounds panic names it in every build
+ * mode (#418), and under --debug run the same check as a statement of its
+ * own, so the debug trap stops on this line; `method` is "index" or
+ * "insert". */
 static void emit_debug_split_check(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx, int ind,
                                    const char *method, IronLIR_ValueId list,
                                    IronLIR_ValueId index) {
     emit_indent(sb, ind);
     iron_strbuf_appendf(sb, "iron_list_call_site(IRON_SITE);\n");
+    if (!g_emit_line_directives) return;
     emit_indent(sb, ind);
     iron_strbuf_appendf(sb, "iron_dbg_list_check_%s((", method);
     emit_receiver_addr(sb, fn, ctx, list, ctx->current_block_id);
@@ -3448,7 +3453,6 @@ static void emit_debug_split_check(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *c
     iron_strbuf_appendf(sb, "), IRON_SITE);\n");
 }
 
-static bool g_emit_line_directives;
 static const IronLIR_Func *g_line_fn;   /* function the next two describe */
 static unsigned g_line_fn_first;        /* its first line (entry block) */
 static unsigned g_line_fn_last;         /* the line of its last statement so far */
@@ -5521,9 +5525,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 Iron_Type *vt = emit_get_value_type(fn, instr->index.value);
                 bool wrap = vt && vt->kind == IRON_TYPE_OBJECT && vt->object.decl &&
                             vt->object.decl->name;
-                if (g_emit_line_directives)
-                    emit_debug_split_check(sb, fn, ctx, ind, "index", instr->index.array,
-                                           instr->index.index);
+                emit_debug_split_check(sb, fn, ctx, ind, "index", instr->index.array,
+                                       instr->index.index);
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "Iron_SplitList_%s_set(", im);
                 emit_receiver_addr(sb, fn, ctx, instr->index.array, ctx->current_block_id);
@@ -6509,7 +6512,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                              * list by address, an inserted concrete object wrapped
                              * into the interface. */
                             bool returns = strcmp(coll_method, "remove") == 0;
-                            if (g_emit_line_directives && instr->call.arg_count >= 2 &&
+                            if (instr->call.arg_count >= 2 &&
                                 (returns || strcmp(coll_method, "insert") == 0))
                                 emit_debug_split_check(sb, fn, ctx, ind,
                                                        returns ? "index" : "insert",
@@ -6627,6 +6630,21 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             iron_strbuf_appendf(sb, "int64_t _sp_pop_i = ");
                             emit_split_self_lvalue(sb, fn, ctx, self_arg);
                             iron_strbuf_appendf(sb, "._total_count - 1;\n");
+                            /* An empty list panics as other lists do (#418):
+                             * the debug trap on the Iron line, then the
+                             * runtime's "pop from an empty list" naming it. */
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "if (_sp_pop_i < 0) {\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "iron_dbg_list_check_pop(0, IRON_SITE);\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "iron_list_call_site(IRON_SITE);\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb,
+                                "iron_panic_index_oob(\"Iron_SplitList_%s_pop\", 0, -1, 0);\n",
+                                sp_iface);
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "}\n");
                             /* Tag switch over _order[_sp_pop_i].tag */
                             emit_indent(sb, ind + 1);
                             iron_strbuf_appendf(sb, "switch (");
@@ -6736,6 +6754,24 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             iron_strbuf_appendf(sb, "int64_t _sp_get_i = ");
                             emit_expr_to_buf(sb, idx_val, fn, ctx, ctx->current_block_id, 0);
                             iron_strbuf_appendf(sb, ";\n");
+                            /* Bounds check, as for other lists (#418). */
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "if ((uint64_t)_sp_get_i >= (uint64_t)");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order_count) {\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "iron_dbg_list_check_index(");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order_count, _sp_get_i, IRON_SITE);\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "iron_list_call_site(IRON_SITE);\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb,
+                                "iron_panic_index_oob(\"Iron_SplitList_%s_get\", 0, _sp_get_i, ", sp_iface);
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order_count);\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "}\n");
                             /* Tag switch over _order[_sp_get_i].tag */
                             emit_indent(sb, ind + 1);
                             iron_strbuf_appendf(sb, "switch (");
