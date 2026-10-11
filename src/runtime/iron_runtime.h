@@ -1016,6 +1016,11 @@ Iron_String  iron_string_interp(const char *fmt, ...);
 Iron_String  iron_string_from_literal(const char *lit, size_t byte_len);
 const char  *iron_string_cstr(const Iron_String *s);
 size_t       iron_string_byte_len(const Iron_String *s);
+/* Reads the string only (the count of a string whose count is not cached
+ * is computed, never stored), so clang may hoist it out of a loop. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((pure))
+#endif
 size_t       iron_string_codepoint_count(const Iron_String *s);
 bool         iron_string_equals(const Iron_String *a, const Iron_String *b);
 int          iron_string_compare(const Iron_String *a, const Iron_String *b);
@@ -2152,7 +2157,6 @@ Iron_String           Iron_string_char_at(Iron_String self, int64_t i);
 int64_t               Iron_string_to_int(Iron_String self);
 double                Iron_string_to_float(Iron_String self);
 Iron_String           Iron_string_join(Iron_String self, Iron_List_Iron_String parts);
-int64_t               Iron_string_len(Iron_String self);
 Iron_String           Iron_string_repeat(Iron_String self, int64_t n);
 Iron_String           Iron_string_pad_left(Iron_String self, int64_t width, Iron_String ch);
 Iron_String           Iron_string_pad_right(Iron_String self, int64_t width, Iron_String ch);
@@ -2165,10 +2169,57 @@ int64_t               Iron_string_count(Iron_String self, Iron_String sub);
  * edit to string.iron.
  */
 int64_t               Iron_string_rindex_of(Iron_String self, Iron_String sub);
-int64_t               Iron_string_byte_at(Iron_String self, int64_t i);
 Iron_String           Iron_string_from_byte(int64_t b);
 Iron_String           Iron_string_byte_slice(Iron_String self, int64_t start, int64_t end_idx);
-int64_t               Iron_string_byte_len(Iron_String self);
+
+/* Length and byte accessors used in scanning loops are defined here, inline,
+ * so a loop over `s.byte_at(i)` or bounded by `s.len()` / `s.byte_len()`
+ * compiles to plain loads: no call per byte and no by-value copy of the
+ * string. The heap / SSO layout test is the one iron_string_cstr makes. */
+#define IRON_STRING_COUNT_UNKNOWN UINT32_MAX
+
+/* The _p forms take the string by address: the emitter calls them on a
+ * named string so that a loop reads the string in place rather than
+ * through a per-iteration copy. */
+
+/* Size in bytes of the UTF-8 encoding. */
+/* Both layouts are read unconditionally and the flag selects one, so the
+ * accessors have no branch and clang can hoist them out of a loop. */
+static inline int64_t iron_string_byte_len_p(const Iron_String *s) {
+    int64_t heap_len = (int64_t)s->heap.byte_length;
+    int64_t sso_len  = (int64_t)s->sso.len;
+    return (s->heap.flags & 0x01) ? heap_len : sso_len;
+}
+static inline const char *iron_string_data_p(const Iron_String *s) {
+    const char *heap_data = s->heap.data;
+    const char *sso_data  = s->sso.data;
+    return (s->heap.flags & 0x01) ? heap_data : sso_data;
+}
+static inline int64_t Iron_string_byte_len(Iron_String self) {
+    return iron_string_byte_len_p(&self);
+}
+
+/* Byte value at index `i` (0..byte_len-1). Returns -1 for out-of-range
+ * indices so callers can branch on the negative result without a separate
+ * length check. */
+static inline int64_t iron_string_byte_at_p(const Iron_String *s, int64_t i) {
+    if ((uint64_t)i >= (uint64_t)iron_string_byte_len_p(s)) return -1;
+    return (int64_t)(unsigned char)iron_string_data_p(s)[i];
+}
+static inline int64_t Iron_string_byte_at(Iron_String self, int64_t i) {
+    return iron_string_byte_at_p(&self, i);
+}
+
+/* Length in characters (code points): the cached count of a heap string,
+ * otherwise counted. */
+static inline int64_t iron_string_len_p(const Iron_String *s) {
+    if ((s->heap.flags & 0x01) && s->heap.codepoint_count != IRON_STRING_COUNT_UNKNOWN)
+        return (int64_t)s->heap.codepoint_count;
+    return (int64_t)iron_string_codepoint_count(s);
+}
+static inline int64_t Iron_string_len(Iron_String self) {
+    return iron_string_len_p(&self);
+}
 void                  Iron_string_release(Iron_String self);
 
 #endif /* IRON_RUNTIME_H */

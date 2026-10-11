@@ -1666,6 +1666,54 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
     return true;
 }
 
+/* `s.byte_at(i)`, `s.byte_len()` and `s.len()` on a named string: the
+ * by-address inline accessors of iron_runtime.h, so a scanning loop reads
+ * the string where it lives. The by-value Iron_string_* forms are inline
+ * too, but clang re-materializes the by-value copy on every iteration. A
+ * string operand that is emitted as an expression (inline eligible) is
+ * not an lvalue and keeps the by-value call. */
+static bool emit_inline_string_accessor(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                                        IronLIR_Func *fn, EmitCtx *ctx,
+                                        int ind, bool is_hoisted) {
+    if (instr->call.func_decl || instr->call.arg_count < 1 ||
+        instr->call.self_by_addr) return false;
+    if (!instr->type || instr->type->kind == IRON_TYPE_VOID) return false;
+    IronLIR_ValueId fp = instr->call.func_ptr;
+    if (fp == IRON_LIR_VALUE_INVALID || fp >= (IronLIR_ValueId)arrlen(fn->value_table) ||
+        !fn->value_table[fp] || fn->value_table[fp]->kind != IRON_LIR_FUNC_REF)
+        return false;
+    const char *name = fn->value_table[fp]->func_ref.func_name;
+    if (!name) return false;
+    name = emit_resolve_func_c_name(ctx, name);
+    if (!name) return false;
+    const char *pform = NULL;
+    if (strcmp(name, "Iron_string_byte_at") == 0 && instr->call.arg_count == 2)
+        pform = "iron_string_byte_at_p";
+    else if (strcmp(name, "Iron_string_byte_len") == 0 && instr->call.arg_count == 1)
+        pform = "iron_string_byte_len_p";
+    else if (strcmp(name, "Iron_string_len") == 0 && instr->call.arg_count == 1)
+        pform = "iron_string_len_p";
+    if (!pform) return false;
+    IronLIR_ValueId a0 = instr->call.args[0];
+    Iron_Type *st = emit_get_value_type(fn, a0);
+    if (!st || st->kind != IRON_TYPE_STRING) return false;
+    if (a0 == ctx->force_inline_vid ||
+        (ctx->inline_eligible && hmgeti(ctx->inline_eligible, a0) >= 0) ||
+        iron_vr_get_local_narrowed_type(&ctx->value_range, fn, a0))
+        return false;
+    emit_indent(sb, ind);
+    if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+    emit_val(sb, instr->id);
+    iron_strbuf_appendf(sb, " = %s(&", pform);
+    emit_val(sb, a0);
+    if (instr->call.arg_count == 2) {
+        iron_strbuf_appendf(sb, ", ");
+        emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+    }
+    iron_strbuf_appendf(sb, ");\n");
+    return true;
+}
+
 /* `xs.len()` on a dynamic list: `(int64_t)(<receiver address>)->count`, the
  * receiver addressed exactly as the out-of-line Iron_List_<T>_len call would
  * receive it (self_by_addr). Returns false for any other call. */
@@ -4481,10 +4529,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                  * the author declared the site unchecked — UNCHK-IDX routes
                  * the latter through IRON_UNCHECKED_IDX below instead). */
                 if (!instr->index.bounds_elide && !instr->index.bounds_unchecked) {
+                /* Unsigned compare: a negative index is out of range too
+                 * (#674), and it is the form clang proves in counted loops. */
                 emit_indent(sb, ind);
-                iron_strbuf_appendf(sb, "if (");
+                iron_strbuf_appendf(sb, "if ((uint64_t)(");
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
-                iron_strbuf_appendf(sb, " >= (int64_t)");
+                iron_strbuf_appendf(sb, ") >= (uint64_t)");
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb,
                     ".len) iron_panic_bvec_oob(IRON_SITE, ");
@@ -4671,9 +4721,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 iron_strbuf_appendf(sb, ";\n");
                 if (!instr->index.bounds_elide && !instr->index.bounds_unchecked) {
                     emit_indent(sb, ind + 1);
-                    iron_strbuf_appendf(sb, "if (");
+                    iron_strbuf_appendf(sb, "if ((uint64_t)(");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, " >= (int64_t)_bv->len) iron_panic_bvec_oob(IRON_SITE, ");
+                    iron_strbuf_appendf(sb, ") >= (uint64_t)_bv->len) iron_panic_bvec_oob(IRON_SITE, ");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ", (int64_t)_bv->len);\n");
                 }
@@ -5992,6 +6042,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * `while i < xs.len() { ... xs[i] ... }`. The receiver expression
          * is exactly the one the call would have been handed. */
         if (emit_inline_list_len(sb, instr, fn, ctx, ind, is_hoisted)) break;
+        if (emit_inline_string_accessor(sb, instr, fn, ctx, ind, is_hoisted)) break;
 
         bool is_void = (instr->type == NULL ||
                         instr->type->kind == IRON_TYPE_VOID);
