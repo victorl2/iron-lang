@@ -1,0 +1,13 @@
+-- @expected-error: E0208
+-- A nested parallel for is checked on its own: the enclosing iteration's
+-- bindings are outer variables to its body, so assigning one from it is a
+-- data race between the inner iterations. (#425)
+func main() {
+    for i in range(3) parallel {
+        var t = 0
+        for j in range(4) parallel {
+            t += j
+        }
+        println("{t}")
+    }
+}

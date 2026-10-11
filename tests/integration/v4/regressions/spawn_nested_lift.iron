@@ -1,0 +1,34 @@
+-- A spawn or parallel for nested in a spawn or parallel for body failed the
+-- C compile (undeclared __spawn_N_env_t / __pfor_N_env_t): the outer body
+-- was lowered twice, once in place and once when lifted, so every nested
+-- task was lifted twice and the copy made in place had no env type. (#422)
+func main() {
+    val k = 7
+    val outer = spawn("outer") {
+        val inner = spawn("inner") { return k * 2 }
+        val v = await inner
+        return v + 1
+    }
+    println("nested spawn {await outer}")
+
+    val m = Mutex(0)
+    for i in range(4) parallel {
+        val h = spawn("in-loop") { return i * 10 + k }
+        val v = await h
+        val g = m.lock()
+        g.set(g.get() + v)
+    }
+    val g = m.lock()
+    println("spawn in parallel for {g.get()}")
+
+    val h2 = spawn("loop-in-spawn") {
+        val mm = Mutex(0)
+        for j in range(5) parallel {
+            val gg = mm.lock()
+            gg.set(gg.get() + j * k)
+        }
+        val gg = mm.lock()
+        return gg.get()
+    }
+    println("parallel for in spawn {await h2}")
+}

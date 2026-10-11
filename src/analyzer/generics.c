@@ -65,6 +65,15 @@ static bool is_user_decl(Iron_Node *d) {
         Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
         if (od->name && strcmp(od->name, "__RcList") == 0) return true;
     }
+    /* A generic free function the stdlib writes in Iron (json.iron's
+     * json_encode_list) is instantiated like a user one; only the runtime
+     * stubs (empty bodies) are by-name builtins. */
+    if (d->kind == IRON_NODE_FUNC_DECL) {
+        Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+        if (fd->body && fd->body->kind == IRON_NODE_BLOCK &&
+            ((Iron_Block *)fd->body)->stmt_count > 0)
+            return true;
+    }
     return d->span.filename &&
            iron_stdlib_origin_classify(d->span.filename) != 1;
 }
@@ -139,7 +148,11 @@ const char *iron_generics_request(Iron_Node *decl, Iron_Type **args, int argc,
             return NULL;
         }
         const char *txt = iron_type_to_string(t, arena);
-        if (!txt) { arrfree(texts); iron_strbuf_free(&sb); return NULL; }
+        /* A type not resolved yet inside the argument (`Opt[<error>]` for
+         * `Opt.Some(Pair(s, p))` before Pair[String, Pt] exists) prints
+         * with angle brackets: the clone would not parse. The next round
+         * asks again with the type resolved. */
+        if (!txt || strchr(txt, '<')) { arrfree(texts); iron_strbuf_free(&sb); return NULL; }
         arrput(texts, txt);
         iron_strbuf_appendf(&sb, "__");
         mangle_append(&sb, txt);

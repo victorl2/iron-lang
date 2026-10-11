@@ -1,0 +1,47 @@
+-- `&h.inner` (manual 6.4: & of a field) passed to a `*var` parameter, or
+-- kept in a binding: the pointer was the address of the field of a loaded
+-- copy of `h`, so writes through it were lost and reads saw the old value.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+    func bump(k: Int) {
+        self.hp += k
+    }
+}
+
+object Holder {
+    var inner: P
+    var n: Int
+    init(inner: P, n: Int) {
+        self.inner = inner
+        self.n = n
+    }
+}
+
+object Outer {
+    var h: Holder
+    init(h: Holder) {
+        self.h = h
+    }
+}
+
+func heal(p: *var P, k: Int) {
+    p.hp += k
+    p.bump(1)
+}
+
+func main() {
+    var h = Holder(P(1), 3)
+    heal(&h.inner, 2)
+    println("{h.inner.hp}")
+    val q = &h.inner
+    q.hp = 10
+    println("{h.inner.hp} {q.hp}")
+    h.inner = P(20)
+    println("{q.hp}")
+    var o = Outer(Holder(P(5), 0))
+    heal(&o.h.inner, 4)
+    println("{o.h.inner.hp}")
+}

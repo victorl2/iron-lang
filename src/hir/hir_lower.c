@@ -23,6 +23,7 @@
 #include "hir/stdlib_origin.h"
 #include "lexer/lexer.h"
 #include "vendor/stb_ds.h"
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -962,19 +963,9 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 return NULL;
             }
 
-            /* Create tmp var for the tuple init. A tuple a call returns is
-             * owned by nothing else: its elements move into the bindings
-             * (hir_to_lir skips the copy for a `__tuple_mv_` source), and a
-             * wildcard element goes to a hidden binding that drops it. The
-             * tuple itself is never dropped, so copying the elements out
-             * leaked one reference to each. */
-            bool moves = init_expr &&
-                         (init_expr->kind == IRON_HIR_EXPR_CALL ||
-                          init_expr->kind == IRON_HIR_EXPR_METHOD_CALL ||
-                          init_expr->kind == IRON_HIR_EXPR_AWAIT);
+            /* Create tmp var for the tuple init. */
             char tmp_name[64];
-            snprintf(tmp_name, sizeof(tmp_name), "%s%d",
-                     moves ? "__tuple_mv_" : "__tuple_tmp_",
+            snprintf(tmp_name, sizeof(tmp_name), "__tuple_tmp_%d",
                      ctx->lift_counter++);
             IronHIR_VarId tmp_id = iron_hir_alloc_var(mod, tmp_name,
                                                        tuple_ty, false);
@@ -982,24 +973,23 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 iron_hir_stmt_let(mod, tmp_id, tuple_ty, init_expr,
                                   false, span));
 
-            /* Emit one let per binding (wildcards only when moving). */
+            /* Emit one let per position. A wildcard gets a hidden binding:
+             * each element is moved out of the temporary, and the binding's
+             * scope exit drops what the program does not keep. */
             for (int i = 0; i < vd->binding_count; i++) {
                 const char *binding = vd->binding_names[i];
-                if (!binding && !moves) continue;  /* wildcard */
+                char hidden[32];
+                if (!binding) {
+                    snprintf(hidden, sizeof(hidden), "__tuple_skip_%d_%d", ctx->lift_counter++, i);
+                    binding = iron_arena_strdup(ctx->module->arena, hidden, strlen(hidden));
+                    if (!binding) iron_oom_abort("hir_lower.c:tuple wildcard");
+                }
                 Iron_Type *elem_ty = (i < tuple_ty->tuple.elem_count)
                     ? tuple_ty->tuple.elem_types[i]
                     : iron_type_make_primitive(IRON_TYPE_ERROR);
-                IronHIR_VarId bind_id;
-                if (binding) {
-                    bind_id = iron_hir_alloc_var(mod, hir_local_name(ctx, binding),
-                                                 elem_ty, false);
-                    declare_var(ctx, binding, bind_id);
-                } else {
-                    char discard[64];
-                    snprintf(discard, sizeof(discard), "__tuple_discard_%d",
-                             ctx->lift_counter++);
-                    bind_id = iron_hir_alloc_var(mod, discard, elem_ty, false);
-                }
+                IronHIR_VarId bind_id = iron_hir_alloc_var(mod, hir_local_name(ctx, binding),
+                                                            elem_ty, false);
+                declare_var(ctx, binding, bind_id);
 
                 char field_name[12];
                 snprintf(field_name, sizeof(field_name), "v%d", i);
@@ -1045,10 +1035,11 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             if (!name_copy) iron_oom_abort("hir_lower.c:lower_stmt_hir val_decl spawn lifted_name");
             memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
 
+            /* The body is lowered once, when the spawn is lifted
+             * (LIFT_SPAWN), as for lambdas: lowering it here as well lifted
+             * every spawn, parallel for and lambda nested in it twice, and
+             * the copy made here had no env type (C compile error). */
             IronHIR_Block *spawn_body = iron_hir_block_create(mod);
-            {
-                lower_block_hir(ctx, (Iron_Block *)ss->body, spawn_body);
-            }
 
             IronHIR_Stmt *spawn_s = iron_hir_stmt_spawn(mod, hname, spawn_body, name_copy, span);
             spawn_s->spawn.handle_var = id;  /* bind spawn result to h */
@@ -1296,13 +1287,11 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                                          true);
             IronHIR_Expr *range_expr = lower_expr_hir(ctx, fs->iterable);
 
-            push_scope(ctx);
-            declare_var(ctx, fs->var_name, loop_var);
+            /* The body is lowered once, when the chunk function is lifted
+             * (LIFT_PARALLEL_FOR): lowering it here as well lifted every
+             * spawn, parallel for and lambda nested in it twice (C compile
+             * error on the copy's missing env type). */
             IronHIR_Block *pfor_body = iron_hir_block_create(mod);
-            {
-                lower_block_hir(ctx, (Iron_Block *)fs->body, pfor_body);
-            }
-            pop_scope(ctx);
 
             /* Assign lifted name first so the HIR expr can store it */
             char lifted_name[64];
@@ -1391,6 +1380,17 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 /* Single integer bound: iterate 0..n */
                 start_expr = iron_hir_expr_int_lit(mod, 0, int_ty, s0);
                 end_expr   = lower_expr_hir(ctx, fs->iterable);
+            }
+
+            /* The bound is evaluated once, before the first iteration
+             * (manual 4.6: the integers 0 to n - 1): re-reading it in the
+             * condition made `for i in range(n)` stop early when the body
+             * changed n. */
+            if (end_expr && end_expr->kind != IRON_HIR_EXPR_INT_LIT) {
+                IronHIR_VarId end_var = iron_hir_alloc_var(mod, "__range_end", int_ty, false);
+                iron_hir_block_add_stmt(blk, iron_hir_stmt_let(mod, end_var, int_ty,
+                                                               end_expr, false, s0));
+                end_expr = iron_hir_expr_ident(mod, end_var, "__range_end", int_ty, s0);
             }
 
             /* STMT_LET i = start, mutable */
@@ -1751,10 +1751,8 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         if (!name_copy) iron_oom_abort("hir_lower.c:lower_stmt_hir spawn lifted_name");
         memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
 
+        /* Lowered once, at lift time (see the val-binding spawn above). */
         IronHIR_Block *spawn_body = iron_hir_block_create(mod);
-        {
-            lower_block_hir(ctx, (Iron_Block *)ss->body, spawn_body);
-        }
 
         IronHIR_Stmt *s = iron_hir_stmt_spawn(mod, hname, spawn_body, name_copy, span);
 
@@ -1976,7 +1974,11 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
          * here re-interpreted a leading zero as C octal: `val x = 010` became
          * 8 instead of 10. Overflow behavior is unchanged (strtoll saturates
          * identically in base 10; hex/binary are range-checked in the lexer). */
+        errno = 0;
         int64_t val = (int64_t)strtoll(lit->value, NULL, 10);
+        /* A UInt64 / UInt literal above the largest Int: its bit pattern. */
+        if (errno == ERANGE && lit->value[0] != '-')
+            val = (int64_t)strtoull(lit->value, NULL, 10);
         return iron_hir_expr_int_lit(mod, val, lit->resolved_type, span);
     }
 
@@ -3529,9 +3531,11 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
 
         case LIFT_SPAWN: {
             Iron_SpawnStmt *ss = (Iron_SpawnStmt *)lp->ast_node;
-            /* Infer return type from the spawn body's return statement */
-            Iron_Type *spawn_ret_ty = NULL;
-            if (ss->body) {
+            /* The result type the type checker found (the body's first
+             * return value at any depth); the top-level scan is the
+             * fallback for a spawn the checker did not see. */
+            Iron_Type *spawn_ret_ty = ss->result_type;
+            if (!spawn_ret_ty && ss->body) {
                 Iron_Block *sblk = (Iron_Block *)ss->body;
                 for (int ri = 0; ri < sblk->stmt_count; ri++) {
                     if (sblk->stmts[ri]->kind == IRON_NODE_RETURN) {

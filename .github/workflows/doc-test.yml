@@ -99,6 +99,11 @@ jobs:
       - name: Run doc-test extractor against docs/guide.md
         run: MD_FILE=docs/guide.md bash scripts/test_doc_examples.sh ./build/iron
 
+      - name: Run doc-test extractor against docs/json.md
+        run: MD_FILE=docs/json.md bash scripts/test_doc_examples.sh ./build/iron
+      - name: Run doc-test extractor against docs/crypto.md
+        run: MD_FILE=docs/crypto.md bash scripts/test_doc_examples.sh ./build/iron
+
       # The networking and raylib programs need a peer or a window: compiled, not run.
       - name: Compile the examples in docs/networking.md
         run: DOCTEST_BUILD_ONLY=1 MD_FILE=docs/networking.md bash scripts/test_doc_examples.sh ./build/iron

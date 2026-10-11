@@ -1,0 +1,28 @@
+-- fill(n, v) makes n copies of v (manual 9.1). With a list (or string)
+-- value every element shared one buffer with the others and with the
+-- argument, which was freed right after the call: rows of a grid changed
+-- together and then read freed memory. Compile-time evaluation shared the
+-- rows too.
+func grid() -> Int {
+    var g = fill(3, fill(2, 0))
+    g[0][1] = 5
+    return g[0][1] * 100 + g[1][1] * 10 + g[2][1]
+}
+
+val AT_COMPILE_TIME = comptime grid()
+
+func main() {
+    var g = fill(3, fill(2, 0))
+    g[0][1] = 5
+    g[2][0] = 7
+    println("{g[0][1]} {g[1][1]} {g[2][1]} {g[2][0]} {g[0][0]}")
+    val n = 4
+    var rows = fill(n, [1, 2])
+    rows[1].push(3)
+    println("{len(rows[0])} {len(rows[1])} {len(rows[3])}")
+    val s = "ab" + "{n}"
+    var words = fill(3, s)
+    words[0] = "x"
+    println("{words[0]} {words[1]} {words[2]} {s}")
+    println("{grid()} {AT_COMPILE_TIME}")
+}

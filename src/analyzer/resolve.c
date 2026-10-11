@@ -271,7 +271,18 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             sym->type = ty;
             /* Phase 93 VIS-02/03: propagate the AST is_pub bit. */
             sym->is_pub = od->is_pub;
-            if (!iron_scope_define_type(ctx->global_scope, ctx->arena, sym)) {
+            /* An enum declared earlier with a variant of this name
+             * (`enum Tok { Pair(Int, Int) }` and `object Pair`): the variant
+             * is still reached as Tok.Pair (manual 4.7: the qualifier may
+             * be omitted only when the name is unambiguous), so the type
+             * takes the bare name instead of failing as a duplicate. */
+            {
+                Iron_Symbol *pv = iron_scope_lookup_local(ctx->global_scope, od->name);
+                if (pv && pv->sym_kind == IRON_SYM_ENUM_VARIANT)
+                    shput(ctx->global_scope->symbols, od->name, sym);
+            }
+            if (iron_scope_lookup_local(ctx->global_scope, od->name) != sym &&
+                !iron_scope_define(ctx->global_scope, ctx->arena, sym)) {
                 Iron_Symbol *prev = iron_scope_lookup(ctx->global_scope, sym->name);
                 bool prev_in_stdlib = prev && is_stdlib_decl(ctx, prev);
                 char dmsg[256], dhelp[256];
@@ -1068,6 +1079,9 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_HEAP: {
             Iron_HeapExpr *he = (Iron_HeapExpr *)node;
+            /* `heap(in: a)`: the arena is a name like any other (left
+             * unresolved, a spawn or parallel for body did not capture it) */
+            if (he->arena_expr) resolve_expr(ctx, he->arena_expr);
             resolve_expr(ctx, he->inner);
             break;
         }
@@ -1558,8 +1572,9 @@ void iron_type_patch_registry_free(Iron_TypePatchRegistry *reg) {
 
 /* Stdlib modules an `import` may name (src/stdlib/<name>.iron). */
 static const char *const k_stdlib_modules[] = {
-    "arena", "box", "channel", "filehandle", "float", "hashable", "hint",
-    "http", "int", "io", "list", "log", "map", "math", "mutex", "mysql", "net", "os",
+    "arena", "box", "channel", "crypto", "encoding", "filehandle", "float",
+    "hashable", "hint", "http", "int", "io", "json", "list", "log", "map", "math",
+    "mutex", "mysql", "net", "os",
     "rawptr", "raylib", "rwlock", "set", "string", "time", "url",
     "websocket", NULL
 };

@@ -457,8 +457,12 @@ module.exports = grammar({
       'else', '->',
       field('body', $._match_arm_body),
     ),
+    // A single statement after `->`, as the parser takes it: also a val or
+    // var declaration (`1 -> val q: Res[Pt, String] = Res.Ok(p)`).
     _match_arm_body: $ => choice(
       $.block,
+      $.val_declaration,
+      $.var_declaration,
       $.return_statement,
       $.break_statement,
       $.continue_statement,

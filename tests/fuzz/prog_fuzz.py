@@ -12,19 +12,45 @@ Areas:
     coll      lists, maps, sets and strings
     obj       objects, methods, copy and drop order, rc and weak rc, defer
     closure   lambdas capturing val and var, closures stored and called later
+    conc      spawn / await, Mutex, RWLock, channels, parallel for, rc shared
+              between threads (outputs deterministic by construction)
+    arena     arena allocation, `in` blocks, save / restore / reset, arenas
+              passed to functions, owning fields (W0605), stale pointers
+    num       every integer width, Float and Float32: arithmetic, conversions,
+              shifts, compound assignments, float text; widths mixed (errors)
+    generic   generic objects, enums and functions, constraints, Map and Set
+              with generic keys, instances of instances, rc type arguments
+    ptr       checked pointers, `*var`, `?*T`, heap with defer free, Box and
+              unchecked pointers; stale reads (panics) and rejected forms
+    comptime  functions evaluated with comptime and called at run time; the
+              constructs comptime leaves out (E0231)
 
-    prog_fuzz.py AREA IRONC OUTDIR SEED [COUNT] [--valgrind] [--asan RTDIR]
-    prog_fuzz.py --suite IRONC OUTDIR          (the fixed seeds ctest runs)
+    prog_fuzz.py AREA IRONC OUTDIR SEED [COUNT] [--valgrind | --helgrind |
+                 --drd | --asan RTDIR | --tsan RTDIR] [--runs N]
+    prog_fuzz.py --suite IRONC OUTDIR [AREA...] (the fixed seeds ctest runs)
     prog_fuzz.py --gen AREA SEED               (print one program and its output)
     prog_fuzz.py AREA IRONC OUTDIR SEED --reduce
         shrink a failing program by deleting and hoisting statements while
         it fails the same way; writes OUTDIR/reduced_AREA_SEED.iron
 
--j N runs N programs at a time.
+-j N runs N programs at a time. --runs N runs each binary N times (a
+thread schedule that differs between runs can change the output). A run
+longer than PF_TIMEOUT seconds (default 120; lower it to reduce a hang)
+fails as a timeout.
 
 --asan RTDIR compiles the C that `ironc build --emit-c` writes with
 -fsanitize=address,undefined against a runtime built the same way into
-RTDIR (built on first use from the source tree next to this script).
+RTDIR (built on first use from the source tree next to this script);
+--tsan RTDIR does the same with -fsanitize=thread. --helgrind and --drd
+run the binary under those valgrind tools; a reported race fails it.
+
+A program's expected outcome (pf_lang.Expected) is its output lines plus,
+optionally: `errors`, diagnostic codes one of which the build must report
+(the program does not build); `panic`, a text the error output must contain
+after the lines; `leaks_ok`, leaks allowed (arena objects whose fields own
+memory leak by definition, manual 6.6). A generator sets them on the
+Expected its model returns, or as attributes (`expect_panic`, `leaks_ok`).
+The leak checkers are off for a program that panics or allows leaks.
 
 Exit status 1 when any program fails; failing programs are kept under
 OUTDIR/fail/.
@@ -39,9 +65,9 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from pf_lang import Bail  # noqa: E402
+from pf_lang import Bail, Expected  # noqa: E402
 
-AREAS = ('stmt', 'coll', 'obj', 'closure')
+AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime')
 
 
 def generator(area):
@@ -62,20 +88,38 @@ def make_gen(area, seed):
     raise RuntimeError(f'{area} seed {seed}: no program after 50 attempts')
 
 
+def expected_of(g, cached=False):
+    """g's expected output. A generator that runs its model while
+    generating (a threaded model is slow) keeps it in lines_cache, which
+    make_program may reuse; the reducer always runs the model again."""
+    lines = getattr(g, 'lines_cache', None) if cached else None
+    m = lines if lines is not None else g.model()
+    e = Expected(m, errors=getattr(m, 'errors', None),
+                 panic=getattr(m, 'panic', None) or getattr(g, 'expect_panic', None))
+    e.leaks_ok = bool(getattr(m, 'leaks_ok', False) or getattr(g, 'leaks_ok', False)
+                      or e.panic)
+    return e
+
+
 def make_program(area, seed):
     g = make_gen(area, seed)
-    return g.render(), g.model()
+    return g.render(), expected_of(g, cached=True)
 
 
 # ------------------------------------------------------------ asan runtime
 
-SAN = ['-g', '-O1', '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
-       '-fno-sanitize-recover=undefined', '-std=gnu17', '-fwrapv',
-       '-fno-strict-aliasing', '-Wno-integer-overflow', '-w']
+SAN_COMMON = ['-g', '-O1', '-fno-omit-frame-pointer', '-std=gnu17', '-fwrapv',
+              '-fno-strict-aliasing', '-ffp-contract=off', '-Wno-integer-overflow', '-w']
+SAN_FLAGS = {
+    'asan': ['-fsanitize=address,undefined', '-fno-sanitize-recover=undefined'],
+    'tsan': ['-fsanitize=thread'],
+}
+SAN = SAN_COMMON + SAN_FLAGS['asan']
 
 
-def build_asan_rt(rtdir):
-    lib = os.path.join(rtdir, 'libironrt_asan.a')
+def build_asan_rt(rtdir, flavor='asan'):
+    san = SAN_COMMON + SAN_FLAGS[flavor]
+    lib = os.path.join(rtdir, f'libironrt_{flavor}.a')
     if os.path.exists(lib):
         return lib
     src = os.path.normpath(os.path.join(HERE, '..', '..', 'src'))
@@ -88,7 +132,7 @@ def build_asan_rt(rtdir):
     objs = []
     for f in files:
         o = os.path.join(rtdir, os.path.basename(f)[:-2] + '.o')
-        subprocess.run(['clang', '-c'] + SAN + [f'-I{src}', f'-I{src}/vendor', f'-I{src}/stdlib',
+        subprocess.run(['clang', '-c'] + san + [f'-I{src}', f'-I{src}/vendor', f'-I{src}/stdlib',
                         f, '-o', o], check=True)
         objs.append(o)
     subprocess.run(['ar', 'rcs', lib + '.tmp'] + objs, check=True)
@@ -96,7 +140,7 @@ def build_asan_rt(rtdir):
     return lib
 
 
-def asan_build(ironc, src, workdir, exe, rtlib):
+def asan_build(ironc, src, workdir, exe, rtlib, flavor='asan'):
     b = subprocess.run([ironc, 'build', '--emit-c', os.path.abspath(src)], cwd=workdir,
                        capture_output=True, text=True)
     if b.returncode != 0:
@@ -104,7 +148,8 @@ def asan_build(ironc, src, workdir, exe, rtlib):
     name = os.path.splitext(os.path.basename(src))[0]
     c = os.path.join(workdir, '.iron-build', name + '.c')
     s = os.path.normpath(os.path.join(HERE, '..', '..', 'src'))
-    return subprocess.run(['clang'] + SAN + [f'-I{s}', f'-I{s}/vendor', f'-I{s}/stdlib', c, rtlib,
+    return subprocess.run(['clang'] + SAN_COMMON + SAN_FLAGS[flavor] +
+                          [f'-I{s}', f'-I{s}/vendor', f'-I{s}/stdlib', c, rtlib,
                            '-lm', '-lpthread', '-o', exe], capture_output=True, text=True)
 
 
@@ -127,39 +172,78 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
     exe = os.path.join(d, f'{name}.bin')
     with open(src, 'w', encoding='utf-8') as f:
         f.write(src_text)
+    errors = getattr(expected, 'errors', None)
+    panic = getattr(expected, 'panic', None)
     with open(os.path.join(d, 'expected.txt'), 'w', encoding='utf-8') as f:
         f.write('\n'.join(expected) + ('\n' if expected else ''))
+        if errors:
+            f.write('-- compile error: ' + ' or '.join(sorted(errors)) + '\n')
+        if panic:
+            f.write('-- then panics: ' + panic + '\n')
     if os.path.exists(exe):
         os.remove(exe)
-    if mode == 'asan':
-        b = asan_build(ironc, src, d, exe, rtlib)
+    if mode in ('asan', 'tsan'):
+        b = asan_build(ironc, src, d, exe, rtlib, mode)
     else:
         b = subprocess.run([ironc, 'build', src, '-o', exe], capture_output=True, text=True,
                            encoding='utf-8', errors='replace')
+    out = b.stdout + b.stderr
+    if errors:
+        codes = set(re.findall(r'error\[(E\d{4})\]', out))
+        if b.returncode != 0 and codes & errors:
+            return 'ok', '', ('ok',)
+        if b.returncode == 0:
+            return ('wrong', 'built, but ' + ' or '.join(sorted(errors)) + ' was expected',
+                    ('wrong', 'built'))
+        first = next((l for l in out.splitlines() if 'error' in l), '')
+        return ('compile', ' or '.join(sorted(errors)) + ' expected, got:\n' + out[:4000],
+                ('compile', norm(first)))
     if b.returncode != 0:
-        out = b.stdout + b.stderr
         first = next((l for l in out.splitlines() if 'error' in l), '')
         return 'compile', out[:4000], ('compile', norm(first))
+    leaks_ok = getattr(expected, 'leaks_ok', False) or bool(panic)
     cmd = [exe]
     env = dict(os.environ)
     if mode == 'valgrind':
-        cmd = ['valgrind', '--quiet', '--leak-check=full',
+        cmd = ['valgrind', '--quiet', '--leak-check=' + ('no' if leaks_ok else 'full'),
                '--errors-for-leak-kinds=definite,indirect', '--error-exitcode=99', exe]
+    if mode in ('helgrind', 'drd'):
+        cmd = ['valgrind', '--quiet', f'--tool={mode}', '--error-exitcode=99', exe]
     if mode == 'asan':
-        env['ASAN_OPTIONS'] = 'detect_leaks=1:abort_on_error=0:exitcode=99'
+        env['ASAN_OPTIONS'] = (f'detect_leaks={0 if leaks_ok else 1}:abort_on_error=0:exitcode=99:'
+                               'detect_stack_use_after_return=1')
         env['UBSAN_OPTIONS'] = 'print_stacktrace=1:halt_on_error=1'
+    if mode == 'tsan':
+        env['TSAN_OPTIONS'] = 'halt_on_error=1:exitcode=99:second_deadlock_stack=1'
+    for _ in range(max(1, int(os.environ.get('PF_RUNS', '1')))):
+        st = run_once(cmd, env, expected, panic, d, mode)
+        if st[0] != 'ok':
+            break
+    return st
+
+
+def run_once(cmd, env, expected, panic, d, mode):
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env,
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           timeout=int(os.environ.get('PF_TIMEOUT', '120')), env=env,
                            encoding='utf-8',
                            errors='replace')
     except subprocess.TimeoutExpired:
         return 'timeout', '', ('timeout', '')
     got = r.stdout.splitlines()
+    with open(os.path.join(d, 'got.txt'), 'w', encoding='utf-8') as f:
+        f.write(r.stdout + ('\n-- stderr:\n' + r.stderr[:4000] if r.stderr else ''))
     err1 = next((l for l in r.stderr.splitlines()
                  if l.strip() and not l.startswith('==')), '')
     if 'Sanitizer' in r.stderr or 'definitely lost' in r.stderr:
         err1 = next((l for l in r.stderr.splitlines() if 'Sanitizer' in l or 'lost' in l), err1)
     sig = ('rc' if r.returncode else 'ok', norm(err1))
+    if (panic and mode == 'asan' and 'heap-use-after-free' in r.stderr and
+            'iron_check_pointer_gen' in r.stderr):
+        # The stale pointer check reads the freed block's header (the
+        # release allocator has the block back); AddressSanitizer stops
+        # there, before the panic. Expected for a program that panics so.
+        return 'ok', '', ('ok',)
     if got != expected:
         sig = ('wrong',) + sig
         for i, (x, y) in enumerate(zip(expected, got)):
@@ -168,6 +252,13 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
                         f'{r.stderr[:1500]}', sig)
         return 'wrong', (f'{len(expected)} lines expected, {len(got)} produced '
                          f'(rc={r.returncode})\n{r.stderr[:1500]}'), sig
+    if panic is not None:
+        if r.returncode == 99 or 'Sanitizer' in r.stderr:
+            return 'memory', f'rc={r.returncode}\n{r.stderr[:3000]}', sig
+        if r.returncode == 0 or panic not in r.stderr:
+            return ('nopanic', f'expected a runtime error containing {panic!r} '
+                    f'(rc={r.returncode})\n{r.stderr[:1500]}', ('nopanic', sig[1]))
+        return 'ok', '', ('ok',)
     if r.returncode != 0:
         return ('memory' if r.returncode == 99 else 'crash',
                 f'rc={r.returncode}\n{r.stderr[:3000]}', sig)
@@ -214,9 +305,14 @@ def reduce_program(ironc, outdir, area, seed, mode='plain', rtlib=None, jobs=8):
     first one in program order that still fails is kept."""
     from concurrent.futures import ThreadPoolExecutor
     g = make_gen(area, seed)
+    # A candidate with a deleted send or await blocks the threaded model
+    # (pf_conc) until its timeout: keep that short while reducing.
+    mod = sys.modules.get('pf_' + area)
+    if hasattr(mod, 'TIMEOUT'):
+        mod.TIMEOUT = 2
     d = os.path.join(outdir, f'reduce_{area}_{seed}')
     name = f'{area}_{seed}'
-    st, msg, base = check_text(ironc, d, name, g.render(), g.model(), mode, rtlib)
+    st, msg, base = check_text(ironc, d, name, g.render(), expected_of(g), mode, rtlib)
     if st == 'ok':
         print('does not fail')
         return 1
@@ -232,7 +328,7 @@ def reduce_program(ironc, outdir, area, seed, mode='plain', rtlib=None, jobs=8):
         for idx, (apply, undo) in enumerate(cands):
             apply()
             try:
-                exp = g.model()
+                exp = expected_of(g)
                 src = g.render()
                 work.append((idx, src, exp))
             except Exception:
@@ -275,7 +371,7 @@ def reduce_program(ironc, outdir, area, seed, mode='plain', rtlib=None, jobs=8):
             # the blocks still in the program, outermost first; a block
             # whose statement was deleted is gone with it
             blocks = []
-            child_blocks([g.mainblock] + [fd.body for fd, _ in g.funcs], blocks, set())
+            child_blocks([g.mainblock] + [fe[0].body for fe in g.funcs], blocks, set())
             blk = next((b for b in blocks if id(b) not in done), None)
             if blk is None:
                 break
@@ -306,7 +402,7 @@ def reduce_program(ironc, outdir, area, seed, mode='plain', rtlib=None, jobs=8):
         print(f'pass done, {tries[0]} tries, {len(g.render().splitlines())} lines', flush=True)
     pool.shutdown()
     src = g.render()
-    exp = g.model()
+    exp = expected_of(g)
     with open(os.path.join(outdir, f'reduced_{name}.iron'), 'w', encoding='utf-8') as f:
         f.write(src)
     with open(os.path.join(outdir, f'reduced_{name}.expected'), 'w', encoding='utf-8') as f:
@@ -352,10 +448,11 @@ def run(ironc, outdir, area, seeds, mode='plain', rtlib=None, quiet=False, jobs=
             d = os.path.join(outdir, 'fail')
             os.makedirs(d, exist_ok=True)
             k = f'{area}_{seed}'
-            for fn in (f'{k}.iron', 'expected.txt'):
+            for fn, out in ((f'{k}.iron', f'{k}.iron'), ('expected.txt', f'{k}.expected'),
+                            ('got.txt', f'{k}.got')):
                 p = os.path.join(outdir, k, fn)
                 if os.path.exists(p):
-                    shutil.copy(p, os.path.join(d, fn if fn.endswith('.iron') else f'{k}.expected'))
+                    shutil.copy(p, os.path.join(d, out))
             print(f'{area} seed {seed}: {st.upper()} {os.path.join(d, k + ".iron")}\n'
                   + '\n'.join('    ' + l for l in msg.splitlines()[:30]), flush=True)
         elif not quiet:
@@ -365,7 +462,13 @@ def run(ironc, outdir, area, seeds, mode='plain', rtlib=None, quiet=False, jobs=
 
 # The fixed seeds ctest runs (prog_fuzz): each area's programs found bugs
 # when they were added, so they guard the fixes.
-SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure': range(1, 9)}
+SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure': range(1, 9),
+         'conc': range(1, 9), 'arena': range(1, 9),
+         'num': range(1, 9), 'generic': range(1, 9), 'ptr': (1, 2, 3, 4, 5, 22, 26, 41),
+         'comptime': range(1, 9)}
+# `--suite IRONC OUTDIR` runs these; the other areas have ctest entries of
+# their own (`--suite IRONC OUTDIR conc`, `... num generic ptr comptime`).
+SUITE_DEFAULT = ('stmt', 'coll', 'obj', 'closure')
 
 
 def main(argv):
@@ -377,9 +480,11 @@ def main(argv):
         return 0
     if argv[0] == '--suite':
         ironc, outdir = os.path.abspath(argv[1]), argv[2]
+        areas = argv[3:] or SUITE_DEFAULT
         jobs = min(4, os.cpu_count() or 1)
         bad = 0
-        for area, seeds in SUITE.items():
+        for area in areas:
+            seeds = SUITE[area]
             if area not in available():
                 continue
             n = run(ironc, outdir, area, seeds, quiet=True, jobs=jobs)
@@ -395,11 +500,16 @@ def main(argv):
         elif argv[i] == '-j':
             jobs = int(argv[i + 1])
             i += 1
-        elif argv[i] == '--valgrind':
-            mode = 'valgrind'
-        elif argv[i] == '--asan':
-            mode = 'asan'
-            rtlib = build_asan_rt(argv[i + 1])
+        elif argv[i].startswith('-j') and argv[i][2:].isdigit():
+            jobs = int(argv[i][2:])
+        elif argv[i] in ('--valgrind', '--helgrind', '--drd'):
+            mode = argv[i][2:]
+        elif argv[i] == '--runs':
+            os.environ['PF_RUNS'] = argv[i + 1]
+            i += 1
+        elif argv[i] in ('--asan', '--tsan'):
+            mode = argv[i][2:]
+            rtlib = build_asan_rt(argv[i + 1], mode)
             i += 1
         else:
             args.append(argv[i])

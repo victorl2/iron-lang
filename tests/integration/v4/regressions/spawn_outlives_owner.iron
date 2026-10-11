@@ -1,0 +1,41 @@
+-- A spawn that is never awaited keeps running after the block that owns
+-- the Mutex, Channel, RWLock, threadsafe Arena and rc value it captured has
+-- ended. The block's end destroyed them (and released the rc handle) while
+-- the task still used them: use after free under valgrind and ASan. A
+-- spawned task now holds a reference to each until it finishes (manual 7.1). (#463)
+object P {
+    val a: Int
+    val s: String
+}
+
+func busy(n: Int) -> Int {
+    var t = 0
+    for i in range(n) {
+        t = (t + i) % 1000003
+    }
+    return t
+}
+
+func main() {
+    {
+        val m = Mutex(0)
+        val c = Channel[Int](4)
+        val rw = RWLock(3)
+        val ta = Arena.threadsafe(65536)
+        val ro = rc P(5, "a shared string long enough for the heap")
+        spawn("late") {
+            val t = busy(1000000)
+            {
+                val g = m.lock()
+                g.set(g.get() + t)
+            }
+            c.send(t)
+            val p = heap(in: ta) P(t, "x")
+            {
+                val r = rw.read()
+                return p.a + r.get() + ro.a + ro.s.len()
+            }
+        }
+    }
+    println("main {busy(20000000) > 0}")
+}

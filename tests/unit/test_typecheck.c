@@ -505,16 +505,19 @@ void test_int32_variable_narrowing_error(void) {
     TEST_ASSERT_TRUE(has_error(IRON_ERR_TYPE_MISMATCH));
 }
 
-/* ── Test 25: val x: Int32 = 42; val y: Int = x => no error (widening) ───────── */
+/* ── Test 25: val x: Int32 = 42; val y: Int = x => E0202 (no implicit
+ * widening, manual 2: convert with Int(x)) ─────────────────────────────── */
 
 void test_int32_widening_no_error(void) {
     const char *src =
         "func main() {\n"
         "  val x: Int32 = 42\n"
         "  val y: Int = x\n"
+        "  val z: Int = Int(x)\n"
         "}\n";
     parse_and_resolve(src);
-    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    TEST_ASSERT_EQUAL_INT(1, g_diags.error_count);
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_TYPE_MISMATCH));
 }
 
 /* ── Test 26: val n: Int = 10; val x: Int32 = Int32(n) => no error (cast) ────── */

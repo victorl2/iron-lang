@@ -1,0 +1,23 @@
+-- `for i in range(n)` iterates 0 to n - 1 for the n the loop starts with
+-- (manual 4.6); the bound was read again before every iteration, so a body
+-- that changed it ended the loop early (and compile-time evaluation, which
+-- reads it once, disagreed with the run time).
+func grow(k: Int) -> Int {
+    var v = k
+    for i in range(v * v % 5) {
+        v += v * v
+    }
+    return v
+}
+
+val AT_COMPILE_TIME = comptime grow(-2603143328)
+
+func main() {
+    var n = 3
+    for i in range(n) {
+        n = 0
+        print("{i} ")
+    }
+    println("n={n}")
+    println("{grow(-2603143328)} {AT_COMPILE_TIME}")
+}

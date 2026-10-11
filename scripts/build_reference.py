@@ -2,7 +2,7 @@
 """Render the repository's guides as ironlang.dev pages.
 
 Writes <site>/docs/index.html from the reference manual and the other
-guide pages (networking, mysql, projects, raylib) from their markdown files in
+guide pages (networking, crypto, mysql, projects, raylib) from their markdown files in
 docs/, through the page template in scripts/templates/reference.html, so
 the website can never drift from the documentation: the markdown is the
 single source, and every ```iron block in it is compiled by the Doc Test
@@ -56,6 +56,12 @@ PAGES = [
         "title": "Networking",
         "description": "TCP, UDP, DNS, HTTP and HTTPS clients and servers, REST, webpages, WebSocket and WSS, and binary-safe files in Iron, with the ownership and limits that keep them safe.",
         "llms": "/llms/networking.md",
+    },
+    {
+        "source": "crypto.md", "path": "crypto",
+        "title": "Cryptography",
+        "description": "Hashing, HMAC and request signing, HKDF, PBKDF2, scrypt, password hashing, secure random numbers, AES-256-GCM and ChaCha20-Poly1305, RSA-OAEP, hex and base64 in Iron, all on OpenSSL's libcrypto.",
+        "llms": "/llms/crypto.md",
     },
     {
         "source": "mysql.md", "path": "mysql",

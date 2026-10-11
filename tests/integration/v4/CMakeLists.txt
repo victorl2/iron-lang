@@ -63,6 +63,24 @@ if(NOT WIN32)
         TIMEOUT 3600)
 endif()
 
+# Crypto cross-check: the crypto and encoding modules against Python's
+# hashlib, hmac, base64 and (when installed) cryptography on a few thousand
+# random inputs with a fresh seed each run (printed on failure).
+if(NOT WIN32)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_FOUND)
+        add_test(
+            NAME test_crypto_crosscheck
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/oracles/crypto_crosscheck.py
+                    ${CMAKE_BINARY_DIR}/iron --cases 3000
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        )
+        set_tests_properties(test_crypto_crosscheck PROPERTIES
+            LABELS "oracle;crypto"
+            TIMEOUT 600)
+    endif()
+endif()
+
 # Freestanding oracle (#235): the C generated for every fixture compiles with
 # -ffreestanding -nostdinc, seeing only clang's resource headers and the Iron
 # source tree. Generated code may use nothing from the platform directly.

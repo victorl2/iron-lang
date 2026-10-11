@@ -1,0 +1,85 @@
+-- json module: parsing, typed access, paths, mutation and sharing, clone,
+-- equality and serialization.
+import json
+
+func show(label: String, r: JsonResult) {
+    if r.error != 0 {
+        println("{label}: error {r.error} at {r.line}:{r.column}: {r.error_message}")
+    } else {
+        println("{label}: {r.value}")
+    }
+}
+
+func main() {
+    val text = "\{\n  \"user\": \{\"id\": 42, \"name\": \"Ann \\u00e9\\ud83d\\ude00\", \"admin\": false, \"score\": 9.75},\n  \"tags\": [\"a\", \"b\", \"c\"],\n  \"nothing\": null,\n  \"big\": 9223372036854775807,\n  \"huge\": 92233720368547758070,\n  \"neg\": -0.0,\n  \"a/b\": \{\"~k\": 1}\n}"
+    val r = Json.parse(text)
+    println("ok {r.ok()} kind {r.value.type_name()} len {r.value.len()}")
+    val doc = r.value
+
+    -- typed access
+    val user = doc.get("user")
+    println("{user.get_int("id")} {user.get_string("name")} {user.get_bool("admin")} {user.get_float("score")}")
+    println("{user.get("id").as_float()} {user.get("score").as_int()} {user.get("missing").is_null()} {user.has("name")} {user.has("nope")}")
+    println("{doc.get("big").as_int()} {doc.get("huge").kind() == JsonKind.Float} {doc.get("neg")}")
+    println("{doc.get("tags").at(0)} {doc.get("tags").at(-1)} {doc.get("tags").at(9).is_null()} {doc.get("nothing").is_null()}")
+    println("{doc.get("user").get("name").string_or("?")} {doc.get("tags").int_or(-1)} {doc.get("user").get("id").int_or(0)}")
+
+    -- paths
+    val p1 = doc.pointer("/tags/1")
+    val p2 = doc.pointer("/a~1b/~0k")
+    val p3 = doc.path("user.id")
+    val p4 = doc.path("tags.7")
+    if p1 != null and p2 != null and p3 != null {
+        println("pointer {p1} {p2} path {p3} missing {p4 == null}")
+    }
+
+    -- keys and items in order
+    println("{",".join(doc.keys())} | {doc.get("tags").items().len()} | {user.key_at(1)}={user.value_at(1)}")
+
+    -- match on the node
+    for v in doc.get("tags").items() {
+        match v.node {
+            JsonNode.Str(s) -> print("[{s}]")
+            else -> print("?")
+        }
+    }
+    println("")
+
+    -- construction and mutation; containers are shared between copies
+    val o = Json.obj()
+    o.set("n", Json.int(1))
+    o.set("list", Json.ints([1, 2]))
+    val alias = o.get("list")
+    alias.push(Json.float(2.5))
+    alias.insert(0, Json.str("first"))
+    o.set("n", Json.bool(true))
+    println("{o} len {o.len()}")
+    val deep = o.clone()
+    deep.get("list").clear()
+    deep.set("extra", Json.null())
+    println("{o} vs {deep}")
+    val gone = o.get("list").remove_at(0)
+    if gone != null {
+        println("removed {o.remove("n")} {o.remove("n")} {gone} -> {o}")
+    }
+    o.get("list").set_at(0, Json.strings(["x", "y"]))
+    println("{o}")
+
+    -- equality ignores member order; Int and Float compare by value
+    val e1 = Json.parse("\{\"a\": 1, \"b\": [true, null]}").value
+    val e2 = Json.parse("\{\"b\": [true, null], \"a\": 1.0}").value
+    val e3 = Json.parse("\{\"a\": 1, \"b\": [true]}").value
+    println("equals {e1.equals(e2)} {e1.equals(e3)}")
+
+    -- duplicate keys: the last one wins for lookups
+    val dup = Json.parse("\{\"k\": 1, \"k\": 2}").value
+    println("dup {dup.get("k")} {dup.distinct_keys()} {dup.len()}")
+
+    -- serialization
+    println(doc.get("user").pretty())
+    println(Json.parse("\{\"b\": 1, \"a\": [], \"c\": \{}}").value.format(0, true))
+    println(Json.parse("[1e2, 0.1, 100, 1.5e300, -2.5e-8, 3.0]").value.to_string())
+    println(Json.quote("tab\there \"q\" \\ /"))
+    val ctl = Json.str("ctl \u{1}\u{1f} done")
+    println(ctl.to_string())
+}

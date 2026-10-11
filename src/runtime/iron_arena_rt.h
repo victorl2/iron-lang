@@ -76,7 +76,8 @@ typedef struct Iron_Arena_RT {
     iron_atomic_u64  gen;           /* shared live generation; bumped on reset/restore */
     bool             threadsafe;    /* ARENA-02 selects atomic vs plain bump */
     const char      *name;          /* arena-specific panic message (ARENA-10) */
-    struct Iron_Arena_RT *prev;     /* TLS intrusive active-arena stack link (ARENA-11) */
+    struct Iron_Arena_RT *prev;     /* unused: the active-arena stack keeps its own array (ARENA-11) */
+    iron_atomic_u64  refs;          /* the owner's and each spawned task's (manual 7.1) */
 } Iron_Arena_RT;
 
 /* ── Save point (GA1) ───────────────────────────────────────────────────────
@@ -95,7 +96,8 @@ Iron_ArenaSave iron_arena_rt_save(Iron_Arena_RT *a);                  /* ARENA-0
 void           iron_arena_rt_restore(Iron_Arena_RT *a, Iron_ArenaSave s); /* ARENA-07 */
 uint64_t       iron_arena_rt_used(Iron_Arena_RT *a);                  /* ARENA-01 */
 uint64_t       iron_arena_rt_capacity(Iron_Arena_RT *a);              /* ARENA-01 */
-void           iron_arena_rt_destroy(Iron_Arena_RT *a);
+void           iron_arena_rt_destroy(Iron_Arena_RT *a);   /* drops a reference */
+void           iron_arena_rt_retain(Iron_Arena_RT *a);    /* a spawned task's share */
 
 /* ── Thread-local active-arena stack (ARENA-11) ────────────────────────────
  * Intrusive singly-linked stack, mirroring iron_init_cleanup_top

@@ -158,7 +158,14 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
             if (!t->enu.variant_payload_types[j]) continue;
             for (int k = 0; k < ev->payload_count; k++) {
                 Iron_Type *pt = t->enu.variant_payload_types[j][k];
-                if (!pt || pt == t || (pt->kind == IRON_TYPE_ENUM && pt->enu.decl == ed)) continue;
+                /* the same instance (a recursive payload); another instance
+                 * of a generic enum (`Opt[Opt[rc T]]`) has its own glue */
+                if (!pt || pt == t ||
+                    (pt->kind == IRON_TYPE_ENUM && pt->enu.decl == ed &&
+                     (pt->enu.mangled_name == t->enu.mangled_name ||
+                      (pt->enu.mangled_name && t->enu.mangled_name &&
+                       strcmp(pt->enu.mangled_name, t->enu.mangled_name) == 0))))
+                    continue;
                 if (type_is_rc_like(pt) || type_is_counted_string(pt) || pt->kind == IRON_TYPE_FUNC)
                     return true;
                 if (!want_copy && type_is_owned_list(pt)) return true;
@@ -194,8 +201,11 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
              ft->nullable.inner->kind == IRON_TYPE_STRING))
             return true;
         if (ft->kind == IRON_TYPE_FUNC) return true;
+        /* An enum field whose payloads own something (a String, an rc
+         * handle, a list) makes the holder need glue too: without this an
+         * `object W { val node: N }` binding was never dropped. */
         if ((ft->kind == IRON_TYPE_OBJECT || ft->kind == IRON_TYPE_INTERFACE ||
-             ft->kind == IRON_TYPE_NULLABLE ||
+             ft->kind == IRON_TYPE_NULLABLE || ft->kind == IRON_TYPE_ENUM ||
              (ft->kind == IRON_TYPE_ARRAY && ft->array.is_bounded)) &&
             type_lifecycle_rec(ft, program, want_copy, depth + 1))
             return true;
@@ -268,8 +278,24 @@ static bool type_is_rc_like(Iron_Type *t) {
  *                          way a call's does; the handle hands it over
  * Everything else (ident/field aliasing an existing binding) is a BORROWED
  * view; storing it into a binding requires its own retain. */
+static bool hir_expr_is_place(IronHIR_Expr *e);
+
 static bool rc_expr_transfers_ownership(IronHIR_Expr *e) {
     if (!e) return false;
+    /* A field or element read off an owned temporary (`make().handle`,
+     * and the payload binding of `match make() { V(h) -> ... }`):
+     * take_from_owned_temp retains the value before dropping the
+     * temporary, so the read already arrives at +1. Treating it as a
+     * borrowed alias retained it a second time and leaked the handle. */
+    if (e->kind == IRON_HIR_EXPR_FIELD_ACCESS || e->kind == IRON_HIR_EXPR_INDEX) {
+        IronHIR_Expr *base = e->kind == IRON_HIR_EXPR_FIELD_ACCESS
+                           ? e->field_access.object : e->index.array;
+        if (!base || !base->type || base->kind == IRON_HIR_EXPR_STRING_LIT) return false;
+        /* Destructuring moves each element out of the tuple temporary. */
+        if (base->type->kind == IRON_TYPE_TUPLE) return true;
+        if (type_is_rc_like(base->type)) return rc_expr_transfers_ownership(base);
+        return !hir_expr_is_place(base);
+    }
     /* if-chain (not switch) to stay clear of -Werror=switch-enum. */
     return e->kind == IRON_HIR_EXPR_RC ||
            e->kind == IRON_HIR_EXPR_CALL ||
@@ -618,6 +644,13 @@ static bool hir_expr_is_borrowed_elem(IronHIR_Expr *e) {
  * temporary (`make_probe().name`) is not a place: lowering copies the
  * field out and drops the temporary, so the read is an owned value. */
 static bool hir_expr_is_place(IronHIR_Expr *e) {
+    /* An element of a tuple is owned by whoever reads it: a tuple is only
+     * ever taken apart (`val (a, b) = f()`, every position bound, see
+     * hir_lower.c), and the temporary holding it is never dropped. */
+    if (e && e->kind == IRON_HIR_EXPR_FIELD_ACCESS && e->field_access.object &&
+        e->field_access.object->type &&
+        e->field_access.object->type->kind == IRON_TYPE_TUPLE)
+        return false;
     /* A cast (an interface view, an unwrap) of a place still names it. */
     while (e && (e->kind == IRON_HIR_EXPR_FIELD_ACCESS || e->kind == IRON_HIR_EXPR_INDEX ||
                  e->kind == IRON_HIR_EXPR_CAST))
@@ -691,6 +724,12 @@ static IronLIR_ValueId *lower_construct_fields(HIR_to_LIR_Ctx *ctx,
         IronLIR_ValueId fv = lower_expr(ctx, fe);
         Iron_Type *ft = (cod && i < cod->field_count)
                         ? field_stored_type((Iron_Field *)cod->fields[i]) : NULL;
+        /* A tuple owns its elements like an object its fields: `return
+         * (local_rc, n)` used to hand out a handle the local's scope exit
+         * then released. */
+        if (!ft && obj_type && obj_type->kind == IRON_TYPE_TUPLE &&
+            i < obj_type->tuple.elem_count)
+            ft = obj_type->tuple.elem_types[i];
         /* A `T?` field takes a T argument wrapped (#189): the bare value
          * would only fill the optional's first member. */
         if (ft && ft->kind == IRON_TYPE_NULLABLE) fv = coerce_to_optional(ctx, fv, ft, span);
@@ -871,7 +910,11 @@ static const char *list_elem_suffix(HIR_to_LIR_Ctx *ctx, Iron_Type *elem) {
                  * INTERFACE elem types — without this case,
                  * any .method() call on an enum array
                  * mis-dispatches to Iron_List_int64_t_*. */
-                if (elem->enu.decl) {
+                if (elem->enu.mangled_name) {
+                    /* A generic enum instance: its C type, Iron_Opt_Int
+                     * (the decl name alone named Iron_List_Iron_Opt_push). */
+                    elem_suffix = elem->enu.mangled_name;
+                } else if (elem->enu.decl) {
                     size_t slen = 5 + strlen(elem->enu.decl->name) + 1;
                     char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
                     if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix enum");
@@ -1472,12 +1515,37 @@ typedef struct { char *key; bool value; } MonoEnumSeen;
 static void register_mono_enum(HIR_to_LIR_Ctx *ctx,
                                 MonoEnumSeen **seen,
                                 Iron_Type *type) {
+    /* An instance reached through another type (`Map[String, Opt[String]]`,
+     * `[Opt[Int]]`, `Opt[Int]?`, `rc ...`): used nowhere else, it was never
+     * declared and the table's glue named its missing drop. */
+    for (int guard = 0; type && guard < 16; guard++) {
+        if (type->kind == IRON_TYPE_ARRAY) { type = type->array.elem; continue; }
+        if (type->kind == IRON_TYPE_NULLABLE) { type = type->nullable.inner; continue; }
+        if (type->kind == IRON_TYPE_RC) { type = type->rc.inner; continue; }
+        if (type->kind == IRON_TYPE_OBJECT && type->object.elem) {
+            register_mono_enum(ctx, seen, type->object.elem2);
+            type = type->object.elem;
+            continue;
+        }
+        break;
+    }
     if (!type || type->kind != IRON_TYPE_ENUM) return;
     if (!type->enu.mangled_name) return;
     if (shgeti(*seen, type->enu.mangled_name) >= 0) return;
     shput(*seen, (char*)type->enu.mangled_name, true);
     iron_lir_module_add_type_decl(ctx->lir_module, IRON_LIR_TYPE_ENUM,
                                   type->enu.mangled_name, type);
+    /* Its payloads may be instances too (`Opt[Opt[String]]` declared
+     * Iron_Opt_Opt_String around an undeclared Iron_Opt_String). */
+    if (type->enu.decl && type->enu.variant_payload_types) {
+        Iron_EnumDecl *ed = type->enu.decl;
+        for (int j = 0; j < ed->variant_count; j++) {
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            if (!ev || !type->enu.variant_payload_types[j]) continue;
+            for (int k = 0; k < ev->payload_count; k++)
+                register_mono_enum(ctx, seen, type->enu.variant_payload_types[j][k]);
+        }
+    }
 }
 
 /* Recursive AST walker to collect monomorphized enum types from a node. */
@@ -1583,6 +1651,13 @@ static void collect_mono_enums_node(HIR_to_LIR_Ctx *ctx, MonoEnumSeen **seen,
             for (int i = 0; i < mat->case_count; i++)
                 collect_mono_enums_node(ctx, seen, mat->cases[i]);
             collect_mono_enums_node(ctx, seen, mat->else_body);
+            break;
+        }
+        case IRON_NODE_MATCH_CASE: {
+            /* An arm's body: an enum instance used only inside a match arm
+             * was never declared (C: undeclared Iron_Res_...). */
+            Iron_MatchCase *mc = (Iron_MatchCase *)node;
+            collect_mono_enums_node(ctx, seen, mc->body);
             break;
         }
         case IRON_NODE_ASSIGN: {
@@ -1937,85 +2012,6 @@ static IronLIR_ValueId lower_short_circuit_or(HIR_to_LIR_Ctx *ctx,
     return phi->id;
 }
 
-/* `a == b` / `a != b` where one or both sides are T? and the other side is
- * a T or T?: equal when both hold a value and the values are equal, or when
- * both are null. The values are compared only once both are known to be
- * present (an empty optional's value is never read). This used to emit a C
- * comparison of an optional struct with its inner type, which clang
- * rejected. Returns IRON_LIR_VALUE_INVALID when the operands are not such a
- * pair. */
-static IronLIR_ValueId lower_optional_equality(HIR_to_LIR_Ctx *ctx,
-                                               IronHIR_Expr *expr,
-                                               IronLIR_ValueId left,
-                                               IronLIR_ValueId right) {
-    IronHIR_BinOp op = expr->binop.op;
-    if (op != IRON_HIR_BINOP_EQ && op != IRON_HIR_BINOP_NEQ) return IRON_LIR_VALUE_INVALID;
-    Iron_Type *lt = expr->binop.left ? expr->binop.left->type : NULL;
-    Iron_Type *rt = expr->binop.right ? expr->binop.right->type : NULL;
-    if (!lt || !rt) return IRON_LIR_VALUE_INVALID;
-    bool lopt = lt->kind == IRON_TYPE_NULLABLE && lt->nullable.inner;
-    bool ropt = rt->kind == IRON_TYPE_NULLABLE && rt->nullable.inner;
-    if (!lopt && !ropt) return IRON_LIR_VALUE_INVALID;
-    if (lt->kind == IRON_TYPE_NULL || rt->kind == IRON_TYPE_NULL) return IRON_LIR_VALUE_INVALID;
-    Iron_Type *li = lopt ? lt->nullable.inner : lt;
-    Iron_Type *ri = ropt ? rt->nullable.inner : rt;
-    if (!iron_type_equals(li, ri)) return IRON_LIR_VALUE_INVALID;
-
-    Iron_Span span = expr->span;
-    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
-    IronLIR_Func *fn = ctx->current_func;
-
-    IronLIR_ValueId lhas = lopt ? iron_lir_is_not_null(fn, ctx->current_block, left, span)->id
-                                : IRON_LIR_VALUE_INVALID;
-    IronLIR_ValueId rhas = ropt ? iron_lir_is_not_null(fn, ctx->current_block, right, span)->id
-                                : IRON_LIR_VALUE_INVALID;
-    IronLIR_ValueId both = lopt && ropt
-        ? iron_lir_binop(fn, ctx->current_block, IRON_LIR_AND, lhas, rhas, bool_type, span)->id
-        : (lopt ? lhas : rhas);
-    /* When not both present, the answer is "both absent". */
-    IronLIR_ValueId absent_eq;
-    if (lopt && ropt) {
-        absent_eq = iron_lir_binop(fn, ctx->current_block, IRON_LIR_EQ, lhas, rhas,
-                                   bool_type, span)->id;
-    } else {
-        IronLIR_Instr *f = iron_lir_const_bool(fn, ctx->entry_block, false, bool_type, span);
-        insert_in_entry_before_terminator(ctx, f);
-        absent_eq = f->id;
-    }
-    IronLIR_Block *head = ctx->current_block;
-    IronLIR_Block *cmp_block = new_block(ctx, make_label(ctx, "opt_eq_cmp"));
-    IronLIR_Block *merge_block = new_block(ctx, make_label(ctx, "opt_eq_merge"));
-    iron_lir_branch(fn, head, both, cmp_block->id, merge_block->id, span);
-
-    switch_block(ctx, cmp_block);
-    IronLIR_ValueId lv = lopt ? iron_lir_cast(fn, ctx->current_block, left, li, span)->id : left;
-    IronLIR_ValueId rv = ropt ? iron_lir_cast(fn, ctx->current_block, right, ri, span)->id : right;
-    IronLIR_ValueId eq = iron_lir_binop(fn, ctx->current_block, IRON_LIR_EQ, lv, rv,
-                                        bool_type, span)->id;
-    IronLIR_Block *cmp_end = ctx->current_block;
-    iron_lir_jump(fn, cmp_end, merge_block->id, span);
-
-    switch_block(ctx, merge_block);
-    IronLIR_Instr *phi = iron_lir_phi(fn, merge_block, bool_type, span);
-    iron_lir_phi_add_incoming(phi, absent_eq, head->id);
-    iron_lir_phi_add_incoming(phi, eq, cmp_end->id);
-    if (op == IRON_HIR_BINOP_NEQ)
-        return iron_lir_unop(fn, ctx->current_block, IRON_LIR_NOT, phi->id, bool_type, span)->id;
-    return phi->id;
-}
-
-/* `val (a, b) = f()`: hir_lower binds each element of a call's tuple from a
- * `__tuple_mv_` temporary that nothing else owns, so the element moves into
- * its binding instead of being copied. */
-static bool init_moves_from_tuple(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *init) {
-    if (!init || init->kind != IRON_HIR_EXPR_FIELD_ACCESS) return false;
-    IronHIR_Expr *obj = init->field_access.object;
-    if (!obj || obj->kind != IRON_HIR_EXPR_IDENT || !obj->type ||
-        obj->type->kind != IRON_TYPE_TUPLE) return false;
-    const char *name = iron_hir_var_name(ctx->hir, obj->ident.var_id);
-    return name && strncmp(name, "__tuple_mv_", 11) == 0;
-}
-
 /* ── Pass 1: Expression lowering ─────────────────────────────────────────── */
 
 /* Phase 33 OQ-02 (Plan 33-07): build the `Iron_Box_<elemC>` mangled prefix for
@@ -2140,6 +2136,31 @@ static bool lir_value_roots_at_arena(IronLIR_Func *fn, IronLIR_ValueId vid) {
         case IRON_LIR_GET_FIELD:   vid = def->field.object;    break;
         case IRON_LIR_GET_INDEX:   vid = def->index.array;     break;
         case IRON_LIR_PTR_OFFSET:  vid = def->ptr_offset.ptr;  break;
+        case IRON_LIR_LOAD: {
+            /* A `var` binding: arena-rooted when every store into its slot
+             * is an arena allocation (`&p` of a `var p = heap(in: a) T()`
+             * was checked as a heap pointer and failed on every deref). */
+            IronLIR_ValueId slot = def->load.ptr;
+            IronLIR_Instr *a = (slot != IRON_LIR_VALUE_INVALID &&
+                                slot < (IronLIR_ValueId)arrlen(fn->value_table))
+                               ? fn->value_table[slot] : NULL;
+            if (!a || a->kind != IRON_LIR_ALLOCA) return false;
+            bool any = false;
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *st = blk->instrs[ii];
+                    if (!st || st->kind != IRON_LIR_STORE || st->store.ptr != slot) continue;
+                    IronLIR_ValueId sv = st->store.value;
+                    IronLIR_Instr *sd = (sv != IRON_LIR_VALUE_INVALID &&
+                                         sv < (IronLIR_ValueId)arrlen(fn->value_table))
+                                        ? fn->value_table[sv] : NULL;
+                    if (!sd || sd->kind != IRON_LIR_ARENA_ALLOC) return false;
+                    any = true;
+                }
+            }
+            return any;
+        }
         default: return false;
         }
     }
@@ -2317,12 +2338,9 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         IronLIR_ValueId left  = lower_expr(ctx, expr->binop.left);
         IronLIR_ValueId right = lower_expr(ctx, expr->binop.right);
         if (!ctx->current_block) return IRON_LIR_VALUE_INVALID;
-        IronLIR_ValueId res = lower_optional_equality(ctx, expr, left, right);
-        if (res == IRON_LIR_VALUE_INVALID) {
-            IronLIR_InstrKind kind = hir_binop_to_lir(op);
-            res = iron_lir_binop(ctx->current_func, ctx->current_block,
-                                 kind, left, right, type, span)->id;
-        }
+        IronLIR_InstrKind kind = hir_binop_to_lir(op);
+        IronLIR_ValueId res = iron_lir_binop(ctx->current_func, ctx->current_block,
+                                             kind, left, right, type, span)->id;
         /* `w.upgrade() != null`: an rc operand that hands over a reference
          * (an upgrade, a call result) has no owner once compared; it was
          * never released, so the object leaked and its drop never ran. */
@@ -4055,6 +4073,27 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     case IRON_HIR_EXPR_ADDR_OF: {
         IronLIR_ValueId target = lower_expr(ctx, expr->addr_of.target);
         if (!ctx->current_block) return IRON_LIR_VALUE_INVALID;
+        /* `&b` of a `val b = a`: the val has no slot of its own, its value
+         * is the load of a's, so the emitter took the address of `a` and
+         * the pointer saw every later write to a. Give the pointer the
+         * val's own copy. */
+        if (expr->addr_of.target &&
+            expr->addr_of.target->kind == IRON_HIR_EXPR_IDENT &&
+            hmgeti(ctx->val_binding_map, expr->addr_of.target->ident.var_id) >= 0 &&
+            target != IRON_LIR_VALUE_INVALID &&
+            (ptrdiff_t)target < arrlen(ctx->current_func->value_table) &&
+            ctx->current_func->value_table[target] &&
+            (ctx->current_func->value_table[target]->kind == IRON_LIR_LOAD ||
+             ctx->current_func->value_table[target]->kind == IRON_LIR_GET_FIELD ||
+             ctx->current_func->value_table[target]->kind == IRON_LIR_GET_INDEX) &&
+            expr->addr_of.gen_source != IRON_HIR_GEN_HEAP) {
+            Iron_Type *vt = expr->addr_of.target->type;
+            if (vt && vt->kind != IRON_TYPE_RC && vt->kind != IRON_TYPE_PTR) {
+                IronLIR_ValueId slot = emit_alloca_in_entry(ctx, vt, "__val_view", span);
+                iron_lir_store(ctx->current_func, ctx->current_block, slot, target, span);
+                target = iron_lir_load(ctx->current_func, ctx->current_block, slot, vt, span)->id;
+            }
+        }
         IronLIR_GenSource gs =
             (expr->addr_of.gen_source == IRON_HIR_GEN_HEAP)
                 ? IRON_LIR_GEN_HEAP : IRON_LIR_GEN_STACK;
@@ -4446,16 +4485,14 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                     iron_lir_store(ctx->current_func, ctx->current_block,
                                    alloca_id, init_val, span);
                 }
-                if (!init_moves_from_tuple(ctx, stmt->let.init))
-                    emit_copy_fixup_at(ctx, stmt->let.init, type, alloca_id, span);
+                emit_copy_fixup_at(ctx, stmt->let.init, type, alloca_id, span);
                 /* Push drop entry using alloca_id (is_direct_value=false → &alloca) */
                 IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
             } else {
                 if (stmt->let.init) {
                     IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
-                    bool moved_in = init_moves_from_tuple(ctx, stmt->let.init);
-                    if (!init_is_heap_or_rc && !pattern_borrows && !moved_in)
+                    if (!init_is_heap_or_rc && !pattern_borrows)
                         init_val = copy_for_new_owner(ctx, stmt->let.init,
                                                       init_val, type, span);
                     hmput(ctx->val_binding_map, vid, init_val);
@@ -4487,7 +4524,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                         ctx->defer_depth > 0 &&
                         ctx->drop_stacks &&
                         ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
-                        if (!rc_expr_transfers_ownership(stmt->let.init) && !moved_in) {
+                        if (!rc_expr_transfers_ownership(stmt->let.init)) {
                             emit_rc_retain_for_type(ctx, type, init_val, span);
                         }
                         IronLIR_DropEntry de = { init_val, type, true, false, NULL, false };
@@ -5231,17 +5268,18 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
          * def-after-use hoisting concern as above; ALLOCA hoisting is the
          * one form emit_c handles for every instruction kind). */
         IronLIR_ValueId ret_slot = IRON_LIR_VALUE_INVALID;
-        /* The slot holds the value as returned: wrapped into the function's
-         * T? when that is the return type. Typing it with the expression's
-         * own type (T, or the null literal's type) reloaded an unwrapped
-         * value, and the RETURN failed LIR verification (E0905) whenever a
-         * T? function had a droppable local in scope. */
-        Iron_Type *slot_type = ret_type;
-        if (has_value && ctx->current_func->return_type &&
-            ctx->current_func->return_type->kind == IRON_TYPE_NULLABLE)
-            slot_type = ctx->current_func->return_type;
-        if (has_value && slot_type) {
-            ret_slot = emit_alloca_in_entry(ctx, slot_type, "__ret_val", span);
+        if (has_value && ret_type) {
+            /* The slot holds the value as returned: after the T -> T?
+             * coercion above (`return s` of a String binding from a
+             * `-> String?` function), not the expression's own type. */
+            Iron_Type *slot_type = ret_type;
+            if ((ptrdiff_t)ret_val < arrlen(ctx->current_func->value_table) &&
+                ctx->current_func->value_table[ret_val] &&
+                ctx->current_func->value_table[ret_val]->type &&
+                ctx->current_func->value_table[ret_val]->type->kind == IRON_TYPE_NULLABLE)
+                slot_type = ctx->current_func->value_table[ret_val]->type;
+            ret_type = slot_type;
+            ret_slot = emit_alloca_in_entry(ctx, ret_type, "__ret_val", span);
             iron_lir_store(ctx->current_func, ctx->current_block,
                            ret_slot, ret_val, span);
         }
@@ -5265,10 +5303,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 IronLIR_ValueId rv = ret_val;
                 if (ret_slot != IRON_LIR_VALUE_INVALID) {
                     rv = iron_lir_load(ctx->current_func, ctx->current_block,
-                                       ret_slot, slot_type, span)->id;
+                                       ret_slot, ret_type, span)->id;
                 }
                 iron_lir_return(ctx->current_func, ctx->current_block,
-                                rv, false, slot_type, span);
+                                rv, false, ret_type, span);
             } else {
                 iron_lir_return(ctx->current_func, ctx->current_block,
                                 IRON_LIR_VALUE_INVALID, true, NULL, span);
@@ -5815,6 +5853,17 @@ static void ssa_collect_addr_taken(IronLIR_Func *fn) {
             case IRON_LIR_MAKE_CLOSURE:
                 for (int ci = 0; ci < in->make_closure.capture_count; ci++)
                     ssa_mark_addr_taken(fn, in->make_closure.captures[ci]);
+                break;
+            /* A `var` captured by a spawn or parallel for body is passed
+             * as the address of its slot: promoted, the env took the
+             * address of the stored constant (C compile error). */
+            case IRON_LIR_SPAWN:
+                for (int ci = 0; ci < in->spawn.capture_count; ci++)
+                    ssa_mark_addr_taken(fn, in->spawn.captures[ci]);
+                break;
+            case IRON_LIR_PARALLEL_FOR:
+                for (int ci = 0; ci < in->parallel_for.capture_count; ci++)
+                    ssa_mark_addr_taken(fn, in->parallel_for.captures[ci]);
                 break;
             case IRON_LIR_STORE:
                 ssa_mark_addr_taken(fn, in->store.value);

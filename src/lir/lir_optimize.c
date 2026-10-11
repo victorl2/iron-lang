@@ -284,6 +284,10 @@ static void analyze_array_param_modes(IronLIR_Module *module,
         for (int fi = 0; fi < module->func_count; fi++) {
             IronLIR_Func *fn = module->funcs[fi];
             if (fn->is_extern || fn->block_count == 0) continue;
+            /* main(args: [String]) is called by the generated C main with
+             * the list itself (emit_c.c main wrapper), never by Iron code
+             * that would pass a pointer and a length. */
+            if (fn->name && strcmp(fn->name, "main") == 0) continue;
 
             for (int pi = 0; pi < fn->param_count; pi++) {
                 Iron_Type *pt = fn->params[pi].type;
@@ -465,6 +469,15 @@ static bool lir_vid_is_global_slot(IronLIR_Func *fn, IronLIR_ValueId vid) {
 
 /* ── Stack-array optimization pre-pass (ARR-01) ─────────────────────────── */
 
+/* Element types a fill() result may keep in a stack array: values with no
+ * ownership (no release, drop or clone on copy). */
+static bool fill_elem_is_scalar(const Iron_Type *t) {
+    if (!t) return false;
+    if (t->kind == IRON_TYPE_ENUM)
+        return t->enu.decl && !t->enu.decl->has_payloads;
+    return iron_type_is_numeric(t) || t->kind == IRON_TYPE_BOOL;
+}
+
 /* Mark ARRAY_LIT instructions with known element counts <= 256 as
  * stack-array eligible.  This runs after phi elimination so the IR is stable. */
 static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *info) {
@@ -533,6 +546,12 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
                         strcmp(fn->value_table[fptr]->func_ref.func_name,
                                "__builtin_fill") == 0) {
                         hmput(sa_map, instr->id, instr->id);
+                        /* A stack array has no cleanup and no per-element
+                         * copy: only plain scalar elements may live in one
+                         * (a fill of lists, strings or handles shared one
+                         * buffer between every element). */
+                        if (!fill_elem_is_scalar(instr->type->array.elem))
+                            hmput(info->revoked_fill_ids, instr->id, true);
                     }
                 }
             }
@@ -1641,6 +1660,24 @@ static bool is_comparison_binop(IronLIR_InstrKind kind) {
            kind == IRON_LIR_GT  || kind == IRON_LIR_GTE;
 }
 
+static bool fold_type_is_unsigned64(const Iron_Type *t) {
+    return t && (t->kind == IRON_TYPE_UINT64 || t->kind == IRON_TYPE_UINT);
+}
+
+/* v wrapped to the width of integer type t (unchanged for 64-bit types). */
+static int64_t fold_wrap_to_type(int64_t v, const Iron_Type *t) {
+    if (!t) return v;
+    switch ((int)t->kind) {
+        case IRON_TYPE_INT8:   return (int8_t)(uint8_t)(uint64_t)v;
+        case IRON_TYPE_INT16:  return (int16_t)(uint16_t)(uint64_t)v;
+        case IRON_TYPE_INT32:  return (int32_t)(uint32_t)(uint64_t)v;
+        case IRON_TYPE_UINT8:  return (uint8_t)(uint64_t)v;
+        case IRON_TYPE_UINT16: return (uint16_t)(uint64_t)v;
+        case IRON_TYPE_UINT32: return (uint32_t)(uint64_t)v;
+        default:               return v;
+    }
+}
+
 /* Constant Folding: evaluate CONST_INT op CONST_INT at compile time.
  * Also folds integer comparisons to CONST_BOOL. */
 static bool run_constant_folding(IronLIR_Module *module) {
@@ -1671,16 +1708,26 @@ static bool run_constant_folding(IronLIR_Module *module) {
                         int64_t R = right_def->const_int.value;
                         int64_t result = 0;
                         bool can_fold = true;
+                        /* Two's complement arithmetic at the result's own
+                         * width (manual 2.1): `m + m < 0` with m = 100 :
+                         * Int8 folded 200 and compared it unwrapped. */
+                        bool uns = fold_type_is_unsigned64(in->type);
                         switch ((int)(in->kind)) {
-                            case IRON_LIR_ADD: result = L + R; break;
-                            case IRON_LIR_SUB: result = L - R; break;
-                            case IRON_LIR_MUL: result = L * R; break;
+                            case IRON_LIR_ADD: result = (int64_t)((uint64_t)L + (uint64_t)R); break;
+                            case IRON_LIR_SUB: result = (int64_t)((uint64_t)L - (uint64_t)R); break;
+                            case IRON_LIR_MUL: result = (int64_t)((uint64_t)L * (uint64_t)R); break;
                             case IRON_LIR_DIV:
                                 if (R == 0) { can_fold = false; break; }
-                                result = L / R; break;
+                                if (uns) result = (int64_t)((uint64_t)L / (uint64_t)R);
+                                else if (L == INT64_MIN && R == -1) result = INT64_MIN;
+                                else result = L / R;
+                                break;
                             case IRON_LIR_MOD:
                                 if (R == 0) { can_fold = false; break; }
-                                result = L % R; break;
+                                if (uns) result = (int64_t)((uint64_t)L % (uint64_t)R);
+                                else if (R == -1) result = 0;
+                                else result = L % R;
+                                break;
                             /* -Wswitch-enum opt-out: constant folder only
                              * knows integer arithmetic; every other binop
                              * opcode defers folding. */
@@ -1688,7 +1735,7 @@ static bool run_constant_folding(IronLIR_Module *module) {
                         }
                         if (can_fold) {
                             in->kind = IRON_LIR_CONST_INT;
-                            in->const_int.value = result;
+                            in->const_int.value = fold_wrap_to_type(result, in->type);
                             changed = true;
                         }
                     }
@@ -1707,16 +1754,21 @@ static bool run_constant_folding(IronLIR_Module *module) {
                     if (left_def && right_def &&
                         left_def->kind == IRON_LIR_CONST_INT &&
                         right_def->kind == IRON_LIR_CONST_INT) {
-                        int64_t L = left_def->const_int.value;
-                        int64_t R = right_def->const_int.value;
+                        int64_t L = fold_wrap_to_type(left_def->const_int.value, left_def->type);
+                        int64_t R = fold_wrap_to_type(right_def->const_int.value, right_def->type);
                         bool result = false;
+                        /* UInt64 values above the largest Int are stored as
+                         * negative bit patterns: order them unsigned. */
+                        bool uns = fold_type_is_unsigned64(left_def->type) ||
+                                   fold_type_is_unsigned64(right_def->type);
+                        uint64_t UL = (uint64_t)L, UR = (uint64_t)R;
                         switch ((int)(in->kind)) {
                             case IRON_LIR_EQ:  result = (L == R); break;
                             case IRON_LIR_NEQ: result = (L != R); break;
-                            case IRON_LIR_LT:  result = (L < R);  break;
-                            case IRON_LIR_LTE: result = (L <= R); break;
-                            case IRON_LIR_GT:  result = (L > R);  break;
-                            case IRON_LIR_GTE: result = (L >= R); break;
+                            case IRON_LIR_LT:  result = uns ? UL < UR : L < R;  break;
+                            case IRON_LIR_LTE: result = uns ? UL <= UR : L <= R; break;
+                            case IRON_LIR_GT:  result = uns ? UL > UR : L > R;  break;
+                            case IRON_LIR_GTE: result = uns ? UL >= UR : L >= R; break;
                             /* -Wswitch-enum opt-out: only the comparison
                              * opcodes fold to a constant bool; caller
                              * already gated on is_comparison_binop. */
@@ -4262,6 +4314,37 @@ static bool gencheck_is_heap_handle(IronLIR_Func *fn, IronLIR_ValueId v) {
     return any;
 }
 
+/* An arena handle (`heap(in: a) T(...)`, or `heap T(...)` inside `in a`):
+ * the ARENA_ALLOC value itself, or a load of a `var` binding's slot whose
+ * every store is an ARENA_ALLOC. */
+static bool gencheck_is_arena_handle(IronLIR_Func *fn, IronLIR_ValueId v) {
+    if (v == IRON_LIR_VALUE_INVALID || (ptrdiff_t)v >= arrlen(fn->value_table)) return false;
+    IronLIR_Instr *d = fn->value_table[v];
+    if (!d) return false;
+    if (d->kind == IRON_LIR_ARENA_ALLOC) return true;
+    if (d->kind != IRON_LIR_LOAD) return false;
+    if (d->type && d->type->kind == IRON_TYPE_PTR) return false;
+    IronLIR_ValueId slot = d->load.ptr;
+    if (slot == IRON_LIR_VALUE_INVALID || (ptrdiff_t)slot >= arrlen(fn->value_table)) return false;
+    IronLIR_Instr *a = fn->value_table[slot];
+    if (!a || a->kind != IRON_LIR_ALLOCA) return false;
+    bool any = false;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *st = blk->instrs[ii];
+            if (!st || st->kind != IRON_LIR_STORE || st->store.ptr != slot) continue;
+            IronLIR_ValueId sv = st->store.value;
+            IronLIR_Instr *sd = (sv != IRON_LIR_VALUE_INVALID &&
+                                 (ptrdiff_t)sv < arrlen(fn->value_table))
+                                ? fn->value_table[sv] : NULL;
+            if (!sd || sd->kind != IRON_LIR_ARENA_ALLOC) return false;
+            any = true;
+        }
+    }
+    return any;
+}
+
 static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
                                        IronLIR_ValueId *out_ptr,
                                        IronLIR_GenSource *out_gen) {
@@ -4271,6 +4354,15 @@ static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
         gencheck_is_heap_handle(fn, in->field.object)) {
         *out_ptr = in->field.object;
         *out_gen = IRON_LIR_GEN_HEAP;
+        return true;
+    }
+    /* The same through an arena handle: after `a.reset()` (or a restore to
+     * a mark taken before the allocation) h.f read reclaimed arena memory
+     * instead of failing with the stale pointer error of manual 6.6. */
+    if ((in->kind == IRON_LIR_GET_FIELD || in->kind == IRON_LIR_SET_FIELD) &&
+        gencheck_is_arena_handle(fn, in->field.object)) {
+        *out_ptr = in->field.object;
+        *out_gen = IRON_LIR_GEN_ARENA;
         return true;
     }
     switch ((int)(in->kind)) {
@@ -4361,6 +4453,38 @@ void lower_genchecks(IronLIR_Module *module) {
 
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *in = blk->instrs[ii];
+
+                /* A pointer into a heap or arena allocation passed to a
+                 * function: the callee reads it through a parameter, whose
+                 * regime it cannot know, so it checks nothing; `rd(p)` after
+                 * `free h` read freed memory. Check at the call, where the
+                 * pointer's producer says what it points into (the callee
+                 * cannot free the caller's allocation while it runs). */
+                if (in->kind == IRON_LIR_CALL) {
+                    for (int ai = 0; ai < in->call.arg_count; ai++) {
+                        IronLIR_ValueId av = in->call.args[ai];
+                        IronLIR_Instr *ad = (av != IRON_LIR_VALUE_INVALID &&
+                                             (ptrdiff_t)av < arrlen(fn->value_table))
+                                            ? fn->value_table[av] : NULL;
+                        if (!ad || ad->kind != IRON_LIR_ADDR_OF ||
+                            (ad->addr_of.gen_source != IRON_LIR_GEN_HEAP &&
+                             ad->addr_of.gen_source != IRON_LIR_GEN_ARENA) ||
+                            !ad->type || ad->type->kind != IRON_TYPE_PTR ||
+                            ad->type->ptr.is_unchecked)
+                            continue;
+                        IronLIR_Instr *gc = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+                        if (!gc) iron_oom_abort("lir_optimize.c:lower_genchecks");
+                        memset(gc, 0, sizeof(*gc));
+                        gc->kind                = IRON_LIR_GENCHECK;
+                        gc->id                  = IRON_LIR_VALUE_INVALID;
+                        gc->span                = in->span;
+                        gc->gencheck.ptr        = av;
+                        gc->gencheck.root_alloc = canonicalize_root(fn, av);
+                        gc->gencheck.gen_source = ad->addr_of.gen_source;
+                        arrput(rebuilt, gc);
+                        inserted_any = true;
+                    }
+                }
 
                 IronLIR_ValueId ptr = IRON_LIR_VALUE_INVALID;
                 IronLIR_GenSource gen = IRON_LIR_GEN_HEAP;

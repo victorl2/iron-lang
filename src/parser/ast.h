@@ -723,6 +723,7 @@ typedef struct {
     const char        *handle_name;  /* NULL if no handle */
     Iron_CaptureEntry *captures;      /* set by capture analysis; NULL before analysis */
     int                capture_count; /* 0 for non-capturing spawn blocks */
+    struct Iron_Type  *result_type;   /* set by the type checker: the body's first return value */
 } Iron_SpawnStmt;
 
 typedef struct {
@@ -739,6 +740,10 @@ typedef struct {
     Iron_NodeKind      kind;   /* IRON_NODE_INT_LIT */
     struct Iron_Type  *resolved_type;  /* set by type checker */
     const char        *value;
+    /* Set by the type checker: the value is above the largest Int but fits
+     * 64 bits unsigned, so the literal is valid only where it takes UInt64
+     * or UInt (manual 1.4). */
+    bool               exceeds_int;
 } Iron_IntLit;
 
 typedef struct {

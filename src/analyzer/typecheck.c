@@ -375,8 +375,29 @@ static const char *type_mangle_component(const Iron_Type *t, Iron_Arena *arena) 
          * NULLABLE, FUNC, TUPLE, POINTER, ERROR, NULL) flow through the
          * iron_type_to_string fallback which already handles each variant. */
         default:
-            /* Fallback: use iron_type_to_string but replace brackets with underscores */
-            return iron_type_to_string(t, arena);
+            /* Fallback: iron_type_to_string with every character a C
+             * identifier cannot hold replaced (`rc Pt`, `[Int]`, `Int?`
+             * went into the enum's C name verbatim). */
+        {
+            const char *s = iron_type_to_string(t, arena);
+            if (!s) return "unknown";
+            size_t n = strlen(s);
+            char *o = (char *)iron_arena_alloc(arena, n + 1, 1);
+            if (!o) return "unknown";
+            size_t k = 0;
+            for (size_t i = 0; i < n; i++) {
+                char c = s[i];
+                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                    (c >= '0' && c <= '9') || c == '_')
+                    o[k++] = c;
+                else if (c == '[') o[k++] = 'L';
+                else if (c == '?') o[k++] = 'N';
+                else if (c == ']') continue;
+                else o[k++] = '_';
+            }
+            o[k] = '\0';
+            return o;
+        }
     }
 }
 
@@ -924,6 +945,7 @@ static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
 }
 
 static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t);
+static bool fold_constant_u64(const Iron_Node *node, unsigned long long *out, int depth);
 static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *init_t,
                                      const Iron_Node *init_node);
 
@@ -1425,8 +1447,8 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
         return false;
     }
     if (iron_type_equals(decl_t, init_t)) return true;
-    /* Int32 -> Int: implicit widening (always safe) */
-    if (decl_t->kind == IRON_TYPE_INT && init_t->kind == IRON_TYPE_INT32) return true;
+    /* No implicit numeric conversion, Int32 -> Int included (manual 2):
+     * `a *= b` with a: Int and b: Int32 built while `b *= a` did not. */
 
     /* Phase 20 PTR-13 (nullable accept): a `null` literal is assignable to
      * any nullable type `T?`. Required so `val p: ?*Point = null` analyzes
@@ -1517,6 +1539,26 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
     return false;
 }
 
+/* A signature type kept from an earlier round of generic instantiation
+ * that could not be resolved then (`-> Cell[T]` of a generic method whose
+ * Cell instance did not exist yet): the call was typed with it in the
+ * final round and emitted as `int`. */
+static bool stale_signature_type(const Iron_Type *t, int depth) {
+    if (!t) return true;
+    if (depth > 16) return false;
+    switch ((int)t->kind) {
+        case IRON_TYPE_ERROR:    return true;
+        case IRON_TYPE_ARRAY:    return stale_signature_type(t->array.elem, depth + 1);
+        case IRON_TYPE_NULLABLE: return stale_signature_type(t->nullable.inner, depth + 1);
+        case IRON_TYPE_RC:       return stale_signature_type(t->rc.inner, depth + 1);
+        case IRON_TYPE_ENUM:
+            for (int i = 0; t->enu.type_args && i < t->enu.type_arg_count; i++)
+                if (stale_signature_type(t->enu.type_args[i], depth + 1)) return true;
+            return false;
+        default:                 return false;
+    }
+}
+
 /* Context-directed generic enum completion:
  * When `val r: Result[Int, String] = Result.Ok(100)`, only T=Int can be
  * inferred from the construct; E cannot be inferred from Ok's payload.
@@ -1525,6 +1567,43 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
  * the types match without a spurious type-mismatch error.
  * This does NOT validate that the inferred args are compatible — that is
  * enforced by the construct's own argument type-check above. */
+/* Once a generic enum construct has its type (`Opt.Some(x)` completed to
+ * Opt[Opt[Int]] by an annotation), a payload that is itself a construct
+ * with open type arguments (`Opt.None` there) takes the payload type: it
+ * was left an `Opt[unknown]` and emitted C that did not compile. */
+static void fill_open_payload_constructs(Iron_Node *node, Iron_Type *et, int depth) {
+    if (!node || node->kind != IRON_NODE_ENUM_CONSTRUCT || !et || depth > 16 ||
+        et->kind != IRON_TYPE_ENUM || !et->enu.decl || !et->enu.variant_payload_types)
+        return;
+    Iron_EnumConstruct *ec = (Iron_EnumConstruct *)node;
+    Iron_EnumDecl *ed = et->enu.decl;
+    int vi = -1;
+    for (int j = 0; j < ed->variant_count; j++) {
+        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+        if (ev && ev->name && ec->variant_name && strcmp(ev->name, ec->variant_name) == 0) {
+            vi = j;
+            break;
+        }
+    }
+    if (vi < 0 || !et->enu.variant_payload_types[vi]) return;
+    Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+    for (int k = 0; k < ec->arg_count && k < ev->payload_count; k++) {
+        Iron_Node *a = ec->args[k];
+        Iron_Type *pt = et->enu.variant_payload_types[vi][k];
+        if (!a || a->kind != IRON_NODE_ENUM_CONSTRUCT || !pt || pt->kind != IRON_TYPE_ENUM)
+            continue;
+        Iron_EnumConstruct *ac = (Iron_EnumConstruct *)a;
+        Iron_Type *at = ac->resolved_type;
+        if (at && at->kind == IRON_TYPE_ENUM && at->enu.decl == pt->enu.decl &&
+            !iron_type_equals(at, pt) &&
+            (!at->enu.type_args ||
+             (at->enu.mangled_name && strstr(at->enu.mangled_name, "_unknown")))) {
+            ac->resolved_type = pt;
+        }
+        fill_open_payload_constructs(a, ac->resolved_type, depth + 1);
+    }
+}
+
 static void maybe_fill_missing_generic_args(Iron_Node *init_node,
                                              Iron_Type *decl_type) {
     if (!init_node || !decl_type) return;
@@ -1538,6 +1617,7 @@ static void maybe_fill_missing_generic_args(Iron_Node *init_node,
     /* Both are instantiations of the same generic enum.
      * Replace ec->resolved_type with decl_type to fill in any missing args. */
     ec->resolved_type = decl_type;
+    fill_open_payload_constructs(init_node, decl_type, 0);
 }
 
 static bool try_get_constant_int(Iron_Node *node, long long *out);
@@ -1591,8 +1671,14 @@ static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *i
     }
     if (init_t->kind != IRON_TYPE_INT) return false;
     if (!is_integer_kind(decl_t) || decl_t->kind == IRON_TYPE_INT) return false;
+    if (init_node->kind == IRON_NODE_INT_LIT && ((const Iron_IntLit *)init_node)->exceeds_int)
+        return decl_t->kind == IRON_TYPE_UINT64 || decl_t->kind == IRON_TYPE_UINT;
     long long val;
-    if (!try_get_constant_int((Iron_Node *)init_node, &val)) return false;
+    if (!try_get_constant_int((Iron_Node *)init_node, &val)) {
+        unsigned long long uval;
+        return (decl_t->kind == IRON_TYPE_UINT64 || decl_t->kind == IRON_TYPE_UINT) &&
+               fold_constant_u64(init_node, &uval, 0);
+    }
     return value_fits_type(val, decl_t);
 }
 
@@ -1619,6 +1705,19 @@ static bool literal_range_error(TypeCtx *ctx, const Iron_Type *decl_t,
                                 const Iron_Type *init_t, Iron_Node *init_node) {
     if (!decl_t || !init_t || !init_node) return false;
     if (init_t->kind != IRON_TYPE_INT || !is_integer_kind(decl_t)) return false;
+    if (init_node->kind == IRON_NODE_INT_LIT && ((Iron_IntLit *)init_node)->exceeds_int &&
+        decl_t->kind != IRON_TYPE_UINT64 && decl_t->kind != IRON_TYPE_UINT) {
+        const char *range = integer_range_text(decl_t);
+        char msg[256];
+        snprintf(msg, sizeof(msg), "literal %s does not fit in %s%s%s%s",
+                 ((Iron_IntLit *)init_node)->value,
+                 iron_type_to_string((Iron_Type *)decl_t, ctx->arena),
+                 range ? " (" : "", range ? range : "", range ? ")" : "");
+        emit_error(ctx, IRON_ERR_TYPE_MISMATCH_LITERAL, init_node->span, msg,
+                   "use a value within the type's range or a wider type");
+        ((Iron_IntLit *)init_node)->exceeds_int = false;   /* reported */
+        return true;
+    }
     long long val;
     if (!try_get_constant_int(init_node, &val)) return false;
     if (value_fits_type(val, decl_t)) return false;
@@ -1706,6 +1805,47 @@ static bool try_get_constant_int(Iron_Node *node, long long *out) {
     return fold_constant_int(node, out, 0);
 }
 
+/* The value of an integer constant expression folded as UInt64 (for a
+ * constant that takes UInt64 or UInt and has a literal above the largest
+ * Int, `x / (18446744073709551614 | 1)`). Fails on a negative value,
+ * overflow, division by zero and out-of-range shifts. */
+static bool fold_constant_u64(const Iron_Node *node, unsigned long long *out, int depth) {
+    if (!node || depth > 64) return false;
+    if (node->kind == IRON_NODE_INT_LIT) {
+        const Iron_IntLit *lit = (const Iron_IntLit *)node;
+        if (!lit->value || lit->value[0] == '-') return false;
+        errno = 0;
+        unsigned long long v = strtoull(lit->value, NULL, 10);
+        if (errno) return false;
+        *out = v;
+        return true;
+    }
+    if (node->kind == IRON_NODE_BINARY) {
+        const Iron_BinaryExpr *be = (const Iron_BinaryExpr *)node;
+        unsigned long long a, b;
+        if (!fold_constant_u64(be->left, &a, depth + 1) ||
+            !fold_constant_u64(be->right, &b, depth + 1)) return false;
+        switch ((int)be->op) {
+            case IRON_TOK_PLUS:  return !__builtin_add_overflow(a, b, out);
+            case IRON_TOK_MINUS: return !__builtin_sub_overflow(a, b, out);
+            case IRON_TOK_STAR:  return !__builtin_mul_overflow(a, b, out);
+            case IRON_TOK_SLASH:   if (b == 0) return false; *out = a / b; return true;
+            case IRON_TOK_PERCENT: if (b == 0) return false; *out = a % b; return true;
+            case IRON_TOK_AMP:   *out = a & b; return true;
+            case IRON_TOK_PIPE:  *out = a | b; return true;
+            case IRON_TOK_CARET: *out = a ^ b; return true;
+            case IRON_TOK_SHL:
+                if (b > 63 || (b > 0 && (a >> (64 - b)) != 0)) return false;
+                *out = a << b;
+                return true;
+            case IRON_TOK_SHR:   if (b > 63) return false; *out = a >> b; return true;
+            /* -Wswitch-enum opt-out: no other operator yields an integer. */
+            default: return false;
+        }
+    }
+    return false;
+}
+
 /* Give an integer constant expression the type its context chose, down to
  * its literals, so `a + (2 + 3)` with `a: Int8` is Int8 throughout. */
 static void retype_int_constant(Iron_Node *node, Iron_Type *t, int depth) {
@@ -1733,6 +1873,11 @@ static bool type_satisfies_constraint(TypeCtx *ctx, Iron_Type *concrete_type,
                                        const char *constraint_name) {
     if (!concrete_type || !constraint_name) return true;
     if (concrete_type->kind == IRON_TYPE_ERROR) return true;
+    /* A type parameter of the generic being checked (`Map[K, Int]` in the
+     * signature of `func f[K: Hashable]`): every instance is checked again
+     * with its concrete type argument, which is where the constraint
+     * applies; rejecting K here rejected every generic Map key. */
+    if (concrete_type->kind == IRON_TYPE_GENERIC_PARAM) return true;
 
     /* Phase 33 OQ-01 / GA1: primitive-key carve-out. The built-in hashable
      * primitives satisfy `Hashable` directly — without an explicit
@@ -2617,6 +2762,35 @@ static int classify_null_check(TypeCtx *ctx, Iron_Node *expr, const char **out_n
  * so the walker may miss a genuine always-returns path, which is safe
  * (emits a false positive at worst; user can annotate with an explicit
  * return statement to suppress). Never returns true on ambiguous code. */
+/* The `return value` statements of a spawn body, at any depth but not in a
+ * nested lambda or spawn (those return for themselves), in source order. */
+static void spawn_returns(Iron_Node *n, Iron_ReturnStmt ***out) {
+    if (!n) return;
+    if (n->kind == IRON_NODE_RETURN) {
+        if (((Iron_ReturnStmt *)n)->value) arrput(*out, (Iron_ReturnStmt *)n);
+    } else if (n->kind == IRON_NODE_BLOCK) {
+        Iron_Block *b = (Iron_Block *)n;
+        for (int i = 0; i < b->stmt_count; i++) spawn_returns(b->stmts[i], out);
+    } else if (n->kind == IRON_NODE_IF) {
+        Iron_IfStmt *is = (Iron_IfStmt *)n;
+        spawn_returns(is->body, out);
+        for (int i = 0; i < is->elif_count; i++) spawn_returns(is->elif_bodies[i], out);
+        spawn_returns(is->else_body, out);
+    } else if (n->kind == IRON_NODE_WHILE) {
+        spawn_returns(((Iron_WhileStmt *)n)->body, out);
+    } else if (n->kind == IRON_NODE_FOR) {
+        spawn_returns(((Iron_ForStmt *)n)->body, out);
+    } else if (n->kind == IRON_NODE_IN_ARENA) {
+        spawn_returns(((Iron_InArenaBlock *)n)->body, out);
+    } else if (n->kind == IRON_NODE_MATCH) {
+        Iron_MatchStmt *ms = (Iron_MatchStmt *)n;
+        for (int i = 0; i < ms->case_count; i++)
+            if (ms->cases[i] && ms->cases[i]->kind == IRON_NODE_MATCH_CASE)
+                spawn_returns(((Iron_MatchCase *)ms->cases[i])->body, out);
+        spawn_returns(ms->else_body, out);
+    }
+}
+
 static bool stmt_always_returns(Iron_Node *node) {
     if (!node) return false;
     switch ((int)node->kind) {
@@ -3914,7 +4088,24 @@ static void unify_generic(Iron_Node *ann_node, Iron_Type *actual,
             return;
         }
     }
+    if (ta->is_rc && ta->rc_inner) {
+        /* `rc Cell[T]` against an rc handle. */
+        if (t->kind == IRON_TYPE_RC && t->rc.inner)
+            unify_generic(ta->rc_inner, t->rc.inner, gps, ngp, bind);
+        return;
+    }
     if (!ta->name) return;
+    if (ta->generic_arg_count > 0 && t->kind == IRON_TYPE_ENUM) {
+        /* `Res[T, E]` against a generic enum value: an enum instance keeps
+         * its template declaration and carries the arguments (`r_ok(r)`
+         * with r: Res[Int, String] could not infer T). */
+        if (!t->enu.decl || !t->enu.decl->name || strcmp(t->enu.decl->name, ta->name) != 0 ||
+            !t->enu.type_args)
+            return;
+        for (int i = 0; i < ta->generic_arg_count && i < t->enu.type_arg_count; i++)
+            unify_generic(ta->generic_args[i], t->enu.type_args[i], gps, ngp, bind);
+        return;
+    }
     if (ta->generic_arg_count > 0) {
         /* `Pair[T]` against an instance of Pair: unify each written type
          * argument with the instance's. */
@@ -4068,6 +4259,70 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
     return t;
 }
 
+/* A call of a generic method on a receiver of object type `type_name`
+ * (`x.m(...)`, `x.m[A](...)`, also `make().m(...)`): point the call at the
+ * instance method. Returns 0 when the method is not generic, 1 when the
+ * call now names the instance, -1 when the instance does not exist yet
+ * (cloned after this round) or the type arguments cannot be inferred. */
+static int redirect_generic_method(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                   const char *type_name_mc) {
+    if (!ctx->program || !mc->method) return 0;
+    Iron_MethodDecl *gmd = NULL;
+    for (int i = 0; i < ctx->program->decl_count && !gmd; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (md->generic_param_count > 0 && md->type_name && md->method_name &&
+            strcmp(md->type_name, type_name_mc) == 0 &&
+            strcmp(md->method_name, mc->method) == 0 &&
+            iron_generics_is_template(ctx->program, d))
+            gmd = md;
+    }
+    if (!gmd) return 0;
+    int ngp = gmd->generic_param_count;
+    Iron_Type *bind[16] = {0};
+    if (ngp <= 16 && mc->generic_arg_count == ngp) {
+        for (int gi = 0; gi < ngp; gi++)
+            bind[gi] = resolve_type_annotation(ctx, mc->generic_args[gi]);
+    } else if (ngp <= 16) {
+        /* params[0] is the synthesized self receiver. */
+        int off = (gmd->param_count > mc->arg_count) ? 1 : 0;
+        for (int ai = 0; ai < mc->arg_count; ai++) {
+            Iron_Type *at = ((Iron_ExprNode *)mc->args[ai])->resolved_type;
+            if (!at) at = check_expr(ctx, mc->args[ai]);
+            if (ai + off < gmd->param_count && gmd->params[ai + off])
+                unify_generic(((Iron_Param *)gmd->params[ai + off])->type_ann,
+                              at, gmd->generic_params, ngp, bind);
+        }
+    }
+    bool all = ngp <= 16;
+    for (int gi = 0; gi < ngp && all; gi++) if (!bind[gi]) all = false;
+    const char *gm = all
+        ? iron_generics_request((Iron_Node *)gmd, bind, ngp, ctx->arena)
+        : NULL;
+    bool inst_exists = false;
+    for (int i = 0; gm && i < ctx->program->decl_count && !inst_exists; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        inst_exists = md->type_name && md->method_name &&
+                      strcmp(md->type_name, type_name_mc) == 0 &&
+                      strcmp(md->method_name, gm) == 0;
+    }
+    if (!all) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "cannot infer the type arguments of '%s.%s'",
+                 type_name_mc, mc->method);
+        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->span, msg,
+                   "write them explicitly, e.g. x.m[Int](y)");
+    }
+    if (!inst_exists) return -1;
+    mc->method = gm;
+    mc->generic_args = NULL;
+    mc->generic_arg_count = 0;
+    return 1;
+}
+
 static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return iron_type_make_primitive(IRON_TYPE_VOID);
     /* HARD-05: cancel poll at recursive expression walker entry. */
@@ -4092,7 +4347,14 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 if (errno == ERANGE) {
                     const char *d = n->value;
                     while (*d == '0' && d[1]) d++;
-                    if (!(negated && strcmp(d, "9223372036854775808") == 0)) {
+                    errno = 0;
+                    (void)strtoull(n->value, NULL, 10);
+                    if (!negated && errno == 0) {
+                        /* Above the largest Int, within 64 bits: valid where
+                         * the literal takes UInt64 or UInt (manual 1.4);
+                         * reported after checking if it never does. */
+                        n->exceeds_int = true;
+                    } else if (!(negated && strcmp(d, "9223372036854775808") == 0)) {
                         char msg[160];
                         snprintf(msg, sizeof(msg),
                                  "literal %s does not fit in Int "
@@ -4263,18 +4525,18 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_BINARY: {
             Iron_BinaryExpr *be = (Iron_BinaryExpr *)node;
             Iron_Type *lt = check_expr(ctx, be->left);
-            Iron_Type *rt;
-            if (be->op == IRON_TOK_AND || be->op == IRON_TOK_OR) {
-                /* The right operand runs only when the left one is true
-                 * (`and`) or false (`or`), so it sees what that proves:
-                 * `x != null and x > 0`, `s == null or s.len() == 0`. */
+            Iron_Type *rt = NULL;
+            if ((int)be->op == (int)IRON_TOK_AND || (int)be->op == (int)IRON_TOK_OR) {
+                /* The right operand of `and` runs only when the left one is
+                 * true (`or`: false), so it sees what the left one proves:
+                 * `x != null and x > 2` reads x as T. */
                 NarrowEntry *saved = narrowing_copy(ctx);
-                int mark = narrowing_mark(ctx);
-                narrow_for_cond(ctx, be->left, be->op == IRON_TOK_AND);
+                int kill_mark = narrowing_mark(ctx);
+                narrow_for_cond(ctx, be->left, (int)be->op == (int)IRON_TOK_AND);
                 rt = check_expr(ctx, be->right);
                 shfree(ctx->narrowed);
                 ctx->narrowed = saved;
-                narrowing_reapply_kills(ctx, mark);
+                narrowing_reapply_kills(ctx, kill_mark);
             } else {
                 rt = check_expr(ctx, be->right);
             }
@@ -4381,27 +4643,35 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                      *     and literal narrowing)
                      *   - either side assignable to the other (nullable vs
                      *     inner type, interface vs implementor, ...) */
+                    /* Two different integer types (or Float and Float32)
+                     * are not compared implicitly (manual 2.1: mixing widths
+                     * is E0202): `u < -1` with u: UInt64 compared the bit
+                     * patterns and was true for u = 0. A literal operand
+                     * already took its partner's type above. */
                     bool comparable =
                         iron_type_equals(lt, rt) ||
                         lt->kind == IRON_TYPE_NULL ||
                         rt->kind == IRON_TYPE_NULL ||
-                        (iron_type_is_integer(lt) && iron_type_is_integer(rt)) ||
-                        (iron_type_is_float(lt) && iron_type_is_float(rt)) ||
-                        types_assignable(lt, rt) ||
-                        types_assignable(rt, lt);
-                    bool ordering = op == IRON_TOK_LESS || op == IRON_TOK_GREATER ||
-                                    op == IRON_TOK_LESS_EQ || op == IRON_TOK_GREATER_EQ;
-                    if (comparable && ordering &&
-                        (lt->kind == IRON_TYPE_NULLABLE || rt->kind == IRON_TYPE_NULLABLE)) {
-                        /* `x < 5` with `x: Int?` has no answer when x is
-                         * null (and emitted C that did not compile). */
+                        (!(iron_type_is_integer(lt) && iron_type_is_integer(rt)) &&
+                         !(iron_type_is_float(lt) && iron_type_is_float(rt)) &&
+                         (types_assignable(lt, rt) || types_assignable(rt, lt)));
+                    const Iron_Type *opt_side =
+                        lt->kind == IRON_TYPE_NULLABLE ? lt
+                        : rt->kind == IRON_TYPE_NULLABLE ? rt : NULL;
+                    const Iron_Type *opt_inner = opt_side ? opt_side->nullable.inner : NULL;
+                    if (comparable && opt_side && lt->kind != IRON_TYPE_NULL &&
+                        rt->kind != IRON_TYPE_NULL && opt_inner &&
+                        opt_inner->kind != IRON_TYPE_PTR && opt_inner->kind != IRON_TYPE_RC &&
+                        opt_inner->kind != IRON_TYPE_WEAK_RC) {
+                        /* A T? operand has no value to compare until it is
+                         * checked; this used to reach the C compiler. */
                         char msg[512];
                         snprintf(msg, sizeof(msg),
-                                 "cannot order '%s' and '%s': a nullable value may be null",
+                                 "cannot compare '%s' with '%s': the nullable side may be null",
                                  iron_type_to_string(lt, ctx->arena),
                                  iron_type_to_string(rt, ctx->arena));
-                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, be->span, msg,
-                                   "check for null first: `x != null and x < y`");
+                        emit_error(ctx, IRON_ERR_NULLABLE_ACCESS, be->span, msg,
+                                   "check it first: `x != null and x == v`");
                     } else if (!comparable) {
                         char msg[512];
                         snprintf(msg, sizeof(msg),
@@ -6720,65 +6990,10 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 }
                 /* Generic method `x.m[A](...)` / `x.m(...)`: redirect to the
                  * instance method (cloned after the round that requests it). */
-                if (type_name_mc && ctx->program && mc->method) {
-                    Iron_MethodDecl *gmd = NULL;
-                    for (int i = 0; i < ctx->program->decl_count && !gmd; i++) {
-                        Iron_Node *d = ctx->program->decls[i];
-                        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
-                        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
-                        if (md->generic_param_count > 0 && md->type_name && md->method_name &&
-                            strcmp(md->type_name, type_name_mc) == 0 &&
-                            strcmp(md->method_name, mc->method) == 0 &&
-                            iron_generics_is_template(ctx->program, d))
-                            gmd = md;
-                    }
-                    if (gmd) {
-                        int ngp = gmd->generic_param_count;
-                        Iron_Type *bind[16] = {0};
-                        if (ngp <= 16 && mc->generic_arg_count == ngp) {
-                            for (int gi = 0; gi < ngp; gi++)
-                                bind[gi] = resolve_type_annotation(ctx, mc->generic_args[gi]);
-                        } else if (ngp <= 16) {
-                            /* params[0] is the synthesized self receiver. */
-                            int off = (gmd->param_count > mc->arg_count) ? 1 : 0;
-                            for (int ai = 0; ai < mc->arg_count; ai++) {
-                                Iron_Type *at = ((Iron_ExprNode *)mc->args[ai])->resolved_type;
-                                if (ai + off < gmd->param_count && gmd->params[ai + off])
-                                    unify_generic(((Iron_Param *)gmd->params[ai + off])->type_ann,
-                                                  at, gmd->generic_params, ngp, bind);
-                            }
-                        }
-                        bool all = ngp <= 16;
-                        for (int gi = 0; gi < ngp && all; gi++) if (!bind[gi]) all = false;
-                        const char *gm = all
-                            ? iron_generics_request((Iron_Node *)gmd, bind, ngp, ctx->arena)
-                            : NULL;
-                        bool inst_exists = false;
-                        for (int i = 0; gm && i < ctx->program->decl_count && !inst_exists; i++) {
-                            Iron_Node *d = ctx->program->decls[i];
-                            if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
-                            Iron_MethodDecl *md = (Iron_MethodDecl *)d;
-                            inst_exists = md->type_name && md->method_name &&
-                                          strcmp(md->type_name, type_name_mc) == 0 &&
-                                          strcmp(md->method_name, gm) == 0;
-                        }
-                        if (!all) {
-                            char msg[256];
-                            snprintf(msg, sizeof(msg),
-                                     "cannot infer the type arguments of '%s.%s'",
-                                     type_name_mc, mc->method);
-                            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->span, msg,
-                                       "write them explicitly, e.g. x.m[Int](y)");
-                        }
-                        if (!inst_exists) {
-                            result = iron_type_make_primitive(IRON_TYPE_ERROR);
-                            mc->resolved_type = result;
-                            break;
-                        }
-                        mc->method = gm;
-                        mc->generic_args = NULL;
-                        mc->generic_arg_count = 0;
-                    }
+                if (type_name_mc && redirect_generic_method(ctx, mc, type_name_mc) < 0) {
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
                 }
                 bool method_found_mc = false;
                 if (type_name_mc && ctx->program) {
@@ -7207,6 +7422,14 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                  : iron_type_make_primitive(IRON_TYPE_VOID);
                         break;
                     }
+                }
+                /* A generic method on such a receiver (`make().m(x)`): the
+                 * instance, as for an identifier receiver; the template's
+                 * own signature names its type parameters. */
+                if (redirect_generic_method(ctx, mc, type_name_ni) < 0) {
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
                 }
                 for (int i = 0; i < ctx->program->decl_count; i++) {
                     Iron_Node *d = ctx->program->decls[i];
@@ -8168,13 +8391,24 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             Iron_AwaitExpr *ae = (Iron_AwaitExpr *)node;
             check_expr(ctx, ae->handle);
 
-            /* Look up the spawn body's return type from the handle name */
+            /* The spawn body's result type, from the binding the handle
+             * name resolves to: the latest spawn with that name is not the
+             * one a shadowed (or an outer) handle refers to. */
             Iron_Type *await_type = iron_type_make_primitive(IRON_TYPE_INT);
             if (ae->handle && ae->handle->kind == IRON_NODE_IDENT) {
                 Iron_Ident *ident = (Iron_Ident *)ae->handle;
-                int idx = shgeti(ctx->spawn_result_types, ident->name);
-                if (idx >= 0) {
-                    await_type = ctx->spawn_result_types[idx].value;
+                Iron_Symbol *hs = tc_lookup(ctx, ident->name);
+                Iron_Node *hd = hs ? hs->decl_node : NULL;
+                Iron_Node *init = NULL;
+                if (hd && hd->kind == IRON_NODE_VAL_DECL) init = ((Iron_ValDecl *)hd)->init;
+                else if (hd && hd->kind == IRON_NODE_VAR_DECL) init = ((Iron_VarDecl *)hd)->init;
+                if (init && init->kind == IRON_NODE_SPAWN && ((Iron_SpawnStmt *)init)->result_type) {
+                    await_type = ((Iron_SpawnStmt *)init)->result_type;
+                } else {
+                    int idx = shgeti(ctx->spawn_result_types, ident->name);
+                    if (idx >= 0) {
+                        await_type = ctx->spawn_result_types[idx].value;
+                    }
                 }
             }
             result = await_type;
@@ -8684,10 +8918,16 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
                 Iron_Type *a = t->enu.type_args[i];
                 Iron_Type *e = expected->enu.type_args ? expected->enu.type_args[i] : NULL;
                 if (!a) open = true;
+                /* an argument itself left open (`Opt.Some(Opt.None)`) */
+                else if (a->kind == IRON_TYPE_ENUM && a->enu.mangled_name &&
+                         strstr(a->enu.mangled_name, "_unknown") && e &&
+                         e->kind == IRON_TYPE_ENUM && e->enu.decl == a->enu.decl)
+                    open = true;
                 else if (!e || !iron_type_equals(a, e)) agree = false;
             }
             if (open && agree) {
                 ((Iron_EnumConstruct *)node)->resolved_type = expected;
+                fill_open_payload_constructs(node, expected, 0);
                 return expected;
             }
         }
@@ -9419,6 +9659,29 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             }
             if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS)
                 reject_narrowed_view_write(ctx, as->target, as->span);
+            /* A field is written only through `*var T` (manual 6.4): a
+             * `var` binding holding a `*T` or `?*T` changed the pointee,
+             * even a `val` one. */
+            if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_Node *cur = as->target;
+                bool through_ro = false;
+                while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
+                    Iron_Node *obj = ((Iron_FieldAccess *)cur)->object;
+                    Iron_Type *ot = obj ? ((Iron_ExprNode *)obj)->resolved_type : NULL;
+                    if (ot && ot->kind == IRON_TYPE_NULLABLE) ot = ot->nullable.inner;
+                    if (ot && ot->kind == IRON_TYPE_PTR && !ot->ptr.is_var) {
+                        through_ro = true;
+                        break;
+                    }
+                    cur = obj;
+                }
+                if (through_ro) {
+                    emit_error(ctx, IRON_ERR_MUT_FIELD_IMMUT_RECV, as->span,
+                               "cannot write a field through a read-only pointer",
+                               "a field is written through a *var T pointer (&x of a var binding)");
+                    lhs_is_var_ptr_auto_deref = true;   /* one error is enough */
+                }
+            }
             if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
                 Iron_Node *cur = as->target;
                 while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
@@ -9943,9 +10206,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                          * structural proof. Assert the invariant explicitly so a
                          * future predicate bug aborts in Debug rather than
                          * silently writing to a foreign node layout. */
-                        IRON_NODE_ASSERT_KIND(rs->value, IRON_NODE_INT_LIT);
-                        Iron_IntLit *int_lit = (Iron_IntLit *)rs->value;
-                        int_lit->resolved_type = ctx->current_return_type;
+                        /* A constant expression narrows too (`return -5`,
+                         * `return 2 + 3`, manual 1.4): retype it down to its
+                         * literals. Asserting a bare literal stopped debug
+                         * builds with an internal error. */
+                        retype_int_constant(rs->value, ctx->current_return_type, 0);
                     }
                 }
             }
@@ -10542,8 +10807,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                             emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH, ms->span,
                                        msg, "add 'else -> ...' or handle each variant");
                         }
-                    } else {
-                        /* else arm present: emit info note listing which variants it catches */
+                    } else if (!(ctx->program && ctx->program->user_source_start_line > 0 &&
+                                 ms->span.line < (uint32_t)ctx->program->user_source_start_line)) {
+                        /* else arm present: emit info note listing which variants it catches
+                         * (not for the prepended standard library, whose notes the user
+                         * cannot act on). */
                         int uncovered_count = 0;
                         for (int i = 0; i < ed->variant_count; i++) {
                             if (!covered[i]) uncovered_count++;
@@ -10848,50 +11116,53 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                            "remove the pool argument: spawn(\"name\") { ... }");
             }
             {
+                /* A `return` in the body ends the task, not the enclosing
+                 * function: it is not checked against that function's
+                 * return type (a spawn in `func f() -> Int` returning a
+                 * String was rejected with E0215). */
                 int saved_depth = ctx->loop_depth;
                 int saved_defer = ctx->defer_depth;
+                Iron_Type *saved_ret = ctx->current_return_type;
                 ctx->loop_depth = 0;
                 ctx->defer_depth = 0;
+                ctx->current_return_type = NULL;
                 if (ss->body) check_stmt(ctx, ss->body);
                 ctx->loop_depth = saved_depth;
                 ctx->defer_depth = saved_defer;
+                ctx->current_return_type = saved_ret;
             }
 
-            /* Store spawn body return type for downstream await lookup */
-            if (ss->handle_name) {
-                /* Walk the spawn body to find IRON_NODE_RETURN and use its expr type */
-                Iron_Type *body_ret = iron_type_make_primitive(IRON_TYPE_INT);
-                /* PROT-03 row 20 (AUDIT-01 M-severity): ss->body is normally an
-                 * IRON_NODE_BLOCK but error-recovery paths can leave it as a
-                 * non-block expression form; guard before the cast and assert
-                 * the kind so a wrong-kind shape aborts in Debug. */
-                Iron_Block *blk = NULL;
-                if (ss->body && ss->body->kind == IRON_NODE_BLOCK) {
-                    IRON_NODE_ASSERT_KIND(ss->body, IRON_NODE_BLOCK);
-                    blk = (Iron_Block *)ss->body;
-                }
-                if (blk) {
-                    for (int i = 0; i < blk->stmt_count; i++) {
-                        if (blk->stmts[i]->kind == IRON_NODE_RETURN) {
-                            Iron_ReturnStmt *rs = (Iron_ReturnStmt *)blk->stmts[i];
-                            if (rs->value) {
-                                /* PROT-04 rewrite (rank 11a, AUDIT-01): rs->value
-                                 * is a generic expression node (any kind). The
-                                 * previous code aliased Iron_IntLit solely to read
-                                 * resolved_type at the common prefix offset. Use
-                                 * Iron_ExprNode from ast.h (layout-locked by
-                                 * PROT-01 _Static_asserts) for type-safe prefix
-                                 * access. */
-                                Iron_ExprNode *expr_node = (Iron_ExprNode *)rs->value;
-                                if (expr_node->resolved_type) {
-                                    body_ret = expr_node->resolved_type;
-                                }
-                            }
-                            break;
-                        }
+            /* The task's result type is the type of the body's first
+             * `return value`, at any depth (a body may return from both
+             * arms of an if); every other return must agree with it. */
+            {
+                Iron_ReturnStmt **rets = NULL;
+                spawn_returns(ss->body, &rets);
+                Iron_Type *body_ret = NULL;
+                for (int i = 0; i < (int)arrlen(rets); i++) {
+                    Iron_Type *t = ((Iron_ExprNode *)rets[i]->value)->resolved_type;
+                    if (!t || t->kind == IRON_TYPE_ERROR) continue;
+                    if (!body_ret) {
+                        body_ret = t;
+                    } else if (!types_assignable(body_ret, t) &&
+                               !is_int_literal_narrowing(body_ret, t, rets[i]->value)) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "return type mismatch: the spawn body returns '%s', got '%s'",
+                                 iron_type_to_string(body_ret, ctx->arena),
+                                 iron_type_to_string(t, ctx->arena));
+                        emit_error(ctx, IRON_ERR_RETURN_TYPE, rets[i]->span, msg,
+                                   "every return of a spawn body gives the value await yields: return one type");
                     }
                 }
-                shput(ctx->spawn_result_types, ss->handle_name, body_ret);
+                arrfree(rets);
+                /* no `return value`: the task returns nothing (lowered as a
+                 * void function); await still types it Int, as before */
+                ss->result_type = body_ret;
+                if (!body_ret) body_ret = iron_type_make_primitive(IRON_TYPE_INT);
+                /* Store the result type for the await lookup */
+                if (ss->handle_name)
+                    shput(ctx->spawn_result_types, ss->handle_name, body_ret);
             }
             break;
         }
@@ -11228,9 +11499,19 @@ static bool is_readonly_compatible_type(const Iron_Type *t, TypeCtx *ctx) {
             return true;
         }
 
-        /* ── All other types — not readonly-compatible ───────────────────── */
+        /* ── rc / weak rc handles — compatible iff the shared value is ───
+         * A handle does not point into `self`: the value it reaches is
+         * shared, and every holder may already change it (a readonly method
+         * can push to an `rc [T]` field). Returning a handle therefore
+         * exposes nothing the method could not change itself, and rejecting
+         * it made every object with an rc field (a JSON tree, a graph
+         * node) unreturnable from a readonly accessor. */
         case IRON_TYPE_RC:
-        case IRON_TYPE_WEAK_RC:  /* Phase 27 POL-08: weak rc shares rc's non-readonly-compat stance */
+            return is_readonly_compatible_type(t->rc.inner, ctx);
+        case IRON_TYPE_WEAK_RC:
+            return is_readonly_compatible_type(t->weak_rc.inner, ctx);
+
+        /* ── All other types — not readonly-compatible ───────────────────── */
         case IRON_TYPE_FUNC:
         case IRON_TYPE_INTERFACE:
         case IRON_TYPE_GENERIC_PARAM:
@@ -11838,6 +12119,23 @@ static void check_top_level_binding_init(TypeCtx *ctx, Iron_Type *decl_type,
 
 /* ── Entry point ─────────────────────────────────────────────────────────── */
 
+static bool report_big_int_literal(Iron_Visitor *v, Iron_Node *node) {
+    if (node->kind != IRON_NODE_INT_LIT) return true;
+    Iron_IntLit *n = (Iron_IntLit *)node;
+    if (!n->exceeds_int) return true;
+    Iron_Type *t = n->resolved_type;
+    if (t && (t->kind == IRON_TYPE_UINT64 || t->kind == IRON_TYPE_UINT)) return true;
+    char msg[160];
+    snprintf(msg, sizeof(msg),
+             "literal %s does not fit in Int (-9223372036854775808..9223372036854775807)",
+             n->value);
+    emit_error((TypeCtx *)v->ctx, IRON_ERR_TYPE_MISMATCH_LITERAL, n->span, msg,
+               "a literal above the largest Int needs a UInt64 or UInt context, "
+               "e.g. val x: UInt64 = ...");
+    n->exceeds_int = false;
+    return true;
+}
+
 void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                     Iron_Arena *arena, Iron_DiagList *diags,
                     const _Atomic bool *cancel_flag) {
@@ -11977,7 +12275,8 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             Iron_Type *ret_type = fd->return_type
                 ? resolve_type_annotation(&ctx, fd->return_type)
                 : iron_type_make_primitive(IRON_TYPE_VOID);
-            if (!fd->resolved_return_type) fd->resolved_return_type = ret_type;
+            if (!fd->resolved_return_type || stale_signature_type(fd->resolved_return_type, 0))
+                fd->resolved_return_type = ret_type;
             Iron_Type **param_types = NULL;
             if (fd->param_count > 0) {
                 param_types = (Iron_Type **)iron_arena_alloc(
@@ -12031,7 +12330,8 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                 : iron_type_make_primitive(IRON_TYPE_VOID);
             /* Known before any body is checked: a call to a method declared
              * later in the file (or in a later file) used to be typed Void. */
-            if (!md->resolved_return_type) md->resolved_return_type = ret_type;
+            if (!md->resolved_return_type || stale_signature_type(md->resolved_return_type, 0))
+                md->resolved_return_type = ret_type;
             ctx.enclosing_type_name = NULL;  /* restore after pre-pass sig build */
             /* Method signatures are looked up by mangled name (type_method).
              * Phase 33 OQ-02: lookup runs against the REAL global scope, but
@@ -12324,4 +12624,10 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
      * completed (check_func_decl / check_method_decl / check_interface_
      * completeness are the only readers per grep at 715/2386). */
     shfree(ctx.mono_registry);
+
+    /* A literal above the largest Int that never took UInt64 or UInt. */
+    {
+        Iron_Visitor bv = { .ctx = &ctx, .visit_node = report_big_int_literal, .post_visit = NULL };
+        iron_ast_walk((Iron_Node *)program, &bv);
+    }
 }

@@ -1,0 +1,17 @@
+-- An integer literal takes the integer type of the binding it initializes
+-- or of its partner operand, and must fit that type (manual 1.4); a
+-- hexadecimal literal must fit in 64 bits. Literals above the largest Int
+-- were rejected even where they took UInt64 or UInt.
+func pk(n: Int) -> UInt64 {
+    return UInt64(n)
+}
+
+func main() {
+    val a: UInt64 = 18446744073709551615
+    val b: UInt64 = 0xFFFFFFFFFFFFFFFF
+    var c: UInt = 9223372036854775808
+    c += 1
+    val d = a - 18446744073709551600
+    val e = pk(7) / (18446744073709551614 | 1)
+    println("{a} {b} {c} {d} {e} {a == 18446744073709551615} {pk(1) < 18446744073709551615}")
+}

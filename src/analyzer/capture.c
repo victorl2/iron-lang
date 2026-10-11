@@ -105,93 +105,6 @@ static bool sym_kind_is_non_capture(Iron_SymbolKind k) {
     }
 }
 
-/* ── Local name collection ────────────────────────────────────────────────── */
-
-/* Recursively collect all variable/param names declared inside `node` into
- * the `locals` set. This includes params (handled at call site) and any
- * val/var decls inside the lambda body. */
-static void collect_locals(Iron_Node *node, StrSet **locals) {
-    if (!node) return;
-    switch ((int)(node->kind)) {
-        case IRON_NODE_VAL_DECL: {
-            Iron_ValDecl *vd = (Iron_ValDecl *)node;
-            /* Tuple destructure (`val (a, b) = ...`) has name == NULL and
-             * carries its bindings in binding_names[] (NULL entry = `_`).
-             * shput on a NULL key would crash (strlen(NULL)). */
-            if (vd->name) shput(*locals, vd->name, 1);
-            for (int i = 0; i < vd->binding_count; i++) {
-                if (vd->binding_names && vd->binding_names[i])
-                    shput(*locals, vd->binding_names[i], 1);
-            }
-            /* Recurse into init expression (it may contain nested lambdas,
-             * but their locals are handled by their own find_captures call) */
-            break;
-        }
-        case IRON_NODE_VAR_DECL: {
-            Iron_VarDecl *vd = (Iron_VarDecl *)node;
-            if (vd->name) shput(*locals, vd->name, 1);
-            break;
-        }
-        case IRON_NODE_BLOCK: {
-            Iron_Block *blk = (Iron_Block *)node;
-            for (int i = 0; i < blk->stmt_count; i++) {
-                collect_locals(blk->stmts[i], locals);
-            }
-            break;
-        }
-        case IRON_NODE_IF: {
-            Iron_IfStmt *is = (Iron_IfStmt *)node;
-            collect_locals(is->body, locals);
-            for (int i = 0; i < is->elif_count; i++) {
-                collect_locals(is->elif_bodies[i], locals);
-            }
-            collect_locals(is->else_body, locals);
-            break;
-        }
-        case IRON_NODE_WHILE: {
-            Iron_WhileStmt *ws = (Iron_WhileStmt *)node;
-            collect_locals(ws->body, locals);
-            break;
-        }
-        case IRON_NODE_FOR: {
-            Iron_ForStmt *fs = (Iron_ForStmt *)node;
-            /* The loop variable is a local in the for body */
-            if (fs->var_name) shput(*locals, fs->var_name, 1);
-            if (fs->var_name2) shput(*locals, fs->var_name2, 1);
-            collect_locals(fs->body, locals);
-            break;
-        }
-        case IRON_NODE_MATCH: {
-            Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
-            for (int i = 0; i < ms->case_count; i++) {
-                collect_locals(ms->cases[i], locals);
-            }
-            collect_locals(ms->else_body, locals);
-            break;
-        }
-        case IRON_NODE_MATCH_CASE: {
-            Iron_MatchCase *mc = (Iron_MatchCase *)node;
-            collect_locals(mc->body, locals);
-            break;
-        }
-        /* Do NOT recurse into nested IRON_NODE_LAMBDA — its locals are
-         * handled when find_captures processes it separately. */
-        /* HARD-04: graceful no-op on parser ErrorNode. */
-        case IRON_NODE_ERROR:
-            break;
-
-        /* HARD-04: sentinel — never a real node kind. */
-        case IRON_NODE_COUNT:
-            break;
-
-        /* -Wswitch-enum opt-out: collect_locals only visits statement-shaped
-         * kinds that can declare a new name; every other Iron_NodeKind is
-         * ignored. */
-        default:
-            break;
-    }
-}
-
 /* ── Capture collection ───────────────────────────────────────────────────── */
 
 /* Forward declaration for mutual recursion. */
@@ -418,6 +331,9 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
         }
         case IRON_NODE_HEAP: {
             Iron_HeapExpr *he = (Iron_HeapExpr *)node;
+            /* `heap(in: a) T()` reads the arena binding too (inside a spawn
+             * or parallel for body it was not captured: C compile error). */
+            collect_idents(he->arena_expr, locals, captures, seen);
             collect_idents(he->inner, locals, captures, seen);
             break;
         }
@@ -591,9 +507,12 @@ static void find_captures(CaptureCtx *ctx, Iron_LambdaExpr *le) {
  * Spawn blocks can capture outer-scope variables by value (read-only captures
  * for val-bindings, or pointer captures for var-bindings). */
 static void find_spawn_captures(CaptureCtx *ctx, Iron_SpawnStmt *ss) {
-    /* Build locals: all val/var decls inside the spawn body */
+    /* The body's own declarations become local as the walk reaches them
+     * (collect_idents), as for lambdas: a name read before a shadowing
+     * declaration in the body is still captured from the enclosing scope
+     * (collected up front, it was taken for the local and the capture was
+     * missed: C compile error). */
     StrSet *locals = NULL;
-    collect_locals(ss->body, &locals);
 
     /* Collect captures via ident walk */
     TmpCapture *captures = NULL;
@@ -640,11 +559,11 @@ static void find_spawn_captures(CaptureCtx *ctx, Iron_SpawnStmt *ss) {
 /* Core capture analysis for a parallel-for body (Iron_ForStmt with is_parallel).
  * The loop variable is a local; any other outer-scope references are captures. */
 static void find_pfor_captures(CaptureCtx *ctx, Iron_ForStmt *fs) {
-    /* Build locals: the loop variable + all decls inside the body */
+    /* Locals: the loop variable; the body's own declarations become local
+     * as collect_idents reaches them (see find_spawn_captures). */
     StrSet *locals = NULL;
     shput(locals, fs->var_name, 1);
     if (fs->var_name2) shput(locals, fs->var_name2, 1);
-    collect_locals(fs->body, &locals);
 
     /* Collect captures via ident walk (also walk iterable for range expr) */
     TmpCapture *captures = NULL;
@@ -864,6 +783,11 @@ static bool awaits_ident(Iron_Node *node, const char *name) {
         case IRON_NODE_DEFER: {
             Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
             if (awaits_ident(ds->expr, name)) return true;
+            break;
+        }
+        case IRON_NODE_IN_ARENA: {
+            Iron_InArenaBlock *ia = (Iron_InArenaBlock *)node;
+            if (awaits_ident(ia->body, name)) return true;
             break;
         }
         case IRON_NODE_SPAWN: {
@@ -1099,6 +1023,14 @@ static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
             walk_node_for_lambdas(ctx, ss->body);
             /* Perform capture analysis for spawn block body */
             find_spawn_captures(ctx, ss);
+            break;
+        }
+        /* An `in a { }` body: a lambda, spawn or parallel for in it had no
+         * capture analysis (its captures were undeclared in the C). */
+        case IRON_NODE_IN_ARENA: {
+            Iron_InArenaBlock *ia = (Iron_InArenaBlock *)node;
+            walk_node_for_lambdas(ctx, ia->arena_expr);
+            walk_node_for_lambdas(ctx, ia->body);
             break;
         }
         /* -Wswitch-enum opt-out: walk_node_for_lambdas is a generic AST

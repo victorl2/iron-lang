@@ -263,8 +263,10 @@ jobs:
         with:
           arch: x64
 
+      # NASM assembles OpenSSL's AES-NI, SHA and constant-time AES/GHASH
+      # code for the runtime bundle's TLS and crypto modules.
       - name: Install build tools
-        run: choco install ninja -y --no-progress
+        run: choco install ninja nasm -y --no-progress
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang

@@ -1,0 +1,107 @@
+-- Generic enum instances in the generated C:
+--  - `Res[Cell[Bool], rc Cell[Int]]`: the C name kept the space of
+--    `rc Cell[Int]`;
+--  - a generic object with a field of an enum instance (`Pair[Opt[Bool],
+--    Int]`) was emitted before the enum (incomplete type);
+--  - an instance used only inside a match arm, only as a Map value or a
+--    list element, or only as the payload of another instance was never
+--    declared (`[Opt[Int]]` also called Iron_List_Iron_Opt_push);
+--  - `Opt[Opt[Pt]]` defined `==` through an Iron_Opt_Pt_eq that was not
+--    emitted (Opt[Pt] has no ==);
+--  - `Opt.Some(Opt.None)` against `Opt[Opt[Int]]` left the inner value an
+--    `Opt[unknown]`;
+--  - a Map with object keys held in a generic object (`Counter[Pt]`)
+--    compared keys before the Hashable union was defined.
+object Pt impl Hashable {
+    val x: Int
+    val y: Int
+    pure func hash() -> Int {
+        return self.x * 31 + self.y
+    }
+    pure func equals(other: Hashable) -> Bool {
+        if other is Pt {
+            return self.x == other.x and self.y == other.y
+        }
+        return false
+    }
+}
+
+object Pair[A, B] {
+    val first: A
+    val second: B
+}
+
+object Cell[T] {
+    var v: T
+    init(v: T) {
+        self.v = v
+    }
+}
+
+object Counter[K: Hashable] {
+    var m: Map[K, Int]
+    init() {
+        self.m = Map[K, Int]()
+    }
+    func add(k: K) {
+        self.m.put(k, self.m.get_or(k, 0) + 1)
+    }
+    readonly func count(k: K) -> Int {
+        return self.m.get_or(k, 0)
+    }
+}
+
+enum Opt[T] {
+    Some(T),
+    None,
+}
+
+enum Res[T, E] {
+    Ok(T),
+    Err(E),
+}
+
+func tag[T](o: Opt[T]) -> String {
+    match o {
+        Opt.Some(v) -> return "some"
+        Opt.None -> return "none"
+    }
+    return ""
+}
+
+func unwrap_or[T](o: Opt[T], d: T) -> T {
+    match o {
+        Opt.Some(v) -> return v
+        Opt.None -> return d
+    }
+    return d
+}
+
+func main() {
+    val r: Res[Cell[Bool], rc Cell[Int]] = Res.Err(rc Cell(4))
+    match r {
+        Res.Ok(c) -> println("ok {c.v}")
+        Res.Err(h) -> println("err {h.v}")
+    }
+    val p = Pair(Opt.Some(true), 1)
+    println("{tag(p.first)} {p.second}")
+    for i in range(2) {
+        match i {
+            1 -> val q: Res[Pt, String] = Res.Ok(Pt(1, i))
+            else -> println("arm {i}")
+        }
+    }
+    var m = Map[String, Opt[String]]()
+    m.put("a", Opt.Some("x"))
+    var xs = [Opt.Some(1), Opt.Some(2)]
+    xs.push(Opt.None)
+    val deep: Opt[Opt[String]] = Opt.None
+    println("{m.len()} {len(xs)} {tag(xs[2])} {tag(deep)}")
+    val oo = unwrap_or(Opt.Some(Opt.Some(Pt(1, 2))), Opt.Some(Pt(3, 4)))
+    val nn: Opt[Opt[Int]] = Opt.Some(Opt.None)
+    println("{tag(oo)} {tag(nn)} {tag(unwrap_or(nn, Opt.Some(5)))}")
+    var c = Counter[Pt]()
+    c.add(Pt(1, 2))
+    c.add(Pt(1, 2))
+    println("{c.count(Pt(1, 2))} {c.count(Pt(2, 1))}")
+}

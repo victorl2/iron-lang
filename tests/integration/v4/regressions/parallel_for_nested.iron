@@ -1,0 +1,54 @@
+-- A parallel for inside a parallel for body hung: every loop waited on the
+-- worker pool's global count of pending work, which includes the chunk the
+-- inner loop runs in, so it never reached zero. Each loop now waits for its
+-- own chunks only, and runs the ones still queued itself. (#423)
+func cube_sum(n: Int) -> Int {
+    val m = Mutex(0)
+    for i in range(n) parallel {
+        val g = m.lock()
+        g.set(g.get() + i * i * i)
+    }
+    val g = m.lock()
+    return g.get()
+}
+
+func main() {
+    val m = Mutex(0)
+    for i in range(6) parallel {
+        for j in range(5) parallel {
+            val g = m.lock()
+            g.set(g.get() + i * j)
+        }
+    }
+    {
+        val g = m.lock()
+        println("nested {g.get()}")
+    }
+
+    -- three levels, more chunks than workers
+    val deep = Mutex(0)
+    for a in range(8) parallel {
+        for b in range(8) parallel {
+            for c in range(8) parallel {
+                val g = deep.lock()
+                g.set(g.get() + 1)
+            }
+        }
+    }
+    {
+        val g = deep.lock()
+        println("deep {g.get()}")
+    }
+
+    -- a function using the pool, called from a parallel body and from a
+    -- spawned thread that runs while the outer loop is waiting
+    val total = Mutex(0)
+    for i in range(4) parallel {
+        val h = spawn("worker") { return cube_sum(i + 3) }
+        val v = await h
+        val g = total.lock()
+        g.set(g.get() + v + cube_sum(i + 1))
+    }
+    val g = total.lock()
+    println("pool reuse {g.get()}")
+}

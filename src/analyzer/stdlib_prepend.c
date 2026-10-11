@@ -324,6 +324,25 @@ int iron_stdlib_prepend(char **source_io, const char *source_path, const char *b
                                       line_markers);
     }
 
+    /* Hex and Base64 codecs, and the crypto module (OpenSSL backed). */
+    if (iron_detect_import(*source_io, source_path, "encoding", &detect_arena)) {
+        stdlib_prepended_lines +=
+            check_prepend_marked_file(source_io, base_dir, "stdlib/encoding.iron",
+                                      line_markers);
+    }
+    if (iron_detect_import(*source_io, source_path, "crypto", &detect_arena)) {
+        stdlib_prepended_lines +=
+            check_prepend_marked_file(source_io, base_dir, "stdlib/crypto.iron",
+                                      line_markers);
+    }
+
+    /* Mirrors build.c: `import json` prepends json.iron. */
+    if (iron_detect_import(*source_io, source_path, "json", &detect_arena)) {
+        stdlib_prepended_lines +=
+            check_prepend_marked_file(source_io, base_dir, "stdlib/json.iron",
+                                      line_markers);
+    }
+
     /* Mirrors build.c: `import mysql` prepends mysql.iron. */
     if (iron_detect_import(*source_io, source_path, "mysql", &detect_arena)) {
         stdlib_prepended_lines +=

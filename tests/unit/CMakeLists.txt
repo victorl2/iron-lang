@@ -359,6 +359,17 @@ add_test(NAME test_stdlib_websocket COMMAND test_stdlib_websocket)
 set_tests_properties(test_stdlib_websocket PROPERTIES
     LABELS "unit;networking;websocket" TIMEOUT 60)
 
+add_executable(test_stdlib_crypto test_stdlib_crypto.c)
+target_link_libraries(test_stdlib_crypto iron_stdlib iron_runtime unity)
+if(OpenSSL_FOUND)
+    target_compile_definitions(test_stdlib_crypto PRIVATE IRON_HAVE_OPENSSL=1)
+endif()
+if(WIN32)
+    target_link_libraries(test_stdlib_crypto ws2_32 iphlpapi)
+endif()
+add_test(NAME test_stdlib_crypto COMMAND test_stdlib_crypto)
+set_tests_properties(test_stdlib_crypto PROPERTIES LABELS "unit;crypto" TIMEOUT 120)
+
 if(OpenSSL_FOUND AND NOT WIN32)
     add_executable(test_stdlib_tls test_stdlib_tls.c)
     target_link_libraries(test_stdlib_tls iron_stdlib iron_runtime unity)

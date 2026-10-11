@@ -1,0 +1,31 @@
+-- A spawn that reads a `var` holds the address of the var's cell. A spawn
+-- that is never awaited (or awaited after the var's block ends) outlived
+-- the cell: the block's end freed it while the thread still read it (heap
+-- use after free under ASan). The task's env now takes a share of the
+-- cell, as a closure env does, and drops it when the task is done. (#458)
+func busy(n: Int) -> Int {
+    var t = 0
+    for i in range(n) {
+        t = (t + i) % 1000003
+    }
+    return t
+}
+
+func main() {
+    val m = Mutex(0)
+    {
+        var w = 0
+        while w < 3 {
+            w += 1
+            spawn("bg") {
+                val t = busy(1000000)
+                {
+                    val g = m.lock()
+                    g.set(g.get() + 1)
+                }
+                return t + w
+            }
+        }
+    }
+    println("main {busy(20000000) > 0}")
+}

@@ -3,6 +3,7 @@
 -- get_unchecked / set_unchecked, and the io directory and result-returning
 -- text functions.
 import io
+import os
 import time
 
 func main() {
@@ -15,8 +16,11 @@ func main() {
     xs.set_unchecked(2, 99)
     println("{xs[2]}")
     -- unique per run: the acceptance suite and the leak oracle may run
-    -- this fixture at the same time
-    val dir = "/tmp/iron_stdlib_calls_{Time.now_ms()}"
+    -- this fixture at the same time. "/tmp" is POSIX only: on Windows it
+    -- means \tmp on the current drive, which the hosted runners lack, so
+    -- take the temp directory from TEMP there.
+    val tmp = OS.env_or("TEMP", "/tmp")
+    val dir = IO.join_path(tmp, "iron_stdlib_calls_{Time.now_ms()}")
     IO.create_dir(dir)
     val p = IO.join_path(dir, "a.txt")
     val w = IO.write_text(p, "one\n")

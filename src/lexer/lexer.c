@@ -502,7 +502,22 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
                                        "naming a Unicode scalar value");
                         break;
                     }
+                    if (cp == 0) {
+                        /* Literals are carried as C strings up to the
+                         * emitter, which would end the value here and
+                         * silently drop the rest (issue filed). */
+                        Iron_Span span = iron_span_make(l->filename, l->line, l->col,
+                                                         l->line, l->col);
+                        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                                       IRON_ERR_INVALID_CHAR, span,
+                                       "a string literal cannot contain the zero byte \\u{0}",
+                                       "build the value with String.from_byte(0) and +");
+                        break;
+                    }
                     if (cp < 0x80) {
+                        if (cp == (uint32_t)IRON_LEX_LITERAL_LBRACE ||
+                            cp == (uint32_t)IRON_LEX_LITERAL_RBRACE)
+                            PUSH_CHAR(IRON_LEX_LITERAL_ESC);
                         PUSH_CHAR((char)cp);
                     } else if (cp < 0x800) {
                         PUSH_CHAR((char)(0xC0 | (cp >> 6)));
@@ -559,6 +574,10 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
         }
 
         iron_advance_char(l);
+        if (interp_depth == 0 &&
+            (c == IRON_LEX_LITERAL_LBRACE || c == IRON_LEX_LITERAL_RBRACE ||
+             c == IRON_LEX_LITERAL_ESC))
+            PUSH_CHAR(IRON_LEX_LITERAL_ESC);
         PUSH_CHAR(c);
     }
 
@@ -569,10 +588,16 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
     /* Without interpolation there is no splitter to consume the escaped-
      * brace markers: turn them back into braces. */
     if (!has_interp) {
+        size_t w = 0;
         for (size_t bi = 0; bi < buf_len; bi++) {
-            if (buf[bi] == IRON_LEX_LITERAL_LBRACE) buf[bi] = '{';
-            else if (buf[bi] == IRON_LEX_LITERAL_RBRACE) buf[bi] = '}';
+            char ch = buf[bi];
+            if (ch == IRON_LEX_LITERAL_ESC && bi + 1 < buf_len) ch = buf[++bi];
+            else if (ch == IRON_LEX_LITERAL_LBRACE) ch = '{';
+            else if (ch == IRON_LEX_LITERAL_RBRACE) ch = '}';
+            buf[w++] = ch;
         }
+        buf_len = w;
+        buf[buf_len] = '\0';
     }
 
     /* WR-07: if PUSH_CHAR dropped bytes past the 4KB buffer capacity, emit
@@ -649,20 +674,22 @@ static Iron_Token iron_lex_number(Iron_Lexer *l) {
             memcpy(hexbuf, l->src + digits_start, copy_len);
             hexbuf[copy_len] = '\0';
             errno = 0;
-            long long v = strtoll(hexbuf, NULL, 16);
+            /* Hexadecimal literals must fit in 64 bits (manual 1.4), not in
+             * an Int: 0xFFFFFFFFFFFFFFFF is a UInt64 constant. */
+            unsigned long long v = strtoull(hexbuf, NULL, 16);
             if (errno == ERANGE) {
                 Iron_Span span = iron_span_make(l->filename, start_line, start_col,
                                                  l->line, l->col);
                 iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
                                IRON_ERR_INVALID_NUMBER, span,
-                               "hex literal out of range for int64",
+                               "hex literal does not fit in 64 bits",
                                NULL);
                 uint32_t bad_len = (uint32_t)(l->pos - start_pos);
                 return iron_make_token(l, IRON_TOK_ERROR, NULL,
                                        start_line, start_col, bad_len);
             }
             char decbuf[32];
-            snprintf(decbuf, sizeof(decbuf), "%lld", v);
+            snprintf(decbuf, sizeof(decbuf), "%llu", v);
             const char *value = iron_arena_strdup(l->arena, decbuf, strlen(decbuf));
             if (!value) {
                 /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_number hex value). */
@@ -706,20 +733,20 @@ static Iron_Token iron_lex_number(Iron_Lexer *l) {
             memcpy(binbuf, l->src + digits_start, copy_len);
             binbuf[copy_len] = '\0';
             errno = 0;
-            long long v = strtoll(binbuf, NULL, 2);
+            unsigned long long v = strtoull(binbuf, NULL, 2);
             if (errno == ERANGE) {
                 Iron_Span span = iron_span_make(l->filename, start_line, start_col,
                                                  l->line, l->col);
                 iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
                                IRON_ERR_INVALID_NUMBER, span,
-                               "binary literal out of range for int64",
+                               "binary literal does not fit in 64 bits",
                                NULL);
                 uint32_t bad_len = (uint32_t)(l->pos - start_pos);
                 return iron_make_token(l, IRON_TOK_ERROR, NULL,
                                        start_line, start_col, bad_len);
             }
             char decbuf[32];
-            snprintf(decbuf, sizeof(decbuf), "%lld", v);
+            snprintf(decbuf, sizeof(decbuf), "%llu", v);
             const char *value = iron_arena_strdup(l->arena, decbuf, strlen(decbuf));
             if (!value) {
                 /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_number binary value). */

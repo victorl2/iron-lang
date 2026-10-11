@@ -1,0 +1,29 @@
+-- A lambda, spawn or parallel for inside an `in a { }` body got no capture
+-- analysis (the capture pass did not walk into the block): the C read its
+-- captures as undeclared globals. (#428)
+object Pt {
+    val x: Int
+    val y: Int
+}
+
+func main() {
+    val a = Arena(65536)
+    val ta = Arena.threadsafe(65536)
+    val k = 5
+    in a {
+        val p = heap Pt(k, 1)
+        val h = spawn("in-block") {
+            val q = heap(in: ta) Pt(k, 2)
+            return q.x * q.y
+        }
+        val m = Mutex(0)
+        for i in range(4) parallel {
+            val r = heap(in: ta) Pt(i, k)
+            val g = m.lock()
+            g.set(g.get() + r.x + r.y)
+        }
+        val add = func(n: Int) -> Int { return n + k }
+        val g = m.lock()
+        println("{p.x} {await h} {g.get()} {add(1)}")
+    }
+}

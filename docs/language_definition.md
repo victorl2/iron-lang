@@ -144,6 +144,8 @@ A string literal is at most 4095 bytes. The escape sequences are:
 | `\u{H}` | the Unicode scalar `H` (1 to 6 hex digits), encoded as UTF-8 |
 
 Any other character after a backslash is kept together with the backslash.
+A literal cannot contain the zero byte: `\u{0}` is an error (`E0002`);
+build such strings with `String.from_byte(0)`.
 
 A string literal that contains an unescaped `{` is an **interpolated
 string**: each `{expression}` is evaluated and its text spliced in (section
@@ -266,9 +268,9 @@ null: `while cur != null { total += cur.value; cur = cur.next }` walks a
 linked list. The right operand of `and` is narrowed by a true left
 operand and the right operand of `or` by a false one, so
 `x != null and x > 0` and `s == null or s.len() == 0` need no `if`.
-`==` and `!=` compare a `T?` with a `T` or another `T?` (equal when both
-are null, or both hold equal values); ordering a nullable value with
-`<`, `>`, `<=` or `>=` is an error (`E0202`). A binding assigned inside a loop or a closure is not
+Comparing a `T?` that was not checked with a value (`x == 3`, `s < "a"`)
+is an error (`E0204`): check it first, as in `x != null and x == 3`. A
+binding assigned inside a loop or a closure is not
 narrowed there by an outer check, since the assignment may already have
 run. Comparing a value whose type is not nullable with `null` warns
 (`W0616`): the answer is known before the program runs.
@@ -297,7 +299,7 @@ func main() {
     var s: String? = null
     s = "now"
     println("{s}")
-    println("{idx != null and idx > 1} {s == "now"} {missing == null or missing > 1}")
+    println("{idx != null and idx > 1} {s != null and s == "now"} {missing == null or missing > 1}")
 }
 ```
 
@@ -1698,7 +1700,8 @@ an unknown module is an error (`E0209`); an unused import warns (`W0611`).
 declarations are used by their own names.
 
 The modules that require an import are `math`, `io`, `time`, `log`,
-`hint`, `os`, `net`, `http`, `websocket`, `url`, `mysql` and `raylib`; their functions are
+`hint`, `os`, `net`, `http`, `websocket`, `url`, `json`, `crypto`,
+`encoding`, `mysql` and `raylib`; their functions are
 called on the capitalized module object (`import math`, then
 `Math.sqrt(x)`). Everything else in section 9 (strings, lists, `Box`,
 `Arena`, `Channel`, `Mutex`, `RWLock`, `FileHandle`, `Hashable`, `RawPtr`)
@@ -2162,7 +2165,12 @@ the initializer of a `val` or `var`, or as a statement (its result is then
 discarded and the thread is never awaited). The body may read `val` bindings of the enclosing
 function and use `Mutex`, `Channel` and `rc` values; a list captured by a
 spawn must be awaited in the same block (`E0328`). Writing a captured
-`var` from a thread is a data race and warns (`W0604`). Named thread pools
+`var` from a thread is a data race and warns (`W0604`). A thread keeps what
+it captured alive until it finishes, even when the block that declared it
+ends first (always possible for a spawn that is never awaited): it holds its
+own reference to each captured `Mutex`, `Channel`, `RWLock`, `Arena`, `rc`
+value and `var`, and its own copy of the other values. A thread that is still
+running when the program ends is stopped with it. Named thread pools
 are not implemented: `spawn("name", pool)` is rejected (`E0326`).
 
 ```iron
@@ -2297,11 +2305,18 @@ literals and arithmetic (`+ - * / %`, comparisons, `==` and `!=`, unary
 construction, the built-ins `len`, `range`, `fill` and `read_file(path)`
 (which reads a file relative to the source file and yields its contents),
 and calls to top-level functions whose bodies use only `val`, `var`,
-assignment, `if`, `while`, `for` and `return` over those values.
-Method calls, field access, string concatenation, interpolation,
-bitwise operators, lambdas, `match`, and `heap` or `rc` allocation are not
-available at compile time (`E0231`, `E0232`). Evaluation is limited to one
-million steps (`E0230`). The result is typically bound to a global `val`.
+assignment, `if`, `while`, `for` and `return` over those values. The
+evaluation computes what the same call computes at run time: Int
+arithmetic wraps, and `fill` makes independent copies. An object is
+built at compile time only when it has no `init` (positional
+construction). Method calls, field access, string concatenation,
+interpolation, bitwise operators and shifts, conversions such as
+`Float(n)`, reading a global, `break` and `continue`, lambdas, `match`,
+enum values, and `heap` or `rc` allocation are not available at compile
+time (`E0231`); an error while evaluating, such as a division by zero or
+an index out of range, is `E0232`. Evaluation is limited to one million
+steps and to calls nested 256 deep (`E0230`). The result is typically
+bound to a global `val`.
 
 ```iron
 val TABLE_SIZE = comptime (64 * 4)
@@ -2404,6 +2419,7 @@ entirely a number (`"4 2"`, `"3x"`, `""`).
 | `pad_left(width, ch) -> String`, `pad_right(width, ch) -> String` | padding |
 | `to_int() -> Int`, `to_float() -> Float` | parsing (0 when not a number) |
 | `byte_at(i) -> Int`, `String.from_byte(b: Int) -> String` | byte access |
+| `byte_slice(start, end) -> String` | bytes `[start, end)`, clamped like `substring` (for binary data) |
 | `release()` | does nothing (kept for source compatibility) |
 
 `Int`, `Int32` and `Float` have a `to_string() -> String` method. `s[i]`
@@ -2756,7 +2772,45 @@ fields. `websocket` provides `WebSocket.connect` (and the `_with_ca`,
 `Url.percent_encode`, `Url.percent_decode` and a `Url.builder()`.
 All timeouts are integer milliseconds.
 
-### 9.11.1 `mysql` (import)
+### 9.11.1 `json` (import)
+
+The `json` module is documented in [docs/json.md](json.md). `Json` is a
+JSON value: match on `v.node` (`JsonNode.Null`, `Bool`, `Int`, `Float`,
+`Str`, `Arr`, `Obj`) or use the typed accessors (`as_int() -> Int?`,
+`get(key)`, `at(i)`, `get_string(key)`, `pointer("/a/0")`, `path("a.0")`).
+Arrays and objects are shared between copies of a `Json` (`clone()` makes
+a deep copy) and keep their insertion order; integers that fit in 64 bits
+stay `Int`. `Json.parse(text)` is a strict RFC 8259 parser that returns a
+`JsonResult` with `value`, `error` (0 on success, 4000..4099 otherwise),
+`error_message`, `line` and `column`; `Json.parse_with(text,
+JsonLimits(max_depth, max_bytes))` bounds untrusted input.
+`to_string()`, `pretty()` and `format(indent, sort_keys)` serialize with
+shortest round-trip floats. `JsonWriter` streams JSON into a native buffer
+and `JsonReader` walks a document without building a tree.
+
+```iron
+import json
+
+func main() {
+    val r = Json.parse("\{\"id\": 7, \"tags\": [\"a\"], \"price\": 9.5}")
+    val doc = r.value
+    doc.get("tags").push(Json.str("b"))
+    println("{r.error} {doc.get_int("id")} {doc.get("price").as_float()} {doc}")
+    val w = JsonWriter.compact()
+    w.begin_object()
+    w.field_string("name", "Ann")
+    w.field_int("visits", 3)
+    w.end_object()
+    println(w.finish())
+}
+```
+
+```output
+0 7 9.5 {"id":7,"tags":["a","b"],"price":9.5}
+{"name":"Ann","visits":3}
+```
+
+### 9.11.2 `mysql` (import)
 
 `import mysql` is a MySQL and MariaDB client that speaks the client/server
 protocol itself (TLS, the `caching_sha2_password`,
@@ -2778,7 +2832,44 @@ tasks share (`query`, `exec`, `run`, `acquire`). Every operation reports a
 `MysqlError { code, sqlstate, message, server }` (code 0 on success) and
 none panics on a server or network failure.
 
-### 9.12 `raylib` (import)
+### 9.12 `crypto` and `encoding` (import)
+
+The cryptography modules are documented in [docs/crypto.md](crypto.md).
+Binary data is a `String` (strings hold arbitrary bytes; measure and cut it
+with `byte_len` and `byte_slice`). `encoding` provides `Hex.encode`,
+`Hex.decode`, `Base64.encode`, `Base64.decode`, `Base64.url_encode` and
+`Base64.url_decode`; decoders return `DecodeResult { data: String, error:
+Int, error_message: String }`. `crypto` provides digests
+(`Crypto.hash(HashAlgorithm.Sha256, data)`, `Crypto.sha256(data)`, ... and
+the streaming `Hasher.new(alg)` / `Hasher.hmac(alg, key)` with `update` and
+`finish`), `Crypto.hmac`, `Crypto.hkdf`, `Crypto.pbkdf2`, `Crypto.scrypt`,
+password hashing (`hash_password`, `verify_password`,
+`password_needs_rehash`), `constant_time_equal`, `xor`, `random_bytes`,
+`random_int`, `random_token`, authenticated encryption (`seal`, `open`,
+`encrypt`, `decrypt` with `AeadAlgorithm.Aes256Gcm` or `ChaCha20Poly1305`)
+and RSA-OAEP. Fallible calls return `CryptoResult { data: String, error:
+Int, error_message: String }`; a forged ciphertext is error 9004, not a
+panic. The module is OpenSSL 3's libcrypto and links it like `http` does.
+
+```iron
+import crypto
+import encoding
+
+func main() {
+    println(Hex.encode(Crypto.sha256("abc")))
+    val key = Crypto.random_bytes(32)
+    val box = Crypto.encrypt(AeadAlgorithm.ChaCha20Poly1305, key, "secret", "")
+    val back = Crypto.decrypt(AeadAlgorithm.ChaCha20Poly1305, key, box.data, "")
+    println("{back.error} {back.data} {Base64.url_encode("hi?")}")
+}
+```
+
+```output
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+0 secret aGk_
+```
+
+### 9.13 `raylib` (import)
 
 `import raylib` makes the raylib bindings available: the objects
 `Vector2`, `Vector3`, `Color`, `Rectangle`, `Texture`, `Font` and so on,
@@ -2910,7 +3001,9 @@ Iron compiles to C and hands the C to a compiler it ships. The generated
 C is C17 with the GNU extensions clang accepts under `-std=gnu17`
 (statement expressions and `__builtin_*` intrinsics, `__attribute__`
 annotations, `_Static_assert`), compiled with `-fwrapv` (integer overflow
-wraps) and `-fno-strict-aliasing`. It includes only the runtime header,
+wraps), `-fno-strict-aliasing` and `-ffp-contract=off` (every float
+operation is rounded on its own; `a * b + c` is never fused into one
+multiply-add, so a float result is the same on every target). It includes only the runtime header,
 which itself depends only on the freestanding C headers (`stdint.h`,
 `stddef.h`, `stdbool.h`, `stdarg.h`, `stdatomic.h`); every fixture in the
 test suite also compiles with `-ffreestanding -nostdinc`.

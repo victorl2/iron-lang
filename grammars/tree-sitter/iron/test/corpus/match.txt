@@ -119,3 +119,59 @@ func f(p: Pair) -> Int {
             value: (identifier))))
       (return_statement
         value: (integer_literal)))))
+
+================================================================================
+match arm with a val or var declaration
+================================================================================
+
+func f(n: Int) {
+    match n {
+        1 -> val q: Res[Pt, String] = Res.Ok(Pt(1, n))
+        2 -> var w = n
+        else -> println("x")
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    body: (block
+      (match_statement
+        subject: (identifier)
+        (match_arm
+          pattern: (literal_pattern
+            (integer_literal))
+          body: (val_declaration
+            binding: (identifier)
+            type: (generic_type
+              (type_identifier
+                (identifier))
+              (type_identifier
+                (identifier))
+              (type_identifier
+                (identifier)))
+            value: (call_expression
+              function: (member_expression
+                object: (identifier)
+                property: (identifier))
+              (call_expression
+                function: (identifier)
+                (integer_literal)
+                (identifier)))))
+        (match_arm
+          pattern: (literal_pattern
+            (integer_literal))
+          body: (var_declaration
+            binding: (identifier)
+            value: (identifier)))
+        (match_else_arm
+          body: (call_expression
+            function: (identifier)
+            (string_literal)))))))
