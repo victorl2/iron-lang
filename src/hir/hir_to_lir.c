@@ -1937,6 +1937,73 @@ static IronLIR_ValueId lower_short_circuit_or(HIR_to_LIR_Ctx *ctx,
     return phi->id;
 }
 
+/* `a == b` / `a != b` where one or both sides are T? and the other side is
+ * a T or T?: equal when both hold a value and the values are equal, or when
+ * both are null. The values are compared only once both are known to be
+ * present (an empty optional's value is never read). This used to emit a C
+ * comparison of an optional struct with its inner type, which clang
+ * rejected. Returns IRON_LIR_VALUE_INVALID when the operands are not such a
+ * pair. */
+static IronLIR_ValueId lower_optional_equality(HIR_to_LIR_Ctx *ctx,
+                                               IronHIR_Expr *expr,
+                                               IronLIR_ValueId left,
+                                               IronLIR_ValueId right) {
+    IronHIR_BinOp op = expr->binop.op;
+    if (op != IRON_HIR_BINOP_EQ && op != IRON_HIR_BINOP_NEQ) return IRON_LIR_VALUE_INVALID;
+    Iron_Type *lt = expr->binop.left ? expr->binop.left->type : NULL;
+    Iron_Type *rt = expr->binop.right ? expr->binop.right->type : NULL;
+    if (!lt || !rt) return IRON_LIR_VALUE_INVALID;
+    bool lopt = lt->kind == IRON_TYPE_NULLABLE && lt->nullable.inner;
+    bool ropt = rt->kind == IRON_TYPE_NULLABLE && rt->nullable.inner;
+    if (!lopt && !ropt) return IRON_LIR_VALUE_INVALID;
+    if (lt->kind == IRON_TYPE_NULL || rt->kind == IRON_TYPE_NULL) return IRON_LIR_VALUE_INVALID;
+    Iron_Type *li = lopt ? lt->nullable.inner : lt;
+    Iron_Type *ri = ropt ? rt->nullable.inner : rt;
+    if (!iron_type_equals(li, ri)) return IRON_LIR_VALUE_INVALID;
+
+    Iron_Span span = expr->span;
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    IronLIR_Func *fn = ctx->current_func;
+
+    IronLIR_ValueId lhas = lopt ? iron_lir_is_not_null(fn, ctx->current_block, left, span)->id
+                                : IRON_LIR_VALUE_INVALID;
+    IronLIR_ValueId rhas = ropt ? iron_lir_is_not_null(fn, ctx->current_block, right, span)->id
+                                : IRON_LIR_VALUE_INVALID;
+    IronLIR_ValueId both = lopt && ropt
+        ? iron_lir_binop(fn, ctx->current_block, IRON_LIR_AND, lhas, rhas, bool_type, span)->id
+        : (lopt ? lhas : rhas);
+    /* When not both present, the answer is "both absent". */
+    IronLIR_ValueId absent_eq;
+    if (lopt && ropt) {
+        absent_eq = iron_lir_binop(fn, ctx->current_block, IRON_LIR_EQ, lhas, rhas,
+                                   bool_type, span)->id;
+    } else {
+        IronLIR_Instr *f = iron_lir_const_bool(fn, ctx->entry_block, false, bool_type, span);
+        insert_in_entry_before_terminator(ctx, f);
+        absent_eq = f->id;
+    }
+    IronLIR_Block *head = ctx->current_block;
+    IronLIR_Block *cmp_block = new_block(ctx, make_label(ctx, "opt_eq_cmp"));
+    IronLIR_Block *merge_block = new_block(ctx, make_label(ctx, "opt_eq_merge"));
+    iron_lir_branch(fn, head, both, cmp_block->id, merge_block->id, span);
+
+    switch_block(ctx, cmp_block);
+    IronLIR_ValueId lv = lopt ? iron_lir_cast(fn, ctx->current_block, left, li, span)->id : left;
+    IronLIR_ValueId rv = ropt ? iron_lir_cast(fn, ctx->current_block, right, ri, span)->id : right;
+    IronLIR_ValueId eq = iron_lir_binop(fn, ctx->current_block, IRON_LIR_EQ, lv, rv,
+                                        bool_type, span)->id;
+    IronLIR_Block *cmp_end = ctx->current_block;
+    iron_lir_jump(fn, cmp_end, merge_block->id, span);
+
+    switch_block(ctx, merge_block);
+    IronLIR_Instr *phi = iron_lir_phi(fn, merge_block, bool_type, span);
+    iron_lir_phi_add_incoming(phi, absent_eq, head->id);
+    iron_lir_phi_add_incoming(phi, eq, cmp_end->id);
+    if (op == IRON_HIR_BINOP_NEQ)
+        return iron_lir_unop(fn, ctx->current_block, IRON_LIR_NOT, phi->id, bool_type, span)->id;
+    return phi->id;
+}
+
 /* ── Pass 1: Expression lowering ─────────────────────────────────────────── */
 
 /* Phase 33 OQ-02 (Plan 33-07): build the `Iron_Box_<elemC>` mangled prefix for
@@ -2238,9 +2305,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         IronLIR_ValueId left  = lower_expr(ctx, expr->binop.left);
         IronLIR_ValueId right = lower_expr(ctx, expr->binop.right);
         if (!ctx->current_block) return IRON_LIR_VALUE_INVALID;
-        IronLIR_InstrKind kind = hir_binop_to_lir(op);
-        IronLIR_ValueId res = iron_lir_binop(ctx->current_func, ctx->current_block,
-                                             kind, left, right, type, span)->id;
+        IronLIR_ValueId res = lower_optional_equality(ctx, expr, left, right);
+        if (res == IRON_LIR_VALUE_INVALID) {
+            IronLIR_InstrKind kind = hir_binop_to_lir(op);
+            res = iron_lir_binop(ctx->current_func, ctx->current_block,
+                                 kind, left, right, type, span)->id;
+        }
         /* `w.upgrade() != null`: an rc operand that hands over a reference
          * (an upgrade, a call result) has no owner once compared; it was
          * never released, so the object leaked and its drop never ran. */

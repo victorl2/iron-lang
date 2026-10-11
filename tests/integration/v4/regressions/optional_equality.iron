@@ -1,0 +1,24 @@
+-- Comparing an optional with a plain value or another optional (T? == T,
+-- T == T?, T? == T?) emitted a C comparison of the optional struct with its
+-- inner type, which clang rejected. Equal means both present and equal, or
+-- both null; an empty optional's value is never read.
+func maybe(n: Int) -> String? {
+    if n == 0 {
+        return null
+    }
+    return "v{n}"
+}
+
+func maybe_int(n: Int) -> Int? {
+    if n == 0 {
+        return null
+    }
+    return n
+}
+
+func main() {
+    val a = maybe(1)
+    val b = maybe(0)
+    println("{a == "v1"} {b == "v1"} {a != "v1"} {b != "v1"} {"v1" == a} {maybe_int(3) == 3} {maybe_int(0) == 3}")
+    println("{a == b} {b == maybe(0)} {a == maybe(1)} {a != maybe(2)} {maybe(3) == "v" + "3"}")
+}
