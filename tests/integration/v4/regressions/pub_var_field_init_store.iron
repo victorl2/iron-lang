@@ -1,0 +1,38 @@
+-- An init that assigns a `pub var` field stored it through the field's
+-- setter, which first drops the value it replaces: in an init that is
+-- uninitialized memory, so the setter read garbage and could free a wild
+-- pointer (valgrind: conditional jump on an uninitialised value;
+-- UBSan: invalid bool load). The init now stores the field directly.
+object Patch {
+    pub var name: String?
+    pub var tag: String
+    pub var count: Int
+    var note: String?
+
+    init(tag: String) {
+        self.name = null
+        self.tag = tag
+        self.count = 0
+        self.note = null
+    }
+}
+
+func make(i: Int) -> Patch {
+    var p = Patch("a tag long enough to be stored on the heap, number {i}")
+    p.name = "a name long enough to be stored on the heap, number {i}"
+    p.count += i
+    return p
+}
+
+func main() {
+    var total = 0
+    for i in range(4) {
+        val p = make(i)
+        total += p.count + p.tag.len()
+        val n = p.name
+        if n != null {
+            total += n.len()
+        }
+    }
+    println("{total}")
+}
