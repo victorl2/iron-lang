@@ -1,0 +1,26 @@
+object Point {
+    var x: Int
+    var y: Float
+    var live: Bool
+    init(x: Int, y: Float, live: Bool) {
+        self.x = x
+        self.y = y
+        self.live = live
+    }
+}
+func main() {
+    var ps: [Point, layout: soa] = []
+    println("{ps.len()} {ps.is_empty()}")
+    ps.push(Point(1, 2.5, true))
+    ps.push(Point(3, 4.5, false))
+    ps.insert(1, Point(5, 6.5, true))
+    ps[0].x = 7
+    ps[2] = Point(9, 10.5, true)
+    for p in ps {
+        println("{p.x} {p.y} {p.live}")
+    }
+    val dup = ps.copy()
+    val moved = ps.take()
+    println("{dup.len()} {moved.len()} {ps.len()}")
+    println("{dup[0].x} {moved[2].x}")
+}
