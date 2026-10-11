@@ -317,7 +317,8 @@ class JsonGen(SegProgram):
 
     def add_segment(self):
         r = self.r
-        pick = r.choices(['tree', 'writer', 'deep', 'numbers', 'parse'], [6, 2, 1, 1, 1.5])[0]
+        pick = r.choices(['tree', 'writer', 'deep', 'numbers', 'parse', 'threads', 'misuse'],
+                         [6, 2, 1, 1, 1.5, 1, 0.5])[0]
         self.segs.append(getattr(self, 'seg_' + pick)())
 
     # ------------------------------------------------------- generation
@@ -875,6 +876,78 @@ class JsonGen(SegProgram):
                   f'println("parse {{{res}.error}} {{{res}.value.to_string()}}")']
         out.append(f'parse 0 {ser(reparse(root))}')
         return Seg(lines, out)
+
+    # ---------------------------------------------------------- threads
+    def seg_threads(self):
+        """One document read from many threads at once (its containers
+        are rc and shared by every copy): to_string, lookups and copies."""
+        r = self.r
+        pool = []
+        root = self.tree(r.randint(1, 3), [r.randint(3, 15)], pool)
+        if not isinstance(root, (JArr, JObj)):
+            a = JArr()
+            a.items.append(root)
+            root = a
+        lines, made = [], set()
+        rn = self.build(root, lines, made)
+        text = ser(root)
+        m = self.fresh('m')
+        i = self.fresh('i')
+        g = self.fresh('g')
+        n = r.choice([4, 16, 40])
+        t = self.fresh('t')
+        lines += [f'val {t} = {rn}.to_string()', f'val {m} = Mutex(0)',
+                  f'for {i} in range({n}) parallel {{',
+                  f'    val {self.fresh("cp")} = {rn}',
+                  f'    val {self.fresh("cl")} = {rn}.clone()',
+                  f'    val {self.fresh("it")} = {rn}.items()',
+                  f'    val {g} = {m}.lock()',
+                  f'    if {rn}.to_string() == {t} and {rn}.clone().equals({rn}) {{',
+                  f'        {g}.set({g}.get() + {rn}.len())', '    }', '}',
+                  '{', f'    val {g} = {m}.lock()', f'    println("threads {{{g}.get()}}")', '}']
+        ln = len(root.items) if isinstance(root, JArr) else len(root.keys)
+        h = self.fresh('h')
+        lines += [f'val {h} = spawn("reader") {{', f'    return {rn}.to_string().byte_len()', '}',
+                  f'println("spawned {{await {h}}}")']
+        return Seg(lines, [f'threads {n * ln}', f'spawned {len(text.encode())}'])
+
+    # ----------------------------------------------------------- misuse
+    def seg_misuse(self):
+        """The programming errors the guide says panic."""
+        r = self.r
+        kind = r.choice(['push_obj', 'set_arr', 'insert_range', 'set_at_range', 'w_key_array',
+                         'w_value_object', 'w_unbalanced', 'w_finish_open', 'w_two_roots'])
+        lines = ['println("before")']
+        if kind == 'push_obj':
+            lines += ['val o = Json.obj()', 'o.push(Json.int(1))']
+            panic = 'Json.push() on a JSON object'
+        elif kind == 'set_arr':
+            lines += ['val a = Json.array()', 'a.set("k", Json.int(1))']
+            panic = 'Json.set() on a JSON array'
+        elif kind == 'insert_range':
+            lines += ['val a = Json.ints([1, 2])', 'a.insert(5, Json.null())']
+            panic = 'out of bounds'
+        elif kind == 'set_at_range':
+            lines += ['val a = Json.ints([1, 2])', 'a.set_at(2, Json.null())']
+            panic = 'out of bounds'
+        elif kind == 'w_key_array':
+            lines += ['val w = JsonWriter.compact()', 'w.begin_array()', 'w.key("k")']
+            panic = 'key() outside an object'
+        elif kind == 'w_value_object':
+            lines += ['val w = JsonWriter.compact()', 'w.begin_object()', 'w.int(1)']
+            panic = 'write key() before each value inside an object'
+        elif kind == 'w_unbalanced':
+            lines += ['val w = JsonWriter.compact()', 'w.begin_array()', 'w.end_object()']
+            panic = 'end_object() without a matching begin_object()'
+        elif kind == 'w_finish_open':
+            lines += ['val w = JsonWriter.compact()', 'w.begin_object()', 'val t = w.finish()']
+            panic = 'JsonWriter'
+        else:
+            first, second = r.sample(['int(2)', 'null()', 'bool(true)', 'string("s")', 'float(1.5)'], 2)
+            lines += ['val w = JsonWriter.compact()', 'w.' + first, 'w.' + second]
+            panic = 'a document has one top-level value'
+        lines.append('println("not reached")')
+        return Seg(lines, ['before'], panic=panic)
 
     def from_py(self, v):
         if isinstance(v, str):
