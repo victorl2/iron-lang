@@ -391,6 +391,17 @@ static void print_method_in_block(PrintCtx *ctx, Iron_MethodDecl *m) {
         }
         return;
     }
+    /* `copy { ... }` and `drop { ... }` keep their block form: a generic
+     * object is instantiated by printing it and parsing the text again, and
+     * `func drop()` there was a method named drop (E0237), `func copy()` a
+     * method the copy glue never ran. */
+    if (m->is_drop || m->is_copy) {
+        if (m->is_readonly) iron_strbuf_appendf(ctx->sb, "readonly ");
+        iron_strbuf_appendf(ctx->sb, "%s ", m->is_drop ? "drop" : "copy");
+        if (m->body) print_block(ctx, m->body);
+        else iron_strbuf_appendf(ctx->sb, "{\n}");
+        return;
+    }
     /* Phase 9 Plan 09-02 D-10: visibility-before-tier-before-func order.
      * Iron_MethodDecl has no is_pub field — the parser silently drops
      * `pub` on methods (parser.c:3444 / :4385). For v3 fixtures whose
