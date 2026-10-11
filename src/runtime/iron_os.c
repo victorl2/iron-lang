@@ -6,6 +6,9 @@
  * that does: it forwards the memory calls to libc and implements the
  * threading handles over pthreads or Win32 inside the opaque storage the
  * header declares, with static assertions that the storage fits. */
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+  #define _GNU_SOURCE 1   /* sched_getaffinity / CPU_COUNT for OS.cpu_count */
+#endif
 #include "runtime/iron_runtime.h"
 
 #include <errno.h>
@@ -30,6 +33,9 @@
 #ifdef __APPLE__
   #include <sys/types.h>
   #include <sys/sysctl.h>
+#endif
+#ifdef __linux__
+  #include <sched.h>
 #endif
 #include <stdarg.h>
 
@@ -455,4 +461,25 @@ void Iron_os_exit(int64_t code) {
     fflush(stdout);
     fflush(stderr);
     exit((int)code);
+}
+
+/* os.iron: OS.cpu_count(). The CPUs this process may run on: the affinity
+ * mask on Linux (so a container or taskset limit is respected), the online
+ * processors elsewhere. At least 1. */
+int64_t Iron_os_cpu_count(void) {
+#ifdef _WIN32
+    DWORD n = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    return n > 0 ? (int64_t)n : 1;
+#else
+  #ifdef __linux__
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    if (sched_getaffinity(0, sizeof(set), &set) == 0) {
+        int n = CPU_COUNT(&set);
+        if (n > 0) return n;
+    }
+  #endif
+    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    return n > 0 ? (int64_t)n : 1;
+#endif
 }

@@ -33,3 +33,7 @@ func OS.pid() -> Int {}
 -- standard output. Pending drops, defers and running tasks are skipped:
 -- use it for fatal errors, not for normal shutdown.
 func OS.exit(code: Int) {}
+
+-- The number of CPUs this process may run on (its affinity mask on Linux,
+-- so container and taskset limits count), at least 1.
+func OS.cpu_count() -> Int {}

@@ -1987,8 +1987,9 @@ void Iron_httpclient_close(Iron_HttpClient handle) {
  * ACTIVE connection is the worker's to park, discard or close. Interest is
  * one-shot, so an fd is returned once per park.
  *
- * Thread safety: any thread may park or discard; next() is meant for one
- * accept loop but tolerates several callers. The state lives until the last
+ * Thread safety: any thread may park or discard, and any number of threads
+ * may call next() at once: a server can run one accept loop that hands
+ * connections to tasks, or several loops that each serve what they take. The state lives until the last
  * Iron reference drops (HttpPollerCore's drop calls free), so a worker that
  * parks after close() only has its connection closed. */
 
@@ -2055,6 +2056,7 @@ typedef struct HttpPollerState {
     size_t ready_head, ready_count, ready_cap;
     uint64_t last_sweep_ms;
     int64_t accepted, expired;
+    int callers;            /* threads inside next() */
 } HttpPollerState;
 
 static void http_poller_lock(HttpPollerState *st) {
@@ -2353,8 +2355,12 @@ static void http_poller_wait(HttpPollerState *st, int wait_ms) {
     uint64_t now;
 #if defined(HTTP_POLLER_EPOLL)
     struct epoll_event evs[HTTP_POLL_EVENTS];
+    /* With several threads in next(), each takes one event: the kernel hands
+     * every ready connection to exactly one waiter, and none sits in the
+     * ready queue while its taker is busy serving another. */
+    int max_events = st->callers > 1 ? 1 : HTTP_POLL_EVENTS;
     http_poller_unlock(st);
-    int n = epoll_wait(st->ep, evs, HTTP_POLL_EVENTS, wait_ms);
+    int n = epoll_wait(st->ep, evs, max_events, wait_ms);
     http_poller_lock(st);
     if (n <= 0 || st->closed) return;
     now = Iron_monotonic_now_ms();
@@ -2376,8 +2382,9 @@ static void http_poller_wait(HttpPollerState *st, int wait_ms) {
     struct timespec ts;
     ts.tv_sec = wait_ms / 1000;
     ts.tv_nsec = (long)(wait_ms % 1000) * 1000000L;
+    int max_events = st->callers > 1 ? 1 : HTTP_POLL_EVENTS;
     http_poller_unlock(st);
-    int n = kevent(st->kq, NULL, 0, evs, HTTP_POLL_EVENTS, wait_ms < 0 ? NULL : &ts);
+    int n = kevent(st->kq, NULL, 0, evs, max_events, wait_ms < 0 ? NULL : &ts);
     http_poller_lock(st);
     if (n <= 0 || st->closed) return;
     now = Iron_monotonic_now_ms();
@@ -2443,8 +2450,10 @@ int64_t Iron_httppollernative_next(int64_t h, int64_t timeout) {
     if (!st || timeout < 0) return -IRON_ERR_HTTP_INVALID_ARGUMENT;
     Iron_Deadline deadline = Iron_deadline_from_timeout_ms(timeout);
     http_poller_lock(st);
+    st->callers++;
     for (;;) {
         if (st->closed) {
+            st->callers--;
             http_poller_unlock(st);
             return -IRON_ERR_NET_CLOSED;
         }
@@ -2452,6 +2461,7 @@ int64_t Iron_httppollernative_next(int64_t h, int64_t timeout) {
             int64_t fd = st->ready[st->ready_head];
             st->ready_head = (st->ready_head + 1) % st->ready_cap;
             st->ready_count--;
+            st->callers--;
             http_poller_unlock(st);
             return fd;
         }
@@ -2461,6 +2471,7 @@ int64_t Iron_httppollernative_next(int64_t h, int64_t timeout) {
         if (now - st->last_sweep_ms >= sweep_every) http_poller_sweep(st, now);
         int remaining = Iron_deadline_remaining_ms(deadline);
         if (remaining <= 0 && timeout > 0) {
+            st->callers--;
             http_poller_unlock(st);
             return -IRON_ERR_NET_TIMEOUT;
         }
@@ -2468,6 +2479,7 @@ int64_t Iron_httppollernative_next(int64_t h, int64_t timeout) {
         if ((uint64_t)wait > sweep_every) wait = (int)sweep_every;
         http_poller_wait(st, wait);
         if (timeout == 0 && !st->ready_count && !st->closed) {
+            st->callers--;
             http_poller_unlock(st);
             return -IRON_ERR_NET_TIMEOUT;
         }

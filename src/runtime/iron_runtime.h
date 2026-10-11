@@ -2002,6 +2002,7 @@ void        Iron_os_trap_shutdown_signals(void);
 int64_t     Iron_os_shutdown_signal(void);
 int64_t     Iron_os_pid(void);
 void        Iron_os_exit(int64_t code);
+int64_t     Iron_os_cpu_count(void);
 IRON_LIST_DECL(Iron_Closure, Iron_Closure)
 /* Phase 68 (Plan 68-01): ABI-FLOAT32 + ABI-UINT8 primitive list types.
  * Suffix matches ironc's emit_type_to_c output (emit_helpers.c:151):
