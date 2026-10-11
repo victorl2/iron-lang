@@ -7514,6 +7514,11 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         /* emitted as ternary inline */
                         fmt_spec = "%s";
                         break;
+                    /* A String is passed whole (%S takes an Iron_String *):
+                     * through %s it stopped at a zero byte. */
+                    case IRON_TYPE_STRING:
+                        fmt_spec = "%S";
+                        break;
                     /* Phase 33 STDLIB-10 (Plan 33-06): *unchecked T pointers
                      * (including the RawPtr alias for *unchecked Int) interpolate
                      * as their dereferenced primitive value — `{p}` for
@@ -7615,10 +7620,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         break;
                     }
                     case IRON_TYPE_STRING: {
-                        /* iron_string_cstr() converts to const char* */
+                        /* %S: the Iron_String itself, zero bytes included */
                         Iron_StrBuf tmp = iron_strbuf_create(32);
                         emit_val(&tmp, part_id);
-                        iron_strbuf_appendf(&args_sb, "iron_string_cstr(&%s)",
+                        iron_strbuf_appendf(&args_sb, "(const Iron_String *)&%s",
                                             iron_strbuf_get(&tmp));
                         iron_strbuf_free(&tmp);
                         break;
@@ -7760,7 +7765,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         emit_val(sb, instr->id);
         if (instr->interp_string.part_count > 0) {
-            iron_strbuf_appendf(sb, " = iron_string_format(\"%s\", %s);\n", fmt_str, args_str);
+            iron_strbuf_appendf(sb, " = iron_string_interp(\"%s\", %s);\n", fmt_str, args_str);
         } else {
             iron_strbuf_appendf(sb, " = iron_string_from_cstr(\"\", 0);\n");
         }

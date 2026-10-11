@@ -923,6 +923,10 @@ typedef struct {
 Iron_String  iron_string_from_cstr(const char *cstr, size_t byte_len);
 /* printf-style formatting of interpolation parts (iron_fmt.c). */
 Iron_String  iron_string_format(const char *fmt, ...);
+/* String interpolation: fmt holds only the conversions %lld, %llu, %s
+ * (a C string) and %S (a const Iron_String *, copied whole: zero bytes
+ * included). */
+Iron_String  iron_string_interp(const char *fmt, ...);
 Iron_String  iron_string_from_literal(const char *lit, size_t byte_len);
 const char  *iron_string_cstr(const Iron_String *s);
 size_t       iron_string_byte_len(const Iron_String *s);
