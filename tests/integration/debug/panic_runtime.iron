@@ -1,7 +1,7 @@
-func load(path: String) -> String {
-    return read_file(path)
+func load(unit: String) -> String {
+    return unit.repeat(4611686018427387904)
 }
 
 func main() {
-    println(load("/nonexistent/iron-panic-test"))
+    println(load("ab"))
 }

@@ -1,0 +1,22 @@
+interface Shape {
+    func area() -> Int
+}
+
+object Square impl Shape {
+    val side: Int
+    func area() -> Int {
+        return self.side * self.side
+    }
+}
+
+func replace(shapes: [Shape], slot: Int) {
+    var all = shapes.copy()
+    all[slot] = Square(5)
+    println("{all.len()}")
+}
+
+func main() {
+    val shapes: [Shape] = [Square(2), Square(3)]
+    replace(shapes, 1)
+    replace(shapes, 4)
+}
