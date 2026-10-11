@@ -73,8 +73,11 @@ static int tls_windows_verify(X509_STORE_CTX *store_ctx, void *arg) {
     const char *host = X509_VERIFY_PARAM_get0_host(param, 0);
     char *ip = host ? NULL : X509_VERIFY_PARAM_get1_ip_asc(param);
     wchar_t name[512];
-    int named = (host || ip) &&
-        MultiByteToWideChar(CP_UTF8, 0, host ? host : ip, -1, name, 512) > 0;
+    /* No host and no IP configured: IRON_TLS_VERIFY_CA, which checks the
+     * chain only, so the SSL policy runs without a server name. */
+    int chain_only = !host && !ip;
+    int named = chain_only || ((host || ip) &&
+        MultiByteToWideChar(CP_UTF8, 0, host ? host : ip, -1, name, 512) > 0);
 
     if (leaf_ctx && named) {
         LPSTR usage[] = { (LPSTR)szOID_PKIX_KP_SERVER_AUTH };
@@ -90,7 +93,7 @@ static int tls_windows_verify(X509_STORE_CTX *store_ctx, void *arg) {
             memset(&ssl_para, 0, sizeof(ssl_para));
             ssl_para.cbSize = sizeof(ssl_para);
             ssl_para.dwAuthType = AUTHTYPE_SERVER;
-            ssl_para.pwszServerName = name;
+            ssl_para.pwszServerName = chain_only ? NULL : name;
             CERT_CHAIN_POLICY_PARA policy;
             memset(&policy, 0, sizeof(policy));
             policy.cbSize = sizeof(policy);
@@ -260,7 +263,25 @@ Iron_TlsStreamResult iron_tls_client_connect(Iron_TcpSocket socket,
                                               Iron_String ca_file,
                                               bool insecure,
                                               Iron_Deadline deadline) {
+    return iron_tls_client_connect_mode(socket, host, ca_file,
+                                        insecure ? IRON_TLS_VERIFY_NONE
+                                                 : IRON_TLS_VERIFY_FULL,
+                                        deadline);
+}
+
+Iron_TlsStreamResult iron_tls_client_connect_mode(Iron_TcpSocket socket,
+                                                   Iron_String host,
+                                                   Iron_String ca_file,
+                                                   int mode,
+                                                   Iron_Deadline deadline) {
     Iron_TlsStreamResult out = { NULL, tls_error(0) };
+    bool insecure = mode == IRON_TLS_VERIFY_NONE;
+    bool check_name = mode == IRON_TLS_VERIFY_FULL;
+    if (mode != IRON_TLS_VERIFY_FULL && mode != IRON_TLS_VERIFY_CA &&
+        mode != IRON_TLS_VERIFY_NONE) {
+        out.error = tls_error(IRON_ERR_TLS_INVALID_ARGUMENT);
+        return out;
+    }
     char *host_text = NULL;
     int host_status = string_to_cstr(host, &host_text);
     if (socket.fd < 0 || host_status == 0) {
@@ -342,7 +363,7 @@ Iron_TlsStreamResult iron_tls_client_connect(Iron_TcpSocket socket,
         return out;
     }
 
-    if (!insecure) {
+    if (check_name) {
         unsigned char raw[16];
         X509_VERIFY_PARAM *verify = SSL_get0_param(ssl);
         if (inet_pton(AF_INET, host_text, raw) == 1 ||
@@ -601,6 +622,16 @@ Iron_TlsStreamResult iron_tls_client_connect(Iron_TcpSocket socket,
                                               bool insecure,
                                               Iron_Deadline deadline) {
     (void)socket; (void)host; (void)ca_file; (void)insecure; (void)deadline;
+    Iron_TlsStreamResult out = { NULL, unavailable() };
+    return out;
+}
+
+Iron_TlsStreamResult iron_tls_client_connect_mode(Iron_TcpSocket socket,
+                                                   Iron_String host,
+                                                   Iron_String ca_file,
+                                                   int mode,
+                                                   Iron_Deadline deadline) {
+    (void)socket; (void)host; (void)ca_file; (void)mode; (void)deadline;
     Iron_TlsStreamResult out = { NULL, unavailable() };
     return out;
 }

@@ -1,0 +1,87 @@
+-- Disconnects and timeouts surface as error values and leave the
+-- connection closed, never hung or crashed: a connection the server
+-- killed, a command over its timeout, a session the server timed out, and
+-- a fresh connection afterwards.
+import mysql
+import os
+import time
+
+var failures = 0
+
+func check(cond: Bool, what: String) {
+    if cond {
+        println("ok   {what}")
+    } else {
+        println("FAIL {what}")
+        failures += 1
+    }
+}
+
+func main() {
+    val url = OS.env_or("IRON_MYSQL_URL", "")
+    if url == "" {
+        println("SKIP: IRON_MYSQL_URL is not set")
+        return
+    }
+    val (base, _) = Mysql.parse_url(url)
+    var admin = Mysql.connect(base)
+    check(admin.ok(), "admin connect: {admin.error.message}")
+    if admin.error.failed() {
+        return
+    }
+
+    -- Killed by the server.
+    for mode in [MysqlTls.Disabled, MysqlTls.Required] {
+        var cfg = base
+        cfg.tls = mode
+        var victim = Mysql.connect(cfg)
+        check(victim.ok(), "victim connect: {victim.error.message}")
+        val id = victim.connection_id()
+        check(admin.run("KILL {id}").ok(), "KILL {id}")
+        Time.sleep(100)
+        val r = victim.query("SELECT 1")
+        check(r.error.code != 0 and r.error.is_connection_error(), "query on a killed connection fails as a connection error (tls={victim.is_tls()}, got {r.error.code} {r.error.message})")
+        check(not victim.is_open(), "killed connection reports closed")
+        val again = victim.exec("SELECT ?", [MysqlValue.Int(1)])
+        check(again.error.code == 7004, "later commands fail fast with 7004 (got {again.error.code})")
+        check(victim.ping().code == 7004, "ping on a dead connection is 7004")
+    }
+
+    -- Command timeout.
+    var tcfg = base
+    tcfg.timeout = 500
+    var slow = Mysql.connect(tcfg)
+    val start = Time.now_ms()
+    val r2 = slow.query("SELECT SLEEP(3)")
+    val elapsed = Time.now_ms() - start
+    check(r2.error.code == 1004, "command over its timeout is 1004 (got {r2.error.code})")
+    check(elapsed >= 400 and elapsed < 10000, "returned after about the timeout ({elapsed} ms)")
+    check(not slow.is_open(), "a timed-out connection is closed")
+    var fresh = Mysql.connect(tcfg)
+    check(fresh.query("SELECT 1").ok(), "a new connection works")
+    fresh.set_timeout(0)
+    check(fresh.query("SELECT SLEEP(1)").ok(), "set_timeout(0) removes the limit")
+
+    -- The server ends an idle session (wait_timeout).
+    var idle = Mysql.connect(base)
+    idle.run("SET SESSION wait_timeout = 1")
+    Time.sleep(2500)
+    val r3 = idle.query("SELECT 1")
+    check(r3.error.code != 0 and r3.error.is_connection_error(), "query after wait_timeout fails as a connection error (got {r3.error.code} {r3.error.message})")
+
+    -- Connect timeout to an address that does not answer.
+    var black = MysqlConfig("10.255.255.1", 3306, "u", "p", "")
+    black.connect_timeout = 500
+    val bstart = Time.now_ms()
+    val b = Mysql.connect(black)
+    val belapsed = Time.now_ms() - bstart
+    check(b.error.code != 0 and b.error.is_connection_error(), "unreachable host fails (got {b.error.code})")
+    check(belapsed < 10000, "connect timeout honoured ({belapsed} ms)")
+
+    if failures == 0 {
+        println("PASS recovery")
+    } else {
+        println("FAILED recovery: {failures}")
+        assert(false, "recovery checks failed")
+    }
+}

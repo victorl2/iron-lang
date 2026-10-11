@@ -26,6 +26,9 @@ typedef struct {
                                    * ironc was built with OpenSSL (native builds) */
     bool        wants_tls;        /* the source imports http/websocket (bundle
                                    * builds link the bundle's OpenSSL) */
+    bool        use_mysql;        /* the source imports mysql: compile
+                                   * stdlib/iron_mysql.c (bundles carry it in
+                                   * the TLS library) */
     bool        force_comptime;   /* --force-comptime flag: skip comptime cache */
     bool        dump_ir_passes;   /* --dump-ir-passes: print IR after each opt pass */
     bool        no_optimize;      /* --no-optimize: skip copy-prop/const-fold/DCE */

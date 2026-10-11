@@ -265,7 +265,12 @@ first is an error (`E0204`); compare with `null` first. `x != null`
 narrows `x` to `T` inside an `if` or `while` body (and after an early
 return in the other branch) until `x` is assigned a value that may be
 null: `while cur != null { total += cur.value; cur = cur.next }` walks a
-linked list. A binding assigned inside a loop or a closure is not
+linked list. The right operand of `and` is narrowed by a true left
+operand and the right operand of `or` by a false one, so
+`x != null and x > 0` and `s == null or s.len() == 0` need no `if`.
+Comparing a `T?` that was not checked with a value (`x == 3`, `s < "a"`)
+is an error (`E0204`): check it first, as in `x != null and x == 3`. A
+binding assigned inside a loop or a closure is not
 narrowed there by an outer check, since the assignment may already have
 run. Comparing a value whose type is not nullable with `null` warns
 (`W0616`): the answer is known before the program runs.
@@ -294,6 +299,7 @@ func main() {
     var s: String? = null
     s = "now"
     println("{s}")
+    println("{idx != null and idx > 1} {s != null and s == "now"} {missing == null or missing > 1}")
 }
 ```
 
@@ -301,6 +307,7 @@ func main() {
 found at 2
 missing
 now
+true true true
 ```
 
 A nullable type may also be the element type of a list, fixed array or
@@ -1694,7 +1701,7 @@ declarations are used by their own names.
 
 The modules that require an import are `math`, `io`, `time`, `log`,
 `hint`, `os`, `net`, `http`, `websocket`, `url`, `json`, `crypto`,
-`encoding` and `raylib`; their functions are
+`encoding`, `mysql` and `raylib`; their functions are
 called on the capitalized module object (`import math`, then
 `Math.sqrt(x)`). Everything else in section 9 (strings, lists, `Box`,
 `Arena`, `Channel`, `Mutex`, `RWLock`, `FileHandle`, `Hashable`, `RawPtr`)
@@ -2810,6 +2817,28 @@ func main() {
 0 7 9.5 {"id":7,"tags":["a","b"],"price":9.5}
 {"name":"Ann","visits":3}
 ```
+
+### 9.11.2 `mysql` (import)
+
+`import mysql` is a MySQL and MariaDB client that speaks the client/server
+protocol itself (TLS, the `caching_sha2_password`,
+`mysql_native_password`, `sha256_password` and `mysql_clear_password`
+plugins, the text and binary protocols); it is documented in
+[docs/mysql.md](mysql.md). `Mysql.connect(MysqlConfig)` and
+`Mysql.connect_url(url)` return a `nocopy MysqlConn` with `query(sql)`,
+`exec(sql, params: [MysqlValue])` (a prepared statement, cached per
+connection), `run(sql)`, `prepare(sql)`, `begin`, `commit`, `rollback`,
+`ping`, `reset`, `select_db`, `escape`, `quote` and `close`. A query
+returns a `nocopy MysqlResult` holding every row: `row_count()`,
+`column_count()`, `column(i)`, `col(name)`, `affected_rows()`,
+`last_insert_id()`, `next_result()` and typed readers by row and column
+(`int`, `uint`, `float`, `text`, `bytes`, `bool`, `datetime`, `time`
+returning `T?`, `get_int` and the like returning `(T, MysqlError)`, and
+`value` returning a `MysqlValue`). `Mysql.open_pool(config,
+MysqlPoolOptions(min, max))` returns an `rc MysqlPool` that any number of
+tasks share (`query`, `exec`, `run`, `acquire`). Every operation reports a
+`MysqlError { code, sqlstate, message, server }` (code 0 on success) and
+none panics on a server or network failure.
 
 ### 9.12 `crypto` and `encoding` (import)
 

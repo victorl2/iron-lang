@@ -15,6 +15,7 @@ on:
       - 'docs/language_definition.md'
       - 'docs/guide.md'
       - 'docs/networking.md'
+      - 'docs/mysql.md'
       - 'docs/raylib.md'
       - 'docs/llms/iron.md'
       - 'docs/examples/native_*.iron'
@@ -34,6 +35,7 @@ on:
       - 'docs/language_definition.md'
       - 'docs/guide.md'
       - 'docs/networking.md'
+      - 'docs/mysql.md'
       - 'docs/raylib.md'
       - 'docs/llms/iron.md'
       - 'docs/examples/native_*.iron'
@@ -105,6 +107,9 @@ jobs:
       # The networking and raylib programs need a peer or a window: compiled, not run.
       - name: Compile the examples in docs/networking.md
         run: DOCTEST_BUILD_ONLY=1 MD_FILE=docs/networking.md bash scripts/test_doc_examples.sh ./build/iron
+
+      - name: Compile the examples in docs/mysql.md
+        run: DOCTEST_BUILD_ONLY=1 MD_FILE=docs/mysql.md bash scripts/test_doc_examples.sh ./build/iron
 
       - name: Compile the examples in docs/raylib.md
         run: DOCTEST_BUILD_ONLY=1 MD_FILE=docs/raylib.md bash scripts/test_doc_examples.sh ./build/iron

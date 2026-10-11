@@ -1,0 +1,49 @@
+-- Destructuring a tuple that a call returns moves its elements into the
+-- bindings (and drops wildcard elements). The elements used to be copied
+-- out of a temporary tuple that was never dropped, leaking one reference
+-- to every string, list or object element.
+object Wrap {
+    val code: Int
+    val msg: String
+}
+
+func pair(n: Int) -> (String, Wrap) {
+    return ("a long heap string number {n} xxxxxxxxxxxxxxxx", Wrap(n, "another long heap string {n} yyyyyyyyyyyyyy"))
+}
+
+func trio(n: Int) -> (String, Int, String) {
+    return ("first heap string {n} zzzzzzzzzzzzzzzzzzzzzz", n, "third heap string {n} wwwwwwwwwwwwwwwwwwwwww")
+}
+
+func make(n: Int) -> Wrap {
+    val (s, w) = pair(n)
+    if w.code > 100 {
+        return w
+    }
+    return Wrap(0, s)
+}
+
+func text(n: Int) -> String? {
+    val (s, w) = pair(n)
+    if w.code < 0 {
+        return null
+    }
+    return s
+}
+
+func main() {
+    val (s, t) = pair(1)
+    val (_, mid, last) = trio(2)
+    val (first, _, _) = trio(3)
+    println("{s.len()} {t.msg.len()} {mid} {last.len()} {first.len()}")
+    val h = make(1)
+    val h2 = make(200)
+    println("{h.msg.len()} {h2.code}")
+    println("{text(3)} {text(4) == null}")
+    var i = 0
+    while i < 3 {
+        val (a, b) = pair(i)
+        println("{a.len() + b.msg.len()}")
+        i += 1
+    }
+}

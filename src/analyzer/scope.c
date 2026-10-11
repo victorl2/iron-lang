@@ -64,6 +64,15 @@ bool iron_scope_define(Iron_Scope *s, Iron_Arena *a, Iron_Symbol *sym) {
     return true;
 }
 
+bool iron_scope_define_type(Iron_Scope *s, Iron_Arena *a, Iron_Symbol *sym) {
+    if (iron_scope_define(s, a, sym)) return true;
+    if (!s || !sym || !sym->name) return false;
+    Iron_Symbol *prev = shget(s->symbols, sym->name);
+    if (!prev || prev->sym_kind != IRON_SYM_ENUM_VARIANT) return false;
+    shput(s->symbols, sym->name, sym);
+    return true;
+}
+
 /* ── Symbol creation ─────────────────────────────────────────────────────── */
 
 Iron_Symbol *iron_symbol_create(Iron_Arena *a,
