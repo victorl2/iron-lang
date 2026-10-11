@@ -1691,7 +1691,7 @@ an unknown module is an error (`E0209`); an unused import warns (`W0611`).
 declarations are used by their own names.
 
 The modules that require an import are `math`, `io`, `time`, `log`,
-`hint`, `net`, `http`, `websocket`, `url` and `raylib`; their functions are
+`hint`, `os`, `net`, `http`, `websocket`, `url`, `json` and `raylib`; their functions are
 called on the capitalized module object (`import math`, then
 `Math.sqrt(x)`). Everything else in section 9 (strings, lists, `Box`,
 `Arena`, `Channel`, `Mutex`, `RWLock`, `FileHandle`, `Hashable`, `RawPtr`)
@@ -2748,6 +2748,44 @@ fields. `websocket` provides `WebSocket.connect` (and the `_with_ca`,
 (Url, UrlError)`, `Url.build(u)`, `Url.resolve(base, ref)`,
 `Url.percent_encode`, `Url.percent_decode` and a `Url.builder()`.
 All timeouts are integer milliseconds.
+
+### 9.11.1 `json` (import)
+
+The `json` module is documented in [docs/json.md](json.md). `Json` is a
+JSON value: match on `v.node` (`JsonNode.Null`, `Bool`, `Int`, `Float`,
+`Str`, `Arr`, `Obj`) or use the typed accessors (`as_int() -> Int?`,
+`get(key)`, `at(i)`, `get_string(key)`, `pointer("/a/0")`, `path("a.0")`).
+Arrays and objects are shared between copies of a `Json` (`clone()` makes
+a deep copy) and keep their insertion order; integers that fit in 64 bits
+stay `Int`. `Json.parse(text)` is a strict RFC 8259 parser that returns a
+`JsonResult` with `value`, `error` (0 on success, 4000..4099 otherwise),
+`error_message`, `line` and `column`; `Json.parse_with(text,
+JsonLimits(max_depth, max_bytes))` bounds untrusted input.
+`to_string()`, `pretty()` and `format(indent, sort_keys)` serialize with
+shortest round-trip floats. `JsonWriter` streams JSON into a native buffer
+and `JsonReader` walks a document without building a tree.
+
+```iron
+import json
+
+func main() {
+    val r = Json.parse("\{\"id\": 7, \"tags\": [\"a\"], \"price\": 9.5}")
+    val doc = r.value
+    doc.get("tags").push(Json.str("b"))
+    println("{r.error} {doc.get_int("id")} {doc.get("price").as_float()} {doc}")
+    val w = JsonWriter.compact()
+    w.begin_object()
+    w.field_string("name", "Ann")
+    w.field_int("visits", 3)
+    w.end_object()
+    println(w.finish())
+}
+```
+
+```output
+0 7 9.5 {"id":7,"tags":["a","b"],"price":9.5}
+{"name":"Ann","visits":3}
+```
 
 ### 9.12 `raylib` (import)
 
