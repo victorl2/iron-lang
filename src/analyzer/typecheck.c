@@ -3576,7 +3576,8 @@ static const char *readonly_hint(TypeCtx *ctx, Iron_Type *t, const char *method)
     /* An instance of a generic method (`pick__Int`): the help names the
      * method as declared (it suggested `readonly func pick[Int](...)`). */
     const char *shown = method;
-    Iron_Node *gdecl = iron_generics_instance_of(method, NULL, NULL);
+    Iron_Node *gdecl = strstr(method, "__")
+        ? iron_generics_instance_of(method, NULL, NULL) : NULL;
     if (gdecl && gdecl->kind == IRON_NODE_METHOD_DECL &&
         ((Iron_MethodDecl *)gdecl)->method_name)
         shown = ((Iron_MethodDecl *)gdecl)->method_name;
