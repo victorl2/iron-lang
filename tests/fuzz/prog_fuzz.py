@@ -67,7 +67,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from pf_lang import Bail, Expected  # noqa: E402
 
-AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime')
+AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime',
+         'numedge', 'genedge', 'ptredge', 'ctedge', 'strcoll', 'dropord')
 
 
 def generator(area):
