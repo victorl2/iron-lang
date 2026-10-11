@@ -2917,7 +2917,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         case '\\': iron_strbuf_appendf(lf, "\\\\"); break;
                         case '"':  iron_strbuf_appendf(lf, "\\\""); break;
                         default:
-                            if (ch < 0x20 || ch == 0x7f) iron_strbuf_appendf(lf, "\\x%02x", ch);
+                            if (ch < 0x20 || ch == 0x7f) iron_strbuf_appendf(lf, "\\%03o", ch);
                             else iron_strbuf_appendf(lf, "%c", (int)ch);
                             break;
                     }
@@ -2953,7 +2953,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 case '"':  iron_strbuf_appendf(sb, "\\\""); break;
                 default:
                     if (ch < 0x20 || ch == 0x7f) {
-                        iron_strbuf_appendf(sb, "\\x%02x", ch);
+                        iron_strbuf_appendf(sb, "\\%03o", ch);
                     } else {
                         iron_strbuf_appendf(sb, "%c", (int)ch);
                     }

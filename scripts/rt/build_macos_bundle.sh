@@ -17,7 +17,7 @@
 #   lib/libclang_rt.builtins.a   the compiler builtins (libclang_rt.osx.a)
 #   lib/libiron_tls.a, libssl.a, libcrypto.a
 #                                the TLS module against a static OpenSSL, for
-#                                programs that import http or websocket
+#                                programs that import http, websocket or crypto
 #   lib/libiron_tls_none.a       the TLS module without OpenSSL, for the rest
 #
 # ld64.lld links a program against the stub instead of the SDK, so any host
@@ -39,13 +39,17 @@
 #   IRON_COMMIT      the short commit hash recorded in the manifest
 #                    (default: git rev-parse --short HEAD)
 #   OPENSSL_VERSION  OpenSSL release for TLS (default 3.5.9)
+#   OPENSSL_NO_ASM   1 builds OpenSSL's C fallbacks instead of its assembly
+#                    (several times slower, and their table-based AES is
+#                    not constant time; the default uses the assembly)
+#   JOBS             parallel make jobs for OpenSSL (default: all cores)
 #
 # Writes <out-dir>/iron-rt-<version>-<target>/ with lib/ and a rt.txt
 # manifest, plus the .tar.gz and its .sha256 line next to it.
 set -euo pipefail
 
 if [ $# -ne 3 ]; then
-    sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
 fi
 target=$1 version=$2
@@ -73,9 +77,10 @@ mkdir -p "$dest/lib" "$work/objs"
 
 # 1. OpenSSL, static, built once into a cache next to the output.
 openssl=${OPENSSL_VERSION:-3.5.9}
-jobs=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+jobs=${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || echo 4)}
 cache="$out/cache-$target"
-ossl_prefix="$cache/openssl-$openssl-install"
+if [ "${OPENSSL_NO_ASM:-0}" = 1 ]; then asm_flag=no-asm asm_tag=noasm; else asm_flag="" asm_tag=asm; fi
+ossl_prefix="$cache/openssl-$openssl-$asm_tag-install"
 if [ ! -f "$ossl_prefix/lib/libssl.a" ]; then
     echo "== openssl $openssl"
     mkdir -p "$cache"
@@ -85,7 +90,7 @@ if [ ! -f "$ossl_prefix/lib/libssl.a" ]; then
     case "$arch" in arm64) ossl_target=darwin64-arm64-cc;; x86_64) ossl_target=darwin64-x86_64-cc;; esac
     ( cd "$cache/openssl-$openssl" &&
       CC="$clang --target=$triple -isysroot $sdk" AR="$tc/bin/llvm-ar" RANLIB="$tc/bin/llvm-ranlib" \
-      ./Configure "$ossl_target" no-shared no-tests no-docs no-apps no-dso no-engine no-module no-asm \
+      ./Configure "$ossl_target" no-shared no-tests no-docs no-apps no-dso no-engine no-module $asm_flag \
           --prefix="$ossl_prefix" --openssldir=/etc/ssl > "$cache/configure.log" &&
       make -j "$jobs" build_libs > "$cache/build.log" && make install_dev > "$cache/install.log" ) \
         || { tail -30 "$cache/configure.log" "$cache/build.log" 2>/dev/null; exit 1; }
@@ -102,7 +107,8 @@ sources=$(cd "$here" && ls src/util/stb_ds_impl.c src/util/arena.c src/util/strb
     src/runtime/iron_panic.c src/runtime/iron_leakcheck.c src/runtime/iron_arena_rt.c \
     src/runtime/iron_os.c \
     src/stdlib/iron_math.c src/stdlib/iron_io.c src/stdlib/iron_time.c src/stdlib/iron_log.c \
-    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_websocket.c)
+    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_websocket.c \
+    src/stdlib/iron_encoding.c src/stdlib/iron_json.c)
 cflags=(--target="$triple" -isysroot "$sdk" -std=gnu17 -fwrapv -fno-strict-aliasing -O2
         -I "$here/src" -I "$here/src/stdlib" -I "$here/src/vendor")
 for s in $sources; do
@@ -113,11 +119,14 @@ rm -f "$dest/lib/libiron_rt.a"
 "$tc/bin/llvm-ar" rcs "$dest/lib/libiron_rt.a" "$work"/objs/*.o
 cp "$builtins_src" "$dest/lib/libclang_rt.builtins.a"
 mkdir -p "$work/tls"
-"$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_tls.c" -o "$work/tls/iron_tls_none.o"
-"$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
-    -c "$here/src/stdlib/iron_tls.c" -o "$work/tls/iron_tls.o"
-"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls_none.a" "$work/tls/iron_tls_none.o"
-"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/tls/iron_tls.o"
+# The crypto module rides with TLS: it needs the same libcrypto.
+for m in tls crypto; do
+    "$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_$m.c" -o "$work/tls/iron_${m}_none.o"
+    "$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
+        -c "$here/src/stdlib/iron_$m.c" -o "$work/tls/iron_$m.o"
+done
+"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls_none.a" "$work/tls/iron_tls_none.o" "$work/tls/iron_crypto_none.o"
+"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/tls/iron_tls.o" "$work/tls/iron_crypto.o"
 cp "$ossl_prefix/lib/libssl.a" "$ossl_prefix/lib/libcrypto.a" "$dest/lib/"
 
 # raylib: each source is its own translation unit, as build.c compiles
@@ -194,7 +203,7 @@ commit $commit
 target $target
 triple $triple
 libc libSystem
-tls openssl $openssl
+tls openssl $openssl $asm_tag
 llvm $llvm
 MANIFEST
 

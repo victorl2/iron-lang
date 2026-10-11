@@ -1,0 +1,25 @@
+ok true kind object len 7
+42 Ann é😀 false 9.75
+42 null true true false
+9223372036854775807 true -0.0
+"a" "c" true true
+Ann é😀 -1 42
+pointer "b" 1 path 42 missing true
+user,tags,nothing,big,huge,neg,a/b | 3 | name="Ann é😀"
+[a][b][c]
+{"n":true,"list":["first",1,2,2.5]} len 2
+{"n":true,"list":["first",1,2,2.5]} vs {"n":true,"list":[],"extra":null}
+removed true false "first" -> {"list":[1,2,2.5]}
+{"list":[["x","y"],2,2.5]}
+equals true false
+dup 2 1 2
+{
+  "id": 42,
+  "name": "Ann é😀",
+  "admin": false,
+  "score": 9.75
+}
+{"a":[],"b":1,"c":{}}
+[100.0,0.1,100,1.5e+300,-2.5e-8,3.0]
+"tab\there \"q\" \\ /"
+"ctl \u0001\u001f done"

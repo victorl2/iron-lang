@@ -1,0 +1,107 @@
+-- Error results (never panics) for bad keys, nonces, lengths and forged
+-- messages; randomness; constant-time comparison and xor.
+import crypto
+import encoding
+
+func flip_byte(s: String, i: Int) -> String {
+    val b = s.byte_at(i)
+    var x = b + 1
+    if x > 255 {
+        x = 0
+    }
+    return s.byte_slice(0, i) + String.from_byte(x) + s.byte_slice(i + 1, s.byte_len())
+}
+
+func aead_errors(alg: AeadAlgorithm, name: String) {
+    val key = Crypto.random_bytes(32)
+    val nonce = Crypto.random_bytes(12)
+    val sealed = Crypto.seal(alg, key, nonce, "attack at dawn", "v1")
+    println("{name} sealed: {sealed.error} {sealed.data.byte_len()}")
+    val opened = Crypto.open(alg, key, nonce, sealed.data, "v1")
+    println("{name} opened: {opened.error} {opened.data}")
+
+    -- Every single-byte change to the message is caught.
+    var caught = 0
+    for i in range(sealed.data.byte_len()) {
+        val forged = Crypto.open(alg, key, nonce, flip_byte(sealed.data, i), "v1")
+        if forged.error == 9004 and forged.data.byte_len() == 0 {
+            caught += 1
+        }
+    }
+    println("{name} forged bytes caught: {caught}/{sealed.data.byte_len()}")
+    println("{name} wrong aad: {Crypto.open(alg, key, nonce, sealed.data, "v2").error}")
+    println("{name} wrong nonce: {Crypto.open(alg, key, Crypto.random_bytes(12), sealed.data, "v1").error}")
+    println("{name} wrong key: {Crypto.open(alg, Crypto.random_bytes(32), nonce, sealed.data, "v1").error}")
+    println("{name} truncated: {Crypto.open(alg, key, nonce, sealed.data.byte_slice(0, 15), "v1").error} {Crypto.open(alg, key, nonce, "", "v1").error}")
+    val short_key = Crypto.seal(alg, key.byte_slice(0, 16), nonce, "x", "")
+    println("{name} short key: {short_key.error} {short_key.error_message}")
+    val long_nonce = Crypto.seal(alg, key, Crypto.random_bytes(16), "x", "")
+    println("{name} long nonce: {long_nonce.error} {long_nonce.error_message}")
+    println("{name} open short key: {Crypto.open(alg, "k", nonce, sealed.data, "v1").error}")
+
+    -- encrypt picks a fresh nonce each time and puts it in front.
+    val m1 = Crypto.encrypt(alg, key, "same plaintext", "")
+    val m2 = Crypto.encrypt(alg, key, "same plaintext", "")
+    println("{name} encrypt: {m1.error} {m1.data.byte_len()} differ={m1.data != m2.data}")
+    val back = Crypto.decrypt(alg, key, m1.data, "")
+    println("{name} decrypt: {back.error} {back.data}")
+    val by_hand = Crypto.open(alg, key, m1.data.byte_slice(0, 12), m1.data.byte_slice(12, m1.data.byte_len()), "")
+    println("{name} nonce prefix: {by_hand.data}")
+    println("{name} decrypt forged: {Crypto.decrypt(alg, key, flip_byte(m1.data, 3), "").error} short={Crypto.decrypt(alg, key, m1.data.byte_slice(0, 27), "").error}")
+    val empty = Crypto.encrypt(alg, key, "", "only aad")
+    println("{name} empty plaintext: {empty.data.byte_len()} {Crypto.decrypt(alg, key, empty.data, "only aad").error}")
+
+    -- A binary payload with every byte value survives the round trip.
+    var all = ""
+    for i in range(256) {
+        all = all + String.from_byte(i)
+    }
+    val bin = Crypto.decrypt(alg, key, Crypto.encrypt(alg, key, all.repeat(300), all).data, all)
+    println("{name} binary: {bin.error} {bin.data == all.repeat(300)}")
+}
+
+func main() {
+    aead_errors(AeadAlgorithm.Aes256Gcm, "AES-256-GCM")
+    aead_errors(AeadAlgorithm.ChaCha20Poly1305, "ChaCha20-Poly1305")
+    println("sizes: {Crypto.aead_key_size(AeadAlgorithm.Aes256Gcm)} {Crypto.aead_nonce_size(AeadAlgorithm.ChaCha20Poly1305)} {Crypto.aead_tag_size(AeadAlgorithm.Aes256Gcm)}")
+
+    -- KDF argument errors.
+    println("hkdf length: {Crypto.hkdf(HashAlgorithm.Sha256, "ikm", "", "", 0).error} {Crypto.hkdf(HashAlgorithm.Sha256, "ikm", "", "", 8161).error} {Crypto.hkdf(HashAlgorithm.Sha256, "ikm", "", "", 8160).data.byte_len()}")
+    println("hkdf empty ikm: {Crypto.hkdf(HashAlgorithm.Sha256, "", "salt", "", 32).error}")
+    println("pbkdf2: {Crypto.pbkdf2(HashAlgorithm.Sha256, "pw", "salt", 0, 32).error} {Crypto.pbkdf2(HashAlgorithm.Sha256, "pw", "salt", 1, 0).error} {Crypto.pbkdf2(HashAlgorithm.Sha256, "", "", 1, 32).data.byte_len()}")
+    println("scrypt: {Crypto.scrypt("pw", "salt", 0, 8, 1, 32).error} {Crypto.scrypt("pw", "salt", 14, 0, 1, 32).error} {Crypto.scrypt("pw", "salt", 14, 8, 0, 32).error} {Crypto.scrypt("pw", "salt", 21, 8, 1, 32).error} {Crypto.scrypt("pw", "salt", 10, 8, 1, 0).error}")
+    val e = Crypto.scrypt("pw", "salt", 0, 8, 1, 32)
+    println("scrypt message: {e.error_message}")
+
+    -- Randomness.
+    val a = Crypto.random_bytes(32)
+    val b = Crypto.random_bytes(32)
+    println("random bytes: {a.byte_len()} {b.byte_len()} {a != b} {Crypto.random_bytes(0).byte_len()} {Crypto.random_bytes(100000).byte_len()}")
+    var in_range = true
+    var seen_low = false
+    var seen_high = false
+    for i in range(2000) {
+        val r = Crypto.random_int(-3, 4)
+        if r < -3 or r >= 4 {
+            in_range = false
+        }
+        if r == -3 {
+            seen_low = true
+        }
+        if r == 3 {
+            seen_high = true
+        }
+    }
+    println("random_int: {in_range} {seen_low} {seen_high} {Crypto.random_int(7, 8)}")
+    val wide = Crypto.random_int(-9223372036854775807 - 1, 9223372036854775807)
+    println("random_int full range: {wide < 9223372036854775807}")
+    val t = Crypto.random_token(32)
+    val decoded = Base64.url_decode(t)
+    println("token: {t.byte_len()} {decoded.error} {decoded.data.byte_len()} {t != Crypto.random_token(32)} [{Crypto.random_token(0)}]")
+
+    -- Constant-time equality and xor.
+    println("equal: {Crypto.constant_time_equal("abc", "abc")} {Crypto.constant_time_equal("abc", "abd")} {Crypto.constant_time_equal("abc", "ab")} {Crypto.constant_time_equal("", "")}")
+    println("xor: {Hex.encode(Crypto.xor(Hex.decode("00ff0f").data, Hex.decode("ff").data))} {Hex.encode(Crypto.xor(Hex.decode("01020304").data, Hex.decode("0101").data))} {Crypto.xor("same", "")}")
+    val pad = Crypto.random_bytes(13)
+    println("xor twice: {Crypto.xor(Crypto.xor("round trip text", pad), pad)}")
+}

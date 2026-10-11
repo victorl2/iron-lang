@@ -1,0 +1,328 @@
+-- crypto.iron -- hashing, HMAC, key derivation, password hashing, secure
+-- random numbers, authenticated encryption and RSA-OAEP, backed by
+-- OpenSSL 3 libcrypto (src/stdlib/iron_crypto.c). No algorithm is
+-- implemented in Iron or in the runtime: every primitive is libcrypto's.
+--
+-- Binary data is a String. Iron strings hold arbitrary bytes, including
+-- zero, so digests, keys, nonces and ciphertexts are Strings, exactly like
+-- IO.read_bytes and TcpSocket.read payloads. Measure and slice them with
+-- byte_len() and byte_slice(); len() and substring() count UTF-8
+-- characters. Hex and Base64 (import encoding) turn bytes into text.
+--
+-- Errors: calls that can fail on their input return a CryptoResult whose
+-- error is 0 on success, or one of
+--   9001 invalid argument          9005 invalid output length
+--   9002 invalid key               9006 invalid cost parameters
+--   9003 invalid nonce             9007 not a password hash string
+--   9004 authentication failed     9008 libcrypto failure
+--   9000 crypto unavailable (built without OpenSSL 3)
+-- with a readable error_message. A forged or corrupted ciphertext is an
+-- ordinary 9004 result, never a panic. Calls that cannot fail on valid
+-- input (hashing, HMAC, random bytes) return their value directly.
+
+enum HashAlgorithm {
+    Sha1,
+    Sha224,
+    Sha256,
+    Sha384,
+    Sha512,
+    Sha3_256,
+    Sha3_512,
+    -- MD5 and SHA-1 are broken for collision resistance. Use them only to
+    -- interoperate with existing protocols (MySQL native auth, checksums).
+    Md5,
+}
+
+-- Authenticated encryption with associated data. Both take a 32-byte key
+-- and a 12-byte nonce and add a 16-byte tag. A nonce must never repeat
+-- under the same key: use Crypto.encrypt, which picks a random one, unless
+-- the protocol dictates the nonce.
+enum AeadAlgorithm {
+    Aes256Gcm,
+    ChaCha20Poly1305,
+}
+
+object CryptoResult {
+    val data: String
+    val error: Int
+    val error_message: String
+}
+
+-- Kept for symmetry with the other result types: strings are freed with
+-- the value that holds them, so this does nothing.
+func CryptoResult.release(result: CryptoResult) {}
+
+object Crypto {}
+
+-- ── Native entry points (algorithms cross as small integers) ──────────
+func Crypto._digest(alg: Int, data: String) -> String {}
+func Crypto._hmac(alg: Int, key: String, data: String) -> String {}
+func Crypto._hasher_new(alg: Int) -> Int {}
+func Crypto._hmac_new(alg: Int, key: String) -> Int {}
+func Crypto._hasher_update(handle: Int, data: String) {}
+func Crypto._hasher_finish(handle: Int) -> String {}
+func Crypto._hasher_free(handle: Int) {}
+func Crypto._hkdf(alg: Int, ikm: String, salt: String, info: String, length: Int) -> CryptoResult {}
+func Crypto._pbkdf2(alg: Int, password: String, salt: String, iterations: Int, length: Int) -> CryptoResult {}
+func Crypto._hash_password_scrypt(password: String, log_n: Int, r: Int, p: Int) -> CryptoResult {}
+func Crypto._hash_password_pbkdf2(password: String, alg: Int, iterations: Int) -> CryptoResult {}
+func Crypto._random_bytes(count: Int) -> String {}
+func Crypto._random_int(low: Int, high: Int) -> Int {}
+func Crypto._random_token(count: Int) -> String {}
+func Crypto._seal(alg: Int, key: String, nonce: String, plaintext: String, aad: String) -> CryptoResult {}
+func Crypto._open(alg: Int, key: String, nonce: String, sealed: String, aad: String) -> CryptoResult {}
+func Crypto._encrypt(alg: Int, key: String, plaintext: String, aad: String) -> CryptoResult {}
+func Crypto._decrypt(alg: Int, key: String, message: String, aad: String) -> CryptoResult {}
+func Crypto._rsa_encrypt_oaep(public_key_pem: String, alg: Int, plaintext: String) -> CryptoResult {}
+func Crypto._rsa_decrypt_oaep(private_key_pem: String, alg: Int, ciphertext: String) -> CryptoResult {}
+
+func Crypto._hash_id(algorithm: HashAlgorithm) -> Int {
+    match algorithm {
+        HashAlgorithm.Sha1 -> return 1
+        HashAlgorithm.Sha224 -> return 2
+        HashAlgorithm.Sha256 -> return 3
+        HashAlgorithm.Sha384 -> return 4
+        HashAlgorithm.Sha512 -> return 5
+        HashAlgorithm.Sha3_256 -> return 6
+        HashAlgorithm.Sha3_512 -> return 7
+        HashAlgorithm.Md5 -> return 8
+    }
+    return 0
+}
+
+func Crypto._aead_id(algorithm: AeadAlgorithm) -> Int {
+    match algorithm {
+        AeadAlgorithm.Aes256Gcm -> return 1
+        AeadAlgorithm.ChaCha20Poly1305 -> return 2
+    }
+    return 0
+}
+
+-- ── Hashing ───────────────────────────────────────────────────────────
+
+-- The raw digest of `data` (32 bytes for SHA-256). Hex.encode it for text.
+func Crypto.hash(algorithm: HashAlgorithm, data: String) -> String {
+    return Crypto._digest(Crypto._hash_id(algorithm), data)
+}
+
+-- Digest size in bytes: 16 (MD5), 20 (SHA-1), 28, 32, 48 or 64.
+func Crypto.hash_size(algorithm: HashAlgorithm) -> Int {
+    match algorithm {
+        HashAlgorithm.Sha1 -> return 20
+        HashAlgorithm.Sha224 -> return 28
+        HashAlgorithm.Sha256 -> return 32
+        HashAlgorithm.Sha384 -> return 48
+        HashAlgorithm.Sha512 -> return 64
+        HashAlgorithm.Sha3_256 -> return 32
+        HashAlgorithm.Sha3_512 -> return 64
+        HashAlgorithm.Md5 -> return 16
+    }
+    return 0
+}
+
+func Crypto.sha1(data: String) -> String {
+    return Crypto._digest(1, data)
+}
+
+func Crypto.sha224(data: String) -> String {
+    return Crypto._digest(2, data)
+}
+
+func Crypto.sha256(data: String) -> String {
+    return Crypto._digest(3, data)
+}
+
+func Crypto.sha384(data: String) -> String {
+    return Crypto._digest(4, data)
+}
+
+func Crypto.sha512(data: String) -> String {
+    return Crypto._digest(5, data)
+}
+
+func Crypto.sha3_256(data: String) -> String {
+    return Crypto._digest(6, data)
+}
+
+func Crypto.sha3_512(data: String) -> String {
+    return Crypto._digest(7, data)
+}
+
+-- Legacy: not collision resistant.
+func Crypto.md5(data: String) -> String {
+    return Crypto._digest(8, data)
+}
+
+-- HMAC (RFC 2104) of `data` under `key`, as raw bytes.
+func Crypto.hmac(algorithm: HashAlgorithm, key: String, data: String) -> String {
+    return Crypto._hmac(Crypto._hash_id(algorithm), key, data)
+}
+
+-- Incremental hashing for data that arrives in pieces: create a Hasher,
+-- update it with each piece, then finish. finish returns the digest and
+-- starts the hasher over (an HMAC hasher keeps its key), so one hasher
+-- can digest several messages. The native state is released when the
+-- hasher goes out of scope. Methods that change it need a `var` binding.
+nocopy object Hasher {
+    val handle: Int
+
+    drop {
+        Crypto._hasher_free(self.handle)
+    }
+
+    func update(data: String) {
+        Crypto._hasher_update(self.handle, data)
+    }
+
+    func finish() -> String {
+        return Crypto._hasher_finish(self.handle)
+    }
+}
+
+-- A plain digest: Hasher.new(HashAlgorithm.Sha256).
+func Hasher.new(algorithm: HashAlgorithm) -> Hasher {
+    return Hasher(Crypto._hasher_new(Crypto._hash_id(algorithm)))
+}
+
+-- An HMAC under `key`: Hasher.hmac(HashAlgorithm.Sha256, key).
+func Hasher.hmac(algorithm: HashAlgorithm, key: String) -> Hasher {
+    return Hasher(Crypto._hmac_new(Crypto._hash_id(algorithm), key))
+}
+
+-- ── Key derivation ────────────────────────────────────────────────────
+
+-- HKDF (RFC 5869): `length` bytes (1 to 255 * hash size) from input key
+-- material, an optional salt ("" for none) and context info.
+func Crypto.hkdf(algorithm: HashAlgorithm, ikm: String, salt: String, info: String, length: Int) -> CryptoResult {
+    return Crypto._hkdf(Crypto._hash_id(algorithm), ikm, salt, info, length)
+}
+
+-- PBKDF2-HMAC (RFC 8018): `length` bytes from a password and salt.
+func Crypto.pbkdf2(algorithm: HashAlgorithm, password: String, salt: String, iterations: Int, length: Int) -> CryptoResult {
+    return Crypto._pbkdf2(Crypto._hash_id(algorithm), password, salt, iterations, length)
+}
+
+-- scrypt (RFC 7914) with N = 2^log_n. Working memory is 128 * r * N bytes
+-- and may not exceed 1 GiB.
+func Crypto.scrypt(password: String, salt: String, log_n: Int, r: Int, p: Int, length: Int) -> CryptoResult {}
+
+-- ── Password hashing ──────────────────────────────────────────────────
+
+-- A self-describing hash for storing a password, in PHC string format:
+--   $scrypt$ln=15,r=8,p=3$<salt>$<hash>
+-- scrypt with N = 2^15, r = 8, p = 3 (32 MiB, one of OWASP's recommended
+-- settings), a random 16-byte salt and a 32-byte hash, both in unpadded
+-- base64. Check it with verify_password.
+func Crypto.hash_password(password: String) -> String {
+    val result = Crypto._hash_password_scrypt(password, 15, 8, 3)
+    assert(result.error == 0, "Crypto.hash_password: {result.error_message}")
+    return result.data
+}
+
+-- scrypt with explicit costs, for tuning to the hardware.
+func Crypto.hash_password_scrypt(password: String, log_n: Int, r: Int, p: Int) -> CryptoResult {
+    return Crypto._hash_password_scrypt(password, log_n, r, p)
+}
+
+-- PBKDF2 for deployments that require it (FIPS):
+--   $pbkdf2-sha256$i=600000$<salt>$<hash>
+-- with SHA-1, SHA-224, SHA-256, SHA-384 or SHA-512. OWASP suggests 600000
+-- iterations for SHA-256 and 210000 for SHA-512.
+func Crypto.hash_password_pbkdf2(password: String, algorithm: HashAlgorithm, iterations: Int) -> CryptoResult {
+    return Crypto._hash_password_pbkdf2(password, Crypto._hash_id(algorithm), iterations)
+}
+
+-- Whether `password` matches a hash from hash_password,
+-- hash_password_scrypt or hash_password_pbkdf2. The comparison is constant
+-- time; a malformed hash string never matches.
+func Crypto.verify_password(password: String, encoded: String) -> Bool {}
+
+-- True when `encoded` was made with other settings than hash_password's
+-- current defaults, so it should be replaced after the next successful
+-- verify_password.
+func Crypto.password_needs_rehash(encoded: String) -> Bool {
+    return not encoded.starts_with("$scrypt$ln=15,r=8,p=3$")
+}
+
+-- ── Comparison and bytes ──────────────────────────────────────────────
+
+-- Byte equality in time independent of where the inputs differ (only the
+-- lengths may leak). Use it for MACs, tokens and other secrets.
+func Crypto.constant_time_equal(a: String, b: String) -> Bool {}
+
+-- `data` XOR `key`, the key repeating as needed (an empty key leaves the
+-- data unchanged). The result has data's length.
+func Crypto.xor(data: String, key: String) -> String {}
+
+-- ── Randomness (OpenSSL's CSPRNG, seeded by the operating system) ─────
+
+-- `count` random bytes.
+func Crypto.random_bytes(count: Int) -> String {
+    assert(count >= 0, "Crypto.random_bytes: count must not be negative")
+    return Crypto._random_bytes(count)
+}
+
+-- A uniformly distributed Int in [low, high), like range().
+func Crypto.random_int(low: Int, high: Int) -> Int {
+    assert(low < high, "Crypto.random_int: low must be less than high")
+    return Crypto._random_int(low, high)
+}
+
+-- A URL-safe text token carrying `count` random bytes (unpadded base64url,
+-- about 4/3 * count characters). 32 bytes suits session ids and API keys.
+func Crypto.random_token(count: Int) -> String {
+    assert(count >= 0 and count <= 1048576, "Crypto.random_token: count must be 0 to 1048576")
+    return Crypto._random_token(count)
+}
+
+-- ── Authenticated encryption ──────────────────────────────────────────
+
+-- Key, nonce and tag sizes for both algorithms.
+func Crypto.aead_key_size(algorithm: AeadAlgorithm) -> Int {
+    return 32
+}
+
+func Crypto.aead_nonce_size(algorithm: AeadAlgorithm) -> Int {
+    return 12
+}
+
+func Crypto.aead_tag_size(algorithm: AeadAlgorithm) -> Int {
+    return 16
+}
+
+-- Encrypts and authenticates `plaintext`, and authenticates `aad` (data
+-- sent in the clear, "" for none). data is ciphertext || 16-byte tag.
+func Crypto.seal(algorithm: AeadAlgorithm, key: String, nonce: String, plaintext: String, aad: String) -> CryptoResult {
+    return Crypto._seal(Crypto._aead_id(algorithm), key, nonce, plaintext, aad)
+}
+
+-- Verifies and decrypts a sealed message. A wrong key, nonce or aad, or
+-- any change to the message, gives error 9004 and no plaintext.
+func Crypto.open(algorithm: AeadAlgorithm, key: String, nonce: String, sealed: String, aad: String) -> CryptoResult {
+    return Crypto._open(Crypto._aead_id(algorithm), key, nonce, sealed, aad)
+}
+
+-- seal with a fresh random nonce, returned in front of the message:
+-- data is nonce (12 bytes) || ciphertext || tag (16 bytes).
+func Crypto.encrypt(algorithm: AeadAlgorithm, key: String, plaintext: String, aad: String) -> CryptoResult {
+    return Crypto._encrypt(Crypto._aead_id(algorithm), key, plaintext, aad)
+}
+
+-- open a message made by encrypt.
+func Crypto.decrypt(algorithm: AeadAlgorithm, key: String, message: String, aad: String) -> CryptoResult {
+    return Crypto._decrypt(Crypto._aead_id(algorithm), key, message, aad)
+}
+
+-- ── RSA-OAEP ──────────────────────────────────────────────────────────
+
+-- Encrypts a short message to an RSA public key in PEM form ("BEGIN PUBLIC
+-- KEY" or "BEGIN RSA PUBLIC KEY") with OAEP padding, MGF1 using the same
+-- hash. MySQL's caching_sha2_password and sha256_password use SHA-1.
+func Crypto.rsa_encrypt_oaep(public_key_pem: String, algorithm: HashAlgorithm, plaintext: String) -> CryptoResult {
+    return Crypto._rsa_encrypt_oaep(public_key_pem, Crypto._hash_id(algorithm), plaintext)
+}
+
+-- Decrypts with an unencrypted PEM private key (PKCS#8 or PKCS#1).
+func Crypto.rsa_decrypt_oaep(private_key_pem: String, algorithm: HashAlgorithm, ciphertext: String) -> CryptoResult {
+    return Crypto._rsa_decrypt_oaep(private_key_pem, Crypto._hash_id(algorithm), ciphertext)
+}

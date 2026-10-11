@@ -65,6 +65,15 @@ static bool is_user_decl(Iron_Node *d) {
         Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
         if (od->name && strcmp(od->name, "__RcList") == 0) return true;
     }
+    /* A generic free function the stdlib writes in Iron (json.iron's
+     * json_encode_list) is instantiated like a user one; only the runtime
+     * stubs (empty bodies) are by-name builtins. */
+    if (d->kind == IRON_NODE_FUNC_DECL) {
+        Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+        if (fd->body && fd->body->kind == IRON_NODE_BLOCK &&
+            ((Iron_Block *)fd->body)->stmt_count > 0)
+            return true;
+    }
     return d->span.filename &&
            iron_stdlib_origin_classify(d->span.filename) != 1;
 }

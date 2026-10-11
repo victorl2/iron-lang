@@ -1,0 +1,1388 @@
+-- json.iron -- JSON values, a strict RFC 8259 parser, a serializer and a
+-- streaming writer.
+--
+-- A `Json` is a small value (a tag plus a scalar or a handle). Scalars and
+-- strings are stored inline; arrays and objects live behind `rc`, so copying
+-- a Json is cheap and every copy refers to the same container: changing an
+-- array through one copy is visible through all of them (as in most JSON
+-- libraries). `clone()` makes an independent deep copy.
+--
+-- The text is scanned and validated in C (iron_json.c), which hands back a
+-- flat tape that `Json.parse` turns into the tree below. `JsonWriter`
+-- appends encoded JSON straight into a native buffer.
+--
+-- Error codes (src/runtime/iron_errors.h, 4000..4099):
+--   4000 IRON_ERR_JSON_SYNTAX      malformed JSON text
+--   4001 IRON_ERR_JSON_DEPTH       nesting deeper than the limit
+--   4002 IRON_ERR_JSON_TOO_LARGE   input larger than the limit
+--   4003 IRON_ERR_JSON_BAD_UTF8    invalid UTF-8
+--   4004 IRON_ERR_JSON_BAD_STRING  bad escape, control character, lone surrogate
+--   4005 IRON_ERR_JSON_BAD_NUMBER  malformed or out-of-range number
+--   4006 IRON_ERR_JSON_TYPE        a value has another type than asked for
+--   4007 IRON_ERR_JSON_MISSING     a key or index is not present
+
+-- ── Types ──────────────────────────────────────────────────────────────────
+
+/// The members of a JSON object in insertion order. Parsed objects keep
+/// duplicate keys as written; lookups return the last one.
+object JsonObject {
+    var keys: [String]
+    var values: [Json]
+    init() {
+        self.keys = []
+        self.values = []
+    }
+}
+
+/// What a Json holds. Match on `value.node` to take a value apart:
+/// `match v.node { JsonNode.Str(s) -> ..., JsonNode.Arr(items) -> ... }`.
+/// Integers that fit in 64 bits are `Int`; numbers with a fraction or an
+/// exponent, and integers too large for an Int, are `Float`.
+enum JsonNode {
+    Null,
+    Bool(Bool),
+    Int(Int),
+    Float(Float),
+    Str(String),
+    Arr(rc [Json]),
+    Obj(rc JsonObject),
+}
+
+/// The type of a Json value, for comparisons and messages.
+enum JsonKind {
+    Null,
+    Bool,
+    Int,
+    Float,
+    String,
+    Array,
+    Object,
+}
+
+/// A JSON value. See the module comment for the sharing rules.
+object Json {
+    val node: JsonNode
+}
+
+/// Limits applied while parsing untrusted input.
+object JsonLimits {
+    /// Maximum nesting of arrays and objects (default 512).
+    val max_depth: Int
+    /// Maximum input size in bytes (default 64 MiB; -1 for no limit).
+    val max_bytes: Int
+}
+
+/// The result of `Json.parse`. `error` is 0 on success; otherwise
+/// `error_message` says what is wrong and where ("... at line 3, column
+/// 14"), `line` and `column` are 1-based (the column counts characters) and
+/// `offset` is the 0-based byte offset.
+object JsonResult {
+    val value: Json
+    val error: Int
+    val error_message: String
+    val line: Int
+    val column: Int
+    val offset: Int
+}
+
+/// The scanner's output (filled in by iron_json.c; the layout must match
+/// Iron_JsonTape in iron_json.h).
+object JsonTape {
+    val ops: [Int]
+    val floats: [Float]
+    val strs: [String]
+    val error: Int
+    val error_message: String
+    val line: Int
+    val column: Int
+    val offset: Int
+}
+
+/// Owns a native output buffer; freed with the last JsonWriter copy.
+object JsonBuffer {
+    val handle: Int
+    drop {
+        JsonNative.w_free(self.handle)
+    }
+}
+
+/// A streaming JSON encoder. Values are appended directly to a native
+/// buffer, with commas, escaping and (for `JsonWriter.pretty`) indentation
+/// inserted automatically; `finish()` returns the text and clears the
+/// writer for reuse. Copies of a writer share its buffer. Misuse (a value
+/// in an object without a key, an unbalanced end, a second top-level value)
+/// is a programming error and panics.
+object JsonWriter {
+    val buf: rc JsonBuffer
+}
+
+-- Native entry points (iron_json.c). Not part of the public API.
+object JsonNative {}
+
+func JsonNative.scan(text: String, max_depth: Int, max_bytes: Int) -> JsonTape {}
+func JsonNative.error_text(code: Int) -> String {}
+func JsonNative.quote(s: String) -> String {}
+func JsonNative.format_float(f: Float) -> String {}
+func JsonNative.w_new(indent: Int) -> Int {}
+func JsonNative.w_free(h: Int) {}
+func JsonNative.w_begin_object(h: Int) {}
+func JsonNative.w_end_object(h: Int) {}
+func JsonNative.w_begin_array(h: Int) {}
+func JsonNative.w_end_array(h: Int) {}
+func JsonNative.w_key(h: Int, key: String) {}
+func JsonNative.w_string(h: Int, s: String) {}
+func JsonNative.w_int(h: Int, v: Int) {}
+func JsonNative.w_float(h: Int, v: Float) {}
+func JsonNative.w_bool(h: Int, v: Bool) {}
+func JsonNative.w_null(h: Int) {}
+func JsonNative.w_raw(h: Int, json: String) {}
+func JsonNative.w_field_string(h: Int, key: String, s: String) {}
+func JsonNative.w_field_int(h: Int, key: String, v: Int) {}
+func JsonNative.w_field_float(h: Int, key: String, v: Float) {}
+func JsonNative.w_field_bool(h: Int, key: String, v: Bool) {}
+func JsonNative.w_field_null(h: Int, key: String) {}
+func JsonNative.w_len(h: Int) -> Int {}
+func JsonNative.w_depth(h: Int) -> Int {}
+func JsonNative.w_finish(h: Int) -> String {}
+func JsonNative.w_reset(h: Int) {}
+
+-- ── Construction ───────────────────────────────────────────────────────────
+
+func Json.null() -> Json {
+    return Json(JsonNode.Null)
+}
+
+func Json.bool(b: Bool) -> Json {
+    return Json(JsonNode.Bool(b))
+}
+
+func Json.int(i: Int) -> Json {
+    return Json(JsonNode.Int(i))
+}
+
+func Json.float(f: Float) -> Json {
+    return Json(JsonNode.Float(f))
+}
+
+func Json.str(s: String) -> Json {
+    return Json(JsonNode.Str(s))
+}
+
+/// A new, empty array.
+func Json.array() -> Json {
+    val items: rc [Json] = rc []
+    return Json(JsonNode.Arr(items))
+}
+
+/// A new, empty object.
+func Json.obj() -> Json {
+    return Json(JsonNode.Obj(rc JsonObject()))
+}
+
+/// A new array holding copies of `items`.
+func Json.array_of(items: [Json]) -> Json {
+    val out: rc [Json] = rc []
+    for x in items {
+        out.push(x)
+    }
+    return Json(JsonNode.Arr(out))
+}
+
+/// A new array of strings.
+func Json.strings(items: [String]) -> Json {
+    val out: rc [Json] = rc []
+    for x in items {
+        out.push(Json.str(x))
+    }
+    return Json(JsonNode.Arr(out))
+}
+
+/// A new array of integers.
+func Json.ints(items: [Int]) -> Json {
+    val out: rc [Json] = rc []
+    for x in items {
+        out.push(Json.int(x))
+    }
+    return Json(JsonNode.Arr(out))
+}
+
+-- ── Parsing ────────────────────────────────────────────────────────────────
+
+/// The default limits: depth 512, 64 MiB.
+func Json.default_limits() -> JsonLimits {
+    return JsonLimits(512, 67108864)
+}
+
+/// Parse strict RFC 8259 JSON with the default limits.
+func Json.parse(text: String) -> JsonResult {
+    return Json.parse_with(text, Json.default_limits())
+}
+
+/// Parse strict RFC 8259 JSON: no comments, trailing commas, leading
+/// zeros, single quotes, NaN/Infinity or invalid escapes; the input must be
+/// well-formed UTF-8 and \u escapes must pair surrogates.
+func Json.parse_with(text: String, limits: JsonLimits) -> JsonResult {
+    val tape = JsonNative.scan(text, limits.max_depth, limits.max_bytes)
+    if tape.error != 0 {
+        return JsonResult(Json.null(), tape.error, tape.error_message,
+                          tape.line, tape.column, tape.offset)
+    }
+    return JsonResult(Json.from_tape(tape), 0, "", 0, 0, 0)
+}
+
+/// Builds the tree for a scanned tape (iron_json.h describes the opcodes).
+func Json.from_tape(t: JsonTape) -> Json {
+    val (v, _, _, _) = Json.build_at(t, 0, 0, 0)
+    return v
+}
+
+/// Builds the one value that starts at tape position `start` (with string
+/// and float cursors `s0` and `f0`); returns it and the three cursors just
+/// past it. Children are collected in plain lists and each container is
+/// wrapped in its rc cell once, when it closes.
+func Json.build_at(t: JsonTape, start: Int, s0: Int, f0: Int) -> (Json, Int, Int, Int) {
+    var items: [[Json]] = []
+    var keys: [[String]] = []
+    var kinds: [Int] = []
+    var root = Json.null()
+    var i = start
+    var si = s0
+    var fi = f0
+    val n = t.ops.len()
+    while i < n {
+        val op = t.ops[i]
+        i += 1
+        if op == 9 {
+            keys[keys.len() - 1].push(t.strs[si])
+            si += 1
+            continue
+        }
+        if op == 6 or op == 7 {
+            kinds.push(op)
+            items.push([])
+            keys.push([])
+            continue
+        }
+        var v = Json.null()
+        if op == 3 {
+            v = Json(JsonNode.Int(t.ops[i]))
+            i += 1
+        } elif op == 5 {
+            v = Json(JsonNode.Str(t.strs[si]))
+            si += 1
+        } elif op == 4 {
+            v = Json(JsonNode.Float(t.floats[fi]))
+            fi += 1
+        } elif op == 2 {
+            v = Json(JsonNode.Bool(true))
+        } elif op == 1 {
+            v = Json(JsonNode.Bool(false))
+        } elif op == 8 {
+            val kind = kinds.pop()
+            var xs = items.pop()
+            var ks = keys.pop()
+            if kind == 6 {
+                v = Json(JsonNode.Arr(rc xs.take()))
+            } else {
+                val obj = rc JsonObject()
+                obj.keys = ks.take()
+                obj.values = xs.take()
+                v = Json(JsonNode.Obj(obj))
+            }
+        }
+        val depth = items.len()
+        if depth == 0 {
+            root = v
+            return (root, i, si, fi)
+        }
+        items[depth - 1].push(v)
+    }
+    return (root, i, si, fi)
+}
+
+/// `s` as a quoted JSON string literal.
+func Json.quote(s: String) -> String {
+    return JsonNative.quote(s)
+}
+
+-- ── Writer construction ────────────────────────────────────────────────────
+
+/// A writer that produces compact JSON.
+func JsonWriter.compact() -> JsonWriter {
+    return JsonWriter(rc JsonBuffer(JsonNative.w_new(0)))
+}
+
+/// A writer that indents nested values by `indent` spaces (at most 16).
+func JsonWriter.pretty(indent: Int) -> JsonWriter {
+    return JsonWriter(rc JsonBuffer(JsonNative.w_new(indent)))
+}
+
+-- ── Json methods ───────────────────────────────────────────────────────────
+
+patch object Json {
+    readonly func kind() -> JsonKind {
+        match self.node {
+            JsonNode.Null -> return JsonKind.Null
+            JsonNode.Bool(_) -> return JsonKind.Bool
+            JsonNode.Int(_) -> return JsonKind.Int
+            JsonNode.Float(_) -> return JsonKind.Float
+            JsonNode.Str(_) -> return JsonKind.String
+            JsonNode.Arr(_) -> return JsonKind.Array
+            JsonNode.Obj(_) -> return JsonKind.Object
+        }
+        return JsonKind.Null
+    }
+
+    /// "null", "bool", "int", "float", "string", "array" or "object".
+    readonly func type_name() -> String {
+        match self.node {
+            JsonNode.Null -> return "null"
+            JsonNode.Bool(_) -> return "bool"
+            JsonNode.Int(_) -> return "int"
+            JsonNode.Float(_) -> return "float"
+            JsonNode.Str(_) -> return "string"
+            JsonNode.Arr(_) -> return "array"
+            JsonNode.Obj(_) -> return "object"
+        }
+        return "null"
+    }
+
+    readonly func is_null() -> Bool {
+        return self.kind() == JsonKind.Null
+    }
+
+    readonly func is_bool() -> Bool {
+        return self.kind() == JsonKind.Bool
+    }
+
+    readonly func is_int() -> Bool {
+        return self.kind() == JsonKind.Int
+    }
+
+    readonly func is_float() -> Bool {
+        return self.kind() == JsonKind.Float
+    }
+
+    /// An Int or a Float.
+    readonly func is_number() -> Bool {
+        val k = self.kind()
+        return k == JsonKind.Int or k == JsonKind.Float
+    }
+
+    readonly func is_string() -> Bool {
+        return self.kind() == JsonKind.String
+    }
+
+    readonly func is_array() -> Bool {
+        return self.kind() == JsonKind.Array
+    }
+
+    readonly func is_object() -> Bool {
+        return self.kind() == JsonKind.Object
+    }
+
+    -- ── Typed access ───────────────────────────────────────────────────────
+
+    /// The boolean, or null when the value is not a bool.
+    readonly func as_bool() -> Bool? {
+        match self.node {
+            JsonNode.Bool(b) -> return b
+            else -> return null
+        }
+        return null
+    }
+
+    /// The integer, or null when the value is not an Int. A Float is not
+    /// converted (use `as_float`).
+    readonly func as_int() -> Int? {
+        match self.node {
+            JsonNode.Int(i) -> return i
+            else -> return null
+        }
+        return null
+    }
+
+    /// The number as a Float (an Int is converted), or null.
+    readonly func as_float() -> Float? {
+        match self.node {
+            JsonNode.Float(f) -> return f
+            JsonNode.Int(i) -> return Float(i)
+            else -> return null
+        }
+        return null
+    }
+
+    /// The string, or null when the value is not a string.
+    readonly func as_string() -> String? {
+        match self.node {
+            JsonNode.Str(s) -> return s
+            else -> return null
+        }
+        return null
+    }
+
+    readonly func bool_or(fallback: Bool) -> Bool {
+        match self.node {
+            JsonNode.Bool(b) -> return b
+            else -> return fallback
+        }
+        return fallback
+    }
+
+    readonly func int_or(fallback: Int) -> Int {
+        match self.node {
+            JsonNode.Int(i) -> return i
+            else -> return fallback
+        }
+        return fallback
+    }
+
+    readonly func float_or(fallback: Float) -> Float {
+        match self.node {
+            JsonNode.Float(f) -> return f
+            JsonNode.Int(i) -> return Float(i)
+            else -> return fallback
+        }
+        return fallback
+    }
+
+    readonly func string_or(fallback: String) -> String {
+        match self.node {
+            JsonNode.Str(s) -> return s
+            else -> return fallback
+        }
+        return fallback
+    }
+
+    -- ── Containers ─────────────────────────────────────────────────────────
+
+    /// The number of elements of an array or members of an object; 0 for
+    /// any other value.
+    readonly func len() -> Int {
+        match self.node {
+            JsonNode.Arr(xs) -> return xs.len()
+            JsonNode.Obj(o) -> return o.keys.len()
+            else -> return 0
+        }
+        return 0
+    }
+
+    /// Whether this is an object with the member `key`.
+    readonly func has(key: String) -> Bool {
+        match self.node {
+            JsonNode.Obj(o) -> return Json.index_of_key(o.keys, key) >= 0
+            else -> return false
+        }
+        return false
+    }
+
+    /// The member `key` of an object, or null when this is not an object
+    /// or has no such member.
+    readonly func find(key: String) -> Json? {
+        match self.node {
+            JsonNode.Obj(o) -> {
+                val i = Json.index_of_key(o.keys, key)
+                if i >= 0 {
+                    return o.values[i]
+                }
+            }
+            else -> return null
+        }
+        return null
+    }
+
+    /// The member `key`, or a JSON null when it is absent (so lookups
+    /// chain: `doc.get("user").get("name").as_string()`).
+    readonly func get(key: String) -> Json {
+        match self.node {
+            JsonNode.Obj(o) -> {
+                val i = Json.index_of_key(o.keys, key)
+                if i >= 0 {
+                    return o.values[i]
+                }
+            }
+            else -> return Json.null()
+        }
+        return Json.null()
+    }
+
+    /// Element `index` of an array (negative counts from the end), or a
+    /// JSON null when out of range or not an array.
+    readonly func at(index: Int) -> Json {
+        match self.node {
+            JsonNode.Arr(xs) -> {
+                var i = index
+                if i < 0 {
+                    i = i + xs.len()
+                }
+                if i >= 0 and i < xs.len() {
+                    return xs[i]
+                }
+            }
+            else -> return Json.null()
+        }
+        return Json.null()
+    }
+
+    readonly func get_string(key: String) -> String? {
+        return self.get(key).as_string()
+    }
+
+    readonly func get_int(key: String) -> Int? {
+        return self.get(key).as_int()
+    }
+
+    readonly func get_float(key: String) -> Float? {
+        return self.get(key).as_float()
+    }
+
+    readonly func get_bool(key: String) -> Bool? {
+        return self.get(key).as_bool()
+    }
+
+    /// The keys of an object in order (empty for other values).
+    readonly func keys() -> [String] {
+        match self.node {
+            JsonNode.Obj(o) -> return o.keys.copy()
+            else -> {
+                val none: [String] = []
+                return none
+            }
+        }
+        val empty: [String] = []
+        return empty
+    }
+
+    /// The elements of an array, or the values of an object, in order.
+    /// The list holds copies (cheap: containers are shared).
+    readonly func items() -> [Json] {
+        match self.node {
+            JsonNode.Arr(xs) -> {
+                var out: [Json] = []
+                for x in xs {
+                    out.push(x)
+                }
+                return out
+            }
+            JsonNode.Obj(o) -> return o.values.copy()
+            else -> {
+                val none: [Json] = []
+                return none
+            }
+        }
+        val empty: [Json] = []
+        return empty
+    }
+
+    /// Key `index` of an object ("" when out of range).
+    readonly func key_at(index: Int) -> String {
+        match self.node {
+            JsonNode.Obj(o) -> {
+                if index >= 0 and index < o.keys.len() {
+                    return o.keys[index]
+                }
+            }
+            else -> return ""
+        }
+        return ""
+    }
+
+    /// Value `index` of an object, element `index` of an array, or null.
+    readonly func value_at(index: Int) -> Json {
+        match self.node {
+            JsonNode.Obj(o) -> {
+                if index >= 0 and index < o.values.len() {
+                    return o.values[index]
+                }
+            }
+            JsonNode.Arr(xs) -> {
+                if index >= 0 and index < xs.len() {
+                    return xs[index]
+                }
+            }
+            else -> return Json.null()
+        }
+        return Json.null()
+    }
+
+    /// RFC 6901 JSON Pointer lookup: "" is the value itself, "/a/0/b"
+    /// walks member a, element 0, member b ("~1" is "/" and "~0" is "~"
+    /// inside a token). Null when any step is missing.
+    readonly func pointer(p: String) -> Json? {
+        if p == "" {
+            return self
+        }
+        if p.byte_at(0) != 47 {
+            return null
+        }
+        val parts = p.substring(1, p.len()).split("/")
+        var cur = self
+        for raw in parts {
+            val tok = raw.replace("~1", "/").replace("~0", "~")
+            val next = cur.step(tok)
+            if next == null {
+                return null
+            }
+            cur = next
+        }
+        return cur
+    }
+
+    /// Dotted path lookup: "users.0.name" walks member users, element 0,
+    /// member name. Use `pointer` for keys that contain a dot.
+    readonly func path(p: String) -> Json? {
+        if p == "" {
+            return self
+        }
+        val parts = p.split(".")
+        var cur = self
+        for tok in parts {
+            val next = cur.step(tok)
+            if next == null {
+                return null
+            }
+            cur = next
+        }
+        return cur
+    }
+
+    /// One path step: a member of an object or a decimal index of an array.
+    readonly func step(tok: String) -> Json? {
+        match self.node {
+            JsonNode.Obj(o) -> {
+                val i = Json.index_of_key(o.keys, tok)
+                if i >= 0 {
+                    return o.values[i]
+                }
+                return null
+            }
+            JsonNode.Arr(xs) -> {
+                val i = Json.parse_index(tok)
+                if i >= 0 and i < xs.len() {
+                    return xs[i]
+                }
+                return null
+            }
+            else -> return null
+        }
+        return null
+    }
+
+    -- ── Mutation (visible through every copy that shares the container) ──
+
+    /// Set member `key` of an object, replacing an existing member in
+    /// place or appending a new one. Panics when this is not an object.
+    readonly func set(key: String, value: Json) {
+        match self.node {
+            JsonNode.Obj(o) -> {
+                val i = Json.index_of_key(o.keys, key)
+                if i >= 0 {
+                    o.values[i] = value
+                } else {
+                    o.keys.push(key)
+                    o.values.push(value)
+                }
+            }
+            else -> Json.misuse("set", self.type_name())
+        }
+    }
+
+    /// Append to an array. Panics when this is not an array.
+    readonly func push(value: Json) {
+        match self.node {
+            JsonNode.Arr(xs) -> xs.push(value)
+            else -> Json.misuse("push", self.type_name())
+        }
+    }
+
+    /// Insert before element `index` of an array (0..len). Panics when this
+    /// is not an array or the index is out of range.
+    readonly func insert(index: Int, value: Json) {
+        match self.node {
+            JsonNode.Arr(xs) -> xs.insert(index, value)
+            else -> Json.misuse("insert", self.type_name())
+        }
+    }
+
+    /// Replace element `index` of an array. Panics when out of range.
+    readonly func set_at(index: Int, value: Json) {
+        match self.node {
+            JsonNode.Arr(xs) -> xs[index] = value
+            else -> Json.misuse("set_at", self.type_name())
+        }
+    }
+
+    /// Remove every member `key` of an object; whether one was present.
+    readonly func remove(key: String) -> Bool {
+        var found = false
+        match self.node {
+            JsonNode.Obj(o) -> {
+                var i = Json.index_of_key(o.keys, key)
+                while i >= 0 {
+                    o.keys.remove(i)
+                    o.values.remove(i)
+                    found = true
+                    i = Json.index_of_key(o.keys, key)
+                }
+            }
+            else -> {}
+        }
+        return found
+    }
+
+    /// Remove and return element `index` of an array, or null when out of
+    /// range or not an array.
+    readonly func remove_at(index: Int) -> Json? {
+        match self.node {
+            JsonNode.Arr(xs) -> {
+                if index >= 0 and index < xs.len() {
+                    return xs.remove(index)
+                }
+            }
+            else -> return null
+        }
+        return null
+    }
+
+    /// Remove every element or member.
+    readonly func clear() {
+        match self.node {
+            JsonNode.Arr(xs) -> xs.clear()
+            JsonNode.Obj(o) -> {
+                o.keys.clear()
+                o.values.clear()
+            }
+            else -> {}
+        }
+    }
+
+    /// Add a member to an object without looking for an existing one (the
+    /// parser's path; `set` is the general form).
+    readonly func attach(key: String, value: Json) {
+        match self.node {
+            JsonNode.Arr(xs) -> xs.push(value)
+            JsonNode.Obj(o) -> {
+                o.keys.push(key)
+                o.values.push(value)
+            }
+            else -> {}
+        }
+    }
+
+    -- ── Copying and comparison ─────────────────────────────────────────────
+
+    /// An independent deep copy: no container is shared with this value.
+    readonly func clone() -> Json {
+        match self.node {
+            JsonNode.Arr(xs) -> {
+                val out = Json.array()
+                for x in xs {
+                    out.push(x.clone())
+                }
+                return out
+            }
+            JsonNode.Obj(o) -> {
+                val out = Json.obj()
+                for i in range(o.keys.len()) {
+                    out.attach(o.keys[i], o.values[i].clone())
+                }
+                return out
+            }
+            else -> return self
+        }
+        return self
+    }
+
+    /// Deep equality. Objects are equal when they have the same members
+    /// regardless of order; an Int and a Float are equal when they have the
+    /// same numeric value.
+    readonly func equals(other: Json) -> Bool {
+        match self.node {
+            JsonNode.Null -> return other.is_null()
+            JsonNode.Bool(b) -> {
+                val ob = other.as_bool()
+                return ob != null and ob == b
+            }
+            JsonNode.Int(i) -> {
+                val oi = other.as_int()
+                if oi != null {
+                    return oi == i
+                }
+                val of = other.as_float()
+                return of != null and of == Float(i)
+            }
+            JsonNode.Float(f) -> {
+                val of = other.as_float()
+                return of != null and of == f
+            }
+            JsonNode.Str(s) -> {
+                val os = other.as_string()
+                return os != null and os == s
+            }
+            JsonNode.Arr(xs) -> {
+                if not other.is_array() or other.len() != xs.len() {
+                    return false
+                }
+                for i in range(xs.len()) {
+                    if not xs[i].equals(other.at(i)) {
+                        return false
+                    }
+                }
+                return true
+            }
+            JsonNode.Obj(o) -> {
+                if not other.is_object() or other.distinct_keys() != self.distinct_keys() {
+                    return false
+                }
+                for i in range(o.keys.len()) {
+                    if Json.index_of_key(o.keys, o.keys[i]) != i {
+                        continue
+                    }
+                    val ov = other.find(o.keys[i])
+                    if ov == null {
+                        return false
+                    }
+                    if not o.values[i].equals(ov) {
+                        return false
+                    }
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The number of distinct keys of an object (duplicates count once).
+    readonly func distinct_keys() -> Int {
+        match self.node {
+            JsonNode.Obj(o) -> {
+                var n = 0
+                for i in range(o.keys.len()) {
+                    if Json.index_of_key(o.keys, o.keys[i]) == i {
+                        n += 1
+                    }
+                }
+                return n
+            }
+            else -> return 0
+        }
+        return 0
+    }
+
+    -- ── Serialization ──────────────────────────────────────────────────────
+
+    /// Compact JSON text (also what `"{value}"` interpolates).
+    readonly func to_string() -> String {
+        val w = JsonWriter.compact()
+        w.value(self)
+        return w.finish()
+    }
+
+    /// JSON text indented by two spaces.
+    readonly func pretty() -> String {
+        val w = JsonWriter.pretty(2)
+        w.value(self)
+        return w.finish()
+    }
+
+    /// JSON text with `indent` spaces per level (0: compact), with object
+    /// keys sorted when `sort_keys` is true (insertion order otherwise).
+    readonly func format(indent: Int, sort_keys: Bool) -> String {
+        val w = JsonWriter.pretty(indent)
+        Json.write_value(w.buf.handle, self, sort_keys)
+        return w.finish()
+    }
+}
+
+-- ── Helpers ────────────────────────────────────────────────────────────────
+
+/// Index of the last `key` in `keys`, or -1 (the last one wins for
+/// duplicate keys, as in JSON.parse and Python's json).
+func Json.index_of_key(keys: [String], key: String) -> Int {
+    var i = keys.len() - 1
+    while i >= 0 {
+        if keys[i] == key {
+            return i
+        }
+        i -= 1
+    }
+    return -1
+}
+
+/// A non-negative decimal array index without sign or leading zeros, or -1.
+func Json.parse_index(tok: String) -> Int {
+    val n = tok.byte_len()
+    if n == 0 or n > 18 {
+        return -1
+    }
+    if n > 1 and tok.byte_at(0) == 48 {
+        return -1
+    }
+    var v = 0
+    for i in range(n) {
+        val b = tok.byte_at(i)
+        if b < 48 or b > 57 {
+            return -1
+        }
+        v = v * 10 + (b - 48)
+    }
+    return v
+}
+
+func Json.misuse(method: String, type_name: String) {
+    assert(false, "Json.{method}() on a JSON {type_name}")
+}
+
+/// Encode `v` into writer handle `h`.
+func Json.write_value(h: Int, v: Json, sort_keys: Bool) {
+    match v.node {
+        JsonNode.Null -> JsonNative.w_null(h)
+        JsonNode.Bool(b) -> JsonNative.w_bool(h, b)
+        JsonNode.Int(i) -> JsonNative.w_int(h, i)
+        JsonNode.Float(f) -> JsonNative.w_float(h, f)
+        JsonNode.Str(s) -> JsonNative.w_string(h, s)
+        JsonNode.Arr(xs) -> {
+            JsonNative.w_begin_array(h)
+            for x in xs {
+                Json.write_value(h, x, sort_keys)
+            }
+            JsonNative.w_end_array(h)
+        }
+        JsonNode.Obj(o) -> {
+            JsonNative.w_begin_object(h)
+            if sort_keys {
+                var order = o.keys.copy()
+                order.sort()
+                var last = ""
+                for i in range(order.len()) {
+                    val k = order[i]
+                    if i == 0 or k != last {
+                        JsonNative.w_key(h, k)
+                        Json.write_value(h, o.values[Json.index_of_key(o.keys, k)], sort_keys)
+                    }
+                    last = k
+                }
+            } else {
+                for i in range(o.keys.len()) {
+                    JsonNative.w_key(h, o.keys[i])
+                    Json.write_value(h, o.values[i], sort_keys)
+                }
+            }
+            JsonNative.w_end_object(h)
+        }
+    }
+}
+
+-- ── JsonWriter methods ─────────────────────────────────────────────────────
+
+patch object JsonWriter {
+    readonly func begin_object() {
+        JsonNative.w_begin_object(self.buf.handle)
+    }
+
+    readonly func end_object() {
+        JsonNative.w_end_object(self.buf.handle)
+    }
+
+    readonly func begin_array() {
+        JsonNative.w_begin_array(self.buf.handle)
+    }
+
+    readonly func end_array() {
+        JsonNative.w_end_array(self.buf.handle)
+    }
+
+    /// The key of the next member of the current object.
+    readonly func key(k: String) {
+        JsonNative.w_key(self.buf.handle, k)
+    }
+
+    readonly func string(s: String) {
+        JsonNative.w_string(self.buf.handle, s)
+    }
+
+    readonly func int(v: Int) {
+        JsonNative.w_int(self.buf.handle, v)
+    }
+
+    /// A float in its shortest round-trip form; NaN and infinities, which
+    /// JSON cannot represent, are written as null.
+    readonly func float(v: Float) {
+        JsonNative.w_float(self.buf.handle, v)
+    }
+
+    readonly func bool(v: Bool) {
+        JsonNative.w_bool(self.buf.handle, v)
+    }
+
+    readonly func null() {
+        JsonNative.w_null(self.buf.handle)
+    }
+
+    /// Already-encoded JSON text, inserted as one value without checking.
+    readonly func raw(json: String) {
+        JsonNative.w_raw(self.buf.handle, json)
+    }
+
+    /// A whole Json tree.
+    readonly func value(v: Json) {
+        Json.write_value(self.buf.handle, v, false)
+    }
+
+    readonly func field_string(k: String, s: String) {
+        JsonNative.w_field_string(self.buf.handle, k, s)
+    }
+
+    readonly func field_int(k: String, v: Int) {
+        JsonNative.w_field_int(self.buf.handle, k, v)
+    }
+
+    readonly func field_float(k: String, v: Float) {
+        JsonNative.w_field_float(self.buf.handle, k, v)
+    }
+
+    readonly func field_bool(k: String, v: Bool) {
+        JsonNative.w_field_bool(self.buf.handle, k, v)
+    }
+
+    readonly func field_null(k: String) {
+        JsonNative.w_field_null(self.buf.handle, k)
+    }
+
+    readonly func field_value(k: String, v: Json) {
+        JsonNative.w_key(self.buf.handle, k)
+        Json.write_value(self.buf.handle, v, false)
+    }
+
+    /// Bytes written so far.
+    readonly func len() -> Int {
+        return JsonNative.w_len(self.buf.handle)
+    }
+
+    /// The finished text; the writer is empty afterwards and can be reused.
+    /// Panics when an object or array is still open.
+    readonly func finish() -> String {
+        return JsonNative.w_finish(self.buf.handle)
+    }
+
+    /// Discard everything written so far.
+    readonly func reset() {
+        JsonNative.w_reset(self.buf.handle)
+    }
+}
+
+patch object JsonResult {
+    readonly func ok() -> Bool {
+        return self.error == 0
+    }
+}
+
+-- ── JsonReader: decoding without a tree ───────────────────────────────────
+
+/// A pull reader over a parsed document: walk it value by value and copy
+/// what you need into your own objects, without building a Json tree.
+/// Typed reads consume the next value; when it has another type they skip
+/// it and return null, so a decoder can ignore what it does not expect.
+///
+///     var r = JsonReader.from(text)
+///     if r.error != 0 { ... r.error_message ... }
+///     if r.begin_object() {
+///         var key = r.next_key()
+///         while key != null {
+///             if key == "id" { id = r.int_or(0) } else { r.skip() }
+///             key = r.next_key()
+///         }
+///     }
+object JsonReader {
+    var tape: JsonTape
+    var pos: Int
+    var si: Int
+    var fi: Int
+    val error: Int
+    val error_message: String
+    val line: Int
+    val column: Int
+
+    init(text: String) {
+        val limits = Json.default_limits()
+        self.tape = JsonNative.scan(text, limits.max_depth, limits.max_bytes)
+        self.pos = 0
+        self.si = 0
+        self.fi = 0
+        self.error = self.tape.error
+        self.error_message = self.tape.error_message
+        self.line = self.tape.line
+        self.column = self.tape.column
+    }
+
+    init with_limits(text: String, limits: JsonLimits) {
+        self.tape = JsonNative.scan(text, limits.max_depth, limits.max_bytes)
+        self.pos = 0
+        self.si = 0
+        self.fi = 0
+        self.error = self.tape.error
+        self.error_message = self.tape.error_message
+        self.line = self.tape.line
+        self.column = self.tape.column
+    }
+
+    readonly func op() -> Int {
+        if self.pos < self.tape.ops.len() {
+            return self.tape.ops[self.pos]
+        }
+        return 8
+    }
+
+    /// The type of the next value; Null also at the end of an array or
+    /// object (see `next_item` / `next_key`).
+    readonly func peek() -> JsonKind {
+        val op = self.op()
+        if op == 1 or op == 2 {
+            return JsonKind.Bool
+        }
+        if op == 3 {
+            return JsonKind.Int
+        }
+        if op == 4 {
+            return JsonKind.Float
+        }
+        if op == 5 {
+            return JsonKind.String
+        }
+        if op == 6 {
+            return JsonKind.Array
+        }
+        if op == 7 {
+            return JsonKind.Object
+        }
+        return JsonKind.Null
+    }
+
+    /// Enter an object; false (and the value is skipped) when the next
+    /// value is not an object.
+    func begin_object() -> Bool {
+        if self.op() == 7 {
+            self.pos += 1
+            return true
+        }
+        self.skip()
+        return false
+    }
+
+    /// The next key of the current object, or null at its end (which
+    /// leaves the object).
+    func next_key() -> String? {
+        val op = self.op()
+        if op == 9 {
+            val k = self.tape.strs[self.si]
+            self.si += 1
+            self.pos += 1
+            return k
+        }
+        if op == 8 {
+            self.pos += 1
+        }
+        return null
+    }
+
+    /// Enter an array; false (and the value is skipped) when the next
+    /// value is not an array.
+    func begin_array() -> Bool {
+        if self.op() == 6 {
+            self.pos += 1
+            return true
+        }
+        self.skip()
+        return false
+    }
+
+    /// Whether the current array has another element; false at its end
+    /// (which leaves the array).
+    func next_item() -> Bool {
+        val op = self.op()
+        if op == 8 {
+            self.pos += 1
+            return false
+        }
+        return self.pos < self.tape.ops.len()
+    }
+
+    func int() -> Int? {
+        if self.op() == 3 {
+            val v = self.tape.ops[self.pos + 1]
+            self.pos += 2
+            return v
+        }
+        self.skip()
+        return null
+    }
+
+    /// A Float, or an Int converted to Float.
+    func float() -> Float? {
+        val op = self.op()
+        if op == 4 {
+            val v = self.tape.floats[self.fi]
+            self.fi += 1
+            self.pos += 1
+            return v
+        }
+        if op == 3 {
+            val v = self.tape.ops[self.pos + 1]
+            self.pos += 2
+            return Float(v)
+        }
+        self.skip()
+        return null
+    }
+
+    func string() -> String? {
+        if self.op() == 5 {
+            val v = self.tape.strs[self.si]
+            self.si += 1
+            self.pos += 1
+            return v
+        }
+        self.skip()
+        return null
+    }
+
+    func bool() -> Bool? {
+        val op = self.op()
+        if op == 1 or op == 2 {
+            self.pos += 1
+            return op == 2
+        }
+        self.skip()
+        return null
+    }
+
+    func int_or(fallback: Int) -> Int {
+        val v = self.int()
+        if v != null {
+            return v
+        }
+        return fallback
+    }
+
+    func float_or(fallback: Float) -> Float {
+        val v = self.float()
+        if v != null {
+            return v
+        }
+        return fallback
+    }
+
+    func string_or(fallback: String) -> String {
+        val v = self.string()
+        if v != null {
+            return v
+        }
+        return fallback
+    }
+
+    func bool_or(fallback: Bool) -> Bool {
+        val v = self.bool()
+        if v != null {
+            return v
+        }
+        return fallback
+    }
+
+    /// The next value as a Json tree.
+    func value() -> Json {
+        if self.op() == 8 or self.pos >= self.tape.ops.len() {
+            return Json.null()
+        }
+        val (v, p, s, f) = Json.build_at(self.tape, self.pos, self.si, self.fi)
+        self.pos = p
+        self.si = s
+        self.fi = f
+        return v
+    }
+
+    /// Skip the next value, with everything nested in it. Does nothing at
+    /// the end of an array or object.
+    func skip() {
+        var depth = 0
+        while self.pos < self.tape.ops.len() {
+            val op = self.tape.ops[self.pos]
+            if op == 8 {
+                if depth == 0 {
+                    return
+                }
+                depth -= 1
+                self.pos += 1
+            } elif op == 6 or op == 7 {
+                depth += 1
+                self.pos += 1
+            } elif op == 3 {
+                self.pos += 2
+            } elif op == 4 {
+                self.fi += 1
+                self.pos += 1
+            } elif op == 5 or op == 9 {
+                self.si += 1
+                self.pos += 1
+            } else {
+                self.pos += 1
+            }
+            if depth == 0 and op != 9 {
+                return
+            }
+        }
+    }
+}
+
+patch object JsonReader {
+    /// Consume a null; false (consuming nothing) when the next value is
+    /// not null.
+    func null() -> Bool {
+        if self.op() == 0 {
+            self.pos += 1
+            return true
+        }
+        return false
+    }
+}
+
+-- ── Encoding and decoding user types ──────────────────────────────────────
+
+/// A type that writes itself as JSON. Implement it once and use
+/// `Json.encode` / `Json.encode_list`, or call `v.write_json(w)` from
+/// another type's `write_json`.
+interface JsonEncodable {
+    readonly func write_json(w: JsonWriter)
+}
+
+/// `v` as compact JSON text.
+func Json.encode(v: JsonEncodable) -> String {
+    val w = JsonWriter.compact()
+    v.write_json(w)
+    return w.finish()
+}
+
+-- Generic helpers are top-level functions: a module object's functions
+-- cannot take type parameters yet.
+
+/// A JSON array of every element of `xs`, as compact text.
+func json_encode_list[T: JsonEncodable](xs: [T]) -> String {
+    val w = JsonWriter.compact()
+    w.begin_array()
+    for x in xs {
+        x.write_json(w)
+    }
+    w.end_array()
+    return w.finish()
+}
+
+/// Decode every element of the array `v` with `f`, appending to `out`;
+/// false (appending nothing) when `v` is not an array.
+func json_decode_list[T](v: Json, f: func(Json) -> T, var out: [T]) -> Bool {
+    if not v.is_array() {
+        return false
+    }
+    for i in range(v.len()) {
+        out.push(f(v.at(i)))
+    }
+    return true
+}

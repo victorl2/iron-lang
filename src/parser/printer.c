@@ -183,8 +183,8 @@ static void print_node(PrintCtx *ctx, Iron_Node *node);
 
 /* The parser stores string literals with their escapes decoded: write the
  * text back so it lexes to the same value. Braces are escaped too, since an
- * unescaped `{` would start an interpolation; the lexer's escaped-brace
- * marker bytes count as braces. */
+ * unescaped `{` would start an interpolation. (The lexer's escaped-brace
+ * markers never reach the AST: both decoders turn them into braces.) */
 static void print_string_text(PrintCtx *ctx, const char *s) {
     for (const unsigned char *c = (const unsigned char *)s; c && *c; c++) {
         switch (*c) {
@@ -192,9 +192,9 @@ static void print_string_text(PrintCtx *ctx, const char *s) {
             case '"':  iron_strbuf_appendf(ctx->sb, "\\\""); break;
             case '\n': iron_strbuf_appendf(ctx->sb, "\\n"); break;
             case '\t': iron_strbuf_appendf(ctx->sb, "\\t"); break;
-            case '{':  case IRON_LEX_LITERAL_LBRACE:
+            case '{':
                 iron_strbuf_appendf(ctx->sb, "\\{"); break;
-            case '}':  case IRON_LEX_LITERAL_RBRACE:
+            case '}':
                 iron_strbuf_appendf(ctx->sb, "\\}"); break;
             default:
                 if (*c < 0x20 || *c == 0x7f)
