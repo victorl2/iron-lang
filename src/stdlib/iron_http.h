@@ -175,5 +175,6 @@ void Iron_httppollernative_close(int64_t h);
 void Iron_httppollernative_free(int64_t h);
 int64_t Iron_httppollernative_count(int64_t h, int64_t what);
 Iron_String Iron_httppollernative_error_message(int64_t code);
+bool Iron_httppollernative_closed(int64_t h);
 
 #endif

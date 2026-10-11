@@ -2620,34 +2620,75 @@ static int decode_time(const Cell *c, DT *d) {
     return parse_time_text(c->p, c->len, d) ? 0 : IRON_ERR_MYSQL_CONVERSION;
 }
 
-static size_t fmt_fraction(char *out, size_t cap, int64_t micro, int digits) {
-    if (digits <= 0) return 0;
+/* Date and time text without snprintf: these run for every DATETIME a
+ * result is read as text, and printf's machinery dominated that path. */
+static char *put_num(char *p, int64_t v, int width) {
+    char tmp[24];
+    int n = 0;
+    uint64_t u = v < 0 ? (uint64_t)0 - (uint64_t)v : (uint64_t)v;
+    do { tmp[n++] = (char)('0' + u % 10); u /= 10; } while (u && n < 20);
+    if (v < 0) *p++ = '-';
+    for (int i = n; i < width; i++) *p++ = '0';
+    while (n) *p++ = tmp[--n];
+    return p;
+}
+
+static size_t put_out(char *out, size_t cap, const char *buf, size_t n) {
+    if (cap == 0) return 0;
+    if (n >= cap) n = cap - 1;
+    memcpy(out, buf, n);
+    out[n] = 0;
+    return n;
+}
+
+static char *put_fraction(char *p, int64_t micro, int digits) {
+    if (digits <= 0) return p;
     if (digits > 6) digits = 6;
     char tmp[8];
-    snprintf(tmp, sizeof(tmp), "%06lld", (long long)micro);
-    int n = snprintf(out, cap, ".%.*s", digits, tmp);
-    return n > 0 ? (size_t)n : 0;
+    put_num(tmp, micro < 0 ? 0 : micro % 1000000, 6);
+    *p++ = '.';
+    memcpy(p, tmp, (size_t)digits);
+    return p + digits;
 }
 
 static size_t fmt_date(char *out, size_t cap, const DT *d) {
-    int n = snprintf(out, cap, "%04lld-%02lld-%02lld", (long long)d->year,
-                     (long long)d->month, (long long)d->day);
-    return n > 0 ? (size_t)n : 0;
+    char buf[48];
+    char *p = put_num(buf, d->year, 4);
+    *p++ = '-';
+    p = put_num(p, d->month, 2);
+    *p++ = '-';
+    p = put_num(p, d->day, 2);
+    return put_out(out, cap, buf, (size_t)(p - buf));
 }
 
 static size_t fmt_datetime(char *out, size_t cap, const DT *d, int digits) {
-    int n = snprintf(out, cap, "%04lld-%02lld-%02lld %02lld:%02lld:%02lld",
-                     (long long)d->year, (long long)d->month, (long long)d->day,
-                     (long long)d->hour, (long long)d->minute, (long long)d->second);
-    if (n <= 0) return 0;
-    return (size_t)n + fmt_fraction(out + n, cap - (size_t)n, d->micro, digits);
+    char buf[96];
+    char *p = put_num(buf, d->year, 4);
+    *p++ = '-';
+    p = put_num(p, d->month, 2);
+    *p++ = '-';
+    p = put_num(p, d->day, 2);
+    *p++ = ' ';
+    p = put_num(p, d->hour, 2);
+    *p++ = ':';
+    p = put_num(p, d->minute, 2);
+    *p++ = ':';
+    p = put_num(p, d->second, 2);
+    p = put_fraction(p, d->micro, digits);
+    return put_out(out, cap, buf, (size_t)(p - buf));
 }
 
 static size_t fmt_time(char *out, size_t cap, const DT *d, int digits) {
-    int n = snprintf(out, cap, "%s%02lld:%02lld:%02lld", d->neg ? "-" : "",
-                     (long long)d->hour, (long long)d->minute, (long long)d->second);
-    if (n <= 0) return 0;
-    return (size_t)n + fmt_fraction(out + n, cap - (size_t)n, d->micro, digits);
+    char buf[96];
+    char *p = buf;
+    if (d->neg) *p++ = '-';
+    p = put_num(p, d->hour, 2);
+    *p++ = ':';
+    p = put_num(p, d->minute, 2);
+    *p++ = ':';
+    p = put_num(p, d->second, 2);
+    p = put_fraction(p, d->micro, digits);
+    return put_out(out, cap, buf, (size_t)(p - buf));
 }
 
 /* MySQL writes exponents without '+' or leading zeros ("1e29", "1e-7"). */

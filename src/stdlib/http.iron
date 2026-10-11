@@ -231,6 +231,7 @@ func HttpPollerNative.close(h: Int) {}
 func HttpPollerNative.free(h: Int) {}
 func HttpPollerNative.count(h: Int, what: Int) -> Int {}
 func HttpPollerNative.error_message(code: Int) -> String {}
+func HttpPollerNative.closed(h: Int) -> Bool {}
 
 func Http.poller(server: HttpServer, idle_timeout: Int) -> HttpPoller {
     val h = HttpPollerNative.open(server.fd, idle_timeout)
@@ -269,6 +270,12 @@ patch object HttpPoller {
     -- Close every held connection and make next() return 1013.
     readonly func close() {
         HttpPollerNative.close(self.core.handle)
+    }
+
+    -- Whether close() has run (a cheap check, for example to answer with
+    -- Connection: close while a server drains).
+    readonly func closed() -> Bool {
+        return HttpPollerNative.closed(self.core.handle)
     }
 
     -- Connections parked between requests.
