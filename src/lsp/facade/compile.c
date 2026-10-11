@@ -50,11 +50,24 @@ static void enqueue_body(IronLsp_Writer *w, IronLsp_Priority prio,
 /* Keep only the diagnostics of the edited document: the stdlib prelude's
  * carry their own file names. (The analyzer orders the program's decls the
  * same way; see Iron_Program.prelude_decl_count.) */
+static bool same_diag(const Iron_Diagnostic *a, const Iron_Diagnostic *b) {
+    return a->code == b->code && a->level == b->level &&
+           a->span.line == b->span.line && a->span.col == b->span.col &&
+           a->span.end_line == b->span.end_line && a->span.end_col == b->span.end_col &&
+           strcmp(a->message ? a->message : "", b->message ? b->message : "") == 0;
+}
+
+/* Also drops exact repeats: the parser reports every recovery error in LSP
+ * mode, and a recovery path that meets the same token twice reports it
+ * twice; editors show both. */
 static void keep_document_diags(Iron_DiagList *diags, const char *doc_file) {
     int n = 0, errors = 0, warnings = 0;
     for (int i = 0; i < diags->count; i++) {
         Iron_Diagnostic *dg = &diags->items[i];
         if (dg->span.filename && strcmp(dg->span.filename, doc_file) != 0) continue;
+        bool repeat = false;
+        for (int k = n - 1; k >= 0 && !repeat; k--) repeat = same_diag(&diags->items[k], dg);
+        if (repeat) continue;
         if (dg->level == IRON_DIAG_ERROR) errors++;
         else if (dg->level == IRON_DIAG_WARNING) warnings++;
         diags->items[n++] = *dg;

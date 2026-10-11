@@ -3288,9 +3288,13 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
  * keyword is then read as the name so the declaration parses on. */
 static void iron_keyword_as_binding_name(Iron_Parser *p) {
     Iron_Token *t = iron_current(p);
-    if (t->kind == IRON_TOK_IDENTIFIER || t->kind == IRON_TOK_WILDCARD) return;
+    /* Only a keyword: anything else (the EOF token after `var`, whose
+     * spelling used to be the alphabetic "IRON_TOK_EOF") turned into an
+     * identifier lost the end of the token stream, and error recovery
+     * then walked past the end of the token array. */
+    if (!iron_token_is_keyword(t->kind)) return;
     const char *sp = iron_token_spelling(t->kind);
-    if (!sp || !(isalpha((unsigned char)sp[0]) || sp[0] == '_')) return;
+    if (!sp) return;
     char msg[160], help[160];
     snprintf(msg, sizeof(msg), "'%s' is a keyword and cannot name a binding", sp);
     snprintf(help, sizeof(help), "rename it, for example '%s_' or a more specific name", sp);

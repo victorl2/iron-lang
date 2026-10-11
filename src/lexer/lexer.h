@@ -227,6 +227,9 @@ const char *iron_token_kind_str(Iron_TokenKind kind);
 /* Source spelling of a keyword or punctuation token, for messages. */
 const char *iron_token_spelling(Iron_TokenKind kind);
 
+/* True for the reserved words (the keyword table). */
+bool iron_token_is_keyword(Iron_TokenKind kind);
+
 /* In an IRON_TOK_INTERP_STRING value, `\{` and `\}` are stored as these
  * marker bytes so they are not mistaken for interpolation delimiters. The
  * parser's interpolation splitter turns them back into braces. */
