@@ -248,7 +248,7 @@ void ilsp_handle_text_document_range_formatting(IronLsp_Server    *s,
 
     IronLsp_TextEditList result = ilsp_facade_format_range(
         d, s->workspace_index, req_range, /* opts */ NULL,
-        &work_arena, cancel);
+        &work_arena, cancel, s->position_encoding);
 
     if (cancel && atomic_load(cancel)) {
         iron_arena_free(&work_arena);

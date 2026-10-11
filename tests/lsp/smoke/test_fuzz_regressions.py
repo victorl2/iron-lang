@@ -432,3 +432,27 @@ async def test_signature_help_documentation(client, tmp_path):
     doc = res.signatures[0].documentation
     doc = getattr(doc, "value", doc)
     assert doc and "Adds two numbers." in doc, res.signatures[0]
+
+
+@pytest.mark.asyncio
+async def test_range_formatting_last_line_without_newline(lsp_binary, tmp_path):
+    # The edit replaced up to the start of the line after the last one,
+    # which does not exist when the file does not end in a newline.
+    c = await _utf16_client(lsp_binary)
+    try:
+        uri = (tmp_path / "noeol.iron").as_uri()
+        text = "func main() {\n      println(\"é\")\n   }"
+        _open(c, uri, text)
+        edits = await asyncio.wait_for(c.text_document_range_formatting_async(
+            types.DocumentRangeFormattingParams(
+                text_document=types.TextDocumentIdentifier(uri=uri),
+                range=types.Range(start=types.Position(line=0, character=0),
+                                  end=types.Position(line=2, character=4)),
+                options=types.FormattingOptions(tab_size=4, insert_spaces=True))),
+            timeout=10.0)
+        assert edits
+        for e in edits:
+            _assert_in_document(text, e.range, "utf-16")
+        assert _apply_utf16(text, edits) == "func main() {\n    println(\"é\")\n}"
+    finally:
+        await _stop(c)

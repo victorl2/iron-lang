@@ -56,7 +56,7 @@ static void test_range_covers_single_decl_returns_one_edit(void) {
     r.end.line   = 2; r.end.character   = 1;   /* mid-way of func alpha's '}' line */
 
     IronLsp_TextEditList list = ilsp_facade_format_range(
-        d, NULL, r, NULL, &arena, NULL);
+        d, NULL, r, NULL, &arena, NULL, ILSP_ENC_UTF16);
     TEST_ASSERT_EQUAL_INT(1, (int)list.count);
 
     iron_arena_free(&arena);
@@ -82,7 +82,7 @@ static void test_range_covers_two_decls_returns_two_edits_descending(void) {
     r.end.line   = 5; r.end.character   = 1;   /* through end of file */
 
     IronLsp_TextEditList list = ilsp_facade_format_range(
-        d, NULL, r, NULL, &arena, NULL);
+        d, NULL, r, NULL, &arena, NULL, ILSP_ENC_UTF16);
     TEST_ASSERT_EQUAL_INT(2, (int)list.count);
     /* D-06 descending sort: edits[0] is later than edits[1]. */
     TEST_ASSERT_TRUE_MESSAGE(
@@ -115,7 +115,7 @@ static void test_range_covers_only_blank_lines_returns_empty(void) {
     r.end.line   = 4; r.end.character   = 0;
 
     IronLsp_TextEditList list = ilsp_facade_format_range(
-        d, NULL, r, NULL, &arena, NULL);
+        d, NULL, r, NULL, &arena, NULL, ILSP_ENC_UTF16);
     TEST_ASSERT_EQUAL_INT(0, (int)list.count);
 
     iron_arena_free(&arena);
@@ -145,7 +145,7 @@ static void test_range_starts_on_decl_last_line_includes_decl(void) {
     r.end.line   = 3; r.end.character   = 1;    /* mid-way on beta's signature line */
 
     IronLsp_TextEditList list = ilsp_facade_format_range(
-        d, NULL, r, NULL, &arena, NULL);
+        d, NULL, r, NULL, &arena, NULL, ILSP_ENC_UTF16);
     TEST_ASSERT_EQUAL_INT(2, (int)list.count);
 
     iron_arena_free(&arena);
@@ -167,7 +167,7 @@ static void test_range_on_parse_error_returns_empty(void) {
     r.end.line   = 1; r.end.character   = 0;
 
     IronLsp_TextEditList list = ilsp_facade_format_range(
-        d, NULL, r, NULL, &arena, NULL);
+        d, NULL, r, NULL, &arena, NULL, ILSP_ENC_UTF16);
     TEST_ASSERT_EQUAL_INT(0, (int)list.count);
 
     iron_arena_free(&arena);
