@@ -1,0 +1,25 @@
+-- A spawn or parallel for body that reads a binding of the enclosing code
+-- and then declares its own binding of the same name: every declaration in
+-- the body was taken as local up front, so the read was not captured (C
+-- compile error: undeclared identifier). As for lambdas, a declaration is
+-- local from where it appears. (#426)
+func main() {
+    val r = 5
+    val h = spawn("a") {
+        val x = r + 1
+        val r = 10
+        return x + r
+    }
+    println("spawn {await h}")
+
+    val k = 3
+    val m = Mutex(0)
+    for i in range(4) parallel {
+        val before = k * i
+        val k = 100
+        val g = m.lock()
+        g.set(g.get() + before + k)
+    }
+    val g = m.lock()
+    println("parallel for {g.get()}")
+}

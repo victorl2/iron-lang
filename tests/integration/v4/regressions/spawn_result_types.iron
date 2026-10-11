@@ -1,0 +1,42 @@
+-- A spawn body's `return` gives the value `await` yields; it does not
+-- return from the enclosing function. Inside `func f() -> Int` a body
+-- returning a String, an object or a Bool was rejected with E0215 (checked
+-- against f's return type), a body returning only from the arms of an if
+-- was typed Int, and awaiting a handle whose name an inner block had
+-- reused took the inner spawn's type (and reported E0325). (#424)
+object P {
+    val a: Int
+    val s: String
+}
+
+func f(k: Int) -> Int {
+    val h1 = spawn("text") { return "s{k}" }
+    val h2 = spawn("object") { return P(k, "p") }
+    val h3 = spawn("flag") { return k > 2 }
+    val h4 = spawn("arms") {
+        if k > 1 {
+            return "big {k}"
+        } else {
+            return "small"
+        }
+    }
+    val s = await h1
+    val p = await h2
+    val b = await h3
+    val t = await h4
+    println("{s} {p.a} {p.s} {b} {t}")
+    return k
+}
+
+func main() {
+    println("{f(3)}")
+    println("{f(1)}")
+    val h = spawn("outer") { return 5 }
+    if true {
+        val h = spawn("inner") { return "inner" }
+        val t = await h
+        println(t)
+    }
+    val x = await h
+    println("{x + 1}")
+}

@@ -723,6 +723,7 @@ typedef struct {
     const char        *handle_name;  /* NULL if no handle */
     Iron_CaptureEntry *captures;      /* set by capture analysis; NULL before analysis */
     int                capture_count; /* 0 for non-capturing spawn blocks */
+    struct Iron_Type  *result_type;   /* set by the type checker: the body's first return value */
 } Iron_SpawnStmt;
 
 typedef struct {

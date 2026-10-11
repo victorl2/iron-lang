@@ -1097,6 +1097,14 @@ Iron_Pool *Iron_pool_create(const char *name, int thread_count);
 void       Iron_pool_destroy(Iron_Pool *pool);
 void       Iron_pool_submit(Iron_Pool *pool, void (*fn)(void *), void *arg);
 void       Iron_pool_barrier(Iron_Pool *pool);
+/* The work items of one parallel for: Iron_pool_group_wait returns once
+ * every item submitted with the group has run (running queued ones on the
+ * calling thread meanwhile). Lives on the waiter's stack; guarded by the
+ * pool's lock. */
+typedef struct Iron_PoolGroup { int pending; } Iron_PoolGroup;
+void       Iron_pool_submit_group(Iron_Pool *pool, void (*fn)(void *), void *arg,
+                                  Iron_PoolGroup *group);
+void       Iron_pool_group_wait(Iron_Pool *pool, Iron_PoolGroup *group);
 int        Iron_pool_thread_count(const Iron_Pool *pool);
 
 /* ── Elastic pool (Phase 59 P01b) ─────────────────────────────────────────────

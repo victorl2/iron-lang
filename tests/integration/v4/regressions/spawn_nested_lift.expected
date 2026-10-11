@@ -1,0 +1,3 @@
+nested spawn 15
+spawn in parallel for 88
+parallel for in spawn 70

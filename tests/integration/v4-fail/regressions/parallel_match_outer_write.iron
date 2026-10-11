@@ -1,0 +1,16 @@
+-- @expected-error: E0208
+-- A parallel for inside a match arm (or an `in a { }` body) was never
+-- checked for writes to outer variables, so this race compiled. (#425)
+func main() {
+    var total = 0
+    match total {
+        0 -> {
+            for i in range(100) parallel {
+                total += i
+            }
+        }
+        else -> {
+        }
+    }
+    println("{total}")
+}

@@ -1,0 +1,18 @@
+-- A spawn used as a statement is never awaited, so nobody takes its result.
+-- The pool called the task through `void (*)(void *)` although it returns
+-- a value and takes no argument (undefined behavior, reported by UBSan),
+-- and a String or object result was never released. The task now runs
+-- through a wrapper that drops the result. (#427)
+object Note {
+    val text: String
+}
+
+func main() {
+    val k = 41
+    spawn("number") { return k + 1 }
+    spawn("text") { return "a result nobody awaits {k}" }
+    spawn("object") { return Note("note {k}") }
+    spawn("plain") { return 7 }
+    val h = spawn("awaited") { return k * 2 }
+    println("{await h}")
+}

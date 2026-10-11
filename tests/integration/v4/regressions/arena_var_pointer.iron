@@ -1,0 +1,27 @@
+-- A pointer to a `var` arena binding was checked as a heap pointer: the
+-- heap check read the arena allocation header as a heap one and failed on
+-- every dereference, valid or not (here, an object allocated before the
+-- mark is still valid after restore). Field reads through arena bindings
+-- are checked too now, and a value allocated before the mark survives. (#429)
+object Pt {
+    var x: Int
+    var y: Int
+    init(x: Int, y: Int) {
+        self.x = x
+        self.y = y
+    }
+}
+
+func main() {
+    val a = Arena(65536)
+    var p = heap(in: a) Pt(1, 2)
+    p.x = 5
+    val mark = a.save()
+    val q = heap(in: a) Pt(3, 3)
+    println("q {q.x}")
+    a.restore(mark)
+    val ptr: *Pt = &p
+    println("after restore {p.x} {ptr.x} {ptr.y}")
+    val r = heap(in: a) Pt(7, 8)
+    println("new {r.x} {p.y}")
+}

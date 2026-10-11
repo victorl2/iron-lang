@@ -71,6 +71,7 @@ typedef struct {
     void          (*fn)(void *arg);
     void           *arg;
     Iron_PoolWait  *wait;  /* optional — Iron_pool_submit_wait binds this */
+    Iron_PoolGroup *group; /* optional — Iron_pool_submit_group binds this */
 } Iron_WorkItem;
 
 struct Iron_Pool {
@@ -169,10 +170,11 @@ static void *pool_worker(void *arg) {
             Iron_poolwait_worker_finish(item.wait, NULL, NULL);
         }
 
-        /* Decrement pending and signal barrier waiters if done */
+        /* Decrement pending and signal barrier and group waiters */
         IRON_MUTEX_LOCK(pool->lock);
         pool->pending--;
-        if (pool->pending == 0) {
+        if (item.group) item.group->pending--;
+        if (pool->pending == 0 || item.group) {
             IRON_COND_BROADCAST(pool->work_done);
         }
         IRON_MUTEX_UNLOCK(pool->lock);
@@ -255,6 +257,7 @@ void Iron_pool_submit(Iron_Pool *pool, void (*fn)(void *), void *arg) {
     pool->queue[pool->queue_tail].fn   = fn;
     pool->queue[pool->queue_tail].arg  = arg;
     pool->queue[pool->queue_tail].wait = NULL;
+    pool->queue[pool->queue_tail].group = NULL;
     pool->queue_tail  = (pool->queue_tail + 1) % pool->queue_capacity;
     pool->queue_count++;
     pool->pending++;
@@ -288,6 +291,7 @@ void Iron_pool_submit_wait(Iron_Pool *pool,
     pool->queue[pool->queue_tail].fn   = fn;
     pool->queue[pool->queue_tail].arg  = arg;
     pool->queue[pool->queue_tail].wait = wait;
+    pool->queue[pool->queue_tail].group = NULL;
     pool->queue_tail  = (pool->queue_tail + 1) % pool->queue_capacity;
     pool->queue_count++;
     pool->pending++;
@@ -300,6 +304,81 @@ void Iron_pool_submit_wait(Iron_Pool *pool,
 
     pool_start_locked(pool);
     IRON_COND_SIGNAL(pool->work_ready);
+    IRON_MUTEX_UNLOCK(pool->lock);
+}
+
+void Iron_pool_submit_group(Iron_Pool *pool, void (*fn)(void *), void *arg,
+                            Iron_PoolGroup *group) {
+    if (!pool || !fn) return;
+
+    IRON_MUTEX_LOCK(pool->lock);
+
+    if (pool->queue_count == pool->queue_capacity) {
+        pool_queue_grow(pool);
+    }
+
+    pool->queue[pool->queue_tail].fn    = fn;
+    pool->queue[pool->queue_tail].arg   = arg;
+    pool->queue[pool->queue_tail].wait  = NULL;
+    pool->queue[pool->queue_tail].group = group;
+    pool->queue_tail  = (pool->queue_tail + 1) % pool->queue_capacity;
+    pool->queue_count++;
+    pool->pending++;
+    group->pending++;
+
+    if (pool->is_elastic
+        && pool->idle_threads == 0
+        && pool->thread_count < pool->max_threads) {
+        pool_spawn_elastic_worker_locked(pool);
+    }
+
+    pool_start_locked(pool);
+    IRON_COND_SIGNAL(pool->work_ready);
+    IRON_MUTEX_UNLOCK(pool->lock);
+}
+
+/* Wait until every item submitted with `group` has run. The waiter runs
+ * the group's items still in the queue itself, so a parallel for nested in
+ * another one (every worker busy in an outer chunk, each waiting on its
+ * own inner loop) still makes progress. Only the group's own items are
+ * taken: an unrelated item (a fire-and-forget spawn) may block for as long
+ * as it likes. Pool-wide `pending` is not waited on, so a parallel for
+ * inside a chunk, a spawned thread or alongside a running spawn does not
+ * wait for work that is not its own. */
+void Iron_pool_group_wait(Iron_Pool *pool, Iron_PoolGroup *group) {
+    if (!pool || !group) return;
+    IRON_MUTEX_LOCK(pool->lock);
+    while (group->pending > 0) {
+        int k = -1;
+        for (int j = 0; j < pool->queue_count; j++) {
+            if (pool->queue[(pool->queue_head + j) % pool->queue_capacity].group == group) {
+                k = j;
+                break;
+            }
+        }
+        if (k < 0) {
+            /* every remaining item is running on a worker */
+            IRON_COND_WAIT(pool->work_done, pool->lock);
+            continue;
+        }
+        Iron_WorkItem item = pool->queue[(pool->queue_head + k) % pool->queue_capacity];
+        for (int j = k; j < pool->queue_count - 1; j++) {
+            pool->queue[(pool->queue_head + j) % pool->queue_capacity] =
+                pool->queue[(pool->queue_head + j + 1) % pool->queue_capacity];
+        }
+        pool->queue_tail = (pool->queue_tail + pool->queue_capacity - 1) % pool->queue_capacity;
+        pool->queue_count--;
+        IRON_MUTEX_UNLOCK(pool->lock);
+
+        item.fn(item.arg);
+
+        IRON_MUTEX_LOCK(pool->lock);
+        pool->pending--;
+        group->pending--;
+        if (pool->pending == 0) {
+            IRON_COND_BROADCAST(pool->work_done);
+        }
+    }
     IRON_MUTEX_UNLOCK(pool->lock);
 }
 
@@ -503,10 +582,11 @@ static void *pool_worker_elastic(void *arg) {
             Iron_poolwait_worker_finish(item.wait, NULL, NULL);
         }
 
-        /* Decrement pending and signal barrier waiters if done */
+        /* Decrement pending and signal barrier and group waiters */
         IRON_MUTEX_LOCK(pool->lock);
         pool->pending--;
-        if (pool->pending == 0) {
+        if (item.group) item.group->pending--;
+        if (pool->pending == 0 || item.group) {
             IRON_COND_BROADCAST(pool->work_done);
         }
         IRON_MUTEX_UNLOCK(pool->lock);

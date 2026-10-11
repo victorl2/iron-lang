@@ -236,6 +236,17 @@ static void local_mark_observable_allocas(struct IronVR_LocalFuncAnalysis *lf) {
                 for (int ci = 0; ci < in->make_closure.capture_count; ci++)
                     REJECT_ALLOCA(in->make_closure.captures[ci]);
                 break;
+            /* A var captured by a spawn or parallel for body is passed as
+             * `&slot` into an `int64_t *` env field: narrowed to int8_t, the
+             * C did not compile (and read through the wider pointer). */
+            case IRON_LIR_SPAWN:
+                for (int ci = 0; ci < in->spawn.capture_count; ci++)
+                    REJECT_ALLOCA(in->spawn.captures[ci]);
+                break;
+            case IRON_LIR_PARALLEL_FOR:
+                for (int ci = 0; ci < in->parallel_for.capture_count; ci++)
+                    REJECT_ALLOCA(in->parallel_for.captures[ci]);
+                break;
             case IRON_LIR_PTR_LOAD:
                 REJECT_ALLOCA(in->ptr_load.fp);
                 break;
