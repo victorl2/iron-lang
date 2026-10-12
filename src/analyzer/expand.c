@@ -654,7 +654,15 @@ static Iron_Node *expand_expr(ExpandCtx *ctx, Iron_Node *node) {
         case IRON_NODE_INDEX: {
             Iron_IndexExpr *i = (Iron_IndexExpr *)node;
             i->object = expand_expr(ctx, i->object);
-            i->index = expand_expr(ctx, i->index);
+            if (i->type_arg_count == 0 && i->index &&
+                i->index->kind == IRON_NODE_IDENT) {
+                Iron_Ident *id = (Iron_Ident *)i->index;
+                Iron_Node *bound = id->name
+                    ? binding_type(ctx, id->name) : NULL;
+                i->index = bound ? bound : expand_expr(ctx, i->index);
+            } else {
+                i->index = expand_expr(ctx, i->index);
+            }
             for (int k = 0; k < i->type_arg_count; k++)
                 i->type_args[k] = subst_type(ctx, i->type_args[k]);
             return node;
@@ -838,6 +846,13 @@ static void append_block_statements(Iron_Node ***out, Iron_Node *body) {
 
 static void expand_stmt(ExpandCtx *ctx, Iron_Node *stmt, Iron_Node ***out) {
     if (!stmt) return;
+    if (ctx->defer_unresolved &&
+        ((stmt->kind == IRON_NODE_FOR && ((Iron_ForStmt *)stmt)->is_comptime) ||
+         (stmt->kind == IRON_NODE_IF && ((Iron_IfStmt *)stmt)->is_comptime) ||
+         (stmt->kind == IRON_NODE_MATCH && ((Iron_MatchStmt *)stmt)->is_comptime))) {
+        arrput(*out, stmt);
+        return;
+    }
     if (stmt->kind == IRON_NODE_FOR && ((Iron_ForStmt *)stmt)->is_comptime) {
         Iron_ForStmt *f = (Iron_ForStmt *)stmt;
         Iron_ObjectDecl *od = fields_target(ctx, f->iterable,

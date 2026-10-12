@@ -6,3 +6,11 @@ id:false;name:false;count:false;note:true;
 5:Dee:0
 name
 true
+int
+list:other
+map:other:int
+nullable:int
+describe
+built
+
+id;pub;other;other;

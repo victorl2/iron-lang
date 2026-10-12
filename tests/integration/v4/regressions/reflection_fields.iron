@@ -1,6 +1,9 @@
 interface Describe {
     readonly func describe() -> String {
         var out = ""
+        comptime if typeinfo(Self).tag("json") == null and typeinfo(Self).doc == null {
+            out = out + ""
+        }
         comptime for f in fields(Self) {
             comptime if f.tag("json") == null and f.doc == null {
                 out = out + "{f.index}:{f.name}:{f.visibility}:"
@@ -102,6 +105,42 @@ func concrete_names() -> String {
     return out
 }
 
+func classify[T]() -> String {
+    comptime match T {
+        Int -> { return "int" }
+        [E] -> { return "list:" + classify[E]() }
+        Map[K, V] -> { return "map:" + classify[K]() + ":" + classify[V]() }
+        E? -> { return "nullable:" + classify[E]() }
+        Describe -> { return "describe" }
+        Built -> { return "built" }
+        else -> { return "other" }
+    }
+}
+
+func typed_name(value: User) -> String {
+    comptime for f in fields(User) {
+        comptime if f.name == "name" {
+            val copied: f.type = value.(f)
+            return copied
+        }
+    }
+    return ""
+}
+
+func field_categories() -> String {
+    var out = ""
+    comptime for f in fields(User) {
+        comptime if f.name == "id" {
+            out = out + "id;"
+        } elif f.is_pub {
+            out = out + "pub;"
+        } else {
+            out = out + "other;"
+        }
+    }
+    return out
+}
+
 func main() {
     var u = User(7, "Ada", 3, null)
     println(u.describe())
@@ -119,4 +158,12 @@ func main() {
     }
     val no_missing = WithDefaults.first_missing(1)
     println("{no_missing == null}")
+    println(classify[Int]())
+    println(classify[[String]]())
+    println(classify[Map[String, Int]]())
+    println(classify[Int?]())
+    println(classify[User]())
+    println(classify[Built]())
+    println(typed_name(u))
+    println(field_categories())
 }
