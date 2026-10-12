@@ -39,6 +39,13 @@ object Bag {
     }
 }
 
+object Intake {
+    var n: Int
+    init(s: Set[String]) {
+        self.n = s.len()
+    }
+}
+
 func empty[T]() -> [T] {
     return []
 }
@@ -98,11 +105,12 @@ func main() {
     val (pm, k) = pair()
     var b = Bag()
     b.add_all(Set())
+    val intake = Intake(Set())
     val r = Reg(Map(), Set())
     val mk = func() -> Map[String, Int] {
         return Map()
     }
-    println("calls {m2.len()} {s.size()} {pm.len()} {k} {total(Set())} {size_of(Stack())} {b.n} {r.m.len()} {mk().len()}")
+    println("calls {m2.len()} {s.size()} {pm.len()} {k} {total(Set())} {size_of(Stack())} {b.n} {intake.n} {r.m.len()} {mk().len()}")
 
     -- rc, T?, list elements
     val shared: rc Map[String, Int] = rc Map()
