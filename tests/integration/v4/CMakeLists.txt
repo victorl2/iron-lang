@@ -33,10 +33,25 @@ if(NOT WIN32)
     # Not in the v4-acceptance label: it builds every fixture twice, which
     # pushed that 30-minute gate over its limit. The full test jobs run it.
     # Under ASan on a 4-core CI runner it takes about 25 minutes next to the
-    # other rows, so its own cap is an hour.
+    # other rows, so its own cap is an hour. Reserve the four processors that
+    # the script uses internally; otherwise CTest starts other aggregate
+    # corpus jobs beside it and can push a correct run past that cap (#787).
     set_tests_properties(test_opt_parity PROPERTIES
         LABELS "oracle"
+        PROCESSORS 4
         TIMEOUT 3600)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_EXECUTABLE)
+        add_test(
+            NAME test_opt_parity_scheduler_contract
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/integration/v4/test_scheduler_contract.py
+                    ${CMAKE_CTEST_COMMAND}
+                    ${CMAKE_BINARY_DIR}
+        )
+        set_tests_properties(test_opt_parity_scheduler_contract PROPERTIES
+            LABELS "oracle;unit")
+    endif()
 endif()
 
 # Phase 35 MIG-09: migrated-from-v3/ subdir hosts the hand-migrated v3 corpus.
