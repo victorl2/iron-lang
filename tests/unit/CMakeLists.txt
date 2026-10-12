@@ -997,6 +997,7 @@ if(IRON_BUILD_LSP)
     add_executable(test_selection_range
         test_selection_range.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/selection_range.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c

@@ -63,6 +63,7 @@ typedef enum {
     IRON_TOK_RETURN,
     IRON_TOK_SELF,
     IRON_TOK_SPAWN,
+    IRON_TOK_STATIC,     /* `static func`: a function of a type, called as Type.f() (#455). */
     IRON_TOK_SUPER,
     IRON_TOK_TRUE,
     IRON_TOK_UNCHECKED,  /* Phase 16: v4 unchecked pointer-regime keyword (semantics: Phase 25) */
@@ -226,6 +227,9 @@ Iron_Token *iron_lex_all(Iron_Lexer *l);
 const char *iron_token_kind_str(Iron_TokenKind kind);
 /* Source spelling of a keyword or punctuation token, for messages. */
 const char *iron_token_spelling(Iron_TokenKind kind);
+
+/* True for the reserved words (the keyword table). */
+bool iron_token_is_keyword(Iron_TokenKind kind);
 
 /* In an IRON_TOK_INTERP_STRING value, `\{` and `\}` are stored as these
  * marker bytes so they are not mistaken for interpolation delimiters. The

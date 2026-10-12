@@ -70,7 +70,7 @@ static bool span_eq(Iron_Span a, Iron_Span b) {
 /* A declaration's span starts at its keyword (`func`); its range starts
  * at the modifiers written before it on the same line (`pub readonly`). */
 static Iron_Span with_modifiers(Iron_Span sp, const IronLsp_Document *doc) {
-    static const char *const mods[] = { "pub", "private", "readonly", "pure", "nocopy" };
+    static const char *const mods[] = { "pub", "private", "readonly", "pure", "static", "nocopy" };
     if (sp.line == 0 || sp.col == 0 || !doc->text) return sp;
     size_t ls = ilsp_byte_of_line(&doc->line_idx, sp.line - 1);
     size_t i = ls + sp.col - 1;
@@ -296,6 +296,26 @@ static IronLsp_DocSymbol build_val(Iron_ValDecl *v,
     IronLsp_DocSymbol s;
     memset(&s, 0, sizeof(s));
     s.name  = astrdup(arena, v->name ? v->name : "");
+    if (v->binding_count > 0) {
+        /* `val (a, b) = ...` has no single name: show the pattern. */
+        size_t len = 3;
+        for (int i = 0; i < v->binding_count; i++)
+            len += strlen(v->binding_names[i] ? v->binding_names[i] : "_") + 2;
+        char *buf = (char *)iron_arena_alloc(arena, len, 1);
+        if (buf) {
+            size_t o = 0;
+            buf[o++] = '(';
+            for (int i = 0; i < v->binding_count; i++) {
+                const char *b = v->binding_names[i] ? v->binding_names[i] : "_";
+                if (i) { buf[o++] = ','; buf[o++] = ' '; }
+                memcpy(buf + o, b, strlen(b));
+                o += strlen(b);
+            }
+            buf[o++] = ')';
+            buf[o] = '\0';
+            s.name = buf;
+        }
+    }
     s.kind  = LSP_SYMKIND_CONSTANT;
     set_ranges(&s, (Iron_Node *)v, doc, enc);
     return s;

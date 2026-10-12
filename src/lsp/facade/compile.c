@@ -53,11 +53,24 @@ static void enqueue_body(IronLsp_Writer *w, IronLsp_Priority prio,
 /* Keep only the diagnostics of the edited document: the stdlib prelude's
  * carry their own file names. (The analyzer orders the program's decls the
  * same way; see Iron_Program.prelude_decl_count.) */
+static bool same_diag(const Iron_Diagnostic *a, const Iron_Diagnostic *b) {
+    return a->code == b->code && a->level == b->level &&
+           a->span.line == b->span.line && a->span.col == b->span.col &&
+           a->span.end_line == b->span.end_line && a->span.end_col == b->span.end_col &&
+           strcmp(a->message ? a->message : "", b->message ? b->message : "") == 0;
+}
+
+/* Also drops exact repeats: the parser reports every recovery error in LSP
+ * mode, and a recovery path that meets the same token twice reports it
+ * twice; editors show both. */
 static void keep_document_diags(Iron_DiagList *diags, const char *doc_file) {
     int n = 0, errors = 0, warnings = 0;
     for (int i = 0; i < diags->count; i++) {
         Iron_Diagnostic *dg = &diags->items[i];
         if (dg->span.filename && strcmp(dg->span.filename, doc_file) != 0) continue;
+        bool repeat = false;
+        for (int k = n - 1; k >= 0 && !repeat; k--) repeat = same_diag(&diags->items[k], dg);
+        if (repeat) continue;
         if (dg->level == IRON_DIAG_ERROR) errors++;
         else if (dg->level == IRON_DIAG_WARNING) warnings++;
         diags->items[n++] = *dg;
@@ -431,6 +444,44 @@ void ilsp_facade_compile(struct IronLsp_Server   *server,
     iron_arena_free(&build_arena);
     iron_diaglist_free(&diags);
     iron_arena_free(&arena);
+}
+
+void ilsp_facade_publish_cleared(struct IronLsp_Server *server,
+                                 const char            *uri) {
+    if (!server || !uri || server->client_pulls_diagnostics) return;
+    Iron_Arena build_arena = iron_arena_create(4 * 1024);
+    yyjson_alc alc = ilsp_json_alc(&build_arena);
+    yyjson_mut_doc *d = yyjson_mut_doc_new(&alc);
+    if (d) {
+        yyjson_mut_val *root = yyjson_mut_obj(d);
+        yyjson_mut_doc_set_root(d, root);
+        yyjson_mut_obj_add_strcpy(d, root, "jsonrpc", "2.0");
+        yyjson_mut_obj_add_strcpy(d, root, "method", "textDocument/publishDiagnostics");
+        yyjson_mut_val *params = yyjson_mut_obj(d);
+        yyjson_mut_obj_add_strcpy(d, params, "uri", uri);
+        yyjson_mut_obj_add_val(d, params, "diagnostics", yyjson_mut_arr(d));
+        yyjson_mut_obj_add_val(d, root, "params", params);
+        size_t body_len = 0;
+        char *body = ilsp_json_write_mut(d, &build_arena, &body_len);
+        enqueue_body(server->writer, ILSP_PRIO_NOTIFICATION, body, body_len);
+        yyjson_mut_doc_free(d);
+    }
+    iron_arena_free(&build_arena);
+}
+
+void ilsp_facade_pull_diagnostic_empty(struct IronLsp_Server *server,
+                                        const char            *request_id) {
+    if (!server || !request_id) return;
+    Iron_Arena build_arena = iron_arena_create(4 * 1024);
+    yyjson_mut_doc *mdoc = ilsp_build_pull_diagnostic_report(
+        NULL, NULL, server->position_encoding, request_id, &build_arena);
+    if (mdoc) {
+        size_t body_len = 0;
+        char *body = ilsp_json_write_mut(mdoc, &build_arena, &body_len);
+        enqueue_body(server->writer, ILSP_PRIO_RESPONSE, body, body_len);
+        yyjson_mut_doc_free(mdoc);
+    }
+    iron_arena_free(&build_arena);
 }
 
 void ilsp_facade_pull_diagnostic(struct IronLsp_Server   *server,

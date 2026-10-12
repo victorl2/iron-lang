@@ -2404,6 +2404,22 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                               "$copy", NULL, 0,
                                               mc->resolved_type, span);
         }
+        if (mc->is_memberwise) {
+            /* Generated `T.__fields(v1, ..., vn)`: the positional
+             * construction of T, no init runs. */
+            Iron_Type *ty = mc->resolved_type;
+            const char  **names = NULL;
+            IronHIR_Expr **vals = NULL;
+            for (int i = 0; i < mc->arg_count; i++) {
+                const char *fname = NULL;
+                if (ty && ty->kind == IRON_TYPE_OBJECT && ty->object.decl &&
+                    i < ty->object.decl->field_count)
+                    fname = ((Iron_Field *)ty->object.decl->fields[i])->name;
+                arrput(names, fname);
+                arrput(vals, lower_expr_hir(ctx, mc->args[i]));
+            }
+            return iron_hir_expr_construct(mod, ty, names, vals, (int)arrlen(names), span);
+        }
         if (mc->is_builtin_to_string) {
             /* Numeric / Bool `x.to_string()`: the same code as "{x}". */
             IronHIR_Expr **parts = NULL;
@@ -3177,11 +3193,12 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                  * declared name, matching the existing stdlib pattern
                  * `func Duration.to_ms(d: Duration) { return d.ms }`. */
                 total_params = md->param_count;
-                params = (IronHIR_Param *)iron_arena_alloc(
+                /* A `static func` with no parameters has none at all. */
+                params = total_params == 0 ? NULL : (IronHIR_Param *)iron_arena_alloc(
                     mod->arena,
                     (size_t)total_params * sizeof(IronHIR_Param),
                     _Alignof(IronHIR_Param));
-                if (!params) iron_oom_abort("hir_lower.c:lower_module_decls_hir receiver_method_params");
+                if (!params && total_params > 0) iron_oom_abort("hir_lower.c:lower_module_decls_hir receiver_method_params");
                 for (int p = 0; p < md->param_count; p++) {
                     Iron_Param *ap = (Iron_Param *)md->params[p];
                     params[p].name   = ap->name;

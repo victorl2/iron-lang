@@ -1,11 +1,20 @@
-/* Writer queue: a ring buffer that grows on demand; all state transitions
- * happen under `lock`. Enqueuers signal `cv` after inserting; the writer
- * thread waits on `cv` while `count == 0 && !shutdown`.
+/* Phase 2 Plan 02 Task 03 -- Writer queue + drop policy.
  *
- * Policy (#589, see writer.h): responses are never dropped (JSON-RPC
- * answers every request), a publishDiagnostics supersedes a queued one for
- * the same document, and above ILSP_WRITER_QUEUE_CAPACITY items only logs
- * are shed. The removal shift is O(N); queues stay short in practice. */
+ * The queue is a circular array that starts at ILSP_WRITER_QUEUE_CAPACITY
+ * slots and grows when needed. head/count form the ring invariants; all
+ * state transitions happen under `lock`. Enqueuers signal `cv` after
+ * inserting; the writer thread waits on `cv` while `count == 0 &&
+ * !shutdown`.
+ *
+ * Policy when the queue holds ILSP_WRITER_QUEUE_CAPACITY items or more:
+ *   1. Drop the oldest ILSP_PRIO_LOG (a window/logMessage can be lost)
+ *      and return OK_DROPPED_LOG.
+ *   2. Otherwise grow the array. Responses and notifications are never
+ *      dropped: a request left without its response hangs the client,
+ *      and a lost publishDiagnostics leaves stale diagnostics (they used
+ *      to be dropped once 256 were queued, #589). A client that stops
+ *      reading altogether is bounded by the RSS cap.
+ *   3. FULL_DROPPED only when the array cannot grow (out of memory). */
 #include "lsp/transport/writer.h"
 
 #include <errno.h>
@@ -19,10 +28,10 @@
 
 struct IronLsp_Writer {
     FILE                 *sink;
-    IronLsp_OutboundItem *queue;     /* ring of `cap` slots, grown on demand */
+    IronLsp_OutboundItem *queue;     /* ring of `cap` slots */
     int                   cap;
     int                   head;      /* index of oldest item */
-    int                   count;
+    int                   count;     /* 0..cap */
     iron_mutex_t          lock;
     iron_cond_t           cv;
     iron_thread_t         thread;
@@ -120,9 +129,9 @@ void ilsp_writer_destroy(IronLsp_Writer *w) {
         int idx = (w->head + i) % w->cap;
         free(w->queue[idx].body);
     }
+    free(w->queue);
     IRON_MUTEX_DESTROY(w->lock);
     IRON_COND_DESTROY(w->cv);
-    free(w->queue);
     free(w);
 }
 
@@ -176,69 +185,6 @@ static void remove_logical(IronLsp_Writer *w, int logical_offset) {
     w->count--;
 }
 
-/* Double the ring (caller holds lock). Returns false when out of memory. */
-static bool grow(IronLsp_Writer *w) {
-    int nc = w->cap * 2;
-    IronLsp_OutboundItem *q = (IronLsp_OutboundItem *)calloc((size_t)nc, sizeof(*q));
-    if (!q) return false;
-    for (int i = 0; i < w->count; i++) q[i] = w->queue[(w->head + i) % w->cap];
-    free(w->queue);
-    w->queue = q;
-    w->cap = nc;
-    w->head = 0;
-    return true;
-}
-
-static const char *find_bytes(const char *hay, size_t n, const char *needle) {
-    size_t m = strlen(needle);
-    if (!hay || m == 0 || m > n) return NULL;
-    for (size_t i = 0; i + m <= n; i++)
-        if (hay[i] == needle[0] && memcmp(hay + i, needle, m) == 0) return hay + i;
-    return NULL;
-}
-
-/* The URI of a textDocument/publishDiagnostics notification body, as a
- * pointer into it and a length, or NULL. */
-static const char *diag_uri(const char *body, size_t len, size_t *ulen) {
-    if (!find_bytes(body, len, "\"textDocument/publishDiagnostics\"")) return NULL;
-    const char *u = find_bytes(body, len, "\"uri\"");
-    if (!u) return NULL;
-    const char *end_all = body + len;
-    u += 5;
-    while (u < end_all && (*u == ' ' || *u == ':' || *u == '\t')) u++;
-    if (u >= end_all || *u != '"') return NULL;
-    u++;
-    const char *end = memchr(u, '"', (size_t)(end_all - u));
-    if (!end) return NULL;
-    *ulen = (size_t)(end - u);
-    return u;
-}
-
-/* Remove a queued publishDiagnostics for the same document: the new one
- * replaces it (only the latest matters). Caller holds lock. */
-static bool supersede_diagnostics(IronLsp_Writer *w, const char *body, size_t len) {
-    size_t ulen = 0;
-    const char *uri = diag_uri(body, len, &ulen);
-    if (!uri) return false;
-    for (int i = 0; i < w->count; i++) {
-        IronLsp_OutboundItem *it = &w->queue[(w->head + i) % w->cap];
-        if (it->prio != ILSP_PRIO_NOTIFICATION) continue;
-        size_t ql = 0;
-        const char *qu = diag_uri(it->body, it->len, &ql);
-        if (qu && ql == ulen && memcmp(qu, uri, ulen) == 0) {
-            remove_logical(w, i);
-            return true;
-        }
-    }
-    return false;
-}
-
-/* Policy (#589): responses are never dropped, since JSON-RPC answers every
- * request, and notifications are never lost: a publishDiagnostics replaces
- * a queued one for the same document, and the queue grows past
- * ILSP_WRITER_QUEUE_CAPACITY rather than drop either. Only log messages
- * are shed when it is that full: the oldest log goes first, and a new log
- * is refused when there is none to shed. */
 IronLsp_EnqueueResult ilsp_writer_enqueue(IronLsp_Writer *w,
                                           IronLsp_Priority prio,
                                           char *body, size_t len) {
@@ -251,24 +197,28 @@ IronLsp_EnqueueResult ilsp_writer_enqueue(IronLsp_Writer *w,
 
     IRON_MUTEX_LOCK(w->lock);
 
-    if (prio == ILSP_PRIO_NOTIFICATION && supersede_diagnostics(w, body, len))
-        result = ILSP_ENQUEUE_OK_DROPPED_NOTIFICATION;
-
     if (w->count >= ILSP_WRITER_QUEUE_CAPACITY) {
         int idx = find_oldest_of_priority(w, ILSP_PRIO_LOG);
         if (idx >= 0) {
             remove_logical(w, idx);
-            if (result == ILSP_ENQUEUE_OK) result = ILSP_ENQUEUE_OK_DROPPED_LOG;
-        } else if (prio == ILSP_PRIO_LOG) {
+            result = ILSP_ENQUEUE_OK_DROPPED_LOG;
+        }
+    }
+    if (w->count >= w->cap) {
+        /* Grow, unrolling the ring into the new array. */
+        int ncap = w->cap * 2;
+        IronLsp_OutboundItem *nq =
+            (IronLsp_OutboundItem *)calloc((size_t)ncap, sizeof(*nq));
+        if (!nq) {
             IRON_MUTEX_UNLOCK(w->lock);
             free(body);
             return ILSP_ENQUEUE_FULL_DROPPED;
         }
-    }
-    if (w->count >= w->cap && !grow(w)) {
-        IRON_MUTEX_UNLOCK(w->lock);
-        free(body);
-        return ILSP_ENQUEUE_FULL_DROPPED;
+        for (int i = 0; i < w->count; i++) nq[i] = w->queue[(w->head + i) % w->cap];
+        free(w->queue);
+        w->queue = nq;
+        w->cap = ncap;
+        w->head = 0;
     }
 
     /* Insert at tail. */

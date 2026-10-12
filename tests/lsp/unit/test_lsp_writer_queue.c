@@ -5,12 +5,9 @@
  * (glibc) for the writer sink and fmemopen for the reader source so that
  * assertions can inspect the exact bytes written without touching stdout.
  *
- * Drop policy covered (#589):
- *   - Responses past the capacity are queued, never dropped
+ * Drop policy covered:
+ *   - All-responses full queue -> FULL_DROPPED
  *   - One log + 255 responses full -> next response OK_DROPPED_LOG
- *   - A notification is never dropped for a response; a publishDiagnostics
- *     supersedes a queued one for the same document
- *   - A log is refused when the queue is full of other messages
  *   - FIFO ordering within a priority class
  *   - Shutdown drains queued items then exits
  *   - Reader callback fires once per COMPLETE frame
@@ -87,66 +84,31 @@ static void test_fifo_within_priority(void) {
     ilsp_writer_destroy(w);
 }
 
-/* ── Test 2: responses past the capacity are kept ───────────────────────── */
-static void test_responses_never_dropped(void) {
+/* ── Test 2: responses are never dropped: the queue grows ─────────────────
+ * A full queue of responses used to reject the next response, which left
+ * the client waiting for it forever (#589). */
+static void test_all_responses_full_grows(void) {
     char *sink_buf = NULL;
     size_t sink_len = 0;
     FILE *sink = open_memstream(&sink_buf, &sink_len);
     IronLsp_Writer *w = ilsp_writer_create(sink);
 
-    for (int i = 0; i < ILSP_WRITER_QUEUE_CAPACITY * 3; i++) {
+    for (int i = 0; i < ILSP_WRITER_QUEUE_CAPACITY; i++) {
         size_t len;
         char *body = dup_body("R", &len);
         TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK,
             ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, body, len));
     }
+    size_t len;
+    char *body = dup_body("OVERFLOW", &len);
+    TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK,
+        ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, body, len));
+
     int drained = 0;
     while (ilsp_writer_drain_one(w)) drained++;
-    TEST_ASSERT_EQUAL_INT(ILSP_WRITER_QUEUE_CAPACITY * 3, drained);
-
-    /* A full queue of other messages refuses a log. */
-    for (int i = 0; i < ILSP_WRITER_QUEUE_CAPACITY; i++) {
-        size_t len;
-        char *body = dup_body("R", &len);
-        ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, body, len);
-    }
-    size_t len;
-    char *body = dup_body("LOG", &len);
-    TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_FULL_DROPPED,
-        ilsp_writer_enqueue(w, ILSP_PRIO_LOG, body, len));
-
+    TEST_ASSERT_EQUAL_INT(ILSP_WRITER_QUEUE_CAPACITY + 1, drained);
     fclose(sink);
-    free(sink_buf);
-    ilsp_writer_destroy(w);
-}
-
-/* ── Test 2b: publishDiagnostics supersedes the queued one for its uri ──── */
-static void test_diagnostics_superseded(void) {
-    char *sink_buf = NULL;
-    size_t sink_len = 0;
-    FILE *sink = open_memstream(&sink_buf, &sink_len);
-    IronLsp_Writer *w = ilsp_writer_create(sink);
-    const char *a1 = "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\","
-                     "\"params\":{\"uri\":\"file:///a.iron\",\"diagnostics\":[1]}}";
-    const char *b1 = "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\","
-                     "\"params\":{\"uri\":\"file:///b.iron\",\"diagnostics\":[]}}";
-    const char *a2 = "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\","
-                     "\"params\":{\"uri\":\"file:///a.iron\",\"diagnostics\":[2]}}";
-    size_t len;
-    char *body = dup_body(a1, &len);
-    TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK, ilsp_writer_enqueue(w, ILSP_PRIO_NOTIFICATION, body, len));
-    body = dup_body(b1, &len);
-    TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK, ilsp_writer_enqueue(w, ILSP_PRIO_NOTIFICATION, body, len));
-    body = dup_body(a2, &len);
-    TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK_DROPPED_NOTIFICATION,
-        ilsp_writer_enqueue(w, ILSP_PRIO_NOTIFICATION, body, len));
-    int drained = 0;
-    while (ilsp_writer_drain_one(w)) drained++;
-    TEST_ASSERT_EQUAL_INT(2, drained);
-    fclose(sink);
-    TEST_ASSERT_NULL(memmem(sink_buf, sink_len, "[1]", 3));
-    TEST_ASSERT_NOT_NULL(memmem(sink_buf, sink_len, "[2]", 3));
-    TEST_ASSERT_NOT_NULL(memmem(sink_buf, sink_len, "b.iron", 6));
+    TEST_ASSERT_NOT_NULL(memmem(sink_buf, sink_len, "\r\n\r\nOVERFLOW", 12));
     free(sink_buf);
     ilsp_writer_destroy(w);
 }
@@ -194,8 +156,9 @@ static void test_drop_log_before_response(void) {
     ilsp_writer_destroy(w);
 }
 
-/* ── Test 4: a notification is not dropped for a response ────────────────── */
-static void test_notification_kept_when_full(void) {
+/* ── Test 4: a notification is kept too (the queue grows) ─────────────────
+ * Dropping a publishDiagnostics left the editor with stale diagnostics. */
+static void test_notification_kept_when_no_logs(void) {
     char *sink_buf = NULL;
     size_t sink_len = 0;
     FILE *sink = open_memstream(&sink_buf, &sink_len);
@@ -213,7 +176,6 @@ static void test_notification_kept_when_full(void) {
         TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK,
             ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, body, len));
     }
-
     size_t len;
     char *body = dup_body("PROMOTED", &len);
     TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK,
@@ -294,10 +256,9 @@ static void test_reader_feeds_framer(void) {
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_fifo_within_priority);
-    RUN_TEST(test_responses_never_dropped);
-    RUN_TEST(test_diagnostics_superseded);
+    RUN_TEST(test_all_responses_full_grows);
     RUN_TEST(test_drop_log_before_response);
-    RUN_TEST(test_notification_kept_when_full);
+    RUN_TEST(test_notification_kept_when_no_logs);
     RUN_TEST(test_writer_thread_drains_on_shutdown);
     RUN_TEST(test_reader_feeds_framer);
     return UNITY_END();

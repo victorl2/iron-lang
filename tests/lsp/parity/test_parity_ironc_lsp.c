@@ -135,6 +135,17 @@ static char *run_with_prelude(const char *src, size_t len, const char *name,
     for (int i = 0; i < d.count; i++) {
         const char *fn = d.items[i].span.filename;
         if (fn && strcmp(fn, name) != 0) continue;
+        /* The facade drops exact repeats (same code, level, span, text). */
+        bool repeat = false;
+        for (int k = 0; k < own.count && !repeat; k++) {
+            const Iron_Diagnostic *a = &own.items[k], *b = &d.items[i];
+            repeat = a->code == b->code && a->level == b->level &&
+                     a->span.line == b->span.line && a->span.col == b->span.col &&
+                     a->span.end_line == b->span.end_line &&
+                     a->span.end_col == b->span.end_col &&
+                     strcmp(a->message ? a->message : "", b->message ? b->message : "") == 0;
+        }
+        if (repeat) continue;
         arrput(own.items, d.items[i]);
         own.count++;
     }

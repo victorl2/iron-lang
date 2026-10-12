@@ -1,16 +1,15 @@
 #ifndef IRON_LSP_TRANSPORT_WRITER_H
 #define IRON_LSP_TRANSPORT_WRITER_H
 
-/* Writer queue and drop policy (#589).
+/* Phase 2 Plan 02 Task 03 -- Bounded writer queue + drop policy.
  *
- * The writer thread pulls items off a ring buffer and serializes them to a
- * caller-provided FILE* (stdout in production, an open_memstream buffer in
- * tests). Responses are never dropped and notifications never lost: a
- * textDocument/publishDiagnostics replaces a queued one for the same
- * document (OK_DROPPED_NOTIFICATION), and past ILSP_WRITER_QUEUE_CAPACITY
- * items the ring grows instead of dropping them. Only logs are shed then:
- * the oldest log goes (OK_DROPPED_LOG), or a new log is refused with
- * FULL_DROPPED when no log is queued (FULL_DROPPED also on out of memory).
+ * The writer thread pulls items off a fixed-capacity (256) ring buffer and
+ * serializes them to a caller-provided FILE* (stdout in production, an
+ * open_memstream buffer in tests). Drop policy (T-02-04 DoS mitigation):
+ * when the queue is full, enqueueing drops the oldest ILSP_PRIO_LOG item;
+ * if none, the oldest ILSP_PRIO_NOTIFICATION; if the queue is all
+ * responses, the new item is rejected with FULL_DROPPED so the caller can
+ * decide to retry or surface an internalError.
  *
  * The writer takes ownership of `body` on a non-FULL_DROPPED return. On
  * FULL_DROPPED, the writer has free()'d the body (caller MUST NOT use). */

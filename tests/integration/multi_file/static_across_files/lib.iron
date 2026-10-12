@@ -1,0 +1,36 @@
+-- pub static functions and an interface with static functions, used from
+-- another file (#455). make_hidden is private to this file.
+
+pub interface Parse {
+    static func parse(text: String) -> Self?
+    static func kind() -> String {
+        return "parsed"
+    }
+}
+
+pub object Num impl Parse {
+    pub val n: Int
+    pub init(n: Int) {
+        self.n = n
+    }
+    pub static func parse(text: String) -> Self? {
+        if text.len() == 0 {
+            return null
+        }
+        return Num(text.len())
+    }
+    pub static func zero() -> Num {
+        return Num.make_hidden()
+    }
+    static func make_hidden() -> Num {
+        return Num(0)
+    }
+}
+
+pub func parse_or_zero[T: Parse](text: String, zero: T) -> T {
+    val v = T.parse(text)
+    if v != null {
+        return v
+    }
+    return zero
+}

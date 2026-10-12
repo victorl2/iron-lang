@@ -397,8 +397,11 @@ static void emit_defer_free_snippets(struct IronLsp_Server          *server,
         ILSP_DEFER_FREE_MAX_CANDIDATES);
     if (cnt == 0) return;
 
-    /* For each binding, build an arena-owned label + snippet body and
-     * append a new IronLsp_CompletionCandidate via the stb_ds array. */
+    /* For each binding, build an arena-owned label + snippet body. The
+     * candidates the bucket builder returned are a plain arena array, not
+     * an stb_ds one (arrput on it wrote over arena memory), so the new
+     * ones are collected here and both are copied into a new arena array. */
+    IronLsp_CompletionCandidate *added = NULL;
     for (size_t i = 0; i < cnt; i++) {
         IronLsp_CompletionCandidate c;
         memset(&c, 0, sizeof(c));
@@ -432,9 +435,21 @@ static void emit_defer_free_snippets(struct IronLsp_Server          *server,
         c.additional_text_edit = NULL;
         c.detail            = "snippet — auto-discovered heap/rc binding";
 
-        arrput(*cands, c);
-        (*n)++;
+        arrput(added, c);
     }
+    size_t k = (size_t)arrlenu(added);
+    if (k > 0) {
+        IronLsp_CompletionCandidate *all = (IronLsp_CompletionCandidate *)
+            iron_arena_alloc(arena, (*n + k) * sizeof(*all),
+                             _Alignof(IronLsp_CompletionCandidate));
+        if (all) {
+            if (*n > 0) memcpy(all, *cands, *n * sizeof(*all));
+            memcpy(all + *n, added, k * sizeof(*all));
+            *cands = all;
+            *n += k;
+        }
+    }
+    arrfree(added);
 }
 
 /* ── qsort comparator ─────────────────────────────────────────────── */
