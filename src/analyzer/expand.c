@@ -184,12 +184,15 @@ static Iron_Node *subst_type(ExpandCtx *ctx, Iron_Node *node) {
         !a->is_weak_rc && !a->is_func && !a->is_tuple &&
         a->generic_arg_count == 0 && !a->is_nullable)
         return bound;
-    for (int i = 0; i < a->generic_arg_count; i++)
-        a->generic_args[i] = subst_type(ctx, a->generic_args[i]);
-    for (int i = 0; i < a->func_param_count; i++)
-        a->func_params[i] = subst_type(ctx, a->func_params[i]);
-    for (int i = 0; i < a->tuple_elem_count; i++)
-        a->tuple_elems[i] = subst_type(ctx, a->tuple_elems[i]);
+    if (a->generic_args)
+        for (int i = 0; i < a->generic_arg_count; i++)
+            a->generic_args[i] = subst_type(ctx, a->generic_args[i]);
+    if (a->func_params)
+        for (int i = 0; i < a->func_param_count; i++)
+            a->func_params[i] = subst_type(ctx, a->func_params[i]);
+    if (a->tuple_elems)
+        for (int i = 0; i < a->tuple_elem_count; i++)
+            a->tuple_elems[i] = subst_type(ctx, a->tuple_elems[i]);
     a->func_return = subst_type(ctx, a->func_return);
     a->pointer_pointee = subst_type(ctx, a->pointer_pointee);
     a->weak_rc_inner = subst_type(ctx, a->weak_rc_inner);
