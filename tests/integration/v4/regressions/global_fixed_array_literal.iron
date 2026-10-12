@@ -11,7 +11,10 @@ var COUNTS: [Int; 3] = [0, 0, 0]
 func main() {
     var k = 0
     while k < POW.len() {
-        print("{POW[k]} ")
+        if k > 0 {
+            print(" ")
+        }
+        print("{POW[k]}")
         k += 1
     }
     println("")

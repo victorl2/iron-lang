@@ -48,6 +48,35 @@ func nmix(a: Int8, b: UInt8, c: Int16, d: UInt32) -> Int {
     return r
 }
 
+func shift_edges(k: Int, huge: UInt64) -> Int {
+    val i8: Int8 = -3
+    val u8: UInt8 = 129
+    val i16: Int16 = -12345
+    val u16: UInt16 = 40000
+    val i32: Int32 = -2000000001
+    val u32: UInt32 = 4000000000
+    val i64: Int = -9000000000000000001
+    val u64: UInt64 = 18000000000000000001
+    var h = Int(i8 << (7 + k))
+    h = h * 31 + Int(i8 << (8 + k))
+    h = h * 31 + Int(i8 >> (8 + k))
+    h = h * 31 + Int(u8 >> (8 + k))
+    h = h * 31 + Int(i16 << (15 + k))
+    h = h * 31 + Int(i16 << (16 + k))
+    h = h * 31 + Int(i16 >> (16 + k))
+    h = h * 31 + Int(u16 >> (16 + k))
+    h = h * 31 + Int(i32 << (31 + k))
+    h = h * 31 + Int(i32 << (32 + k))
+    h = h * 31 + Int(i32 >> (32 + k))
+    h = h * 31 + Int(u32 >> (32 + k))
+    h = h * 31 + (i64 << (63 + k))
+    h = h * 31 + (i64 << (64 + k))
+    h = h * 31 + (i64 >> (64 + k))
+    h = h * 31 + Int(u64 >> (64 + k))
+    h = h * 31 + Int(i8 >> huge)
+    return h
+}
+
 func table(n: Int) -> [UInt64] {
     var out: [UInt64] = fill(n, UInt64(0))
     var p: UInt64 = 1
@@ -95,6 +124,7 @@ val C4 = comptime umix(18446744073709551615, 3)
 val C5 = comptime umix(12345, 18446744073709551557)
 val C6 = comptime nmix(-77, 201, -1234, 4000000000)
 val C7 = comptime nmix(127, 255, 32767, 1)
+val C8 = comptime shift_edges(0, 18446744073709551615)
 val POW10 = comptime table(20)
 val CLASS = comptime classes()
 
@@ -107,6 +137,7 @@ func main() {
     println("{C5 == umix(12345, 18446744073709551557)} {C5}")
     println("{C6 == nmix(-77, 201, -1234, 4000000000)} {C6}")
     println("{C7 == nmix(127, 255, 32767, 1)} {C7}")
+    println("{C8 == shift_edges(k - 1, 18446744073709551615)}")
     val rt = table(20)
     var same = true
     for i in range(20) {
