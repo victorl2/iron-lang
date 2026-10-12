@@ -1,0 +1,8 @@
+-- `func f[]()` was read as a function without type parameters.
+func twice[](x: Int) -> Int {
+    return x * 2
+}
+
+func main() {
+    println("{twice(2)}")
+}

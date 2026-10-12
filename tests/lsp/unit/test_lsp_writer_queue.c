@@ -84,30 +84,31 @@ static void test_fifo_within_priority(void) {
     ilsp_writer_destroy(w);
 }
 
-/* ── Test 2: full queue of all-responses rejects new response ───────────── */
-static void test_all_responses_full_drops_new(void) {
+/* ── Test 2: responses are never dropped: the queue grows ─────────────────
+ * A full queue of responses used to reject the next response, which left
+ * the client waiting for it forever (#589). */
+static void test_all_responses_full_grows(void) {
     char *sink_buf = NULL;
     size_t sink_len = 0;
     FILE *sink = open_memstream(&sink_buf, &sink_len);
     IronLsp_Writer *w = ilsp_writer_create(sink);
 
-    /* Fill the queue with ILSP_WRITER_QUEUE_CAPACITY responses. */
     for (int i = 0; i < ILSP_WRITER_QUEUE_CAPACITY; i++) {
         size_t len;
         char *body = dup_body("R", &len);
-        IronLsp_EnqueueResult rc =
-            ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, body, len);
-        TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK, rc);
+        TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK,
+            ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, body, len));
     }
-
-    /* 257th enqueue: no lower-priority item to drop, so FULL_DROPPED. */
     size_t len;
     char *body = dup_body("OVERFLOW", &len);
-    IronLsp_EnqueueResult rc =
-        ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, body, len);
-    TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_FULL_DROPPED, rc);
+    TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK,
+        ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, body, len));
 
+    int drained = 0;
+    while (ilsp_writer_drain_one(w)) drained++;
+    TEST_ASSERT_EQUAL_INT(ILSP_WRITER_QUEUE_CAPACITY + 1, drained);
     fclose(sink);
+    TEST_ASSERT_NOT_NULL(memmem(sink_buf, sink_len, "\r\n\r\nOVERFLOW", 12));
     free(sink_buf);
     ilsp_writer_destroy(w);
 }
@@ -155,14 +156,14 @@ static void test_drop_log_before_response(void) {
     ilsp_writer_destroy(w);
 }
 
-/* ── Test 4: drop notification before response when no logs ─────────────── */
-static void test_drop_notification_when_no_logs(void) {
+/* ── Test 4: a notification is kept too (the queue grows) ─────────────────
+ * Dropping a publishDiagnostics left the editor with stale diagnostics. */
+static void test_notification_kept_when_no_logs(void) {
     char *sink_buf = NULL;
     size_t sink_len = 0;
     FILE *sink = open_memstream(&sink_buf, &sink_len);
     IronLsp_Writer *w = ilsp_writer_create(sink);
 
-    /* 1 notification, then fill with responses. */
     {
         size_t len;
         char *body = dup_body("NOTIF", &len);
@@ -175,17 +176,16 @@ static void test_drop_notification_when_no_logs(void) {
         TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK,
             ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, body, len));
     }
-
     size_t len;
     char *body = dup_body("PROMOTED", &len);
-    IronLsp_EnqueueResult rc =
-        ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, body, len);
-    TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK_DROPPED_NOTIFICATION, rc);
+    TEST_ASSERT_EQUAL_INT(ILSP_ENQUEUE_OK,
+        ilsp_writer_enqueue(w, ILSP_PRIO_RESPONSE, body, len));
 
     while (ilsp_writer_drain_one(w)) { /* spin */ }
     fclose(sink);
     TEST_ASSERT_NOT_NULL(sink_buf);
-    TEST_ASSERT_NULL(memmem(sink_buf, sink_len, "\r\n\r\nNOTIF", 9));
+    TEST_ASSERT_NOT_NULL(memmem(sink_buf, sink_len, "\r\n\r\nNOTIF", 9));
+    TEST_ASSERT_NOT_NULL(memmem(sink_buf, sink_len, "\r\n\r\nPROMOTED", 12));
 
     free(sink_buf);
     ilsp_writer_destroy(w);
@@ -256,9 +256,9 @@ static void test_reader_feeds_framer(void) {
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_fifo_within_priority);
-    RUN_TEST(test_all_responses_full_drops_new);
+    RUN_TEST(test_all_responses_full_grows);
     RUN_TEST(test_drop_log_before_response);
-    RUN_TEST(test_drop_notification_when_no_logs);
+    RUN_TEST(test_notification_kept_when_no_logs);
     RUN_TEST(test_writer_thread_drains_on_shutdown);
     RUN_TEST(test_reader_feeds_framer);
     return UNITY_END();
