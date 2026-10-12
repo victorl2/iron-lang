@@ -1564,6 +1564,11 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/spec_coverage.py
             --check ${CMAKE_SOURCE_DIR}/tests/spec_coverage_baseline.json)
     set_tests_properties(spec_coverage PROPERTIES LABELS "spec" TIMEOUT 300)
+    add_test(NAME spec_coverage_comment_regressions
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/scripts/test_spec_coverage.py)
+    set_tests_properties(spec_coverage_comment_regressions PROPERTIES
+        LABELS "spec;unit" TIMEOUT 30)
     # Random Int / Bool expressions over run-time values of every integer
     # width, compiled and compared with a Python model of Iron's semantics
     # (precedence, wrapping, truncating division). Fixed seeds.
