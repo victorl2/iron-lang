@@ -3250,6 +3250,10 @@ if(Python3_Interpreter_FOUND)
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/temporaries.iron
                    $<TARGET_FILE:iron> dap)
   set_tests_properties(debug_dap_temporaries PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+  add_test(NAME test_dap_request_timeouts
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_SOURCE_DIR}/tests/integration/debug/check_dap_timeouts.py)
+  set_tests_properties(test_dap_request_timeouts PROPERTIES LABELS "integration;unit")
 endif()
 if(NOT WIN32 AND Python3_Interpreter_FOUND)
   # What iron dap, iron debug and iron debug --check say when Python,
