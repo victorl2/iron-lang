@@ -52,8 +52,7 @@ interface FromText {
                 b.(f) = id
             }
         }
-        val missing = b.missing()
-        return missing
+        return b.missing()
     }
 }
 

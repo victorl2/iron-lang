@@ -939,6 +939,30 @@ static void expand_stmt(ExpandCtx *ctx, Iron_Node *stmt, Iron_Node ***out) {
     }
     if (comptime_error(ctx, stmt)) return;
 
+    if (stmt->kind == IRON_NODE_RETURN) {
+        Iron_ReturnStmt *ret = (Iron_ReturnStmt *)stmt;
+        const char *missing_name = NULL;
+        if (missing_call(ret->value, &missing_name)) {
+            BuilderState *builder = find_builder(ctx, missing_name);
+            if (builder) {
+                char buf[96];
+                snprintf(buf, sizeof(buf), "__iron_missing_result_%d",
+                         ctx->changed);
+                const char *temp_name = iron_arena_strdup(
+                    ctx->arena, buf, strlen(buf));
+                Iron_ValDecl *temp = ARENA_ALLOC(ctx->arena, Iron_ValDecl);
+                if (!temp || !temp_name) return;
+                memset(temp, 0, sizeof(*temp));
+                temp->kind = IRON_NODE_VAL_DECL;
+                temp->span = stmt->span;
+                temp->name = temp_name;
+                temp->init = ret->value;
+                append_missing_check(ctx, out, (Iron_Node *)temp, builder);
+                ret->value = make_ident(ctx, stmt->span, temp_name);
+            }
+        }
+    }
+
     if (stmt->kind == IRON_NODE_VAL_DECL || stmt->kind == IRON_NODE_VAR_DECL) {
         Iron_Node *init = stmt->kind == IRON_NODE_VAL_DECL
             ? ((Iron_ValDecl *)stmt)->init : ((Iron_VarDecl *)stmt)->init;

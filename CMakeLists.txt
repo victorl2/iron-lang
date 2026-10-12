@@ -1649,6 +1649,11 @@ if(Python3_EXECUTABLE)
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_types
             num generic ptr comptime)
     set_tests_properties(prog_fuzz_types PROPERTIES LABELS "codegen" TIMEOUT 900)
+    add_test(NAME prog_fuzz_reflection
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_reflection
+            reflect)
+    set_tests_properties(prog_fuzz_reflection PROPERTIES LABELS "codegen;reflection" TIMEOUT 900)
     # The same for concurrency (spawn / await, Mutex, channels, parallel
     # for; outputs deterministic by construction) and for arenas.
     add_test(NAME prog_fuzz_conc
