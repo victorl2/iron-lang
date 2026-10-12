@@ -567,6 +567,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_ALIGN_VALUE           368   /* `//iron:align=N`: N not a power of two from 1 to 4096 (or cacheline), below the natural alignment, or for storage that cannot honor it yet */
 #define IRON_ERR_VIEW_ESCAPE           369   /* a view stored in a field, list, global or other compound type, captured by a stored closure or unawaited spawn, or returned without the single source parameter */
 #define IRON_ERR_VIEW_SOURCE           370   /* the source of a live view is resized, reassigned, taken or passed to a var parameter, or is not borrowable (a temporary, a list behind a pointer) */
+#define IRON_ERR_GLOBAL_INIT_CYCLE        345   /* a global depends on itself through its initializer */
 #define IRON_ERR_NOT_STRINGABLE           334   /* `{x}` where x has no text form: not a number, Bool, String, enum, their nullable, or an object with to_string() */
 
 /* Lowering error codes (400 range) */

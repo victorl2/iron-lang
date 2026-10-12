@@ -551,6 +551,12 @@ parser/typecheck sites land in Plan 27-02.
 | E0370 | `IRON_ERR_VIEW_SOURCE` | a borrowed source is invalid or changed | The source is a temporary or handle path, or it is reassigned, resized, taken, passed as `var`, or directly mutated while the view is live. |
 | W0631 | `IRON_WARN_INLINE_NOT_HONORED` | `//iron:inline` cannot be honored | The function recursively calls itself, so the backend cannot inline every call. |
 
+## Global initialization (§5.7)
+
+| Code | Symbol | Message | Notes |
+|------|--------|---------|-------|
+| E0345 | `IRON_ERR_GLOBAL_INIT_CYCLE` | initialization cycle: global 'A' depends on 'B', which depends on 'A' | A global's initializer reads the global itself, directly or through the functions, methods and initializers it calls. Globals are otherwise initialized after the globals they read, whatever file declares them. |
+
 ## Adding new codes
 
 1. Allocate the next free slot in the appropriate range. Verify uniqueness
