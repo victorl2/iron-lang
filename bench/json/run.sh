@@ -94,11 +94,9 @@ measure() {   # variant lib mode file [cold]
     iron) bin="$work/$v/bench_iron"; args=() ;;
     iron_o3) bin="$work/$v/bench_iron_o3"; args=() ;;
     esac
-    local line
-    line=$(${pin[@]+"${pin[@]}"} "$bin" ${args[@]+"${args[@]}"} "$mode" "$file" "$warmup" "$samples" $extra | grep -E '^(RESULT|SKIP)' || true)
-    case $line in
-    RESULT*) set -- $line; echo "RESULT $v $lib ${3}${extra:+_cold} $4 $5 $6" >> "$out" ;;
-    esac
+    "$here/capture.sh" "$out" "$v" "$lib" "$mode" "${extra:+_cold}" \
+        ${pin[@]+"${pin[@]}"} "$bin" ${args[@]+"${args[@]}"} \
+        "$mode" "$file" "$warmup" "$samples" $extra
 }
 libs="iron iron_o3 simdjson_dom simdjson_od yyjson rapidjson"
 for r in $(seq 1 "$repeat"); do

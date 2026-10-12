@@ -29,6 +29,11 @@ if(NOT WIN32)
     set_tests_properties(test_json_bench_table PROPERTIES
         LABELS "stdlib"
         PASS_REGULAR_EXPRESSION "Parse to a tree.*Iron \\(-O2\\).*1\\.000")
+    add_test(
+        NAME test_json_bench_capture
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/json/test_bench_capture.sh
+    )
+    set_tests_properties(test_json_bench_capture PROPERTIES LABELS "stdlib")
 endif()
 
 # Spec conformance beyond JSONTestSuite: JSON_checker, number round trips,
