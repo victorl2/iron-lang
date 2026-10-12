@@ -8089,7 +8089,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
-            if (matched_field && !ctx->in_synth_accessor) {
+            if (matched_field && !ctx->in_synth_accessor && !fa->is_generated) {
                 char what_f[256];
                 snprintf(what_f, sizeof(what_f), "field '%s' of '%s'",
                          matched_field->name, od->name ? od->name : "?");
@@ -10668,6 +10668,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * out, and the code after the if sees what an early exit left
              * behind. */
             Iron_IfStmt *is_s = (Iron_IfStmt *)node;
+            if (is_s->is_comptime) break;
             int n_conds = 1 + is_s->elif_count;
             Iron_Node **conds = (Iron_Node **)iron_arena_alloc(
                 ctx->arena, (size_t)n_conds * sizeof(Iron_Node *), _Alignof(Iron_Node *));
@@ -10843,6 +10844,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
+            if (fs->is_comptime) break;
             Iron_Node *saved_for_iterable = ctx->for_iterable;
             ctx->for_iterable = fs->iterable;  /* the unwrap checks it too */
             rc_list_unwrap_expr(ctx, &fs->iterable);
@@ -11026,6 +11028,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_MATCH: {
             Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
+            if (ms->is_comptime) break;
             Iron_Type *subject_type = check_expr(ctx, ms->subject);
             /* v4 hole-closure (E0323): HIR->LIR lowers `match` to a C
              * `switch`, which only implements integer-literal patterns and

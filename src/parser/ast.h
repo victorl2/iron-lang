@@ -556,6 +556,8 @@ typedef struct {
     /* `[E]` whose element is not a plain type name (`[rc T]`, `[[Int]]`,
      * `[*T]`): the element's own annotation. `name` is then NULL. */
     Iron_Node    *array_elem_ann;
+    /* `f.type` in a type position inside a reflected-field loop. */
+    const char   *reflected_field;
 } Iron_TypeAnnotation;
 
 #define IRON_LAYOUT_HINT_NONE 0
@@ -651,6 +653,7 @@ typedef struct {
     Iron_Node   **elif_bodies; /* stb_ds array */
     int           elif_count;
     Iron_Node    *else_body;   /* NULL if no else */
+    bool          is_comptime; /* selected by the reflection expander */
 } Iron_IfStmt;
 
 typedef struct {
@@ -686,6 +689,7 @@ typedef struct {
     Iron_Node         *pool_expr;   /* NULL if default pool */
     Iron_CaptureEntry *pfor_captures;      /* set by capture analysis for parallel-for; NULL otherwise */
     int                pfor_capture_count; /* 0 for non-capturing pfor bodies */
+    bool               is_comptime;        /* `comptime for ... in fields(T)` */
 } Iron_ForStmt;
 
 typedef struct {
@@ -695,6 +699,7 @@ typedef struct {
     Iron_Node   **cases;
     int           case_count;
     Iron_Node    *else_body;  /* NULL if no else */
+    bool          is_comptime; /* subject and cases are type annotations */
 } Iron_MatchStmt;
 
 typedef struct {
@@ -894,6 +899,8 @@ typedef struct {
     struct Iron_Type  *resolved_type;  /* set by type checker */
     Iron_Node         *object;
     const char        *field;
+    /* `value.(f)`: f names the active reflected field. */
+    const char        *reflected_field;
     /* Phase 83-02 ACCESS-05: set to true by the typechecker when the matched
      * field on the object has is_pub=true. HIR reads this bit to lower the
      * access as a zero-arg method call on the synthesized getter instead of

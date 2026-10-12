@@ -186,6 +186,8 @@ static Iron_Node *iron_parse_if_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_while_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_for_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_match_stmt(Iron_Parser *p);
+static Iron_Node *iron_parse_comptime_match_stmt(Iron_Parser *p,
+                                                  Iron_Token *comptime_tok);
 static Iron_Node *iron_parse_spawn_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value, Iron_Span span);
 
@@ -1031,6 +1033,7 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
     if (!ann) { /* HARD-09 REPLACE (iron_parse_type_annotation named) */ p->in_error_recovery = true; return iron_make_error(p); }
     memset(ann, 0, sizeof(*ann));
     ann->kind              = IRON_NODE_TYPE_ANNOTATION;
+    ann->span              = iron_token_span(p, name_tok);
     ann->is_array          = false;
     ann->array_size        = NULL;
     ann->name = iron_arena_strdup(p->arena, name_tok->value,
@@ -1041,6 +1044,24 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
      * by string comparison here. The typechecker resolves is_self_type to
      * the enclosing ObjectDecl type or emits E0259. */
     ann->is_self_type = (strcmp(ann->name, "Self") == 0);
+
+    /* A reflected field's declared type is usable anywhere a type
+     * annotation is accepted: `f.type`, `read[f.type](...)`, and so on. */
+    if (iron_match(p, IRON_TOK_DOT)) {
+        if (!iron_check(p, IRON_TOK_IDENTIFIER) ||
+            !iron_current(p)->value ||
+            strcmp(iron_current(p)->value, "type") != 0) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected 'type' after reflected field name", NULL);
+            return (Iron_Node *)ann;
+        }
+        Iron_Token *type_tok = iron_advance(p);
+        ann->reflected_field = ann->name;
+        ann->span = iron_span_merge(ann->span, iron_token_span(p, type_tok));
+        return (Iron_Node *)ann;
+    }
 
     /* nullable? */
     ann->is_nullable = iron_match(p, IRON_TOK_QUESTION);
@@ -2249,6 +2270,32 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
         /* Field access / method call: expr.name or expr.name(args) */
         if (cur == IRON_TOK_DOT) {
             iron_advance(p);
+            /* Reflected access: `value.(f)`. It remains a distinct field
+             * access until compile-time expansion chooses the direct member. */
+            if (iron_match(p, IRON_TOK_LPAREN)) {
+                if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_UNEXPECTED_TOKEN,
+                                   iron_token_span(p, iron_current(p)),
+                                   "expected reflected field name after '.('", NULL);
+                    return iron_make_error(p);
+                }
+                Iron_Token *field_tok = iron_advance(p);
+                const char *field_var = iron_arena_strdup(
+                    p->arena, field_tok->value, strlen(field_tok->value));
+                Iron_Token *end = iron_current(p);
+                if (!iron_expect(p, IRON_TOK_RPAREN)) return iron_make_error(p);
+                Iron_FieldAccess *fa = ARENA_ALLOC(p->arena, Iron_FieldAccess);
+                if (!fa) { p->in_error_recovery = true; return iron_make_error(p); }
+                memset(fa, 0, sizeof(*fa));
+                fa->kind = IRON_NODE_FIELD_ACCESS;
+                fa->span = iron_span_merge(left->span, iron_token_span(p, end));
+                fa->object = left;
+                fa->reflected_field = field_var ? field_var : "?";
+                fa->is_generated = p->generated;
+                left = (Iron_Node *)fa;
+                continue;
+            }
             /* Phase 85 INIT: accept IRON_TOK_INIT as a method name at call
              * sites so `Window.init(...)` and `Audio.init()` continue to
              * parse under pure-superset. The keyword is only hard inside
@@ -3078,6 +3125,76 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
     return (Iron_Node *)n;
 }
 
+/* Type-directed match used by reflection. Its subject and non-else patterns
+ * are type annotations, so arms that are not selected never enter ordinary
+ * resolution or type checking. */
+static Iron_Node *iron_parse_comptime_match_stmt(Iron_Parser *p,
+                                                  Iron_Token *comptime_tok) {
+    Iron_Token *match_tok = iron_current(p);
+    iron_advance(p); /* match */
+    Iron_Node *subject = iron_parse_type_annotation(p);
+    if (!iron_expect(p, IRON_TOK_LBRACE)) return iron_make_error(p);
+    iron_skip_newlines(p);
+
+    Iron_Node **cases = NULL;
+    int case_count = 0;
+    Iron_Node *else_body = NULL;
+    while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
+        iron_skip_newlines(p);
+        if (iron_check(p, IRON_TOK_RBRACE)) break;
+        bool is_else = iron_check(p, IRON_TOK_ELSE);
+        Iron_Node *pattern = NULL;
+        if (is_else) iron_advance(p);
+        else pattern = iron_parse_type_annotation(p);
+        if (!iron_expect(p, IRON_TOK_ARROW)) break;
+
+        Iron_Node *body;
+        if (iron_check(p, IRON_TOK_LBRACE)) {
+            body = iron_parse_block(p);
+        } else {
+            Iron_Node *single = iron_parse_stmt(p);
+            Iron_Block *blk = ARENA_ALLOC(p->arena, Iron_Block);
+            if (!blk) { p->in_error_recovery = true; return iron_make_error(p); }
+            memset(blk, 0, sizeof(*blk));
+            blk->kind = IRON_NODE_BLOCK;
+            blk->span = single->span;
+            IRON_ARENA_ARR_PUSH(p->arena, blk->stmts, 0, single);
+            blk->stmt_count = 1;
+            body = (Iron_Node *)blk;
+        }
+        if (is_else) {
+            else_body = body;
+        } else {
+            Iron_MatchCase *mc = ARENA_ALLOC(p->arena, Iron_MatchCase);
+            if (!mc) { p->in_error_recovery = true; return iron_make_error(p); }
+            memset(mc, 0, sizeof(*mc));
+            mc->kind = IRON_NODE_MATCH_CASE;
+            mc->span = iron_span_merge(pattern->span, body->span);
+            mc->pattern = pattern;
+            mc->body = body;
+            arrput(cases, (Iron_Node *)mc);
+            case_count++;
+        }
+        iron_skip_newlines(p);
+    }
+    Iron_Token *end = iron_current(p);
+    iron_expect(p, IRON_TOK_RBRACE);
+
+    Iron_MatchStmt *n = ARENA_ALLOC(p->arena, Iron_MatchStmt);
+    if (!n) { p->in_error_recovery = true; return iron_make_error(p); }
+    memset(n, 0, sizeof(*n));
+    n->kind = IRON_NODE_MATCH;
+    n->span = iron_span_merge(iron_token_span(p, comptime_tok),
+                              iron_token_span(p, end));
+    n->subject = subject;
+    n->cases = AST_ARR(cases);
+    n->case_count = case_count;
+    n->else_body = else_body;
+    n->is_comptime = true;
+    (void)match_tok;
+    return (Iron_Node *)n;
+}
+
 static Iron_Node *iron_parse_spawn_stmt(Iron_Parser *p) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'spawn' */
@@ -3621,6 +3738,24 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
         return iron_make_error(p);
     }
     iron_skip_newlines(p);
+
+    if (iron_peek(p) == IRON_TOK_COMPTIME && p->pos + 1 < p->token_count) {
+        Iron_TokenKind next = p->tokens[p->pos + 1].kind;
+        if (next == IRON_TOK_FOR || next == IRON_TOK_IF || next == IRON_TOK_MATCH) {
+            Iron_Token *ct = iron_advance(p);
+            if (next == IRON_TOK_MATCH)
+                return iron_parse_comptime_match_stmt(p, ct);
+            Iron_Node *node = next == IRON_TOK_FOR
+                                ? iron_parse_for_stmt(p)
+                                : iron_parse_if_stmt(p);
+            if (node && node->kind == IRON_NODE_FOR)
+                ((Iron_ForStmt *)node)->is_comptime = true;
+            else if (node && node->kind == IRON_NODE_IF)
+                ((Iron_IfStmt *)node)->is_comptime = true;
+            if (node) node->span = iron_span_merge(iron_token_span(p, ct), node->span);
+            return node;
+        }
+    }
 
     /* Phase 21 POL-03 (Pitfall 5): `heap val p = ...` or `heap var p = ...`
      * is illegal — `heap` is not a binding modifier.

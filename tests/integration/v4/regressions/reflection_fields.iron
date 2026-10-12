@@ -1,0 +1,70 @@
+interface Describe {
+    readonly func describe() -> String {
+        var out = ""
+        comptime for f in fields(Self) {
+            comptime if f.tag("json") == null and f.doc == null {
+                out = out + "{f.index}:{f.name}:{f.visibility}:"
+            }
+            comptime match f.type {
+                Int -> out = out + self.(f).to_string()
+                String -> out = out + self.(f)
+                E? -> out = out + "nullable"
+                else -> comptime error("unsupported field in Describe")
+            }
+            out = out + ";"
+        }
+        return out
+    }
+}
+
+interface ClearVars {
+    func clear_vars() {
+        comptime for f in fields(Self) {
+            comptime if f.is_var {
+                comptime match f.type {
+                    Int -> self.(f) = 0
+                    String -> self.(f) = ""
+                    else -> comptime error("unsupported mutable field")
+                }
+            }
+        }
+    }
+}
+
+object User impl Describe, ClearVars {
+    val id: Int
+    pub var name: String
+    var count: Int
+    val note: String?
+    init(id: Int, name: String, count: Int, note: String?) {
+        self.id = id
+        self.name = name
+        self.count = count
+        self.note = note
+    }
+}
+
+func names[T]() -> String {
+    var out = ""
+    comptime for f in fields(T) {
+        out = out + f.name
+    }
+    return out
+}
+
+func concrete_names() -> String {
+    var out = ""
+    comptime for f in fields(User) {
+        out = out + "{f.name}:{f.is_nullable};"
+    }
+    return out
+}
+
+func main() {
+    var u = User(7, "Ada", 3, null)
+    println(u.describe())
+    println(names[User]())
+    println(concrete_names())
+    u.clear_vars()
+    println(u.describe())
+}

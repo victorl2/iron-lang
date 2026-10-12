@@ -241,6 +241,10 @@ static void print_type_ann(PrintCtx *ctx, Iron_Node *node) {
     if (!node) return;
     if (node->kind == IRON_NODE_TYPE_ANNOTATION) {
         Iron_TypeAnnotation *t = (Iron_TypeAnnotation *)node;
+        if (t->reflected_field) {
+            iron_strbuf_appendf(ctx->sb, "%s.type", t->reflected_field);
+            return;
+        }
         /* Phase 20 PTR-13/14: pointer types `*T` / `*var T` / `?*T` /
          * `?*var T`. Leading-`?` precedes the `*`, `var` modifier follows
          * the `*` with a trailing space (locked by 20-CONTEXT.md OQ-A). */
@@ -763,6 +767,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_IF: {
             Iron_IfStmt *n = (Iron_IfStmt *)node;
+            if (n->is_comptime) iron_strbuf_appendf(ctx->sb, "comptime ");
             iron_strbuf_appendf(ctx->sb, "if ");
             print_node(ctx, n->condition);
             iron_strbuf_appendf(ctx->sb, " ");
@@ -791,6 +796,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FOR: {
             Iron_ForStmt *n = (Iron_ForStmt *)node;
+            if (n->is_comptime) iron_strbuf_appendf(ctx->sb, "comptime ");
             if (n->var_name2) iron_strbuf_appendf(ctx->sb, "for (%s, %s) in ", n->var_name, n->var_name2);
             else iron_strbuf_appendf(ctx->sb, "for %s in ", n->var_name);
             print_node(ctx, n->iterable);
@@ -818,14 +824,17 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_MATCH: {
             Iron_MatchStmt *n = (Iron_MatchStmt *)node;
+            if (n->is_comptime) iron_strbuf_appendf(ctx->sb, "comptime ");
             iron_strbuf_appendf(ctx->sb, "match ");
-            print_node(ctx, n->subject);
+            if (n->is_comptime) print_type_ann(ctx, n->subject);
+            else print_node(ctx, n->subject);
             iron_strbuf_appendf(ctx->sb, " {\n");
             ctx->indent_level++;
             for (int i = 0; i < n->case_count; i++) {
                 print_indent(ctx);
                 Iron_MatchCase *mc = (Iron_MatchCase *)n->cases[i];
-                print_node(ctx, mc->pattern);
+                if (n->is_comptime) print_type_ann(ctx, mc->pattern);
+                else print_node(ctx, mc->pattern);
                 iron_strbuf_appendf(ctx->sb, " -> ");
                 if (mc->body->kind == IRON_NODE_BLOCK) {
                     print_block(ctx, mc->body);
@@ -995,7 +1004,10 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
         case IRON_NODE_FIELD_ACCESS: {
             Iron_FieldAccess *n = (Iron_FieldAccess *)node;
             print_node(ctx, n->object);
-            iron_strbuf_appendf(ctx->sb, ".%s", n->field);
+            if (n->reflected_field)
+                iron_strbuf_appendf(ctx->sb, ".(%s)", n->reflected_field);
+            else
+                iron_strbuf_appendf(ctx->sb, ".%s", n->field);
             break;
         }
 
