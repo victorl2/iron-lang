@@ -10,6 +10,13 @@ set -euo pipefail
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 GRAMMAR_DIR="$REPO/grammars/tree-sitter/iron"
+# tree-sitter caches the compiled parser by language name in one directory
+# for every checkout and rebuilds it only when src/parser.c is newer than
+# the cached library, so with several checkouts of the grammar on one
+# machine it would run another checkout's parser. Keep this checkout's
+# library in a directory of its own (.cache/ is ignored by git).
+export TREE_SITTER_LIBDIR="${TREE_SITTER_LIBDIR:-$GRAMMAR_DIR/.cache/tree-sitter-lib}"
+mkdir -p "$TREE_SITTER_LIBDIR"
 PY=$1
 IRONC=$2
 
@@ -26,11 +33,5 @@ fi
 
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-# tree-sitter caches the compiled parser by language name in a directory
-# shared by every checkout and rebuilds it only when src/parser.c is newer,
-# so a parser built from another checkout of the grammar would be used
-# here. Compile this checkout's parser into a directory of its own.
-export TREE_SITTER_LIBDIR="$out/ts-lib"
-mkdir -p "$TREE_SITTER_LIBDIR"
 "$PY" "$REPO/tests/fuzz/ts_diff.py" --ironc "$IRONC" --tree-sitter "$TS" \
     --seed 1 --count 200 --corpus 100 --mutants 2 -j 4 --out "$out"
