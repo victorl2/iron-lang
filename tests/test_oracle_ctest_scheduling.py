@@ -79,6 +79,25 @@ def main() -> int:
             print(f"{name}: PROCESSORS must be at least 4", file=sys.stderr)
             failed = True
 
+    three_worker_tests = (
+        "lsp_fuzz_short",
+        "fmt_fuzz_short",
+    )
+    for name in three_worker_tests:
+        if properties(tests[name]).get("PROCESSORS", 0) < 3:
+            print(f"{name}: PROCESSORS must be at least 3", file=sys.stderr)
+            failed = True
+
+    lsp_fuzz_command = tests["lsp_fuzz_short"]["command"]
+    try:
+        deadline = float(lsp_fuzz_command[lsp_fuzz_command.index("--deadline") + 1])
+    except (ValueError, IndexError):
+        deadline = 0
+    if deadline < 120:
+        print("lsp_fuzz_short: request deadline must be at least 120 seconds",
+              file=sys.stderr)
+        failed = True
+
     two_worker_tests = (
         "json_fuzz",
         "test_manual",
