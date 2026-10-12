@@ -484,7 +484,15 @@ dot1 dot3 square2
 `(T1, T2, ...)` with at least two element types is a tuple type. A tuple
 value is written `(a, b)`. Tuples are used to return several values; they
 are taken apart with a destructuring `val` (section 4.2) and have no other
-operations (there is no positional access).
+operations (there is no positional access). Where a tuple type is expected (a
+return, an argument, an annotated binding), each element of a tuple literal
+converts to its component as it would to a binding of that type: a plain
+`T` or `null` fills a `T?` component (`return (null, "none")` from a
+function returning `(Int?, String)`). A tuple that holds a list, map or set
+(also inside an object or an optional component) is taken apart only where
+it is made, `val (a, b) = f()`: destructuring a binding, parameter, field or
+element holding one would give the list a second owner, and is an error
+like any implicit duplication (`E0328`, section 6.8).
 
 ```iron
 func divmod(a: Int, b: Int) -> (Int, Int) {
@@ -1733,14 +1741,29 @@ top-level declaration a global is private to its file; `pub val` and
 `pub var` share it with the package's other files (`E0320` otherwise). A
 `pure` method may not read a global `var` (`E0241`).
 
-Globals are initialized before `main`, every one of them whether or not
-anything reads it, and each after the globals its initializer reads:
-directly, or through the functions, methods and initializers it calls.
-Globals that do not depend on each other are initialized in declaration
-order; in a package that is the order `iron` compiles its files (section
-10.2). A global whose initializer depends on the global itself is an
-initialization cycle (`E0345`). A global cannot name a later global
-directly (`E0200`).
+Like every declaration, a global is visible in the whole file, also above
+its declaration. Globals are initialized before `main`, every one of them
+whether or not anything reads it, and each after the globals its
+initializer reads: directly, or through the functions, methods and
+initializers it calls. Globals that do not depend on each other are
+initialized in declaration order; in a package that is the order `iron`
+compiles its files (section 10.2). A global whose initializer depends on
+the global itself, such as `val a = b + 1` and `val b = a`, or `val a = f()`
+with `f` reading `a`, is an initialization cycle (`E0345`).
+
+```iron
+val AREA = WIDTH * HEIGHT
+val WIDTH = 4
+val HEIGHT = WIDTH + 1
+
+func main() {
+    println("{AREA} {WIDTH} {HEIGHT}")
+}
+```
+
+```output
+20 4 5
+```
 
 ```iron
 val LIMIT = 10

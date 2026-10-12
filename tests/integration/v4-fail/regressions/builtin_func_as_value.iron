@@ -1,0 +1,5 @@
+-- A built-in function has no function value (E0202).
+func main() {
+    val f = println
+    f("a")
+}

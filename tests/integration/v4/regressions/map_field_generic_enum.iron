@@ -1,0 +1,27 @@
+-- An object field holding a Map of a generic enum instance, and a generic
+-- object instantiated with one: the map's value type is declared first in
+-- the C (#600).
+enum Mb[T] {
+    No,
+    So(T),
+}
+
+object Hold {
+    val a: Map[String, Mb[[Int]]]
+}
+
+object Gp[A, B] {
+    val a: A
+    val b: B
+}
+
+func main() {
+    var m = Map[String, Mb[[Int]]]()
+    m.put("k", Mb.So([1, 2]))
+    m.put("j", Mb.No)
+    val h = Hold(m.take())
+    var m2 = Map[String, Mb[String]]()
+    m2.put("x", Mb.So("y"))
+    val g = Gp[Map[String, Mb[String]], Int](m2.take(), 4)
+    println("{h.a.len()} {m.len()} {g.a.len()} {g.b}")
+}

@@ -1,0 +1,6 @@
+-- A type name is not a value (E0202, #659).
+func main() {
+    val a = 3
+    val b = a * Int ^ 2
+    println("{b}")
+}

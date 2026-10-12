@@ -1560,16 +1560,45 @@ static void register_mono_enum(HIR_to_LIR_Ctx *ctx,
                                 MonoEnumSeen **seen,
                                 Iron_Type *type) {
     /* An instance reached through another type (`Map[String, Opt[String]]`,
-     * `[Opt[Int]]`, `Opt[Int]?`, `rc ...`): used nowhere else, it was never
-     * declared and the table's glue named its missing drop. */
+     * `[Opt[Int]]`, `Opt[Int]?`, `rc ...`, a tuple component, a function
+     * type, a field of a generic object instance): used nowhere else, it was
+     * never declared and the C named its missing struct, list or drop. */
     for (int guard = 0; type && guard < 16; guard++) {
         if (type->kind == IRON_TYPE_ARRAY) { type = type->array.elem; continue; }
         if (type->kind == IRON_TYPE_NULLABLE) { type = type->nullable.inner; continue; }
         if (type->kind == IRON_TYPE_RC) { type = type->rc.inner; continue; }
+        if (type->kind == IRON_TYPE_TUPLE) {
+            for (int i = 0; i < type->tuple.elem_count; i++)
+                register_mono_enum(ctx, seen, type->tuple.elem_types[i]);
+            return;
+        }
+        if (type->kind == IRON_TYPE_FUNC) {
+            for (int i = 0; i < type->func.param_count; i++)
+                register_mono_enum(ctx, seen, type->func.param_types[i]);
+            type = type->func.return_type;
+            continue;
+        }
         if (type->kind == IRON_TYPE_OBJECT && type->object.elem) {
             register_mono_enum(ctx, seen, type->object.elem2);
             type = type->object.elem;
             continue;
+        }
+        if (type->kind == IRON_TYPE_OBJECT && type->object.decl &&
+            type->object.decl->name) {
+            /* The fields of an object (a generic instance holds the
+             * concrete types), once per object. */
+            char key[300];
+            snprintf(key, sizeof(key), "obj:%s", type->object.decl->name);
+            if (shgeti(*seen, key) >= 0) return;
+            char *k = iron_arena_strdup(ctx->lir_arena, key, strlen(key));
+            if (!k) return;
+            shput(*seen, k, true);
+            Iron_ObjectDecl *od = type->object.decl;
+            for (int i = 0; i < od->field_count; i++) {
+                Iron_Field *f = (Iron_Field *)od->fields[i];
+                if (f) register_mono_enum(ctx, seen, f->resolved_type);
+            }
+            return;
         }
         break;
     }
@@ -1600,6 +1629,33 @@ static void collect_mono_enums_node(HIR_to_LIR_Ctx *ctx, MonoEnumSeen **seen,
                                      Iron_Node *node) {
     if (!node) return;
     switch ((int)(node->kind)) {
+        case IRON_NODE_PARAM:
+            register_mono_enum(ctx, seen, ((Iron_Param *)node)->resolved_type);
+            break;
+        case IRON_NODE_ENUM_DECL: {
+            /* The payload types of a plain enum (`V0([Mb[String]])`). */
+            Iron_EnumDecl *ed = (Iron_EnumDecl *)node;
+            if (ed->generic_param_count > 0 || !ctx->global_scope || !ed->name) break;
+            Iron_Symbol *es = iron_scope_lookup(ctx->global_scope, ed->name);
+            Iron_Type *et = es ? es->type : NULL;
+            if (!et || et->kind != IRON_TYPE_ENUM || !et->enu.variant_payload_types) break;
+            for (int j = 0; j < ed->variant_count; j++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+                if (!ev || !et->enu.variant_payload_types[j]) continue;
+                for (int k = 0; k < ev->payload_count; k++)
+                    register_mono_enum(ctx, seen, et->enu.variant_payload_types[j][k]);
+            }
+            break;
+        }
+        case IRON_NODE_OBJECT_DECL: {
+            /* Field types (a generic instance's are concrete). */
+            Iron_ObjectDecl *od = (Iron_ObjectDecl *)node;
+            for (int i = 0; i < od->field_count; i++) {
+                Iron_Field *f = (Iron_Field *)od->fields[i];
+                if (f) register_mono_enum(ctx, seen, f->resolved_type);
+            }
+            break;
+        }
         case IRON_NODE_FUNC_DECL: {
             Iron_FuncDecl *fd = (Iron_FuncDecl *)node;
             register_mono_enum(ctx, seen, fd->resolved_return_type);
@@ -2526,6 +2582,10 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 }
             }
             IronLIR_ValueId av = lower_expr(ctx, expr->call.args[i]);
+            /* An owned temporary is noted with its own type, before it is
+             * wrapped for a T? parameter: the drop slot was typed T and
+             * stored the optional (C type error for an object argument). */
+            note_owned_temp(ctx, &temps, expr->call.args[i], av, span);
             {
                 Iron_Type *ct = expr->call.callee ? expr->call.callee->type : NULL;
                 if (ct && ct->kind == IRON_TYPE_FUNC && i < ct->func.param_count &&
@@ -2543,7 +2603,6 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
              * call forms consistent. Sound single-threaded because the
              * caller's reference outlives the call; a callee that stores
              * the argument into a binding retains via the LET alias path. */
-            note_owned_temp(ctx, &temps, expr->call.args[i], av, span);
             arrput(args, av);
         }
         /* For direct calls: callee is an IDENT or FUNC_REF → look up func_decl */
@@ -3627,8 +3686,32 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         /* Arguments are borrowed; owned temporaries are released after the
          * call. (List push / insert take ownership on the collection path
          * above.) */
+        bool *m_by_addr = NULL;
+        bool m_any_by_addr = false;
         for (int i = (ufcs_static ? 1 : 0); i < expr->method_call.arg_count; i++) {
             IronHIR_Expr *ae = expr->method_call.args[i];
+            /* A `var` parameter of the method takes the binding by address,
+             * as for a free function (#604). */
+            {
+                int vpi = (int)arrlen(args);
+                if (callee_tf && callee_tf->param_is_var && vpi < callee_tf->param_count &&
+                    callee_tf->param_is_var[vpi] && ae && ae->kind == IRON_HIR_EXPR_IDENT) {
+                    ptrdiff_t aai = hmgeti(ctx->var_alloca_map, ae->ident.var_id);
+                    if (aai >= 0) {
+                        if (!m_by_addr) {
+                            m_by_addr = (bool *)iron_arena_alloc(
+                                ctx->lir_arena, (size_t)(callee_tf->param_count + expr->method_call.arg_count + 1) * sizeof(bool),
+                                _Alignof(bool));
+                            if (!m_by_addr) iron_oom_abort("hir_to_lir.c:method by_addr");
+                            memset(m_by_addr, 0, (size_t)(callee_tf->param_count + expr->method_call.arg_count + 1) * sizeof(bool));
+                        }
+                        m_by_addr[vpi] = true;
+                        m_any_by_addr = true;
+                        arrput(args, ctx->var_alloca_map[aai].value);
+                        continue;
+                    }
+                }
+            }
             IronLIR_ValueId av = lower_expr(ctx, ae);
             note_owned_temp(ctx, &temps, ae, av, span);
             /* A `T?` parameter takes a T argument (or null) wrapped, as a
@@ -3654,6 +3737,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         IronLIR_Instr *call = iron_lir_call(ctx->current_func, ctx->current_block,
                                               NULL, fref->id,
                                               args, arg_count, type, span);
+        if (m_any_by_addr) call->call.args_by_addr = m_by_addr;
         /* Pointer-receiver stdlib methods — the C impl takes the receiver by
          * pointer (Iron_Timer *) while the Iron method signature takes it by
          * value. Only the mutating Timer methods need this; Iron_timer_done
@@ -4093,6 +4177,10 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                              vi >= 0 && et->enu.variant_payload_types[vi])
                             ? et->enu.variant_payload_types[vi][i] : NULL;
             if (!pt && ae) pt = ae->type;
+            /* A plain T or null into a T? payload is wrapped like a T? field
+             * or argument: the C stored `5` into the Optional's value with
+             * has_value false and failed to compile on null (#598). */
+            av = coerce_to_optional(ctx, av, pt, span);
             if (pt && type_is_rc_like(pt)) {
                 if (!rc_expr_transfers_ownership(ae))
                     emit_rc_retain_for_type(ctx, pt, av, span);
@@ -5673,6 +5761,7 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
 
     /* PARM-02: propagate the honored var-param flags (NULL = none). */
     lir_func->param_is_var = lir_param_is_var;
+    lir_func->is_user_func = hir_func->is_user_func;
 
     /* Phase 80 MUT-07: propagate mut-receiver flag HIR→LIR so emit_c.c can
      * emit pointer-receiver signature + `->` field access for the body. */

@@ -274,6 +274,10 @@ typedef struct {
 const char *emit_mangle_name(const char *name, Iron_Arena *arena);
 const char *emit_object_type_name(const char *name, EmitCtx *ctx);
 const char *emit_mangle_func_name(const char *name, Iron_Arena *arena);
+/* #524: the build registers the C symbols of the runtime and standard
+ * library headers; iron_lir_emit_c renames a colliding free function. */
+void iron_lir_emit_add_reserved_c_name(const char *name);
+void emit_plan_func_renames(IronLIR_Module *module);
 const char *emit_resolve_func_c_name(EmitCtx *ctx, const char *ir_name);
 const char *emit_sanitize_label(const char *label, Iron_Arena *arena);
 

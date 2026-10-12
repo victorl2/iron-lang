@@ -1,0 +1,11 @@
+-- Global initializers that read each other through a function (E0345).
+val A = f()
+val B = A + 1
+
+func f() -> Int {
+    return B * 2
+}
+
+func main() {
+    println("{A} {B}")
+}

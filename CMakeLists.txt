@@ -1733,6 +1733,7 @@ if(Python3_EXECUTABLE)
         set_tests_properties(cli_fuzz PROPERTIES LABELS "tooling" TIMEOUT 900)
     endif()
 endif()
+include(${CMAKE_SOURCE_DIR}/tests/fuzz/cg_tests.cmake)
 # The standard library prelude, parsed by every compile, stays within the
 # section 13 grammar of the manual (#324).
 if(Python3_EXECUTABLE)

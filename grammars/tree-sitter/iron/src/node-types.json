@@ -345,7 +345,18 @@
   {
     "type": "array_type",
     "named": true,
-    "fields": {},
+    "fields": {
+      "nullable": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "?",
+            "named": false
+          }
+        ]
+      }
+    },
     "children": {
       "multiple": true,
       "required": true,
@@ -641,7 +652,18 @@
   {
     "type": "bounded_vector_type",
     "named": true,
-    "fields": {},
+    "fields": {
+      "nullable": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "?",
+            "named": false
+          }
+        ]
+      }
+    },
     "children": {
       "multiple": true,
       "required": true,

@@ -1,0 +1,37 @@
+-- A generic object instance written nullable keeps its `?` (#606): null was
+-- rejected and an instance passed for it was not wrapped. An object field
+-- of tuple type crashed the C emitter (#606).
+object Gp[A, B] {
+    val a: A
+    val b: B
+}
+
+object R1 {
+    val f0: String
+    val f2: (Bool, Int)
+}
+
+func f(x: Gp[String, [Bool]]?) -> String {
+    if x != null {
+        return x.a
+    }
+    return "N"
+}
+
+func g(x: Gp[String, Int]?) -> String {
+    if x != null {
+        return "{x.a}{x.b}"
+    }
+    return "N"
+}
+
+func main() {
+    println(f(null))
+    println(f(Gp[String, [Bool]]("y", [true])))
+    println(g(Gp[String, Int]("a", 1)))
+    val o: Gp[String, Int]? = null
+    println(g(o))
+    val r = R1("x", (true, 3))
+    val (a, b) = r.f2
+    println("{r.f0} {a} {b}")
+}
