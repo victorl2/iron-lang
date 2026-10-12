@@ -49,8 +49,17 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
         set_tests_properties(lsp_smoke PROPERTIES
             LABELS "smoke;phase-m1-invariant"
-            TIMEOUT 120
+            TIMEOUT 900
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+        # This aggregate launches or talks to ironls for 53 cases. Preserve a
+        # finite cap with scheduler headroom on loaded runners (#763).
+        add_test(NAME test_lsp_smoke_timeout
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
+                ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
+                lsp_smoke 900)
+        set_tests_properties(test_lsp_smoke_timeout PROPERTIES
+            LABELS "smoke;phase-m1-invariant;unit")
 
         # Phase 3 Plan 01 Wave 0: lsp_nav_smoke -- 7 pytest stubs under
         # tests/lsp/smoke/nav/ for the NAV endpoints. Stubs use
