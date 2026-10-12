@@ -3257,3 +3257,17 @@ install(FILES src/debug/iron_gdb.py src/debug/iron_lldb.py src/debug/iron_dap.py
 # this rule, every fresh install fails to compile any program with
 # 'diagnostics/diagnostics.h: file not found' (issue #47).
 install(DIRECTORY src/diagnostics/ DESTINATION lib/diagnostics COMPONENT iron FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
+
+# Instrumented compiler invocations can spend close to a minute in clang on a
+# loaded CI host. Keep the shorter Release limits, but give every integration
+# test at least two minutes in sanitizer builds (#749, #750).
+if(IRON_ENABLE_SANITIZERS)
+    get_property(_iron_all_tests DIRECTORY PROPERTY TESTS)
+    foreach(_iron_test IN LISTS _iron_all_tests)
+        get_property(_iron_labels TEST "${_iron_test}" PROPERTY LABELS)
+        get_property(_iron_timeout TEST "${_iron_test}" PROPERTY TIMEOUT)
+        if("integration" IN_LIST _iron_labels AND _iron_timeout AND _iron_timeout LESS 120)
+            set_property(TEST "${_iron_test}" PROPERTY TIMEOUT 120)
+        endif()
+    endforeach()
+endif()
