@@ -2,8 +2,11 @@
 """Keep exhaustive CTest oracles from oversubscribing small CI runners."""
 
 import json
+import os
+from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 
 def properties(test: dict) -> dict:
@@ -56,6 +59,20 @@ def main() -> int:
             failed = True
         if props.get("TIMEOUT", 0) < 1800:
             print(f"{name}: TIMEOUT must be at least 1800 seconds", file=sys.stderr)
+            failed = True
+
+    runner = Path(__file__).with_name("run_tests.sh")
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as cpu_max:
+        cpu_max.write("400000 100000\n")
+        cpu_max.flush()
+        env = dict(os.environ, IRON_TEST_PRINT_JOBS="1",
+                   IRON_TEST_CPU_MAX_FILE=cpu_max.name)
+        env.pop("IRON_TEST_JOBS", None)
+        jobs = subprocess.run(["bash", str(runner)], check=True, capture_output=True,
+                              text=True, env=env).stdout.strip()
+        if jobs != "2":
+            print(f"run_tests.sh: 4-CPU cgroup quota selected {jobs} workers, want 2",
+                  file=sys.stderr)
             failed = True
     return int(failed)
 
