@@ -57,4 +57,16 @@ for src in "$here"/*.refuse; do
         echo "ok   $name (refused)"
     fi
 done
+
+# An explicit path is subject to the same .iron filter as files discovered
+# below a directory. In particular, migration must not rewrite arbitrary text.
+printf '%s\n' '-- keep this text' > "$work/README.txt"
+cp "$work/README.txt" "$work/README.before"
+if "$ironc" fmt --migrate-comments "$work/README.txt" >/dev/null 2>&1 ||
+   ! cmp -s "$work/README.before" "$work/README.txt"; then
+    echo "FAIL non_iron: explicit non-.iron file should be refused and left alone"
+    fail=1
+else
+    echo "ok   non_iron (refused)"
+fi
 exit $fail

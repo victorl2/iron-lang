@@ -355,6 +355,11 @@ static void migrate_path(const char *path, MigrateStats *st, int depth) {
         return;
     }
     if (!S_ISDIR(sb.st_mode)) {
+        if (!has_iron_ext(path)) {
+            fprintf(stderr, "iron fmt: '%s' is not an .iron source file\n", path);
+            st->failed++;
+            return;
+        }
         migrate_file(path, st);
         return;
     }
