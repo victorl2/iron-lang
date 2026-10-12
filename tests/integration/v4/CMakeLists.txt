@@ -74,7 +74,9 @@ if(NOT WIN32)
     set_tests_properties(test_leak_check PROPERTIES
         LABELS "oracle;v4-acceptance"
         PROCESSORS 2
-        TIMEOUT 3600)
+        # The expanded corpus can exceed an hour when this runs beside other
+        # aggregate tests in the documented parallel full-suite invocation.
+        TIMEOUT 7200)
 endif()
 
 # Crypto cross-check: the crypto and encoding modules against Python's
