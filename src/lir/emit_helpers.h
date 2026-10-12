@@ -22,6 +22,13 @@
 
 /* ── Loop fusion chain types (Phase 49) ──────────────────────────────────── */
 
+/* The members of a function's first parameter (self) that it may write
+ * (emit_c.c emit_self_writes). */
+struct EmitSelfWrites {
+    bool         all;
+    const char **members;   /* stb_ds array of arena strings */
+};
+
 typedef struct {
     IronLIR_ValueId call_vid;      /* ValueId of the CALL instruction */
     const char *method;            /* "map", "filter", "reduce", "forEach", "sum" */
@@ -242,6 +249,10 @@ typedef struct {
         const char     *list_c; /* Iron_List_<T> */
         bool            read_only;
     } *soa_borrows;             /* stb_ds array */
+    /* Function name -> the members of its first parameter (self) that the
+     * function may write, so a lent element writes back only those
+     * (emit_self_writes). */
+    struct { char *key; struct EmitSelfWrites *value; } *soa_self_writes;
 
     /* Map of "iface_mangled:type_name" -> true for SoA types (Phase 48-02) */
     struct { char *key; bool value; } *soa_types;

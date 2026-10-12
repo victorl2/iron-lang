@@ -561,6 +561,21 @@ static void emit_object_soa_impl(EmitCtx *ctx, const char *m, Iron_ObjectDecl *o
         "  return self.soa ? &Iron_List_%s_col%d(&self)[i] : &self.items[i].%s;\n}\n",
         m, ms[f].name, m, ms[f].name, m, m, f, ms[f].name);
 
+    /* Stores one member of *v into element i: what a lent element writes
+     * back when the borrower can only have changed that member. */
+    EACH {
+        iron_strbuf_appendf(sb,
+            "static inline void Iron_List_%s_put_%s(Iron_List_%s *self, int64_t i, const %s *v) {\n",
+            m, ms[f].name, m, m);
+        if (ms[f].is_array)
+            iron_strbuf_appendf(sb,
+                "  __builtin_memcpy(Iron_List_%s_field_%s(*self, i), &v->%s, sizeof v->%s);\n}\n",
+                m, ms[f].name, ms[f].name, ms[f].name);
+        else
+            iron_strbuf_appendf(sb, "  *Iron_List_%s_field_%s(*self, i) = v->%s;\n}\n",
+                                m, ms[f].name, ms[f].name);
+    }
+
     /* Moves count elements from index src to index dst inside the list's
      * storage (the ranges may overlap): one memmove per column. */
     SOA("static void @_move(@ *self, int64_t dst, int64_t src, int64_t count) {\n"

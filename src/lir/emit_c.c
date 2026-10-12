@@ -3088,6 +3088,150 @@ static void emit_ff_spawn_call(Iron_StrBuf *out, EmitCtx *ctx, const char *func_
 static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx);
 
+/* The members of self (its first parameter) that `callee` may write: the
+ * ones it assigns, the ones whose storage it hands to a call or takes the
+ * address of, and those of the methods it calls on self. `all` when self
+ * is used in any way this does not follow (stored, passed on as another
+ * argument, a recursive call). A lent column list element writes back
+ * only these members; the rest of its columns are left alone. */
+/* The instruction defining `vid` in `fn`, which need not be the function
+ * being emitted (emit_def_instr reads that one's cache). */
+static IronLIR_Instr *self_writes_def(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID || (ptrdiff_t)vid >= arrlen(fn->value_table)) return NULL;
+    return fn->value_table[vid];
+}
+
+static void self_writes_add(EmitCtx *ctx, struct EmitSelfWrites *w, const char *field) {
+    if (!field) { w->all = true; return; }
+    const char *dot = strchr(field, '.');
+    size_t n = dot ? (size_t)(dot - field) : strlen(field);
+    for (ptrdiff_t i = 0; i < arrlen(w->members); i++)
+        if (strlen(w->members[i]) == n && strncmp(w->members[i], field, n) == 0) return;
+    const char *copy = iron_arena_strdup(ctx->arena, field, n);
+    if (!copy) iron_oom_abort("emit_c.c:self_writes_add");
+    arrput(w->members, copy);
+}
+
+/* Whether a value of type `t` can still reach the storage it was read
+ * from: a number, a Bool or a String is a plain copy and cannot. */
+static bool self_writes_type_aliases(const Iron_Type *t) {
+    if (!t) return true;
+    return !(iron_type_is_numeric(t) || t->kind == IRON_TYPE_BOOL ||
+             t->kind == IRON_TYPE_STRING || t->kind == IRON_TYPE_VOID);
+}
+
+static const struct EmitSelfWrites *emit_self_writes(EmitCtx *ctx, IronLIR_Func *callee) {
+    static const struct EmitSelfWrites everything = { true, NULL };
+    if (!callee || !callee->name || callee->is_extern || callee->block_count == 0 ||
+        callee->param_count < 1)
+        return &everything;
+    ptrdiff_t ci = shgeti(ctx->soa_self_writes, callee->name);
+    if (ci >= 0) return ctx->soa_self_writes[ci].value;
+    struct EmitSelfWrites *w = (struct EmitSelfWrites *)iron_arena_alloc(
+        ctx->arena, sizeof(*w), _Alignof(struct EmitSelfWrites));
+    if (!w) iron_oom_abort("emit_c.c:emit_self_writes");
+    w->all = true;          /* what a recursive call sees */
+    w->members = NULL;
+    shput(ctx->soa_self_writes, callee->name, w);
+
+    /* from[v]: the member of self that value v was read from and may still
+     * reach: `self.m` itself, and whatever is derived from it that is not a
+     * plain copy (`self.inner`, an unwrapped `self.opt`, `self.xs[i]`). */
+    const IronLIR_ValueId self = 1;
+    ptrdiff_t nv = arrlen(callee->value_table);
+    const char **from = (const char **)calloc((size_t)(nv > 0 ? nv : 1), sizeof(char *));
+    if (!from) iron_oom_abort("emit_c.c:emit_self_writes from");
+    IronLIR_ValueId *derived = NULL;        /* the values with from[v] set */
+    bool all = false;
+    for (bool changed = true; changed && !all; ) {
+        changed = false;
+        for (int bi = 0; bi < callee->block_count; bi++) {
+            IronLIR_Block *blk = callee->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (!in || in->id == IRON_LIR_VALUE_INVALID || (ptrdiff_t)in->id >= nv ||
+                    from[in->id]) continue;
+                const char *m = NULL;
+                if (in->kind == IRON_LIR_GET_FIELD && in->field.object == self) {
+                    m = in->field.field;
+                } else if (self_writes_type_aliases(in->type)) {
+                    for (ptrdiff_t d = 0; d < arrlen(derived) && !m; d++)
+                        if (iron_lir_instr_uses_value(in, derived[d])) m = from[derived[d]];
+                }
+                if (m) {
+                    from[in->id] = m;
+                    arrput(derived, in->id);
+                    changed = true;
+                }
+            }
+        }
+    }
+#define FROM(v) ((v) != IRON_LIR_VALUE_INVALID && (ptrdiff_t)(v) < nv ? from[v] : NULL)
+    for (int bi = 0; bi < callee->block_count && !all; bi++) {
+        IronLIR_Block *blk = callee->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count && !all; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            if (!in) continue;
+            switch ((int)in->kind) {
+            case IRON_LIR_GET_FIELD:
+            case IRON_LIR_GET_INDEX:
+                break;                                   /* reads */
+            case IRON_LIR_SET_FIELD:
+                if (in->field.value == self) { all = true; break; }
+                if (in->field.object == self) self_writes_add(ctx, w, in->field.field);
+                else if (FROM(in->field.object)) self_writes_add(ctx, w, FROM(in->field.object));
+                break;
+            case IRON_LIR_SET_INDEX:
+                if (in->index.value == self || in->index.array == self) { all = true; break; }
+                if (FROM(in->index.array)) self_writes_add(ctx, w, FROM(in->index.array));
+                break;
+            case IRON_LIR_ADDR_OF:
+                if (in->addr_of.target == self) { all = true; break; }
+                if (FROM(in->addr_of.target)) self_writes_add(ctx, w, FROM(in->addr_of.target));
+                break;
+            case IRON_LIR_CALL:
+                if (in->call.func_ptr == self) { all = true; break; }
+                for (int a = 0; a < in->call.arg_count && !all; a++) {
+                    IronLIR_ValueId av = in->call.args[a];
+                    if (av == self) {
+                        IronLIR_Instr *fr = self_writes_def(callee, in->call.func_ptr);
+                        IronLIR_Func *inner = (a == 0 && fr && fr->kind == IRON_LIR_FUNC_REF &&
+                                               fr->func_ref.func_name)
+                            ? emit_find_ir_func(ctx, fr->func_ref.func_name) : NULL;
+                        const struct EmitSelfWrites *iw = emit_self_writes(ctx, inner);
+                        if (iw->all) { all = true; break; }
+                        for (ptrdiff_t k = 0; k < arrlen(iw->members); k++)
+                            self_writes_add(ctx, w, iw->members[k]);
+                    } else if (FROM(av)) {
+                        self_writes_add(ctx, w, FROM(av));
+                    }
+                }
+                break;
+            case IRON_LIR_STORE:
+            case IRON_LIR_MAKE_CLOSURE:
+            case IRON_LIR_SPAWN:
+            case IRON_LIR_PARALLEL_FOR:
+                /* a member's storage kept in a slot or captured */
+                if (iron_lir_instr_uses_value(in, self)) { all = true; break; }
+                for (ptrdiff_t d = 0; d < arrlen(derived); d++)
+                    if (iron_lir_instr_uses_value(in, derived[d]))
+                        self_writes_add(ctx, w, from[derived[d]]);
+                break;
+            default:
+                /* self stored, returned, compared, captured or converted
+                 * as a whole: not followed */
+                if (iron_lir_instr_uses_value(in, self)) all = true;
+                break;
+            }
+        }
+    }
+#undef FROM
+    free(from);
+    arrfree(derived);
+    w->all = all;
+    return w;
+}
+
 /* Ends the loans of whole column list elements (see emit_receiver_addr)
  * that `instr` settles: the ones it took as a method receiver, and the
  * `&ps[i]` pointers it received as arguments. The gathered copy goes back
@@ -3096,7 +3240,6 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
  * made by an ADDR_OF waits for the call that takes the pointer. */
 static void emit_soa_write_back(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 IronLIR_Func *fn, EmitCtx *ctx, ptrdiff_t lent_before) {
-    (void)fn;
     for (ptrdiff_t i = 0; i < arrlen(ctx->soa_borrows); ) {
         struct EmitSoaBorrow *b = &ctx->soa_borrows[i];
         bool settle = false;
@@ -3130,13 +3273,35 @@ static void emit_soa_write_back(Iron_StrBuf *sb, IronLIR_Instr *instr,
             settle = true;
         }
         if (!settle) { i++; continue; }
-        if (!b->read_only) {
+        /* A method that received the element as self, and in no other
+         * argument, wrote at most the members its body can reach. */
+        const struct EmitSelfWrites *sw = NULL;
+        if (!b->read_only && instr->kind == IRON_LIR_CALL && instr->call.arg_count > 0 &&
+            instr->call.args[0] == b->vid && b->ptr == IRON_LIR_VALUE_INVALID) {
+            bool again = false;
+            for (int a = 1; a < instr->call.arg_count; a++)
+                if (instr->call.args[a] == b->vid) again = true;
+            for (ptrdiff_t o = 0; o < arrlen(ctx->soa_borrows); o++)
+                if (o != i && ctx->soa_borrows[o].vid == b->vid) again = true;
+            IronLIR_Instr *fr = emit_def_instr(fn, instr->call.func_ptr);
+            if (!again && fr && fr->kind == IRON_LIR_FUNC_REF && fr->func_ref.func_name)
+                sw = emit_self_writes(ctx, emit_find_ir_func(ctx, fr->func_ref.func_name));
+        }
+        if (!b->read_only && !(sw && !sw->all && arrlen(sw->members) == 0)) {
             char v[32];
             snprintf(v, sizeof(v), "_sb%u", (unsigned)b->vid);
             emit_indent(sb, ctx->indent);
-            iron_strbuf_appendf(sb,
-                "if ((uint64_t)%s_i < (uint64_t)%s_l->count) %s_write(%s_l, %s_i, %s);\n",
-                v, v, b->list_c, v, v, v);
+            if (sw && !sw->all) {
+                iron_strbuf_appendf(sb, "if ((uint64_t)%s_i < (uint64_t)%s_l->count) {", v, v);
+                for (ptrdiff_t k = 0; k < arrlen(sw->members); k++)
+                    iron_strbuf_appendf(sb, " %s_put_%s(%s_l, %s_i, &%s);",
+                                        b->list_c, sw->members[k], v, v, v);
+                iron_strbuf_appendf(sb, " }\n");
+            } else {
+                iron_strbuf_appendf(sb,
+                    "if ((uint64_t)%s_i < (uint64_t)%s_l->count) %s_write(%s_l, %s_i, %s);\n",
+                    v, v, b->list_c, v, v, v);
+            }
         }
         arrdel(ctx->soa_borrows, i);
     }
