@@ -1674,7 +1674,10 @@ if(Python3_EXECUTABLE)
         add_test(NAME cli_fuzz
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/cli_fuzz.py
                 --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/cli_fuzz)
-        set_tests_properties(cli_fuzz PROPERTIES LABELS "tooling" TIMEOUT 900)
+        # Keep the standalone 120-second hang detector, but allow compiler-heavy
+        # commands more time when this suite shares a parallel ASan run.
+        set_tests_properties(cli_fuzz PROPERTIES
+            LABELS "tooling" TIMEOUT 900 ENVIRONMENT "CF_TIMEOUT=300")
     endif()
 endif()
 # The standard library prelude, parsed by every compile, stays within the
