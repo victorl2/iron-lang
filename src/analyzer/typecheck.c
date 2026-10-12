@@ -4418,10 +4418,15 @@ static bool is_open_generic_construct(TypeCtx *ctx, Iron_Node *n) {
         name = ((Iron_ConstructExpr *)n)->type_name;
     }
     if (!name) return false;
+    /* Only what its own arguments cannot type: a Map, a Set or a Channel,
+     * and a generic called with no arguments (Mutex(v), f(x) infer from
+     * theirs and are checked as usual). */
     if (strcmp(name, "Map") == 0 || strcmp(name, "Set") == 0 ||
-        strcmp(name, "Channel") == 0 || strcmp(name, "Mutex") == 0 ||
-        strcmp(name, "RWLock") == 0 || strcmp(name, "Box") == 0)
+        strcmp(name, "Channel") == 0)
         return true;
+    int argc = n->kind == IRON_NODE_CALL ? ((Iron_CallExpr *)n)->arg_count
+                                         : ((Iron_ConstructExpr *)n)->arg_count;
+    if (argc != 0) return false;
     Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, name);
     return sym && sym->decl_node && ctx->program &&
            iron_generics_is_template(ctx->program, sym->decl_node);
