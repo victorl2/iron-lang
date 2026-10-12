@@ -1,0 +1,47 @@
+-- Motivating Incident: #679 silently used AoS for concrete SoA lists.
+-- Layout Diagram: AoS [object, object]; SoA [field0, field0] [field1, field1].
+-- Fix Summary: emit_structs.c emits column storage and lifecycle helpers;
+-- emit_c.c routes indexing and borrowed storage through those helpers.
+-- Severity: M, explicit layout behavior and ownership could be incorrect.
+enum Token { Number(Int), Text(String) }
+object Leaf { var n: Int
+ init(n: Int) { self.n = n }
+}
+object Resource { val n: Int
+    drop { println("resource {self.n}") }
+}
+object Shape {
+    var nested: Leaf
+    var data: [Int]
+    val maybe: String?
+    val token: Token
+    val strong: rc Resource
+    val back: weak rc Resource
+    init(n: Int, strong: rc Resource) {
+        self.nested = Leaf(n)
+        self.data = [n, n + 1]
+        self.maybe = "long optional string payload {n} abcdefghijklmnop"
+        self.token = Token.Text("long enum payload string {n} abcdefghijklmnop")
+        self.strong = strong
+        self.back = strong.downgrade()
+    }
+}
+func main() {
+    val resource = rc Resource(7)
+    var ps: [Shape, layout: soa] = []
+    ps.push(Shape(1, resource))
+    ps.push(Shape(2, resource))
+    ps[0].nested.n = 9
+    ps[0].data.push(8)
+    println("{ps[0].nested.n} {ps[0].data.len()} {ps[1].strong.n}")
+    val cp = ps.copy()
+    ps[0].data[0] = 30
+    println("{cp[0].data[0]} {ps[0].data[0]}")
+    match cp[1].token {
+        Token.Number(n) -> println("{n}")
+        Token.Text(s) -> println("{s}")
+    }
+    val popped = ps.pop()
+    println("{popped.nested.n}")
+    ps.clear()
+}

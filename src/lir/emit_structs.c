@@ -91,7 +91,7 @@ typedef struct {
  * the struct body for these names so the runtime header owns the layout.
  * Keyed on the surface type NAME (pre-mangle); the matching C typedefs are
  * Iron_Arena / Iron_ArenaSave / Iron_Box. */
-static bool ir_is_runtime_provided_type(const char *name) {
+bool ir_is_runtime_provided_type(const char *name) {
     if (!name) return false;
     return strcmp(name, "Arena")     == 0 ||
            strcmp(name, "ArenaSave") == 0 ||
@@ -428,6 +428,132 @@ static bool list_struct_predeclared(EmitCtx *ctx, const char *mangled) {
     return false;
 }
 
+/* Concrete SoA lists share the ordinary list ABI for each element type.
+ * A non-null column table selects SoA. Ownership stays with the list; gather
+ * and scatter move field bits and never run user copy or drop blocks. */
+static void soa_template(Iron_StrBuf *sb, const char *text, const char *elem) {
+    for (const char *p = text; *p; p++) {
+        if (*p == '@') iron_strbuf_appendf(sb, "Iron_List_%s", elem);
+        else if (*p == '$') iron_strbuf_appendf(sb, "%s", elem);
+        else { char c[2] = {*p, 0}; iron_strbuf_appendf(sb, "%s", c); }
+    }
+}
+static void emit_object_soa_impl(EmitCtx *ctx, const char *m, Iron_ObjectDecl *od,
+                                 bool drop, bool copy) {
+    Iron_StrBuf *sb = &ctx->struct_bodies;
+#define SOA(text) soa_template(sb, text, m)
+    if (drop) iron_strbuf_appendf(sb, "static void %s_drop(%s *);\n", m, m);
+    if (copy) iron_strbuf_appendf(sb, "static void %s_copied(%s *);\n", m, m);
+    iron_strbuf_appendf(sb, "/* Column %d holds optional contiguous borrow storage. */\n", od->field_count);
+    SOA("static inline $ @_read(@ self, int64_t i) {\n"
+        "  if (!self._soa_fields) return self.items[i];\n");
+    iron_strbuf_appendf(sb, "  if (self._soa_fields[%d]) return ((%s *)self._soa_fields[%d])[i];\n", od->field_count, m, od->field_count);
+    SOA("  $ out = {0};\n");
+    for (int f = 0; f < od->field_count; f++) {
+        Iron_Field *field = (Iron_Field *)od->fields[f];
+        iron_strbuf_appendf(sb, "  out.%s = ((__typeof__(out.%s) *)self._soa_fields[%d])[i];\n",
+                            field->name, field->name, f);
+    }
+    SOA("  return out;\n}\n"
+        "static inline void @_write(@ *self, int64_t i, $ v) {\n"
+        "  if (!self->_soa_fields) { self->items[i] = v; return; }\n");
+    iron_strbuf_appendf(sb, "  if (self->_soa_fields[%d]) { ((%s *)self->_soa_fields[%d])[i] = v; return; }\n", od->field_count, m, od->field_count);
+    for (int f = 0; f < od->field_count; f++) {
+        Iron_Field *field = (Iron_Field *)od->fields[f];
+        iron_strbuf_appendf(sb, "  ((__typeof__(v.%s) *)self->_soa_fields[%d])[i] = v.%s;\n",
+                            field->name, f, field->name);
+    }
+    SOA("}\n@ @_create(void) { return (@){0}; }\n"
+        "@ @_create_soa(void) { @ out = {0};\n");
+    iron_strbuf_appendf(sb, "  out._soa_fields = iron_mem_calloc(%d, sizeof(void *));\n",
+                        od->field_count + 1);
+    SOA("  if (!out._soa_fields) iron_oom_abort(\"SoA column table\");\n"
+        "  return out;\n}\n"
+        "static void @_reserve_impl(@ *self, int64_t n) {\n"
+        "  if (n <= self->capacity) return;\n"
+        "  if (n < 0 || (uint64_t)n > SIZE_MAX / sizeof($)) iron_oom_abort(\"list capacity overflow\");\n"
+        "  if (!self->_soa_fields) {\n"
+        "    self->items = iron_mem_realloc(self->items, (size_t)n * sizeof($));\n"
+        "    if (!self->items) iron_oom_abort(\"list reserve\");\n"
+        "  } else {\n");
+    iron_strbuf_appendf(sb, "    if (self->_soa_fields[%d]) {\n      self->_soa_fields[%d] = iron_mem_realloc(self->_soa_fields[%d], (size_t)n * sizeof(%s));\n      if (!self->_soa_fields[%d]) iron_oom_abort(\"SoA borrow reserve\");\n    } else {\n", od->field_count, od->field_count, od->field_count, m, od->field_count);
+    for (int f = 0; f < od->field_count; f++) {
+        Iron_Field *field = (Iron_Field *)od->fields[f];
+        iron_strbuf_appendf(sb,
+            "    self->_soa_fields[%d] = iron_mem_realloc(self->_soa_fields[%d], (size_t)n * sizeof(((%s *)0)->%s));\n"
+            "    if (!self->_soa_fields[%d]) iron_oom_abort(\"SoA reserve\");\n", f, f, m, field->name, f);
+    }
+    SOA("    }\n  }\n  self->capacity = n;\n}\n"
+        "@ @_create_with_capacity(int64_t cap) { @ out = @_create(); @_reserve_impl(&out, cap); return out; }\n"
+        "void @_push(@ *self, $ v) {\n"
+        "  if (self->count == self->capacity) {\n"
+        "    if (self->capacity > INT64_MAX / 2) iron_oom_abort(\"list capacity overflow\");\n"
+        "    @_reserve_impl(self, self->capacity ? self->capacity * 2 : 8);\n"
+        "  }\n  @_write(self, self->count++, v);\n}\n"
+        "$ @_get(const @ *self, int64_t i) {\n"
+        "  i = iron_bounds_idx(i, self->count, IRON_SITE); return @_read(*self, i);\n}\n"
+        "void @_set(@ *self, int64_t i, $ v) {\n"
+        "  i = iron_bounds_idx(i, self->count, IRON_SITE); @_write(self, i, v);\n}\n"
+        "$ @_pop(@ *self) {\n"
+        "  if (!self->count) iron_panic_index_oob(\"Iron_List_$_pop\", 0, -1, self->count);\n"
+        "  return @_read(*self, --self->count);\n}\n"
+        "$ @_remove(@ *self, int64_t i) {\n"
+        "  i = iron_bounds_idx(i, self->count, IRON_SITE); $ out = @_read(*self, i);\n"
+        "  for (int64_t j = i; j + 1 < self->count; j++) @_write(self, j, @_read(*self, j + 1));\n"
+        "  self->count--; return out;\n}\n"
+        "void @_insert(@ *self, int64_t i, $ v) {\n"
+        "  if ((uint64_t)i > (uint64_t)self->count) iron_panic_index_oob(IRON_SITE, i, self->count + 1);\n"
+        "  @_push(self, v);\n"
+        "  for (int64_t j = self->count - 1; j > i; j--) @_write(self, j, @_read(*self, j - 1));\n"
+        "  @_write(self, i, v);\n}\n"
+        "void @_reverse(@ *self) {\n"
+        "  for (int64_t i = 0, j = self->count - 1; i < j; i++, j--) {\n"
+        "    $ tmp = @_read(*self, i); @_write(self, i, @_read(*self, j)); @_write(self, j, tmp);\n"
+        "  }\n}\n"
+        "int64_t @_len(const @ *self) { return self->count; }\n"
+        "void @_clear(@ *self) {\n");
+    if (drop) SOA("  for (int64_t i = 0; i < self->count; i++) { $ v = @_read(*self, i); $_drop(&v); }\n");
+    SOA("  self->count = 0;\n}\n"
+        "static void @_release_storage(@ *self) {\n"
+        "  if (self->_soa_fields) {\n");
+    for (int f = 0; f <= od->field_count; f++)
+        iron_strbuf_appendf(sb, "    iron_mem_free(self->_soa_fields[%d]);\n", f);
+    SOA("    iron_mem_free(self->_soa_fields); self->_soa_fields = NULL;\n"
+        "  }\n  iron_mem_free(self->items); self->items = NULL; self->capacity = 0;\n}\n"
+        "void @_free(@ *self) { @_clear(self); @_release_storage(self); }\n"
+        "@ @_take(@ *self) { @ out = *self; *self = self->_soa_fields ? @_create_soa() : @_create(); return out; }\n"
+        "@ @_clone(const @ *self) {\n"
+        "  @ out = self->_soa_fields ? @_create_soa() : @_create();\n"
+        "  @_reserve_impl(&out, self->count);\n"
+        "  for (int64_t i = 0; i < self->count; i++) { $ v = @_read(*self, i);\n");
+    if (copy) SOA("    $_copied(&v);\n");
+    SOA("    @_push(&out, v);\n  }\n  return out;\n}\n"
+        "/* Header copies used by borrowed parameters share this table.\n"
+        " * Materializing updates the table, never a temporary header. */\n"
+        "static inline $ *@_at(@ *self, int64_t i) {\n"
+        "  i = iron_bounds_idx(i, self->count, IRON_SITE);\n"
+        "  if (!self->_soa_fields) return &self->items[i];\n");
+    iron_strbuf_appendf(sb, "  if (!self->_soa_fields[%d]) {\n", od->field_count);
+    SOA("    $ *items = iron_mem_alloc((size_t)self->capacity * sizeof($));\n"
+        "    if (!items) iron_oom_abort(\"SoA element borrow\");\n"
+        "    for (int64_t j = 0; j < self->count; j++) items[j] = @_read(*self, j);\n");
+    for (int f = 0; f < od->field_count; f++)
+        iron_strbuf_appendf(sb, "    iron_mem_free(self->_soa_fields[%d]); self->_soa_fields[%d] = NULL;\n", f, f);
+    iron_strbuf_appendf(sb, "    self->_soa_fields[%d] = items;\n  }\n  return &((%s *)self->_soa_fields[%d])[i];\n}\n", od->field_count, m, od->field_count);
+    for (int f = 0; f < od->field_count; f++) {
+        Iron_Field *field = (Iron_Field *)od->fields[f];
+        iron_strbuf_appendf(sb,
+            "static inline __typeof__(((%s *)0)->%s) *Iron_List_%s_field_%s(Iron_List_%s self, int64_t i) {\n"
+            "  i = iron_bounds_idx(i, self.count, IRON_SITE);\n"
+            "  if (!self._soa_fields) return &self.items[i].%s;\n"
+            "  if (self._soa_fields[%d]) return &((%s *)self._soa_fields[%d])[i].%s;\n"
+            "  return &((__typeof__(((%s *)0)->%s) *)self._soa_fields[%d])[i];\n}\n",
+            m, field->name, m, field->name, m, field->name,
+            od->field_count, m, od->field_count, field->name, m, field->name, f);
+    }
+#undef SOA
+}
+
 /* The Iron_List_<Obj> typedef, prototypes and implementation for a list
  * of a concrete object type, once per type. Called for every object
  * ARRAY_LIT in the module and by the Map/Set glue for keys() / values(). */
@@ -491,8 +617,10 @@ void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et) {
      * type owns a drop/copy, else the fast free(items)/memcpy path
      * (Pitfall 5).  Safe at TU level: each mangled name is unique
      * per compilation unit. */
-    emit_list_impl_lifecycle(ctx, mangled,
-                             elem_has_drop, elem_has_copy);
+    if (shgeti(ctx->soa_object_types, mangled) >= 0)
+        emit_object_soa_impl(ctx, mangled, et->object.decl, elem_has_drop, elem_has_copy);
+    else
+        emit_list_impl_lifecycle(ctx, mangled, elem_has_drop, elem_has_copy);
 }
 
 /* The Iron_List_<Enum> typedef and implementation for a list of an ADT
@@ -1342,8 +1470,11 @@ void emit_type_decls(EmitCtx *ctx) {
                     "    %s *items;\n"
                     "    int64_t count;\n"
                     "    int64_t capacity;\n"
+                    "%s"
                     "} Iron_List_%s;\n",
-                    type_name, type_name, type_name);
+                    type_name, type_name,
+                    shgeti(ctx->soa_object_types, type_name) >= 0 ? "    void **_soa_fields;\n" : "",
+                    type_name);
         }
     }
     if (ctx->forward_decls.len > 0) {

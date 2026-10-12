@@ -1385,7 +1385,10 @@ static IronLIR_ValueId lir_storage_chain_root(IronLIR_Func *fn, IronLIR_ValueId 
         IronLIR_Instr *cur = fn->value_table[vid];
         if (!cur) break;
         if (cur->kind == IRON_LIR_GET_FIELD) { vid = cur->field.object; continue; }
-        if (cur->kind == IRON_LIR_GET_INDEX && lir_vid_is_bvec(fn, cur->index.array)) {
+        /* Taking an element address can materialize a SoA list into AoS.
+         * Preserve the owning header for every list, including default-layout
+         * parameters receiving a SoA value. */
+        if (cur->kind == IRON_LIR_GET_INDEX) {
             vid = cur->index.array;
             continue;
         }
@@ -1426,6 +1429,8 @@ static LirRecvLoadEntry *lir_collect_receiver_loads(IronLIR_Func *fn) {
                 chain = in->call.args[0];
             else if (in->kind == IRON_LIR_SET_FIELD)
                 chain = in->field.object;
+            else if (in->kind == IRON_LIR_ADDR_OF)
+                chain = in->addr_of.target;
             else if (in->kind == IRON_LIR_SET_INDEX && lir_vid_is_bvec(fn, in->index.array))
                 chain = in->index.array;   /* `bv[i] = x` writes inside the slot's vector */
             if (chain == IRON_LIR_VALUE_INVALID) continue;

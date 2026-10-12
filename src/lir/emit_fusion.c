@@ -167,8 +167,14 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
         /* Element extraction */
         emit_indent(sb, ind + 2);
         iron_strbuf_appendf(sb, "%s _fuse_elem = ", source_elem_c);
+        if (emit_list_has_columns(ctx, src_t)) {
+            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(src_t, ctx));
+            emit_expr_to_buf(sb, chain->source, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", _fi);\n");
+        } else {
         emit_expr_to_buf(sb, chain->source, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ".%s[_fi];\n", src_bvec ? "data" : "items");
+        }
 
         /* Apply each chain operation */
         const char *cur_var = "_fuse_elem";

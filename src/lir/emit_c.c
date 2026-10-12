@@ -438,8 +438,14 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
         iron_strbuf_appendf(sb, ".%s; _i++) ", f_count);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " += ");
-        emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ".%s[_i];\n", f_items);
+        if (emit_list_has_columns(ctx, lt)) {
+            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", _i);\n ");
+        } else {
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ".%s[_i];\n", f_items);
+        }
         return true;
     }
     IronLIR_ValueId fn_arg = instr->call.args[m == M_REDUCE ? 2 : 1];
@@ -472,8 +478,14 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
             iron_strbuf_appendf(sb, "%s _r = _hof_fn%u(", ret_c, id);
             emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ".env, ");
+            if (emit_list_has_columns(ctx, lt)) {
+            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", _i));\n ");
+        } else {
             emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
+        }
             emit_indent(sb, ind + 2);
             iron_strbuf_appendf(sb, "%s_push(&", rt_c);
             emit_val(sb, instr->id);
@@ -483,12 +495,24 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
             iron_strbuf_appendf(sb, "if (_hof_fn%u(", id);
             emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ".env, ");
+            if (emit_list_has_columns(ctx, lt)) {
+            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", _i))) {\n ");
+        } else {
             emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ".%s[_i])) {\n", f_items);
+        }
             emit_indent(sb, ind + 3);
             iron_strbuf_appendf(sb, "%s _k = ", et_c);
+            if (emit_list_has_columns(ctx, lt)) {
+            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", _i);\n ");
+        } else {
             emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ".%s[_i];\n", f_items);
+        }
             emit_copy_fixup_lvalue(sb, ind + 3, ctx, et, "_k");
             emit_indent(sb, ind + 3);
             iron_strbuf_appendf(sb, "%s_push(&", rt_c);
@@ -518,8 +542,14 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
         iron_strbuf_appendf(sb, ".%s; _i++) _hof_fn%u(", f_count, id);
         emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ".env, ");
-        emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
+        if (emit_list_has_columns(ctx, lt)) {
+            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", _i));\n ");
+        } else {
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
+        }
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "}\n");
         return true;
@@ -551,8 +581,14 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
     iron_strbuf_appendf(sb, ".env, ");
     emit_val(sb, instr->id);
     iron_strbuf_appendf(sb, ", ");
-    emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-    iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
+    if (emit_list_has_columns(ctx, lt)) {
+            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", _i));\n ");
+        } else {
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
+        }
     emit_indent(sb, ind);
     iron_strbuf_appendf(sb, "}\n");
     return true;
@@ -1139,6 +1175,21 @@ static bool emit_is_optional_unwrap(IronLIR_Func *fn, IronLIR_Instr *in) {
     return src && src->kind == IRON_TYPE_NULLABLE;
 }
 
+static bool emit_column_field_addr(Iron_StrBuf *sb, IronLIR_Func *fn,
+                                    EmitCtx *ctx, IronLIR_ValueId obj,
+                                    const char *field, IronLIR_BlockId block) {
+    IronLIR_Instr *in = emit_def_instr(fn, obj);
+    if (!in || in->kind != IRON_LIR_GET_INDEX || !field || strchr(field, '.')) return false;
+    Iron_Type *at = emit_get_value_type(fn, in->index.array);
+    if (!emit_list_has_columns(ctx, at)) return false;
+    iron_strbuf_appendf(sb, "%s_field_%s(", emit_type_to_c(at, ctx), field);
+    emit_expr_to_buf(sb, in->index.array, fn, ctx, block, 0);
+    iron_strbuf_appendf(sb, ", ");
+    emit_expr_to_buf(sb, in->index.index, fn, ctx, block, 0);
+    iron_strbuf_appendf(sb, ")");
+    return true;
+}
+
 static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
                                IronLIR_ValueId vid, IronLIR_BlockId use_block_id) {
     {
@@ -1283,6 +1334,14 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
          * loaded copy of it is not where the element lives; address it
          * inside the vector's own storage. */
         Iron_Type *at = emit_get_value_type(fn, in->index.array);
+        if (emit_list_has_columns(ctx, at)) {
+            iron_strbuf_appendf(sb, "%s_at(", emit_type_to_c(at, ctx));
+            emit_receiver_addr(sb, fn, ctx, in->index.array, use_block_id);
+            iron_strbuf_appendf(sb, ", ");
+            emit_expr_to_buf(sb, in->index.index, fn, ctx, use_block_id, 0);
+            iron_strbuf_appendf(sb, ")");
+            return;
+        }
         if (at && at->kind == IRON_TYPE_ARRAY && at->array.is_bounded &&
             emit_vid_is_storage_path(fn, in->index.array)) {
             iron_strbuf_appendf(sb, "&((*");
@@ -1305,6 +1364,8 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
         return;
     }
     if (in && in->kind == IRON_LIR_GET_FIELD && in->field.field) {
+        if (emit_column_field_addr(sb, fn, ctx, in->field.object,
+                                   in->field.field, use_block_id)) return;
         IronLIR_ValueId obj = in->field.object;
         bool obj_is_fat = emit_val_is_any_fat_ptr(fn, obj) ||
                           emit_val_is_checked_ptr_typed(fn, obj);
@@ -2480,6 +2541,21 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         } else {
             /* Check direct array type — also handles parameter values (NULL in value_table) */
             Iron_Type *arr_t_expr = emit_get_value_type(fn, instr->index.array);
+            if (emit_list_has_columns(ctx, arr_t_expr)) {
+                iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(arr_t_expr, ctx));
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth + 1);
+                iron_strbuf_appendf(sb, ", ");
+                if (!instr->index.bounds_elide) iron_strbuf_appendf(sb,
+                    instr->index.bounds_unchecked ? "IRON_UNCHECKED_IDX(" : "iron_bounds_idx(");
+                emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth + 1);
+                if (!instr->index.bounds_elide) {
+                    iron_strbuf_appendf(sb, ", ");
+                    emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth + 1);
+                    iron_strbuf_appendf(sb, ".count, IRON_SITE)");
+                }
+                iron_strbuf_appendf(sb, ")");
+                break;
+            }
             bool use_bvec_expr = (arr_t_expr && arr_t_expr->kind == IRON_TYPE_ARRAY &&
                                   arr_t_expr->array.is_bounded);
             bool use_direct = (arr_t_expr && arr_t_expr->kind == IRON_TYPE_ARRAY && !use_bvec_expr);
@@ -4102,6 +4178,19 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
 
     case IRON_LIR_SET_FIELD: {
+        IronLIR_Instr *column_obj = emit_def_instr(fn, instr->field.object);
+        if (column_obj && column_obj->kind == IRON_LIR_GET_INDEX &&
+            emit_list_has_columns(ctx, emit_get_value_type(fn, column_obj->index.array))) {
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "(*");
+            emit_column_field_addr(sb, fn, ctx, instr->field.object, instr->field.field,
+                                   ctx->current_block_id);
+            iron_strbuf_appendf(sb, ") = ");
+            emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ";\n");
+            break;
+        }
+
         /* When the object is a LOAD from a mutable var-capture alloca, write
          * through the captured pointer: _e->capturename->fieldname = value.
          * Otherwise use the standard object.field or object->field emission. */
@@ -4441,7 +4530,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
              * read bv.data[i] directly.  Pitfall: check against len, not array size. */
             bool use_bvec = (arr_t && arr_t->kind == IRON_TYPE_ARRAY &&
                              arr_t->array.is_bounded);
-            bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY && !use_bvec);
+            bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY && !use_bvec &&
+                               !emit_list_has_columns(ctx, arr_t));
             if (use_bvec) {
                 /* Inline bounds-check: if (i >= (int64_t)bv.len) iron_panic_bvec_oob(...)
                  * (omitted when the elision pass proved it redundant, or when
@@ -4607,7 +4697,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             bool use_bvec = (arr_t && arr_t->kind == IRON_TYPE_ARRAY &&
                              arr_t->array.is_bounded);
             bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY &&
-                               !use_bvec);
+                               !use_bvec && !emit_list_has_columns(ctx, arr_t));
             if (use_bvec) {
                 /* A bounded vector is a value struct with inline storage, so
                  * the write has to land in the vector's own storage: the slot
@@ -5095,7 +5185,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "%s ", list_type);
                         emit_val(sb, instr->id);
-                        iron_strbuf_appendf(sb, " = %s_create();\n", list_type);
+                        iron_strbuf_appendf(sb, " = %s_create%s();\n", list_type,
+                emit_list_has_columns(ctx, instr->type) && instr->type->array.layout_hint == 1
+                    ? "_soa" : "");
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < ");
                         emit_expr_to_buf(sb, instr->call.args[0], fn, ctx, ctx->current_block_id, 0);
@@ -7392,7 +7484,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_indent(sb, ind);
             iron_strbuf_appendf(sb, "%s ", list_type);
             emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = %s_create();\n", list_type);
+            iron_strbuf_appendf(sb, " = %s_create%s();\n", list_type,
+                emit_list_has_columns(ctx, instr->type) && instr->type->array.layout_hint == 1
+                    ? "_soa" : "");
             for (int i = 0; i < instr->array_lit.element_count; i++) {
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "%s_push(&", list_type);
@@ -7463,6 +7557,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "  for (int64_t _sl_i = _sl_s; _sl_i < _sl_e; _sl_i++) {\n");
         emit_indent(sb, ind);
+        if (emit_list_has_columns(ctx, src_t))
+            iron_strbuf_appendf(sb, "    %s _sl_el = %s_read(%s, _sl_i);\n",
+                                elem_c, emit_type_to_c(src_t, ctx), src_s);
+        else
         iron_strbuf_appendf(sb, "    %s _sl_el = %s%s[_sl_i];\n", elem_c, src_s,
                             sa != IRON_LIR_VALUE_INVALID ? "" : src_bvec ? ".data" : ".items");
         emit_copy_fixup_lvalue(sb, ind + 2, ctx, et, "_sl_el");
@@ -11857,6 +11955,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         "#endif\n\n");
 
     /* ── Phase 48: Module-level prescan for split collections & layout analysis */
+    emit_prescan_object_soa(&ctx);
     emit_prescan_split_collections(&ctx);
 
     /* ── Phase 53: Interprocedural return type collection ────────────────────

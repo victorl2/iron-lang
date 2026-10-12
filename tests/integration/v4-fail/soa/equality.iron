@@ -1,0 +1,5 @@
+object P { val x: Int }
+func main() {
+ var ps: [P, layout: soa] = []
+ println("{ps == ps}")
+}

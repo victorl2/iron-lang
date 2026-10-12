@@ -10,7 +10,7 @@ object Point {
 }
 func main() {
     var ps: [Point, layout: soa] = []
-    println("{ps.len()} {ps.is_empty()}")
+    println("{ps.len()} {ps.len() == 0}")
     ps.push(Point(1, 2.5, true))
     ps.push(Point(3, 4.5, false))
     ps.insert(1, Point(5, 6.5, true))

@@ -228,6 +228,8 @@ typedef struct {
      * so a set can move any element between the per-type arrays. */
     struct { char *key; bool value; } *iface_elem_assigned;
 
+    struct { char *key; bool value; } *soa_object_types;
+
     /* Map of "iface_mangled:type_name" -> true for SoA types (Phase 48-02) */
     struct { char *key; bool value; } *soa_types;
 
@@ -515,3 +517,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx);
 
 #endif /* IRON_EMIT_HELPERS_H */
+
+bool emit_list_has_columns(EmitCtx *ctx, const Iron_Type *t);
+void emit_prescan_object_soa(EmitCtx *ctx);
+bool ir_is_runtime_provided_type(const char *name);
