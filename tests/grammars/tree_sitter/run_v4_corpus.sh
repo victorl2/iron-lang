@@ -20,6 +20,13 @@ set -euo pipefail
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 GRAMMAR_DIR="$REPO/grammars/tree-sitter/iron"
+# tree-sitter caches the compiled parser by language name in one directory
+# for every checkout and rebuilds it only when src/parser.c is newer than
+# the cached library, so with several checkouts of the grammar on one
+# machine it would run another checkout's parser. Keep this checkout's
+# library in a directory of its own (.cache/ is ignored by git).
+export TREE_SITTER_LIBDIR="${TREE_SITTER_LIBDIR:-$GRAMMAR_DIR/.cache/tree-sitter-lib}"
+mkdir -p "$TREE_SITTER_LIBDIR"
 CORPUS_DIR="$GRAMMAR_DIR/test/corpus"
 
 if [ -n "${TREE_SITTER:-}" ]; then

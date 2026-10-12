@@ -52,12 +52,29 @@ static yyjson_mut_val *build_diagnostics_array(yyjson_mut_doc           *d,
     if (!diags || !diags->items) return arr;
 
     int n = (int)arrlen(diags->items);
+    /* What was emitted, to drop a repeat: two diagnostics whose spans
+     * differ (generic instances of one body, a span past the end of its
+     * line) can land on the same range with the same code and text, and
+     * editors show both. */
+    IronLsp_Range *seen = n > 0 ? (IronLsp_Range *)malloc(sizeof(*seen) * (size_t)n) : NULL;
+    int nseen = 0;
+    int *seen_idx = n > 0 ? (int *)malloc(sizeof(*seen_idx) * (size_t)n) : NULL;
     for (int i = 0; i < n; i++) {
         const Iron_Diagnostic *dg = &diags->items[i];
-        yyjson_mut_val *obj = yyjson_mut_obj(d);
 
         /* range */
         IronLsp_Range range = ilsp_span_to_lsp_range(dg->span, doc, enc);
+        bool repeat = false;
+        for (int k = 0; k < nseen && seen && seen_idx && !repeat; k++) {
+            const Iron_Diagnostic *o = &diags->items[seen_idx[k]];
+            repeat = memcmp(&seen[k], &range, sizeof(range)) == 0 &&
+                     o->level == dg->level && o->code == dg->code &&
+                     strcmp(o->message ? o->message : "", dg->message ? dg->message : "") == 0;
+        }
+        if (repeat) continue;
+        if (seen && seen_idx) { seen[nseen] = range; seen_idx[nseen] = i; nseen++; }
+
+        yyjson_mut_val *obj = yyjson_mut_obj(d);
         attach_range(d, obj, "range", range);
 
         /* severity */
@@ -126,6 +143,8 @@ static yyjson_mut_val *build_diagnostics_array(yyjson_mut_doc           *d,
 
         yyjson_mut_arr_append(arr, obj);
     }
+    free(seen);
+    free(seen_idx);
     return arr;
 }
 
