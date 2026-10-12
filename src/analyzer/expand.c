@@ -562,16 +562,6 @@ static Iron_Node *expand_expr(ExpandCtx *ctx, Iron_Node *node) {
     switch ((int)node->kind) {
         case IRON_NODE_FIELD_ACCESS: {
             Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
-            fa->object = expand_expr(ctx, fa->object);
-            Iron_Node *meta = metadata_value(ctx, fa);
-            if (meta) return meta;
-            if (fa->reflected_field && ctx->field && ctx->field_var &&
-                strcmp(fa->reflected_field, ctx->field_var) == 0) {
-                fa->field = ctx->field->name;
-                fa->reflected_field = NULL;
-                fa->is_generated = true;
-                ctx->changed++;
-            }
             const char *tn = NULL;
             if (fa->field && typeinfo_call(fa->object, &tn) &&
                 strcmp(fa->field, "doc") == 0) {
@@ -581,10 +571,46 @@ static Iron_Node *expand_expr(ExpandCtx *ctx, Iron_Node *node) {
                 return doc ? make_string(ctx, fa->span, doc)
                            : make_null(ctx, fa->span);
             }
+            fa->object = expand_expr(ctx, fa->object);
+            Iron_Node *meta = metadata_value(ctx, fa);
+            if (meta) return meta;
+            if (ctx->field && ctx->field_var &&
+                ident_named(fa->object, ctx->field_var) && fa->field) {
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_REFLECTION_CONTEXT, fa->span,
+                               "unknown reflected field property",
+                               "use name, index, type, is_var, is_nullable, is_pub, visibility, doc, or tag(name)");
+                return make_null(ctx, fa->span);
+            }
+            if (fa->reflected_field && ctx->field && ctx->field_var &&
+                strcmp(fa->reflected_field, ctx->field_var) == 0) {
+                fa->field = ctx->field->name;
+                fa->reflected_field = NULL;
+                fa->is_generated = true;
+                ctx->changed++;
+            }
             return node;
         }
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+            const char *tn = NULL;
+            if (mc->method && strcmp(mc->method, "tag") == 0 &&
+                typeinfo_call(mc->object, &tn)) {
+                if (strcmp(tn, "Self") == 0) tn = ctx->current_type;
+                Iron_ObjectDecl *od = find_object(ctx->program, tn);
+                const char *key = mc->arg_count == 1 && mc->args[0] &&
+                                  mc->args[0]->kind == IRON_NODE_STRING_LIT
+                                  ? ((Iron_StringLit *)mc->args[0])->value : NULL;
+                if (!key) {
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_COMPTIME_CONDITION, mc->span,
+                                   "reflected tag name must be a compile-time string literal",
+                                   "pass one string literal to typeinfo(T).tag(name)");
+                }
+                const char *tag = key ? iron_reflect_object_tag(od, key) : NULL;
+                return tag ? make_string(ctx, mc->span, tag)
+                           : make_null(ctx, mc->span);
+            }
             mc->object = expand_expr(ctx, mc->object);
             for (int i = 0; i < mc->arg_count; i++)
                 mc->args[i] = expand_expr(ctx, mc->args[i]);
@@ -596,19 +622,13 @@ static Iron_Node *expand_expr(ExpandCtx *ctx, Iron_Node *node) {
                 if (mc->arg_count == 1 && mc->args[0] &&
                     mc->args[0]->kind == IRON_NODE_STRING_LIT)
                     key = ((Iron_StringLit *)mc->args[0])->value;
+                if (!key) {
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_COMPTIME_CONDITION, mc->span,
+                                   "reflected tag name must be a compile-time string literal",
+                                   "pass one string literal to f.tag(name)");
+                }
                 const char *tag = key ? iron_reflect_field_tag(ctx->field, key) : NULL;
-                return tag ? make_string(ctx, mc->span, tag)
-                           : make_null(ctx, mc->span);
-            }
-            const char *tn = NULL;
-            if (mc->method && strcmp(mc->method, "tag") == 0 &&
-                typeinfo_call(mc->object, &tn)) {
-                if (strcmp(tn, "Self") == 0) tn = ctx->current_type;
-                Iron_ObjectDecl *od = find_object(ctx->program, tn);
-                const char *key = mc->arg_count == 1 && mc->args[0] &&
-                                  mc->args[0]->kind == IRON_NODE_STRING_LIT
-                                  ? ((Iron_StringLit *)mc->args[0])->value : NULL;
-                const char *tag = key ? iron_reflect_object_tag(od, key) : NULL;
                 return tag ? make_string(ctx, mc->span, tag)
                            : make_null(ctx, mc->span);
             }
@@ -652,6 +672,14 @@ static Iron_Node *expand_expr(ExpandCtx *ctx, Iron_Node *node) {
                 }
                 ctx->changed++;
                 return value;
+            }
+            if (ident_named(c->callee, "fields") ||
+                ident_named(c->callee, "typeinfo")) {
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_REFLECTION_CONTEXT, c->span,
+                               "reflection query is only valid in a compile-time reflection form",
+                               "use fields(T) as the iterable of comptime for, or typeinfo(T) with .doc or .tag(name)");
+                return make_int(ctx, c->span, 0);
             }
             c->callee = expand_expr(ctx, c->callee);
             for (int i = 0; i < c->arg_count; i++)
