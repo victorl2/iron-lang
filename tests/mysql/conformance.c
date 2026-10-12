@@ -106,6 +106,15 @@ static void assert_result_ok(int64_t result) {
     err_free(&s.v1);
 }
 
+static int64_t result_error(Buf *wire, uint32_t caps) {
+    int64_t r = iron_mysql_test_decode_result(wire->p, wire->n, 2, caps, 1, false);
+    Iron_MysqlError e = Iron_mysqlnative_res_error(r);
+    int64_t code = e.code;
+    err_free(&e);
+    Iron_mysqlnative_res_free(r);
+    return code;
+}
+
 static void test_packet_header_and_every_read_split(void) {
     Buf wire = one_text_result();
     for (size_t split = 1; split <= wire.n; split++) {
@@ -218,6 +227,84 @@ static void test_truncated_result_is_always_an_error(void) {
     free(wire.p);
 }
 
+static void test_column_definition_rejects_inconsistent_fixed_fields(void) {
+    Buf wire = { 0 }, p = { 0 };
+    u8(&p, 1);
+    packet(&wire, 1, p.p, p.n);
+    p.n = 0;
+    column(&p, "v", 253, 0);
+    p.p[p.n - 13] = 1;
+    packet(&wire, 2, p.p, p.n);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_MYSQL_PROTOCOL,
+                            result_error(&wire, CLIENT_PROTOCOL_41 | CLIENT_DEPRECATE_EOF));
+    free(wire.p);
+
+    wire = (Buf){ 0 };
+    p.n = 0;
+    u8(&p, 1);
+    packet(&wire, 1, p.p, p.n);
+    p.n = 0;
+    column(&p, "v", 253, 0);
+    u8(&p, 0xaa);
+    packet(&wire, 2, p.p, p.n);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_MYSQL_PROTOCOL,
+                            result_error(&wire, CLIENT_PROTOCOL_41 | CLIENT_DEPRECATE_EOF));
+    free(p.p);
+    free(wire.p);
+}
+
+static Buf legacy_result_with_eof(const uint8_t *eof, size_t eof_len) {
+    Buf wire = { 0 }, p = { 0 };
+    u8(&p, 1);
+    packet(&wire, 1, p.p, p.n);
+    p.n = 0;
+    column(&p, "v", 253, 0);
+    packet(&wire, 2, p.p, p.n);
+    packet(&wire, 3, eof, eof_len);
+    p.n = 0;
+    lenstr(&p, "x", 1);
+    packet(&wire, 4, p.p, p.n);
+    packet(&wire, 5, eof, eof_len);
+    free(p.p);
+    return wire;
+}
+
+static void test_legacy_eof_requires_warnings_and_status(void) {
+    const uint8_t eof[] = { 0xfe, 0, 0, 2, 0 };
+    Buf wire = legacy_result_with_eof(eof, sizeof(eof));
+    int64_t r = iron_mysql_test_decode_result(
+        wire.p, wire.n, 1, CLIENT_PROTOCOL_41, 1, false);
+    Iron_MysqlError e = Iron_mysqlnative_res_error(r);
+    TEST_ASSERT_EQUAL_INT64(0, e.code);
+    err_free(&e);
+    Iron_mysqlnative_res_free(r);
+    free(wire.p);
+
+    for (size_t n = 1; n < sizeof(eof); n++) {
+        wire = legacy_result_with_eof(eof, n);
+        TEST_ASSERT_EQUAL_INT64(IRON_ERR_MYSQL_PROTOCOL,
+                                result_error(&wire, CLIENT_PROTOCOL_41));
+        free(wire.p);
+    }
+}
+
+static void test_err_packet_requires_error_code_and_sqlstate(void) {
+    const uint8_t short_err[][3] = { { 0xff }, { 0xff, 1 }, { 0xff, 1, 2 } };
+    const size_t lengths[] = { 1, 2, 3 };
+    for (size_t i = 0; i < 3; i++) {
+        Buf wire = { 0 };
+        packet(&wire, 1, short_err[i], lengths[i]);
+        TEST_ASSERT_EQUAL_INT64(IRON_ERR_MYSQL_PROTOCOL,
+                                result_error(&wire, CLIENT_PROTOCOL_41));
+        free(wire.p);
+    }
+    const uint8_t err[] = { 0xff, 0x15, 0x04, '#', '4', '2', 'S', '0', '2', 'b', 'a', 'd' };
+    Buf wire = { 0 };
+    packet(&wire, 1, err, sizeof(err));
+    TEST_ASSERT_EQUAL_INT64(1045, result_error(&wire, CLIENT_PROTOCOL_41));
+    free(wire.p);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_packet_header_and_every_read_split);
@@ -225,5 +312,8 @@ int main(void) {
     RUN_TEST(test_packet_rejects_bad_sequence_truncation_and_limit);
     RUN_TEST(test_length_encoded_integer_size_classes);
     RUN_TEST(test_truncated_result_is_always_an_error);
+    RUN_TEST(test_column_definition_rejects_inconsistent_fixed_fields);
+    RUN_TEST(test_legacy_eof_requires_warnings_and_status);
+    RUN_TEST(test_err_packet_requires_error_code_and_sqlstate);
     return UNITY_END();
 }

@@ -399,9 +399,11 @@ static Iron_MysqlError iron_err_code(int64_t code) {
 }
 
 /* Parse an ERR packet payload (starting at 0xff). */
-static void err_from_packet(MyErr *e, const uint8_t *p, size_t n, uint32_t caps) {
+static int err_from_packet(MyErr *e, const uint8_t *p, size_t n, uint32_t caps) {
+    if (n < 3 || p[0] != 0xff) return 0;
+    if ((caps & CLIENT_PROTOCOL_41) && (n < 9 || p[3] != '#')) return 0;
     e->server = true;
-    e->code = n >= 3 ? rd16(p + 1) : 2000;
+    e->code = rd16(p + 1);
     memcpy(e->sqlstate, "HY000", 6);
     size_t i = 3;
     if ((caps & CLIENT_PROTOCOL_41) && n >= 9 && p[3] == '#') {
@@ -413,6 +415,7 @@ static void err_from_packet(MyErr *e, const uint8_t *p, size_t n, uint32_t caps)
     if (m >= sizeof(e->message)) m = sizeof(e->message) - 1;
     memcpy(e->message, p + i, m);
     e->message[m] = '\0';
+    return 1;
 }
 
 /* ── Hashing and RSA (libcrypto) ────────────────────────────────────────── */
@@ -1143,24 +1146,23 @@ static int parse_ok(MyConn *c, const uint8_t *p, size_t n, MySet *s) {
 }
 
 static int is_eof_packet(const uint8_t *p, size_t n) {
-    return n > 0 && p[0] == 0xfe && n < 9;
+    return n == 5 && p[0] == 0xfe;
 }
 
 static int is_terminator(MyConn *c, const uint8_t *p, size_t n) {
     if (n == 0 || p[0] != 0xfe) return 0;
     if (c->caps & CLIENT_DEPRECATE_EOF) return n < MAX_PACKET_CHUNK;
-    return n < 9;
+    return n == 5;
 }
 
 /* EOF packet (0xfe warnings status) or, with CLIENT_DEPRECATE_EOF, an OK
  * packet with a 0xfe header. */
 static int parse_terminator(MyConn *c, const uint8_t *p, size_t n, MySet *s) {
     if ((c->caps & CLIENT_DEPRECATE_EOF)) return parse_ok(c, p, n, s);
-    if (n >= 5) {
-        uint16_t warnings = rd16(p + 1);
-        c->status = rd16(p + 3);
-        if (s) { s->warnings = warnings; s->status = c->status; }
-    }
+    if (n != 5) return 0;
+    uint16_t warnings = rd16(p + 1);
+    c->status = rd16(p + 3);
+    if (s) { s->warnings = warnings; s->status = c->status; }
     return 1;
 }
 
@@ -1357,8 +1359,8 @@ static int auth_loop(MyConn *c, const MyCfg *k, uint8_t *scramble, size_t *slen,
             return rc;
         }
         if (p[0] == 0xff) {
-            err_from_packet(e, p, n, c->caps);
-            rc = (int)e->code ? (int)e->code : IRON_ERR_MYSQL_AUTH;
+            rc = err_from_packet(e, p, n, c->caps)
+                ? (int)e->code : conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
             break;
         }
         if (p[0] == 0xfe) {
@@ -1435,7 +1437,8 @@ static int conn_handshake(MyConn *c, const MyCfg *k, MyErr *e) {
     int rc = conn_read_packet(c, &p, &n, e);
     if (rc) return rc;
     if (n > 0 && p[0] == 0xff) {
-        err_from_packet(e, p, n, 0);
+        if (!err_from_packet(e, p, n, 0))
+            return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
         return (int)e->code;
     }
     Rd r = { p, n, 0, 0 };
@@ -1682,13 +1685,15 @@ static int parse_column(MyMeta *m, MyCol *col, const uint8_t *p, size_t n) {
     if (r.bad || !meta_put(m, str, len, &col->name, &col->name_len)) return 0;
     str = rd_lenstr(&r, &len);
     if (r.bad || !meta_put(m, str, len, &col->org_name, &col->org_name_len)) return 0;
-    (void)rd_lenenc(&r, NULL);                       /* length of fixed fields */
+    uint64_t fixed_len = rd_lenenc(&r, NULL);
+    if (r.bad || fixed_len != 0x0c) return 0;
     col->charset = rd_u16(&r);
     col->length = rd_u32(&r);
     col->type = rd_u8(&r);
     col->flags = rd_u16(&r);
     col->decimals = rd_u8(&r);
-    return !r.bad;
+    rd_skip(&r, 2);                                  /* filler */
+    return !r.bad && r.i == n;
 }
 
 /* Build column metadata from length-prefixed definition packets. */
@@ -1887,7 +1892,8 @@ static int read_results(MyConn *c, MyResult *res, int binary, int discard,
             if (!s) return conn_fail(c, e, IRON_ERR_MYSQL_NO_MEMORY);
             if (!parse_ok(c, p, n, s)) return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
         } else if (p[0] == 0xff) {
-            err_from_packet(e, p, n, c->caps);
+            if (!err_from_packet(e, p, n, c->caps))
+                return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
             return 0;
         } else if (p[0] == 0xfb) {
             /* LOCAL INFILE request: refuse by sending an empty packet, then
@@ -1898,7 +1904,10 @@ static int read_results(MyConn *c, MyResult *res, int binary, int discard,
             if (rc) return rc;
             rc = conn_read_packet(c, &p, &n, e);
             if (rc) return rc;
-            if (n > 0 && p[0] == 0xff) err_from_packet(e, p, n, c->caps);
+            if (n > 0 && p[0] == 0xff) {
+                if (!err_from_packet(e, p, n, c->caps))
+                    return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
+            }
             else if (n > 0 && p[0] == 0x00) parse_ok(c, p, n, NULL);
             if (!e->code) err_set(e, IRON_ERR_MYSQL_LOCAL_INFILE);
             if (!(c->status & SERVER_MORE_RESULTS_EXISTS)) return 0;
@@ -1926,7 +1935,10 @@ static int read_results(MyConn *c, MyResult *res, int binary, int discard,
                     break;
                 }
                 if (n > 0 && p[0] == 0xff) {
-                    err_from_packet(e, p, n, c->caps);
+                    if (!err_from_packet(e, p, n, c->caps)) {
+                        if (discard) set_free(&scratch);
+                        return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
+                    }
                     if (discard) set_free(&scratch);
                     return 0;
                 }
@@ -2037,7 +2049,8 @@ static int simple_command(MyConn *c, uint8_t cmd, const char *arg, size_t arg_le
     rc = conn_read_packet(c, &p, &n, e);
     if (rc) return rc;
     if (n > 0 && p[0] == 0xff) {
-        err_from_packet(e, p, n, c->caps);
+        if (!err_from_packet(e, p, n, c->caps))
+            return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
         return (int)e->code;
     }
     if (n == 0 || p[0] != 0x00 || !parse_ok(c, p, n, NULL))
@@ -2065,7 +2078,8 @@ static int prepare_stmt(MyConn *c, const char *sql, size_t len, MyPrep *out, MyE
     rc = conn_read_packet(c, &p, &n, e);
     if (rc) return rc;
     if (n > 0 && p[0] == 0xff) {
-        err_from_packet(e, p, n, c->caps);
+        if (!err_from_packet(e, p, n, c->caps))
+            return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
         return (int)e->code;
     }
     if (n < 12 || p[0] != 0x00) return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
