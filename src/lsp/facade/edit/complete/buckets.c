@@ -714,6 +714,50 @@ static int all_decls(const Iron_Program *p) {
     return p->decl_count + p->prelude_decl_count;
 }
 
+/* Resolve the interface constraint for a generic type receiver such as
+ * `T.`. Generic templates are checked only after instantiation, so the
+ * receiver identifier deliberately has no analyzed type here. Completion
+ * must recover its constraint from the enclosing declaration's syntax. */
+static Iron_InterfaceDecl *generic_receiver_constraint(const Iron_Program *program,
+                                                       const char *name, size_t name_len,
+                                                       uint32_t line, uint32_t col) {
+    if (!program || !name || name_len == 0) return NULL;
+    const char *constraint_name = NULL;
+    for (int i = 0; i < program->decl_count && !constraint_name; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || !span_has(&d->span, line, col)) continue;
+        Iron_Node **gps = NULL;
+        int gp_count = 0;
+        if (d->kind == IRON_NODE_FUNC_DECL) {
+            Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+            gps = fd->generic_params;
+            gp_count = fd->generic_param_count;
+        } else if (d->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+            gps = md->generic_params;
+            gp_count = md->generic_param_count;
+        }
+        for (int j = 0; j < gp_count; j++) {
+            Iron_Node *gp_node = gps ? gps[j] : NULL;
+            if (!gp_node || gp_node->kind != IRON_NODE_IDENT) continue;
+            Iron_Ident *gp = (Iron_Ident *)gp_node;
+            if (gp->name && strlen(gp->name) == name_len &&
+                memcmp(gp->name, name, name_len) == 0) {
+                constraint_name = gp->constraint_name;
+                break;
+            }
+        }
+    }
+    if (!constraint_name) return NULL;
+    for (int i = 0; i < all_decls(program); i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_INTERFACE_DECL) continue;
+        Iron_InterfaceDecl *id = (Iron_InterfaceDecl *)d;
+        if (id->name && strcmp(id->name, constraint_name) == 0) return id;
+    }
+    return NULL;
+}
+
 static const char *type_str(const Iron_Type *t, Iron_Arena *arena) {
     const char *s = t ? iron_type_to_string(t, arena) : NULL;
     return s ? s : "?";
@@ -740,6 +784,19 @@ static const char *method_detail(Iron_MethodDecl *md, Iron_Arena *arena) {
         snprintf(buf + n, sizeof(buf) - n, " -> %s", type_str(md->resolved_return_type, arena));
     }
     return iron_arena_strdup(arena, buf, strlen(buf));
+}
+
+static void push_interface_sigs(IronLsp_CompletionCandidate **out, Iron_Arena *arena,
+                                Iron_InterfaceDecl *id, const char *prefix,
+                                bool static_only) {
+    for (int j = 0; id && j < id->method_count; j++) {
+        Iron_FuncDecl *sig = (Iron_FuncDecl *)id->method_sigs[j];
+        if (!sig || sig->kind != IRON_NODE_FUNC_DECL || !sig->name) continue;
+        if (static_only ? !sig->is_static : !iron_iface_sig_dispatchable(sig)) continue;
+        maybe_push(out, arena, sig->name, LSP_CK_METHOD,
+                   ILSP_COMPLETION_BUCKET_LOCAL, id->name ? id->name : "",
+                   "", sig->name, false, false, prefix);
+    }
 }
 
 /* Methods the compiler provides by name (builtin_members.h), with the
@@ -907,6 +964,12 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
         if (program->decls[i]) iron_ast_walk(program->decls[i], &v);
     }
     if (!f.best) f.best = f.by_field;
+    Iron_InterfaceDecl *generic_iface = generic_receiver_constraint(
+        program, doc->text + id_start, last + 1 - id_start, f.line, f.col);
+    if (generic_iface) {
+        push_interface_sigs(out_arr, arena, generic_iface, query_prefix, true);
+        return;
+    }
     /* No analyzed type (the program was only parsed, or the receiver
      * did not type): a binding written with its type still names it. */
     const Iron_Type *rt = f.best ? ((Iron_ExprNode *)f.best)->resolved_type : NULL;
@@ -969,15 +1032,8 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
         }
         case IRON_TYPE_INTERFACE: {
             Iron_InterfaceDecl *id = t->interface.decl;
-            for (int j = 0; id && j < id->method_count; j++) {
-                Iron_FuncDecl *sig = (Iron_FuncDecl *)id->method_sigs[j];
-                if (!sig || sig->kind != IRON_NODE_FUNC_DECL || !sig->name) continue;
-                /* Through an interface value only what it can dispatch (E0354). */
-                if (!iron_iface_sig_dispatchable(sig)) continue;
-                maybe_push(out_arr, arena, sig->name, LSP_CK_METHOD,
-                           ILSP_COMPLETION_BUCKET_LOCAL, id->name ? id->name : "",
-                           "", sig->name, false, false, query_prefix);
-            }
+            /* Through an interface value only what it can dispatch (E0354). */
+            push_interface_sigs(out_arr, arena, id, query_prefix, false);
             return;
         }
         case IRON_TYPE_ENUM:
