@@ -8,7 +8,12 @@ generic enums (lists and binary trees) built, walked and rebuilt by
 generic recursive functions, with unit variants passed as payload
 arguments (#470); lists and maps as type arguments of objects, enums and
 functions; instances nested up to eight deep; and calls that break a
-constraint (E0206).
+constraint (E0206). Static functions (#455): on objects and patches,
+declared by interfaces with and without default bodies, called on a type
+and on a constrained type parameter (`T.make(n)`), `Self` in signatures
+and default bodies, defaults that build a value field by field
+(`Self.__fields(...)` and val field writes), and the misuses E0350 to
+E0356 and E0265.
 
 The copy and drop order follows manual 6.1 and 6.7 and the rules pf_obj
 checked against the compiler: a binding copied from another runs copy;
@@ -306,6 +311,102 @@ def tree_src(t):
     if t is None:
         return 'Tree.Leaf'
     return f'Tree.Node({tree_src(t[0])}, {t[1]}, {tree_src(t[2])})'
+
+
+STATICS = '''interface Make {
+    static func make(n: Int) -> Self
+    static func many(ns: [Int]) -> [Self] {
+        var out: [Self] = []
+        for n in ns {
+            out.push(Self.make(n))
+        }
+        return out
+    }
+    static func label() -> String {
+        return "made"
+    }
+    readonly func val_of() -> Int
+    readonly func same(o: Self) -> Bool
+    readonly func tagged() -> String {
+        return "{Self.label()}:{self.val_of()}"
+    }
+}
+
+interface Fill {
+    static func fill(a: Int, b: String) -> Self {
+        var v = Self.__fields(0, "", [])
+        v.a = a
+        v.b = b
+        v.log.push(b)
+        return v
+    }
+}
+
+object Ctr impl Make, Fill {
+    val a: Int
+    val b: String
+    var log: [String]
+    init(a: Int) {
+        self.a = a
+        self.b = "init"
+        self.log = []
+    }
+    static func make(n: Int) -> Self {
+        return Ctr(n * 2)
+    }
+    readonly func val_of() -> Int {
+        return self.a
+    }
+    readonly func same(o: Ctr) -> Bool {
+        return o.a == self.a
+    }
+}
+
+object Lbl impl Make {
+    val s: String
+    static func make(n: Int) -> Lbl {
+        return Lbl("L{n}")
+    }
+    static func label() -> String {
+        return "lbl"
+    }
+    readonly func val_of() -> Int {
+        return self.s.len()
+    }
+    readonly func same(o: Self) -> Bool {
+        return o.s == self.s
+    }
+}
+
+patch object Lbl {
+    static func twice(n: Int) -> (Lbl, Lbl) {
+        return (Lbl.make(n), Self.make(n + 1))
+    }
+}
+
+func make_sum[T: Make](ns: [Int]) -> Int {
+    var t = 0
+    for n in ns {
+        t += T.make(n).val_of()
+    }
+    return t
+}
+
+func count_same[T: Make](ns: [Int], probe: Int) -> Int {
+    val p = T.make(probe)
+    var c = 0
+    for x in T.many(ns) {
+        if x.same(p) {
+            c += 1
+        }
+    }
+    return c
+}
+
+func label_of[T: Make]() -> String {
+    return "{T.label()}/{T.make(1).tagged()}"
+}
+'''
 
 
 class GenEdgeGen(ProbeGen):
@@ -697,12 +798,74 @@ class GenEdgeGen(ProbeGen):
             out.append(f'{tag} built')
         return Probe(code, out)
 
+    # ----------------------------------------------------- static functions
+    def p_static(self):
+        r = self.r
+        self.need('statics', STATICS)
+        tag = self.fresh('s')
+        kind = r.choice(['Ctr', 'Lbl'])
+        ns = [r.randint(0, 12) for _ in range(r.randint(0, 5))]
+        lst = '[' + ', '.join(map(str, ns)) + ']'
+
+        def val_of(n):
+            return n * 2 if kind == 'Ctr' else len(f'L{n}')
+        lab = 'made' if kind == 'Ctr' else 'lbl'
+        k = r.choice(['sum', 'same', 'label', 'direct', 'many', 'fill', 'twice'])
+        if k == 'sum':
+            return Probe([f'println("{tag} {{make_sum[{kind}]({lst})}}")'],
+                         [f'{tag} {sum(val_of(n) for n in ns)}'])
+        if k == 'same':
+            p = r.randint(0, 12)
+            return Probe([f'println("{tag} {{count_same[{kind}]({lst}, {p})}}")'],
+                         [f'{tag} {sum(1 for n in ns if val_of(n) == val_of(p) and (kind == "Ctr" or n == p))}'])
+        if k == 'label':
+            return Probe([f'println("{tag} {{label_of[{kind}]()}}")'],
+                         [f'{tag} {lab}/{lab}:{val_of(1)}'])
+        if k == 'direct':
+            n = r.randint(0, 99)
+            return Probe([f'println("{tag} {{{kind}.make({n}).val_of()}} {{{kind}.label()}}")'],
+                         [f'{tag} {val_of(n)} {lab}'])
+        if k == 'many':
+            v = self.fresh('m')
+            return Probe([f'val {v} = {kind}.many({lst})', f'println("{tag} {{{v}.len()}}")'],
+                         [f'{tag} {len(ns)}'])
+        if k == 'fill':
+            a = r.randint(-5, 50)
+            b = r.choice(['x', 'yy', 'zzz'])
+            v = self.fresh('f')
+            return Probe([f'val {v} = Ctr.fill({a}, "{b}")',
+                          f'println("{tag} {{{v}.a}} {{{v}.b}} {{{v}.log.len()}} {{Ctr({a}).b}}")'],
+                         [f'{tag} {a} {b} 1 init'])
+        n = r.randint(0, 20)
+        a, b = self.fresh('p'), self.fresh('q')
+        return Probe([f'val ({a}, {b}) = Lbl.twice({n})', f'println("{tag} {{{a}.s}} {{{b}.s}}")'],
+                     [f'{tag} L{n} L{n + 1}'])
+
+    def p_bad_static(self):
+        r = self.r
+        self.need('statics', STATICS)
+        k = r.choice(['on_value', 'on_type', 'iface_value', 'reserved', 'val_write'])
+        if k == 'on_value':
+            return Probe(['println("{Ctr(1).make(2).a}")'], errors={'E0350'})
+        if k == 'on_type':
+            return Probe(['println("{Ctr.val_of()}")'], errors={'E0351'})
+        if k == 'iface_value':
+            n = self.fresh('i')
+            return Probe([f'val {n}: Make = Ctr(1)', f'println("{{{n}.same(Ctr(1))}}")'], errors={'E0354'})
+        if k == 'reserved':
+            n = self.fresh('r')
+            return Probe([f'val {n} = Ctr.__fields(1, "b", [])', f'println("{{{n}.a}}")'], errors={'E0356'})
+        n = self.fresh('w')
+        return Probe([f'var {n} = Ctr(1)', f'{n}.a = 5', f'println("{{{n}.a}}")'], errors={'E0265'})
+
     def probe_kinds(self):
         return [(4, self.p_constraint), (5, self.p_hooks), (1, self.p_nocopy_ok), (3, self.p_lst),
-                (3, self.p_tree), (2, self.p_opt), (3, self.p_typeargs), (2, self.p_nested)]
+                (3, self.p_tree), (2, self.p_opt), (3, self.p_typeargs), (2, self.p_nested),
+                (4, self.p_static)]
 
     def error_kinds(self):
-        return [self.p_bad_constraint, self.p_bad_constraint, self.p_bad_nocopy, self.p_bad_listarg]
+        return [self.p_bad_constraint, self.p_bad_constraint, self.p_bad_nocopy, self.p_bad_listarg,
+                self.p_bad_static]
 
 
 def generate(rng):

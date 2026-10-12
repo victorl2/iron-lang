@@ -1,0 +1,20 @@
+-- A result built from Self cannot be represented by one interface type at
+-- run time: the held implementation decides the list's element type (#455).
+interface CloneMany {
+    readonly func copies() -> [Self]
+}
+
+object P impl CloneMany {
+    val n: Int
+    readonly func copies() -> [P] {
+        return [self]
+    }
+}
+
+func count(x: CloneMany) -> Int {
+    return x.copies().len()
+}
+
+func main() {
+    println("{count(P(1))}")
+}

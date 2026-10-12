@@ -2698,8 +2698,13 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                                    fn->value_table[arg_id])
                                   ? fn->value_table[arg_id]->type : NULL;
             bool did_wrap = false;
+            /* (A dispatcher is generated, never a function of the module:
+             * a user function whose name starts with an interface's, such
+             * as `parse_or_zero` next to `interface Parse`, had its object
+             * arguments wrapped into the interface, #672.) */
             if (arg_type && arg_type->kind == IRON_TYPE_OBJECT &&
-                arg_type->object.decl && ctx->iface_reg) {
+                arg_type->object.decl && ctx->iface_reg &&
+                !(callee_short && emit_find_ir_func(ctx, callee_short))) {
                 /* Check if callee is an interface dispatch function */
                 for (int ri = 0; ri < (int)shlen(ctx->iface_reg->map); ri++) {
                     Iron_IfaceEntry *ent = &ctx->iface_reg->map[ri].value;
@@ -6500,8 +6505,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 }
                             }
                         }
-                        /* Also check dispatch function name pattern */
-                        if (!param_iface_t) {
+                        /* Also check dispatch function name pattern (a
+                         * dispatcher is generated, never a module function:
+                         * `shape_twice(x: Sq)` next to `interface Shape`
+                         * had its argument wrapped, #672). */
+                        if (!param_iface_t &&
+                            !(callee_ir_name && emit_find_ir_func(ctx, callee_ir_name))) {
                             const char *callee_resolved = NULL;
                             IronLIR_ValueId fp = instr->call.func_ptr;
                             if (fp != IRON_LIR_VALUE_INVALID &&
@@ -12760,6 +12769,9 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                 Iron_Node *sig_node = entry->iface_decl->method_sigs[mi];
                 if (!sig_node || sig_node->kind != IRON_NODE_FUNC_DECL) continue;
                 Iron_FuncDecl *sig = (Iron_FuncDecl *)sig_node;
+                /* Static functions and signatures built from Self are not
+                 * callable through an interface value (E0354). */
+                if (!iron_iface_sig_dispatchable(sig)) continue;
 
                 const char *ret_type_c = "void";
                 bool has_return = false;
