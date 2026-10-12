@@ -752,6 +752,37 @@ static bool emit_object_field_is_value_slot(Iron_ObjectDecl *od, int idx) {
            !ta->is_tuple && !ta->is_weak_rc && !ta->is_rc;
 }
 
+/* The value of `obj.field = value`: a concrete implementor assigned to a
+ * field of interface type is wrapped into the interface's tagged union, as
+ * a store to an interface slot is (#727: it was stored as it is, which the
+ * C compiler rejects). */
+static void emit_set_field_value(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
+                                 IronLIR_Instr *instr) {
+    Iron_Type *ot = emit_get_value_type(fn, instr->field.object);
+    if (ot && ot->kind == IRON_TYPE_PTR) ot = ot->ptr.pointee;
+    if (ot && ot->kind == IRON_TYPE_RC) ot = ot->rc.inner;
+    Iron_Type *vt = emit_get_value_type(fn, instr->field.value);
+    if (ot && ot->kind == IRON_TYPE_OBJECT && ot->object.decl && instr->field.field &&
+        vt && vt->kind == IRON_TYPE_OBJECT && vt->object.decl && vt->object.decl->name) {
+        Iron_ObjectDecl *od = ot->object.decl;
+        for (int i = 0; i < od->field_count; i++) {
+            Iron_Field *f = (Iron_Field *)od->fields[i];
+            if (!f || !f->name || strcmp(f->name, instr->field.field) != 0) continue;
+            Iron_Type *ft = f->resolved_type ? f->resolved_type : f->field_type_cached;
+            if (ft && ft->kind == IRON_TYPE_INTERFACE && ft->interface.decl) {
+                iron_strbuf_appendf(sb, "%s_from_%s(",
+                                    emit_mangle_name(ft->interface.decl->name, ctx->arena),
+                                    vt->object.decl->name);
+                emit_iface_wrap_operand(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ")");
+                return;
+            }
+            break;
+        }
+    }
+    emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
+}
+
 static void emit_construct_field_value(Iron_StrBuf *sb, IronLIR_Func *fn,
                                        EmitCtx *ctx, IronLIR_ValueId vid,
                                        bool field_is_value_slot,
@@ -4403,8 +4434,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_indent(sb, ind);
                 emit_val(sb, instr->field.object);
                 iron_strbuf_appendf(sb, "->%s = ", instr->field.field);
-                emit_expr_to_buf(sb, instr->field.value, fn, ctx,
-                                 ctx->current_block_id, 0);
+                emit_set_field_value(sb, fn, ctx, instr);
                 iron_strbuf_appendf(sb, ";\n");
                 break;
             }
@@ -4443,7 +4473,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, "%s%s = ", obj_is_ptr2 ? "->" : ".", instr->field.field);
             }
-            emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
+            emit_set_field_value(sb, fn, ctx, instr);
             iron_strbuf_appendf(sb, ";\n");
 
             /* Phase 24 DROP-05 (Plan 24-03): partial-init cleanup instrumentation.
