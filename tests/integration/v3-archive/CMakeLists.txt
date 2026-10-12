@@ -19,5 +19,6 @@ if(NOT WIN32)
     )
     set_tests_properties(test_integration_v3_archive PROPERTIES
         LABELS "v3-archive;archeology"
+        PROCESSORS 2
     )
 endif()

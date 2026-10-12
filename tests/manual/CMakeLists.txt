@@ -8,5 +8,5 @@ if(NOT WIN32)
                 ${CMAKE_BINARY_DIR}/ironc
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
-    set_tests_properties(test_manual PROPERTIES LABELS "manual")
+    set_tests_properties(test_manual PROPERTIES LABELS "manual" PROCESSORS 2)
 endif()

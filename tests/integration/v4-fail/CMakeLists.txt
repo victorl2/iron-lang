@@ -15,5 +15,6 @@ if(NOT WIN32)
     # per-fixture rows (run_tests.sh defaults to 15 without the env var).
     set_tests_properties(test_v4_acceptance_fail PROPERTIES
         LABELS "v4-acceptance"
+        PROCESSORS 2
         ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}")
 endif()

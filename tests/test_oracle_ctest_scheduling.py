@@ -61,6 +61,31 @@ def main() -> int:
             print(f"{name}: TIMEOUT must be at least 1800 seconds", file=sys.stderr)
             failed = True
 
+    four_worker_tests = (
+        "mod_fuzz_pkg",
+        "mod_fuzz_incr",
+        "mod_fuzz_tests",
+        "cli_fuzz",
+    )
+    for name in four_worker_tests:
+        if properties(tests[name]).get("PROCESSORS", 0) < 4:
+            print(f"{name}: PROCESSORS must be at least 4", file=sys.stderr)
+            failed = True
+
+    two_worker_tests = (
+        "json_fuzz",
+        "test_manual",
+        "test_algorithms",
+        "test_composite",
+        "test_compile_fail",
+        "test_v4_acceptance_fail",
+        "test_v4_migrated_from_v3",
+    )
+    for name in two_worker_tests:
+        if properties(tests[name]).get("PROCESSORS", 0) < 2:
+            print(f"{name}: PROCESSORS must be at least 2", file=sys.stderr)
+            failed = True
+
     runner = Path(__file__).with_name("run_tests.sh")
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as cpu_max:
         cpu_max.write("400000 100000\n")
