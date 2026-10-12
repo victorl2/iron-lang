@@ -1,0 +1,15 @@
+-- Two members of the same name in one object body failed in lowering
+-- ("function body is NULL") instead of E0201 (#673).
+object P {
+    val x: Int
+    static func get() -> Int {
+        return 1
+    }
+    readonly func get() -> Int {
+        return self.x
+    }
+}
+
+func main() {
+    println("{P(1).get()}")
+}

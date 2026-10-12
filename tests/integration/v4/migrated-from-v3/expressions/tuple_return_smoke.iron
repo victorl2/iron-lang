@@ -16,7 +16,7 @@
 object Smoke {}
 
 patch object Smoke {
-    readonly func pair() -> (Int, Int) {
+    static func pair() -> (Int, Int) {
         return (0, 0)
     }
 }

@@ -271,6 +271,12 @@ bool ilsp_keyword_visible_at(const char               *kw,
         if (strcmp(kw, "readonly") == 0 || strcmp(kw, "pure") == 0) {
             return kw_modifier_func_follows(doc, cur_byte);
         }
+        /* `static func` is a member of an object, patch or interface. */
+        if (strcmp(kw, "static") == 0) {
+            const Iron_Node *enc = enclosing_object_decl(program, cursor_line_1);
+            if (enc && enc->kind == IRON_NODE_OBJECT_DECL) return true;
+            return kw_modifier_func_follows(doc, cur_byte);
+        }
         if (strcmp(kw, "mut") == 0) {
             return kw_mut_in_receiver_pos(doc, cur_byte);
         }
@@ -359,6 +365,7 @@ bool ilsp_keyword_visible_at(const char               *kw,
         if (strcmp(kw, "init")     == 0) return false;
         if (strcmp(kw, "readonly") == 0) return false;
         if (strcmp(kw, "pure")     == 0) return false;
+        if (strcmp(kw, "static")   == 0) return false;
         if (strcmp(kw, "mut")      == 0) return false;
         if (strcmp(kw, "heap")      == 0) return false;
         if (strcmp(kw, "rc")        == 0) return false;

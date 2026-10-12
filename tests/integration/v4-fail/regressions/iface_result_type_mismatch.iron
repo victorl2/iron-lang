@@ -1,0 +1,15 @@
+-- The implementor's result must match the interface signature (#645).
+interface Cl {
+    readonly func v() -> Int
+}
+
+object A impl Cl {
+    val n: Int
+    readonly func v() -> String {
+        return "x"
+    }
+}
+
+func main() {
+    println("{A(2).n}")
+}
