@@ -1,0 +1,42 @@
+-- Url.parse / build / resolve edge cases found by the url program fuzzer
+-- (tests/fuzz/pf_url.py): #554 port overflow, #555 multi-byte dot
+-- segments, #556 build that does not parse back, #557 scheme syntax,
+-- junk after ']', hosts with ':' and empty ports.
+import url
+
+func show(s: String) {
+    val (u, e) = Url.parse(s)
+    println("{e.code} <{u.scheme}> <{u.userinfo}> <{u.host}> {u.port} <{u.path}> <{u.query}> <{u.fragment}>")
+    if e.code == 0 {
+        val b = Url.build(u)
+        val (v, e2) = Url.parse(b)
+        val same = v.scheme == u.scheme and v.userinfo == u.userinfo and v.host == u.host and v.port == u.port and v.path == u.path and v.query == u.query and v.fragment == u.fragment
+        println("  {b} {e2.code} {same}")
+    }
+}
+
+func main() {
+    show("http://h:99999999999999999999999/")
+    show("http://h:65536/")
+    show("http://h:00080/x")
+    show("http://h:/x")
+    show("http://[::1]junk/")
+    show("http://[::1]:8080/a")
+    show("http://a:b:80/")
+    show("http://a]b/")
+    show("-a://h/x")
+    show(":x")
+    show("1http://h/")
+    show("a+b.c-d:rest")
+    show("http:////evil.com/x")
+    show("http://u@/x")
+    show("http://:80/x")
+    show("file:///etc/passwd")
+    val (b, e) = Url.parse("http://a/b/c")
+    val (r1, e1) = Url.resolve(b, "/é/../x")
+    val (r2, e2) = Url.resolve(b, "日/本/../g")
+    println("{Url.build(r1)} {Url.build(r2)}")
+    println(Url.builder().set_scheme("http").set_host("h").set_path("x").build())
+    println(Url.builder().set_host("::1").set_port(8080).build())
+    println(Url.builder().set_host("[::1]").build())
+}

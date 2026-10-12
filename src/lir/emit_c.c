@@ -2722,8 +2722,13 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                                    fn->value_table[arg_id])
                                   ? fn->value_table[arg_id]->type : NULL;
             bool did_wrap = false;
+            /* (A dispatcher is generated, never a function of the module:
+             * a user function whose name starts with an interface's, such
+             * as `parse_or_zero` next to `interface Parse`, had its object
+             * arguments wrapped into the interface, #672.) */
             if (arg_type && arg_type->kind == IRON_TYPE_OBJECT &&
-                arg_type->object.decl && ctx->iface_reg) {
+                arg_type->object.decl && ctx->iface_reg &&
+                !(callee_short && emit_find_ir_func(ctx, callee_short))) {
                 /* Check if callee is an interface dispatch function */
                 for (int ri = 0; ri < (int)shlen(ctx->iface_reg->map); ri++) {
                     Iron_IfaceEntry *ent = &ctx->iface_reg->map[ri].value;
@@ -3039,7 +3044,15 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (l > 0 && l < g_line_fn_first) g_line_fn_first = l;
             }
         }
+        /* A constant has no effect of its own, and the optimizer may have
+         * placed it ahead of its statement (a folded `n < n` emitted before
+         * the loop that precedes it): it keeps the line of what precedes it,
+         * so a breakpoint on its statement does not stop early (#595). */
+        bool is_const = instr->kind == IRON_LIR_CONST_INT || instr->kind == IRON_LIR_CONST_FLOAT ||
+                        instr->kind == IRON_LIR_CONST_BOOL || instr->kind == IRON_LIR_CONST_STRING ||
+                        instr->kind == IRON_LIR_CONST_NULL;
         if (instr->kind == IRON_LIR_ALLOCA) line = g_line_fn_first;
+        else if (is_const) line = g_line_fn_last > 0 ? g_line_fn_last : g_line_fn_first;
         else g_line_fn_last = line;
         emit_line_directive(sb, line, instr->span.filename);
     }
@@ -6258,7 +6271,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 fn->value_table[fptr_chk] != NULL &&
                 fn->value_table[fptr_chk]->kind == IRON_LIR_FUNC_REF) {
                 const char *rn_chk = fn->value_table[fptr_chk]->func_ref.func_name;
-                if (rn_chk && strcmp(rn_chk, "iron_string_concat") == 0) {
+                if (rn_chk && (strcmp(rn_chk, "iron_string_concat") == 0 ||
+                               strcmp(rn_chk, "iron_string_concat_append") == 0)) {
                     runtime_args_by_addr = true;
                 }
                 /* The frame's share of a mutable capture cell (#210): the
@@ -6536,8 +6550,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 }
                             }
                         }
-                        /* Also check dispatch function name pattern */
-                        if (!param_iface_t) {
+                        /* Also check dispatch function name pattern (a
+                         * dispatcher is generated, never a module function:
+                         * `shape_twice(x: Sq)` next to `interface Shape`
+                         * had its argument wrapped, #672). */
+                        if (!param_iface_t &&
+                            !(callee_ir_name && emit_find_ir_func(ctx, callee_ir_name))) {
                             const char *callee_resolved = NULL;
                             IronLIR_ValueId fp = instr->call.func_ptr;
                             if (fp != IRON_LIR_VALUE_INVALID &&
@@ -12826,6 +12844,9 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                 Iron_Node *sig_node = entry->iface_decl->method_sigs[mi];
                 if (!sig_node || sig_node->kind != IRON_NODE_FUNC_DECL) continue;
                 Iron_FuncDecl *sig = (Iron_FuncDecl *)sig_node;
+                /* Static functions and signatures built from Self are not
+                 * callable through an interface value (E0354). */
+                if (!iron_iface_sig_dispatchable(sig)) continue;
 
                 const char *ret_type_c = "void";
                 bool has_return = false;

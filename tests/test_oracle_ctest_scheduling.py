@@ -36,8 +36,11 @@ def main() -> int:
         failed = True
     for name in ("test_opt_parity", "test_leak_check"):
         props = properties(tests[name])
-        if props.get("RUN_SERIAL") is not True:
-            print(f"{name}: RUN_SERIAL must be true", file=sys.stderr)
+        if props.get("PROCESSORS", 0) < 4:
+            print(f"{name}: PROCESSORS must be at least 4", file=sys.stderr)
+            failed = True
+        if props.get("RESOURCE_LOCK") != ["iron_exhaustive_corpus"]:
+            print(f"{name}: must lock iron_exhaustive_corpus", file=sys.stderr)
             failed = True
         if props.get("TIMEOUT", 0) < 7200:
             print(f"{name}: TIMEOUT must be at least 7200 seconds", file=sys.stderr)

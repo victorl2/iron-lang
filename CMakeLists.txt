@@ -1226,6 +1226,13 @@ if(NOT WIN32)
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
   set_tests_properties(debug_stepping_smoke PROPERTIES PROCESSORS 2 TIMEOUT 120)
 endif()
+# #595: a breakpoint stops when the program reaches its line, not earlier.
+if(NOT WIN32)
+  add_test(NAME debug_line_order_smoke
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_line_order_smoke.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_line_order_smoke PROPERTIES TIMEOUT 120)
+endif()
 # #312: `ironc build --debug` maps debug info to the .iron source.
 if(NOT WIN32)
   add_test(NAME debug_info_smoke
@@ -1592,6 +1599,14 @@ else()
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 endif()
 if(UNIX)
+    add_test(NAME test_aggregate_scheduling
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_aggregate_scheduling.py
+            ${CMAKE_BINARY_DIR}
+            ${CMAKE_SOURCE_DIR}/.github/workflows/v4-acceptance.yml)
+    set_tests_properties(test_aggregate_scheduling PROPERTIES
+        LABELS "unit;oracle" TIMEOUT 30)
+
     add_test(NAME benchmark_process_regressions
         COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/benchmarks/test_benchmark_process.py)
@@ -1709,10 +1724,25 @@ if(Python3_EXECUTABLE)
         set_tests_properties(fmt_fuzz_short PROPERTIES
             LABELS "fmt;fuzz" PROCESSORS 3 TIMEOUT 600)
     endif()
+    # The io / os / FileHandle / url, math / time / String, and net /
+    # websocket modules against Python models (the websocket peer is a
+    # scripted Python server), and log (tests/fuzz/stdlib_fuzz_suite.py,
+    # log_fuzz.py). Fixed seeds. (POSIX: the io programs work under /tmp.)
+    if(NOT WIN32)
+        foreach(_sf_group io num net)
+            add_test(NAME stdlib_fuzz_${_sf_group}
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/stdlib_fuzz_suite.py
+                    $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/stdlib_fuzz_${_sf_group} ${_sf_group})
+            set_tests_properties(stdlib_fuzz_${_sf_group} PROPERTIES LABELS "stdlib" TIMEOUT 900)
+        endforeach()
+        add_test(NAME log_fuzz
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/log_fuzz.py
+                --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/log_fuzz)
+        set_tests_properties(log_fuzz PROPERTIES LABELS "stdlib" TIMEOUT 900)
+
     # Packages, the module system and the iron project tool
     # (tests/fuzz/mod_fuzz.py), and the iron / ironc command lines
     # (tests/fuzz/cli_fuzz.py). Fixed seeds.
-    if(NOT WIN32)
         add_test(NAME mod_fuzz_pkg
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/mod_fuzz.py
                 --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/mod_fuzz_pkg pkg)

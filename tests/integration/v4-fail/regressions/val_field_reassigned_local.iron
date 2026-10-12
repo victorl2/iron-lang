@@ -1,0 +1,14 @@
+-- A val field is assigned once, in the init: writing it through a var
+-- binding was accepted (#653).
+object Wrap {
+    val id: Int
+    init() {
+        self.id = 0
+    }
+}
+
+func main() {
+    var w = Wrap()
+    w.id = 3
+    println("{w.id}")
+}

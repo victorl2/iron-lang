@@ -3,7 +3,8 @@
 #
 # Usage: debug_info_smoke.sh <ironc> <source dir>
 #
-#   1. The --debug build prints what the normal build prints.
+#   1. The --debug build prints what the normal build prints (stepping.iron,
+#      and init_drop_local.iron, an init with a droppable local).
 #   2. The generated C maps each statement to its Iron line (#line) and
 #      calls area() instead of inlining it (a breakpoint in area is hit).
 #   3. With gdb installed: a breakpoint on stepping.iron:3 stops in
@@ -43,6 +44,13 @@ cd "$work"
 want="$(./normal)"
 got="$(./dbg)"
 [ "$want" = "$got" ] || { echo "FAIL: --debug output '$got' != '$want'"; exit 1; }
+
+# An init with a droppable local builds and runs the same with --debug.
+INIT="$SRC_ROOT/tests/integration/debug/init_drop_local.iron"
+"$IRONC" build "$INIT" -o init_normal >/dev/null 2>&1
+"$IRONC" build "$INIT" --debug -o init_dbg >/dev/null 2>&1 ||
+    { echo "FAIL: --debug build of init_drop_local.iron"; exit 1; }
+[ "$(./init_normal)" = "$(./init_dbg)" ] || { echo "FAIL: init_drop_local.iron output differs with --debug"; exit 1; }
 
 "$IRONC" build "$SRC" --debug --emit-c -o stepping >/dev/null 2>&1
 c=".iron-build/stepping.c"

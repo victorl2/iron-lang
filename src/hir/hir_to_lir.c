@@ -203,6 +203,13 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
              ft->nullable.inner->kind == IRON_TYPE_STRING))
             return true;
         if (ft->kind == IRON_TYPE_FUNC) return true;
+        /* A Mutex, RWLock or Channel field is destroyed with its object. */
+        if (!want_copy && ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
+            ft->object.decl->name && ft->object.elem &&
+            (strcmp(ft->object.decl->name, "Mutex") == 0 ||
+             strcmp(ft->object.decl->name, "RWLock") == 0 ||
+             strcmp(ft->object.decl->name, "Channel") == 0))
+            return true;
         /* An enum field whose payloads own something (a String, an rc
          * handle, a list) makes the holder need glue too: without this an
          * `object W { val node: N }` binding was never dropped. */
@@ -371,6 +378,7 @@ typedef struct {
 
     /* Variable maps (per-function, reset each function) */
     VarAllocaEntry  *var_alloca_map;  /* HIR VarId -> LIR alloca ValueId */
+    VarValEntry     *loop_vars;       /* for-loop variables: they borrow list elements */
     VarValEntry     *val_binding_map; /* HIR VarId -> LIR ValueId (immutable, no alloca) */
     ParamEntry      *param_map;       /* HIR VarId -> LIR param ValueId */
 
@@ -867,6 +875,19 @@ static const char *list_elem_suffix(HIR_to_LIR_Ctx *ctx, Iron_Type *elem) {
                 if (elem->object.decl && elem->object.decl->name && elem->object.elem &&
                     strcmp(elem->object.decl->name, "Channel") == 0) {
                     elem_suffix = "Iron_Channel__";
+                    break;
+                }
+                /* `[Box[T]]` (#576): the per-T cell type Iron_Box_<T>, as
+                 * emit_type_to_c names it (the decl name alone named a
+                 * type that does not exist). */
+                if (elem->object.decl && elem->object.decl->name && elem->object.elem &&
+                    strcmp(elem->object.decl->name, "Box") == 0) {
+                    const char *in = list_elem_suffix(ctx, elem->object.elem);
+                    size_t slen = 10 + strlen(in);
+                    char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                    if (!s) iron_oom_abort("hir_to_lir.c:list_elem_suffix box");
+                    snprintf(s, slen, "Iron_Box_%s", in);
+                    elem_suffix = s;
                     break;
                 }
                 if (elem->object.decl) {
@@ -2097,6 +2118,17 @@ static const char *emit_type_to_c_name_for_box(HIR_to_LIR_Ctx *ctx,
             }
             break;
         }
+        /* `Box([T])`: the list type Iron_List_<suffix> (#576 follow-up;
+         * the generic path emitted a call to a missing Iron_box_new). */
+        case IRON_TYPE_ARRAY:
+            if (elem->array.size < 0 && !elem->array.is_bounded && elem->array.elem &&
+                elem->array.elem->kind != IRON_TYPE_INTERFACE) {
+                snprintf(obj_buf, sizeof(obj_buf), "Iron_List_%s",
+                         list_elem_suffix(ctx, elem->array.elem));
+                elem_c = obj_buf;
+            }
+            break;
+        case IRON_TYPE_FUNC:    elem_c = "Iron_Closure"; break;
         /* -Wswitch-enum opt-out: composite/meta element kinds are not
          * supported as Box elements yet; return NULL so the caller falls
          * back to the generic method path. */
@@ -2721,7 +2753,19 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 snprintf(fname, nlen, "%s_%s", elem_c, suffix);
                 IronLIR_ValueId *bargs = NULL;
                 for (int i = 0; i < expr->method_call.arg_count; i++) {
-                    IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+                    IronHIR_Expr *ae = expr->method_call.args[i];
+                    IronLIR_ValueId av = lower_expr(ctx, ae);
+                    /* The cell owns its value (and drops it with the cell):
+                     * a value copied out of a binding is retained or cloned
+                     * first, as Map.put does. */
+                    if (ae && ae->type) {
+                        if (type_is_rc_like(ae->type)) {
+                            if (!rc_expr_transfers_ownership(ae))
+                                emit_rc_retain_for_type(ctx, ae->type, av, span);
+                        } else {
+                            av = copy_for_new_owner(ctx, ae, av, ae->type, span);
+                        }
+                    }
                     arrput(bargs, av);
                 }
                 int bargc = (int)arrlen(bargs);
@@ -2845,10 +2889,16 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 fname = "Iron_FileHandle_open";
             }
             if (fname) {
+                /* FileHandle.open only reads its path: a temporary path
+                 * (`FileHandle.open(dir + "/f")`) is released after the
+                 * call. Mutex / RWLock take ownership of their value. */
+                bool borrows = strcmp(fname, "Iron_FileHandle_open") == 0;
+                TempOwned *ftemps = NULL;
                 IronLIR_ValueId *cargs = NULL;
                 for (int i = 0; i < expr->method_call.arg_count; i++) {
                     IronHIR_Expr *ae = expr->method_call.args[i];
                     IronLIR_ValueId av = lower_expr(ctx, ae);
+                    if (borrows) note_owned_temp(ctx, &ftemps, ae, av, span);
                     /* Mutex(v) / RWLock(v) own their value from now on: a
                      * copy out of a place is retained or fixed up, a
                      * temporary moves in (as Map.put does). */
@@ -2868,6 +2918,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 cref->func_ref.res_elem = res_elem;
                 IronLIR_Instr *ccall = iron_lir_call(ctx->current_func,
                     ctx->current_block, NULL, cref->id, cargs, cargc, type, span);
+                release_owned_temps(ctx, &ftemps, span);
                 arrfree(cargs);
                 return ccall->id;
             }
@@ -4886,6 +4937,22 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
          * and dropped once it is done (or left behind by a break). */
         TempOwned *iter_temps = NULL;
         note_owned_temp(ctx, &iter_temps, stmt->for_loop.iterable, iterable_val, span);
+        /* A temporary held in a slot is registered for scope-exit drop in a
+         * scope of its own around the loop, so a `return` from the body
+         * frees it too (it used to leak); break and the normal exit drop it
+         * at the exit block below. */
+        int iter_scope_depth = 0;
+        if (arrlen(iter_temps) == 1 && iter_temps[0].is_slot) {
+            push_defer_scope(ctx);
+            iter_scope_depth = ctx->defer_depth;
+            IronLIR_DropEntry de = { iter_temps[0].value, iter_temps[0].type, false, false, NULL, false };
+            arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
+            arrfree(iter_temps);
+            iter_temps = NULL;
+        }
+        /* The loop variable borrows each element from the list: returning
+         * it hands the caller a copy instead of moving the slot. */
+        hmput(ctx->loop_vars, stmt->for_loop.var_id, 1);
         Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
 
         /* Alloca for loop index */
@@ -4962,6 +5029,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
 
         switch_block(ctx, exit_blk);
         release_owned_temps(ctx, &iter_temps, span);
+        if (iter_scope_depth > 0) {
+            emit_scope_defers(ctx, iter_scope_depth - 1, span);
+            pop_defer_scope(ctx);
+        }
         break;
     }
 
@@ -5205,6 +5276,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
              * either copies (the copy hook runs, rc fields are retained). */
             bool rv_owned = rv->kind == IRON_HIR_EXPR_IDENT &&
                             hmgeti(ctx->param_map, rv->ident.var_id) < 0 &&
+                            hmgeti(ctx->loop_vars, rv->ident.var_id) < 0 &&
                             !var_is_capture(ctx, rv->ident.var_id) &&
                             !iron_hir_var_is_boxed(ctx->hir, rv->ident.var_id);
             ptrdiff_t rv_slot = rv_owned ? hmgeti(ctx->var_alloca_map, rv->ident.var_id) : -1;
@@ -5282,7 +5354,16 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
          * def-after-use hoisting concern as above; ALLOCA hoisting is the
          * one form emit_c handles for every instruction kind). */
         IronLIR_ValueId ret_slot = IRON_LIR_VALUE_INVALID;
-        if (has_value && ret_type) {
+        /* An init returning `self` returns its self parameter, which is in
+         * scope in every block: no spill slot, and none could hold it (the
+         * slot has the object's type, self is a pointer, and the emitter
+         * dereferences self only in the RETURN itself). Spilled, --debug
+         * builds of any init with a droppable local failed to compile. */
+        bool init_returns_self = ctx->cur_is_init && has_value &&
+            stmt->return_stmt.value->kind == IRON_HIR_EXPR_IDENT &&
+            stmt->return_stmt.value->ident.name &&
+            strcmp(stmt->return_stmt.value->ident.name, "self") == 0;
+        if (has_value && ret_type && !init_returns_self) {
             /* The slot holds the value as returned: after the T -> T?
              * coercion above (`return s` of a String binding from a
              * `-> String?` function), not the expression's own type. */
@@ -5720,7 +5801,15 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
     /* Emit implicit void return if function doesn't end with a terminator.
      * Route through defer cleanup chain if defers are pending. */
     if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
+        /* The closing brace's line (#595): without one the return and the
+         * cleanup before it took the last statement's line, and clang gave
+         * it to stray instructions of earlier statements too. */
         Iron_Span zero_span = {0};
+        if (hir_func->end_span.filename && hir_func->end_span.line > 0) {
+            zero_span.filename = hir_func->end_span.filename;
+            zero_span.line = hir_func->end_span.line;
+            zero_span.end_line = hir_func->end_span.line;
+        }
         if (ctx->defer_stacks && ctx->defer_depth > 0) {
             /* Create exit block for the actual RETURN */
             IronLIR_Block *exit_block = new_block(ctx, make_label(ctx, "return_exit"));
@@ -6442,6 +6531,7 @@ IronLIR_Module *iron_hir_to_lir(IronHIR_Module *hir, Iron_Program *program,
     }
 
     /* ── Cleanup context ── */
+    hmfree(ctx.loop_vars);
     hmfree(ctx.var_alloca_map);
     hmfree(ctx.val_binding_map);
     hmfree(ctx.param_map);
