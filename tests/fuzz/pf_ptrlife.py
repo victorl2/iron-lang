@@ -16,6 +16,16 @@ point at comes and goes:
     taken by a method from its receiver (`&self.v`, #542)
   - list element pointers handed to a call that keeps them (stale after the
     call) or that grows the list during the call (#543)
+  - pointers handed on through a `?*T` parameter, made from a place
+    reached through a block's own pointer (`&p.v`), or taken by a method
+    called through a pointer parameter, each of which must end with the
+    block that owns the storage
+  - guards: objects with a `drop` block that reads a pointer. Locals are
+    destroyed in reverse order of declaration after the block's defers, so
+    a guard reads a local declared before it and panics on one declared
+    after it
+  - a `var` captured by a closure kept in the hub: it lives in a cell, and a
+    pointer to it is valid while the closure (or the frame) holds the cell
   - a global, always valid.
 
 The model computes, for every dereference, whether the storage is still
@@ -64,7 +74,8 @@ class Scope:
     def __init__(self, parent):
         self.parent = parent
         self.names = {}       # name -> sid / Mark
-        self.on_exit = []     # callables, run in reverse
+        self.defers = []      # `defer` statements, run first, in reverse
+        self.on_exit = []     # destruction of the locals, in reverse
 
     def lookup(self, name):
         s = self
@@ -87,6 +98,8 @@ class Model:
         self.seq = 0
         self.marks = []
         self.rc = {}
+        self.cell_rc = {}
+        self.gcell = None         # (storage, slot) of the var the hub's g closure captured
         self.steps = 0
         self.xs = list(gen.xs_init)
         self.glob = self.new('global', gen.gval)
@@ -121,6 +134,8 @@ class Model:
                 s.run(self, scope)
         finally:
             pass
+        for fn in reversed(scope.defers):
+            fn()
         for fn in reversed(scope.on_exit):
             fn()
 
@@ -170,7 +185,7 @@ class DeclHeap(Stmt):
         sid = m.new('heap', self.v)
         sc.names[self.name] = sid
         if self.defer:
-            sc.on_exit.append(lambda: m.kill(sid))
+            sc.defers.append(lambda: m.kill(sid))
 
 
 class FreeHeap(Stmt):
@@ -332,6 +347,129 @@ class Pin(Stmt):
         sid = target_sid(m, sc, self.name)
         m.deref(sid)
         m.islot[self.slot] = sid
+
+
+class KeepN(Stmt):
+    """keepn(h, &x): the pointer goes through a `?*Cell` parameter into a
+    hub slot."""
+
+    def __init__(self, slot, name):
+        self.slot, self.name = slot, name
+
+    def lines(self, ind):
+        return [f'{ind}keepn{self.slot}(h, &{self.name})']
+
+    def run(self, m, sc):
+        m.cslot[self.slot] = target_sid(m, sc, self.name)
+
+
+class ViaField(Stmt):
+    """A pointer to a binding kept in a val of the block, and the address of
+    a field reached through it stored in the hub: the derived pointer has
+    the binding's lifetime."""
+
+    def __init__(self, slot, name, pname):
+        self.slot, self.name, self.pname = slot, name, pname
+
+    def lines(self, ind):
+        return [f'{ind}val {self.pname} = &{self.name}', f'{ind}h.i{self.slot} = &{self.pname}.v']
+
+    def run(self, m, sc):
+        sid = target_sid(m, sc, self.name)
+        m.deref(sid)
+        m.islot[self.slot] = sid
+
+
+class PinVia(Stmt):
+    """pinvia(&x, h, k): a function that calls the &self.v method through
+    its pointer parameter."""
+
+    def __init__(self, name, slot):
+        self.name, self.slot = name, slot
+
+    def lines(self, ind):
+        return [f'{ind}pinvia(&{self.name}, h, {self.slot})']
+
+    def run(self, m, sc):
+        sid = target_sid(m, sc, self.name)
+        m.deref(sid)
+        m.islot[self.slot] = sid
+
+
+class DeclGuard(Stmt):
+    """A local with a drop block that reads the pointer it holds, if any."""
+
+    def __init__(self, name, tag):
+        self.name, self.tag = name, tag
+
+    def lines(self, ind):
+        return [f'{ind}var {self.name} = Guard("{self.tag}")']
+
+    def run(self, m, sc):
+        g = {'sid': None}
+        sc.names[self.name] = g
+
+        def drop():
+            if g['sid'] is not None:
+                m.out.append(f'{self.tag} {m.deref(g["sid"]).value}')
+        sc.on_exit.append(drop)
+
+
+class SetGuard(Stmt):
+    def __init__(self, gname, name):
+        self.gname, self.name = gname, name
+
+    def lines(self, ind):
+        return [f'{ind}{self.gname}.p = &{self.name}']
+
+    def run(self, m, sc):
+        g = sc.lookup(self.gname)
+        if not isinstance(g, dict):
+            raise Bail('not a guard')
+        g['sid'] = target_sid(m, sc, self.name)
+
+
+class CellVar(Stmt):
+    """A var captured by a closure stored in the hub lives in a cell shared
+    with the closure; the closure also stores a pointer to it in a slot. The
+    cell lives while the frame (until the block ends) or the hub's closure
+    holds it."""
+
+    def __init__(self, name, v, slot):
+        self.name, self.v, self.slot = name, v, slot
+
+    def lines(self, ind):
+        return [f'{ind}var {self.name} = Cell({self.v})',
+                f'{ind}h.g = func() {{', f'{ind}    {self.name}.v += 1',
+                f'{ind}    h.c{self.slot} = &{self.name}', f'{ind}}}']
+
+    def run(self, m, sc):
+        sid = m.new('heap', self.v)       # stale, not dangling, once the cell is gone
+        sc.names[self.name] = sid
+        old = m.gcell
+
+        def frame_release():
+            m.cell_rc[sid] -= 1
+            if m.cell_rc[sid] == 0:
+                m.kill(sid)
+        m.cell_rc[sid] = 2                # the frame and the hub's closure
+        m.gcell = (sid, self.slot)
+        if old is not None:               # the closure this one replaces lets go
+            m.cell_rc[old[0]] -= 1
+            if m.cell_rc[old[0]] == 0:
+                m.kill(old[0])
+        sc.on_exit.append(frame_release)
+
+
+class CallG(Stmt):
+    def lines(self, ind):
+        return [f'{ind}h.g()']
+
+    def run(self, m, sc):
+        if m.gcell is not None:
+            sid, slot = m.gcell
+            m.deref(sid).value += 1
+            m.cslot[slot] = sid
 
 
 class Nest(Stmt):
@@ -624,11 +762,32 @@ object Hub {
 %SLOTS%
     var keep: [rc Cell]
     var f: func() -> Int
+    var g: func()
     init() {
 %INIT%
         self.keep = []
         self.f = func() -> Int { return -1 }
+        self.g = func() {}
     }
+}
+
+object Guard {
+    var p: ?*Cell
+    val tag: String
+    init(tag: String) {
+        self.p = null
+        self.tag = tag
+    }
+    drop {
+        val q = self.p
+        if q != null {
+            println("{self.tag} {q.v}")
+        }
+    }
+}
+
+func pinvia(p: *var Cell, h: *var Hub, k: Int) {
+    p.pin(h, k)
 }
 
 func grow(p: *Cell, var ys: [Cell]) {
@@ -680,10 +839,39 @@ class PtrLifeGen:
         out = []
         vis = list(ctx['vis'])
         marks = list(ctx['marks'])
+        guards = list(ctx.get('guards', []))
+        ctx = {**ctx, 'guards': guards}
         pending_free = []
         n = r.randint(2, budget)
         for _ in range(n):
             x = r.random()
+            y = r.random()
+            addressable = [v for v in vis if v[1] != 'rc'] + [('gcell', 'global')]
+            if y < 0.03:
+                out.append(KeepN(r.randrange(NC), r.choice(addressable)[0]))
+                continue
+            elif y < 0.06:
+                out.append(ViaField(r.randrange(NI), r.choice(addressable)[0], self.fresh('p')))
+                continue
+            elif y < 0.09:
+                out.append(PinVia(r.choice(addressable)[0], r.randrange(NI)))
+                continue
+            elif y < 0.12:
+                nm = self.fresh('g')
+                out.append(DeclGuard(nm, self.fresh('gd')))
+                guards.append(nm)
+                continue
+            elif y < 0.16 and guards:
+                out.append(SetGuard(r.choice(guards), r.choice(addressable)[0]))
+                continue
+            elif y < 0.175:
+                nm = self.fresh('cv')
+                out.append(CellVar(nm, r.randint(1, 999), r.randrange(NC)))
+                vis.append((nm, 'cell'))
+                continue
+            elif y < 0.19:
+                out.append(CallG())
+                continue
             if x < 0.11:
                 nm = self.fresh('c')
                 out.append(DeclStack(nm, r.randint(1, 999)))
@@ -725,17 +913,17 @@ class PtrLifeGen:
             elif x < 0.73 and pending_free:
                 out.append(FreeHeap(pending_free.pop(0)))
             elif x < 0.77 and depth < 3:
-                out.append(Nest(Block(self.block({**ctx, 'vis': vis, 'marks': marks},
+                out.append(Nest(Block(self.block({**ctx, 'vis': vis, 'marks': marks, 'guards': guards},
                                                  depth + 1, max(2, budget - 2)))))
             elif x < 0.80 and depth < 3:
                 lv = self.fresh('i')
                 out.append(Loop(lv, r.randint(1, 3),
-                                Block(self.block({**ctx, 'vis': vis, 'marks': marks},
+                                Block(self.block({**ctx, 'vis': vis, 'marks': marks, 'guards': guards},
                                                  depth + 1, max(2, budget - 2)))))
             elif x < 0.83 and depth < 3:
-                t = Block(self.block({**ctx, 'vis': vis, 'marks': marks}, depth + 1,
+                t = Block(self.block({**ctx, 'vis': vis, 'marks': marks, 'guards': guards}, depth + 1,
                                      max(2, budget - 3)))
-                o = (Block(self.block({**ctx, 'vis': vis, 'marks': marks}, depth + 1,
+                o = (Block(self.block({**ctx, 'vis': vis, 'marks': marks, 'guards': guards}, depth + 1,
                                       max(2, budget - 3))) if r.random() < 0.5 else None)
                 out.append(If(r.randint(-1, 2), t, o))
             elif x < 0.88 and ctx['callees']:
@@ -808,6 +996,7 @@ class PtrLifeGen:
         lines = text.rstrip('\n').split('\n') + ['', f'var gcell = Cell({self.gval})', '']
         for k in range(NC):
             lines += [f'func stash{k}(p: *Cell, h: *var Hub) {{', f'    h.c{k} = p', '}', '']
+            lines += [f'func keepn{k}(h: *var Hub, p: ?*Cell) {{', f'    h.c{k} = p', '}', '']
         for (fn,) in self.funcs:
             lines += fn.lines() + ['']
         xs = ', '.join(f'Cell({v})' for v in self.xs_init)
