@@ -111,13 +111,42 @@ def lex(src: str) -> List[Token]:
                 if not multiline and d == "\n":
                     raise LexError(f"{sl}:{sc}: unterminated string")
                 if depth > 0 and d == '"':
-                    # nested literal inside an interpolation expression
+                    # A string literal inside an interpolation expression.
+                    # It may interpolate in turn ("{"a{"}"}b"}"), so its
+                    # {...} expressions and the literals inside those are
+                    # skipped whole, as iron_lex_string does: each stack
+                    # entry is 0 inside a literal, or the brace depth inside
+                    # one of its interpolations.
+                    nest = [0]
                     adv()
-                    while i < n and src[i] not in '"\n':
-                        if src[i] == "\\":
-                            adv()
+                    while nest and i < n and src[i] != "\n":
+                        e = src[i]
                         adv()
-                    if i < n and src[i] == '"':
+                        if e == "\\":
+                            if i < n and src[i] != "\n":
+                                adv()
+                            continue
+                        if nest[-1] == 0:
+                            if e == '"':
+                                nest.pop()
+                            elif e == "{":
+                                nest.append(1)
+                        elif e == '"':
+                            nest.append(0)
+                        elif e == "{":
+                            nest[-1] += 1
+                        elif e == "}":
+                            nest[-1] -= 1
+                            if nest[-1] == 0:
+                                nest.pop()
+                    continue
+                if depth > 0 and src.startswith('\\"', i):
+                    # The older spelling of a nested literal, \"...\".
+                    adv(2)
+                    while i < n and src[i] != "\n":
+                        if src.startswith('\\"', i):
+                            adv(2)
+                            break
                         adv()
                     continue
                 if d == "\\":
