@@ -5769,11 +5769,17 @@ static bool t2_is_var(IronLIR_Func *fn, IronLIR_ValueId vid) {
     return d && d->kind == IRON_LIR_ALLOCA && !d->alloca.global_name && !d->alloca.is_boxed;
 }
 
-/* Every store to variable v keeps it >= 0 and never decreases it within a
- * run of the loop: a constant >= 0 or `v + c` with c >= 0. */
-static bool t2_var_monotone_nonneg(IronLIR_Func *fn, IronLIR_ValueId v) {
+/* The induction variable starts at a nonnegative constant that cannot make
+ * the guard addition wrap, and stores in the loop only advance it by at
+ * most the guarded range K. Arbitrary constant assignments in the loop are
+ * not induction steps: accepting one let `i = INT64_MAX` make `i + K` wrap
+ * on the next guard and made an elided access unsafe (#711). */
+static bool t2_var_induction(IronLIR_Func *fn, IronLIR_LoopInfo *L,
+                             IronLIR_ValueId v, int64_t K) {
+    bool initialized = false;
     for (int bi = 0; bi < fn->block_count; bi++) {
         IronLIR_Block *blk = fn->blocks[bi];
+        bool in_loop = hmgeti(L->body_blocks, blk->id) >= 0;
         for (int ii = 0; ii < blk->instr_count; ii++) {
             IronLIR_Instr *in = blk->instrs[ii];
             if (in->kind == IRON_LIR_ADDR_OF && in->addr_of.target == v) return false;
@@ -5793,16 +5799,22 @@ static bool t2_var_monotone_nonneg(IronLIR_Func *fn, IronLIR_ValueId v) {
                     if (in->parallel_for.captures[a] == v) return false;
             if (in->kind != IRON_LIR_STORE || in->store.ptr != v) continue;
             int64_t c;
-            if (t2_const(fn, in->store.value, &c)) { if (c < 0) return false; continue; }
+            if (t2_const(fn, in->store.value, &c)) {
+                if (in_loop || c < 0 || c > INT64_MAX - K) return false;
+                initialized = true;
+                continue;
+            }
             IronLIR_Instr *d = t2_def(fn, in->store.value);
-            if (d && d->kind == IRON_LIR_ADD) {
-                if (d->binop.left == v && t2_const(fn, d->binop.right, &c) && c >= 0) continue;
-                if (d->binop.right == v && t2_const(fn, d->binop.left, &c) && c >= 0) continue;
+            if (in_loop && d && d->kind == IRON_LIR_ADD) {
+                if (d->binop.left == v && t2_const(fn, d->binop.right, &c) && c > 0 && c <= K)
+                    continue;
+                if (d->binop.right == v && t2_const(fn, d->binop.left, &c) && c > 0 && c <= K)
+                    continue;
             }
             return false;
         }
     }
-    return true;
+    return initialized;
 }
 
 /* idx is `v` (offset 0) or `v + c` (offset c). */
@@ -5869,7 +5881,7 @@ static int t2_elide_loop(IronLIR_Func *fn, IronLIR_DomEntry *idom, IronLIR_LoopI
     } else {
         return 0;
     }
-    if (!t2_is_var(fn, ivar) || !t2_var_monotone_nonneg(fn, ivar)) return 0;
+    if (!t2_is_var(fn, ivar) || !t2_var_induction(fn, L, ivar, K)) return 0;
 
     /* n: the length of an array value. */
     IronLIR_Instr *nd = t2_def(fn, nval);
