@@ -120,6 +120,9 @@ IronLsp_Document *ilsp_document_create(const char *uri,
     atomic_init(&doc->quarantined, false);
     atomic_init(&doc->shutdown,    false);
 
+    IRON_MUTEX_INIT(doc->text_lock);
+    doc->owns_lock = true;
+
     return doc;
 }
 
@@ -128,7 +131,49 @@ void ilsp_document_destroy(IronLsp_Document *doc) {
     if (doc->uri)  free(doc->uri);
     if (doc->text) free(doc->text);
     ilsp_line_index_destroy(&doc->line_idx);
+    if (doc->owns_lock) IRON_MUTEX_DESTROY(doc->text_lock);
     free(doc);
+}
+
+void ilsp_document_lock(IronLsp_Document *doc) {
+    if (doc) IRON_MUTEX_LOCK(doc->text_lock);
+}
+
+void ilsp_document_unlock(IronLsp_Document *doc) {
+    if (doc) IRON_MUTEX_UNLOCK(doc->text_lock);
+}
+
+bool ilsp_document_snapshot(IronLsp_Document *doc, IronLsp_Document *out) {
+    if (!doc || !out) return false;
+    memset(out, 0, sizeof(*out));
+    IRON_MUTEX_LOCK(doc->text_lock);
+    size_t len = doc->text_len;
+    char *text = (char *)malloc(len + 1);
+    if (text) {
+        if (len) memcpy(text, doc->text, len);
+        text[len] = '\0';
+        out->version = doc->version;
+        memcpy(out->sha256, doc->sha256, sizeof(out->sha256));
+    }
+    IRON_MUTEX_UNLOCK(doc->text_lock);
+    if (!text) return false;
+    out->uri      = doc->uri;   /* immutable while the document is open */
+    out->text     = text;
+    out->text_len = len;
+    out->text_cap = len + 1;
+    ilsp_line_index_init(&out->line_idx);
+    ilsp_line_index_rebuild(&out->line_idx, out->text, out->text_len);
+    out->owns_lock = false;
+    atomic_init(&out->quarantined, atomic_load(&doc->quarantined));
+    atomic_init(&out->shutdown, false);
+    return true;
+}
+
+void ilsp_document_snapshot_free(IronLsp_Document *snap) {
+    if (!snap) return;
+    free(snap->text);
+    snap->text = NULL;
+    ilsp_line_index_destroy(&snap->line_idx);
 }
 
 /* Grow the text buffer to at least `need_cap` bytes. Returns false on OOM. */

@@ -33,6 +33,38 @@
 #include <stdio.h>
 #include <string.h>
 
+static bool ident_char(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+           (c >= '0' && c <= '9') || c == '_';
+}
+
+static bool is_identifier(const char *s) {
+    if (!s || !*s || (*s >= '0' && *s <= '9')) return false;
+    for (; *s; s++) if (!ident_char(*s)) return false;
+    return true;
+}
+
+/* The name bound by the last `val NAME` / `var NAME` in line[0..len),
+ * copied to out; returns its length, 0 when there is none. */
+static size_t binding_before(const char *line, size_t len, char *out, size_t cap) {
+    size_t found = 0;
+    for (size_t i = 0; i + 4 <= len; i++) {
+        if ((i > 0 && ident_char(line[i - 1])) ||
+            !(strncmp(line + i, "val ", 4) == 0 || strncmp(line + i, "var ", 4) == 0))
+            continue;
+        size_t j = i + 4;
+        while (j < len && line[j] == ' ') j++;
+        size_t k = j;
+        while (k < len && ident_char(line[k])) k++;
+        if (k > j && !(line[j] >= '0' && line[j] <= '9') && k - j < cap) {
+            memcpy(out, line + j, k - j);
+            out[k - j] = '\0';
+            found = k - j;
+        }
+    }
+    return found;
+}
+
 void ilsp_quickfix_forgotten_free(const Iron_Diagnostic           *diag,
                                     struct IronLsp_Document         *doc,
                                     struct IronLsp_WorkspaceIndex   *wi,
@@ -104,6 +136,21 @@ void ilsp_quickfix_forgotten_free(const Iron_Diagnostic           *diag,
     char binding[260];
     memcpy(binding, doc->text + name_start_byte, name_len);
     binding[name_len] = '\0';
+
+    /* W0606 points at the heap expression (`val buf = heap Buf(8)` has
+     * its span on `heap Buf(8)`), not at the name: the title and the edit
+     * read `defer free heap Buf(8`. Take the name of the `val` / `var`
+     * the expression initializes, and offer nothing when there is none. */
+    if (!is_identifier(binding)) {
+        size_t n2 = binding_before(doc->text + line_start_byte,
+                                   name_start_byte - line_start_byte,
+                                   binding, sizeof(binding));
+        if (n2 == 0) {
+            iron_diaglist_free(&walk_diags);
+            iron_arena_free(&walk_arena);
+            return;
+        }
+    }
 
     /* Derive the binding line's leading whitespace as the indent. */
     char indent[64];
