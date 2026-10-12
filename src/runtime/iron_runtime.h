@@ -54,6 +54,11 @@
 #define IRON_DEBUG_TRAPS_ON 1
 #if defined(_WIN32)
 #define IRON_DEBUG_BREAK() __debugbreak()
+#elif defined(__x86_64__) || defined(__i386__)
+/* x86 reports the stop at the instruction after int3: a nop of the same
+ * asm statement keeps it on the Iron line (the next instruction of the
+ * inlined check may have no line, and LLDB showed line 0). */
+#define IRON_DEBUG_BREAK() __asm__ volatile("int3\n\tnop")
 #else
 #define IRON_DEBUG_BREAK() __builtin_debugtrap()
 #endif
