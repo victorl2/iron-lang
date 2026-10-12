@@ -1829,7 +1829,9 @@ if(NOT WIN32)
                 ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.5-bounded-vector/strict_happy.iron
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_4.5_bvec_strict_happy PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+    # ASan compilation can exceed 30 seconds when this runs beside the
+    # compiler-heavy fuzz targets in the documented parallel suite.
+    set_tests_properties(v4_4.5_bvec_strict_happy PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 60)
 
     # Phase 23 Plan 23-02: XFAIL-flip positive corpus — readonly + bounded vec.
     # These fixtures were XFAIL in Phase 22 substrate; Plan 23-02 codegen flips GREEN.
