@@ -1,0 +1,25 @@
+-- A pub field read in a drop block or a mutating method inlines the
+-- getter with the receiver pointer for its by-value self; under
+-- --no-optimize that store stayed in the C, which did not compile.
+object S {
+    pub var v: Int
+
+    init(v: Int) {
+        self.v = v
+    }
+
+    func bump() {
+        self.v = self.v + 1
+        println("bumped {self.v}")
+    }
+
+    drop {
+        println("drop {self.v}")
+    }
+}
+
+func main() {
+    var s = S(3)
+    s.bump()
+    println("{s.v}")
+}
