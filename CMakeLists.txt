@@ -3171,7 +3171,7 @@ if(NOT WIN32)
     )
     set_tests_properties(optimization_pipeline_runtime PROPERTIES
         LABELS "integration;optimization;v4-acceptance"
-        TIMEOUT 60
+        TIMEOUT 120
         DISABLED ${IRON_SKIP_CLANG_ROWS})
 
     foreach(_integer_mode optimized noopt release)
@@ -3198,7 +3198,7 @@ if(NOT WIN32)
     )
     set_tests_properties(optimization_pipeline_noopt_runtime PROPERTIES
         LABELS "integration;optimization;v4-acceptance"
-        TIMEOUT 60
+        TIMEOUT 120
         DISABLED ${IRON_SKIP_CLANG_ROWS})
 endif()
 

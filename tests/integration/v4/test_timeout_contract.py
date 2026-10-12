@@ -32,6 +32,8 @@ FIXTURES = (
     "v4_4.2-checked-ptr_closure_pointer_capture",
     "v4_4.2-checked-ptr_closure_var_pointer_capture",
     "v4_4.5-bounded-vector_checked_index_write_oob",
+    "optimization_pipeline_runtime",
+    "optimization_pipeline_noopt_runtime",
 )
 
 
