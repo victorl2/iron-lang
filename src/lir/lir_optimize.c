@@ -1390,10 +1390,7 @@ static IronLIR_ValueId lir_storage_chain_root(IronLIR_Func *fn, IronLIR_ValueId 
         IronLIR_Instr *cur = fn->value_table[vid];
         if (!cur) break;
         if (cur->kind == IRON_LIR_GET_FIELD) { vid = cur->field.object; continue; }
-        /* Taking an element address can materialize a SoA list into AoS.
-         * Preserve the owning header for every list, including default-layout
-         * parameters receiving a SoA value. */
-        if (cur->kind == IRON_LIR_GET_INDEX) {
+        if (cur->kind == IRON_LIR_GET_INDEX && lir_vid_is_bvec(fn, cur->index.array)) {
             vid = cur->index.array;
             continue;
         }
@@ -1429,13 +1426,22 @@ static LirRecvLoadEntry *lir_collect_receiver_loads(IronLIR_Func *fn) {
             IronLIR_Instr *in = blk->instrs[ii];
             if (!in) continue;
             IronLIR_ValueId chain = IRON_LIR_VALUE_INVALID;
+            /* A field or element handed to a `var` parameter is addressed
+             * in its own storage too (`f(obj.field)`). */
+            if (in->kind == IRON_LIR_CALL && in->call.args_by_addr) {
+                for (int ai = 0; ai < in->call.arg_count; ai++) {
+                    if (!in->call.args_by_addr[ai]) continue;
+                    IronLIR_ValueId arg_load = IRON_LIR_VALUE_INVALID;
+                    if (lir_storage_chain_root(fn, in->call.args[ai], &arg_load) !=
+                            IRON_LIR_VALUE_INVALID && arg_load != IRON_LIR_VALUE_INVALID)
+                        hmput(set, arg_load, true);
+                }
+            }
             if (in->kind == IRON_LIR_CALL && in->call.self_by_addr &&
                 in->call.arg_count > 0)
                 chain = in->call.args[0];
             else if (in->kind == IRON_LIR_SET_FIELD)
                 chain = in->field.object;
-            else if (in->kind == IRON_LIR_ADDR_OF)
-                chain = in->addr_of.target;
             else if (in->kind == IRON_LIR_SET_INDEX && lir_vid_is_bvec(fn, in->index.array))
                 chain = in->index.array;   /* `bv[i] = x` writes inside the slot's vector */
             if (chain == IRON_LIR_VALUE_INVALID) continue;

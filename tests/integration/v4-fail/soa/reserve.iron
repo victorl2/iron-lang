@@ -1,5 +1,0 @@
-object P { val x: Int }
-func main() {
- var ps: [P, layout: soa] = []
- ps.reserve(8)
-}

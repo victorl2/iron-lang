@@ -388,6 +388,20 @@ void emit_drop_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx, Iron_Type *t, cons
     }
 }
 
+/* The layout of a list just made with _create(): that of the list it was
+ * derived from (`src`, a C expression, for a slice or a filter), or else
+ * the one its type asks for. Lists that cannot hold columns have none. */
+static void emit_new_list_layout(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
+                                 IronLIR_ValueId result, const Iron_Type *rt,
+                                 const char *src) {
+    if (!emit_list_has_columns(ctx, rt)) return;
+    if (!src && rt->array.layout_hint != 1) return;
+    emit_indent(sb, ind);
+    emit_val(sb, result);
+    if (src) iron_strbuf_appendf(sb, ".soa = (%s).soa;\n", src);
+    else     iron_strbuf_appendf(sb, ".soa = true;\n");
+}
+
 /* map / filter / forEach / reduce on a flat list, as an inline loop typed
  * by the lambda (#192). The runtime's Iron_List_<T>_map exists only for
  * numeric lists and can only produce a list of the same T; here the
@@ -458,6 +472,14 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", rt_c);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = %s_create();\n", rt_c);
+        if (m == M_FILTER && !is_bvec && emit_list_has_columns(ctx, lt)) {
+            Iron_StrBuf src = iron_strbuf_create(64);
+            emit_expr_to_buf(&src, self_arg, fn, ctx, ctx->current_block_id, 0);
+            emit_new_list_layout(sb, ind, ctx, instr->id, rt, iron_strbuf_get(&src));
+            iron_strbuf_free(&src);
+        } else {
+            emit_new_list_layout(sb, ind, ctx, instr->id, rt, NULL);
+        }
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "{\n");
         emit_indent(sb, ind + 1);
@@ -1209,6 +1231,8 @@ static bool emit_column_field_addr(Iron_StrBuf *sb, IronLIR_Func *fn,
         hmgeti(ctx->split_collection_ids, in->index.array) >= 0) return false;
     Iron_Type *at = emit_get_value_type(fn, in->index.array);
     if (!emit_list_has_columns(ctx, at)) return false;
+    /* a list kept as a C array on the stack has no header */
+    if (get_stack_array_origin(ctx, in->index.array) != IRON_LIR_VALUE_INVALID) return false;
     const char *dot = strchr(field, '.');
     int head = dot ? (int)(dot - field) : (int)strlen(field);
     if (dot) iron_strbuf_appendf(sb, "&((*");
@@ -1365,7 +1389,8 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
          * loaded copy of it is not where the element lives; address it
          * inside the vector's own storage. */
         Iron_Type *at = emit_get_value_type(fn, in->index.array);
-        if (emit_list_has_columns(ctx, at)) {
+        if (emit_list_has_columns(ctx, at) &&
+            get_stack_array_origin(ctx, in->index.array) == IRON_LIR_VALUE_INVALID) {
             /* A whole element of a list that may hold columns has no
              * address. Lend a gathered copy, held in the temporaries
              * declared for this GET_INDEX at the top of the function;
@@ -2484,6 +2509,20 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
 
     /* GET_FIELD */
     case IRON_LIR_GET_FIELD: {
+        /* `ps[i].field` of a list that may hold columns reads the field's
+         * column; the element is not gathered for one field. (An element
+         * already held in a temporary is read from the temporary.) */
+        if (ctx->soa_object_types && ctx->inline_eligible &&
+            hmgeti(ctx->inline_eligible, instr->field.object) >= 0) {
+            Iron_StrBuf col = iron_strbuf_create(128);
+            if (emit_column_field_addr(&col, fn, ctx, instr->field.object,
+                                       instr->field.field, use_block_id)) {
+                iron_strbuf_appendf(sb, "(*%s)", iron_strbuf_get(&col));
+                iron_strbuf_free(&col);
+                break;
+            }
+            iron_strbuf_free(&col);
+        }
         /* Phase 23 VEC-01: bounded vector .count in expression context → .len */
         {
             Iron_Type *bvec_expr_t = emit_get_value_type(fn, instr->field.object);
@@ -4099,6 +4138,20 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
     /* ── Field / Index ──────────────────────────────────────────────────── */
 
     case IRON_LIR_GET_FIELD: {
+        if (ctx->soa_object_types && ctx->inline_eligible &&
+            hmgeti(ctx->inline_eligible, instr->field.object) >= 0) {
+            Iron_StrBuf col = iron_strbuf_create(128);
+            if (emit_column_field_addr(&col, fn, ctx, instr->field.object,
+                                       instr->field.field, ctx->current_block_id)) {
+                emit_indent(sb, ind);
+                if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = (*%s);\n", iron_strbuf_get(&col));
+                iron_strbuf_free(&col);
+                break;
+            }
+            iron_strbuf_free(&col);
+        }
         /* Phase 41: .count on split collection → ._total_count */
         if (instr->field.field && strcmp(instr->field.field, "count") == 0 &&
             ctx->split_collection_ids) {
@@ -4276,17 +4329,20 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
 
     case IRON_LIR_SET_FIELD: {
-        IronLIR_Instr *column_obj = emit_def_instr(fn, instr->field.object);
-        if (column_obj && column_obj->kind == IRON_LIR_GET_INDEX &&
-            emit_list_has_columns(ctx, emit_get_value_type(fn, column_obj->index.array))) {
-            emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "(*");
-            emit_column_field_addr(sb, fn, ctx, instr->field.object, instr->field.field,
-                                   ctx->current_block_id);
-            iron_strbuf_appendf(sb, ") = ");
-            emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
-            iron_strbuf_appendf(sb, ";\n");
-            break;
+        /* `ps[i].field = v` on a list that may hold columns writes the
+         * field's column. */
+        if (ctx->soa_object_types) {
+            Iron_StrBuf col = iron_strbuf_create(128);
+            if (emit_column_field_addr(&col, fn, ctx, instr->field.object, instr->field.field,
+                                       ctx->current_block_id)) {
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "(*%s) = ", iron_strbuf_get(&col));
+                emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ";\n");
+                iron_strbuf_free(&col);
+                break;
+            }
+            iron_strbuf_free(&col);
         }
 
         /* When the object is a LOAD from a mutable var-capture alloca, write
@@ -7653,6 +7709,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", list_c);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = %s_create();\n", list_c);
+        emit_new_list_layout(sb, ind, ctx, instr->id, lt,
+            sa == IRON_LIR_VALUE_INVALID && !src_bvec && emit_list_has_columns(ctx, src_t)
+                ? src_s : NULL);
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "{ int64_t _sl_n = ");
         if (sa != IRON_LIR_VALUE_INVALID) {
@@ -7675,7 +7734,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "  for (int64_t _sl_i = _sl_s; _sl_i < _sl_e; _sl_i++) {\n");
         emit_indent(sb, ind);
-        if (emit_list_has_columns(ctx, src_t))
+        if (sa == IRON_LIR_VALUE_INVALID && !src_bvec && emit_list_has_columns(ctx, src_t))
             iron_strbuf_appendf(sb, "    %s _sl_el = %s_read(%s, _sl_i);\n",
                                 elem_c, emit_type_to_c(src_t, ctx), src_s);
         else
@@ -11287,7 +11346,8 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                 IronLIR_Instr *in = blk->instrs[ii];
                 if (in->kind != IRON_LIR_GET_INDEX || in->id == IRON_LIR_VALUE_INVALID) continue;
                 Iron_Type *lt = emit_get_value_type(fn, in->index.array);
-                if (!emit_list_has_columns(ctx, lt)) continue;
+                if (!emit_list_has_columns(ctx, lt) ||
+                    get_stack_array_origin(ctx, in->index.array) != IRON_LIR_VALUE_INVALID) continue;
                 emit_indent(sb, 1);
                 iron_strbuf_appendf(sb,
                     "%s _sb%u; %s *_sb%u_l; int64_t _sb%u_i; (void)_sb%u; (void)_sb%u_l; (void)_sb%u_i;\n",

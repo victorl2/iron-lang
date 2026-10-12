@@ -1,0 +1,16 @@
+1 2
+2
+[4] 5/0/str-0-padding-padding-padding 11/1.5/str-1-padding-padding-padding 2/3/str-2-padding-padding-padding 3/4.5/str-3-padding-padding-padding
+[6] 5/0/str-0-padding-padding-padding 11/1.5/str-1-padding-padding-padding 2/3/str-2-padding-padding-padding 3/4.5/str-3-padding-padding-padding 50/75/str-50-padding-padding-padding 60/90/str-60-padding-padding-padding
+[6] 5 11 2 3 50 60
+[4] 0/0/str-0-padding-padding-padding 1/1.5/str-1-padding-padding-padding 2/3/str-2-padding-padding-padding 9/13.5/str-9-padding-padding-padding
+[4] 1/0/str-0-padding-padding-padding 1/1.5/str-1-padding-padding-padding 2/3/str-2-padding-padding-padding 8/12/str-8-padding-padding-padding
+[4] 1 1 2 8
+[6] 5/0/str-0-padding-padding-padding 11/1.5/str-1-padding-padding-padding 2/3/str-2-padding-padding-padding 3/4.5/str-3-padding-padding-padding 50/75/str-50-padding-padding-padding 60/90/str-60-padding-padding-padding
+5 6 str-0-padding-padding-padding
+[7] 5/0/str-0-padding-padding-padding 11/1.5/str-1-padding-padding-padding 2/3/str-2-padding-padding-padding 3/4.5/str-3-padding-padding-padding 50/75/str-50-padding-padding-padding 60/90/str-60-padding-padding-padding 70/105/str-70-padding-padding-padding
+[1] 0/0/str-0-padding-padding-padding
+1
+8 20 20 18.5
+8 20 20 18.5
+3 5 1 2

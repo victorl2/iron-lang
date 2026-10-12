@@ -1,0 +1,31 @@
+-- layout: soa lists: set and set_unchecked hand the element to the list and drop the one replaced (#714).
+-- The same program with the layout annotations removed prints the same
+-- (tests/integration/soa_parity.sh).
+object P {
+    var x: Int
+    val s: String
+    init(x: Int) {
+        self.x = x
+        self.s = "str-{x}-padding-padding-padding"
+    }
+    drop { println("drop {self.x}") }
+}
+func main() {
+    var ps: [P, layout: soa] = []
+    for i in range(4) { ps.push(P(i)) }
+    ps.set(2, P(100))
+    ps.set_unchecked(1, P(200))
+    val keep = P(300)
+    ps.set(0, keep)
+    for p in ps { println("{p.x} {p.s}") }
+    var ns = [1, 2, 3]
+    ns.set(1, 20)
+    ns.set_unchecked(2, 30)
+    var ss = ["a-long-string-long-long-long-long", "b"]
+    ss.set(0, "c-long-string-long-long-long-long")
+    ss.set_unchecked(1, "d-long-string-long-long-long-long")
+    println("{ns[1]} {ns[2]} {ss[0]} {ss[1]}")
+    var rl: rc [P, layout: soa] = rc [P(7), P(8)]
+    rl.set(0, P(9))
+    println("{rl[0].x} {keep.x}")
+}

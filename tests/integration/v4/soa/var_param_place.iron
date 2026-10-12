@@ -1,0 +1,45 @@
+-- layout: soa lists: methods of a var parameter, fields and elements passed to var parameters (#715).
+-- The same program with the layout annotations removed prints the same
+-- (tests/integration/soa_parity.sh).
+object P {
+    var x: Int
+    var s: String
+    init(x: Int) {
+        self.x = x
+        self.s = "str-{x}-padding-padding-padding"
+    }
+}
+object H { var p: P
+    init() { self.p = P(1) } }
+func byvar(var p: P) {
+    p.x += 3
+    p.s = "changed-long-long-long-long-long-long"
+}
+func main() {
+    var a = P(1)
+    byvar(a)
+    var h = H()
+    byvar(h.p)
+    var ps: [P, layout: soa] = [P(1), P(2)]
+    byvar(ps[1])
+    println("{a.x} {h.p.x} {ps[1].x} {ps[1].s}")
+    more()
+}
+object W { var xs: [P, layout: soa]
+    var n: Int
+    init() { self.xs = [P(5)]
+        self.n = 1 } }
+func grow(var xs: [P, layout: soa], n: Int) { xs.push(P(n)) }
+func inc(var n: Int) { n += 1 }
+func more() {
+    var w = W()
+    grow(w.xs, 6)
+    inc(w.n)
+    var grid: [[P, layout: soa]] = [[P(1)], [P(2)]]
+    grow(grid[1], 7)
+    var ps: [P, layout: soa] = [P(1), P(2)]
+    inc(ps[0].x)
+    var ns = [1, 2]
+    inc(ns[1])
+    println("{w.xs.len()} {w.n} {grid[1].len()} {grid[1][1].x} {ps[0].x} {ns[1]}")
+}

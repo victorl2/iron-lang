@@ -1,0 +1,92 @@
+-- layout: soa lists: parameters, returns, generic functions and lambdas.
+-- The same program with the layout annotations removed prints the same
+-- (tests/integration/soa_parity.sh).
+object P {
+    var x: Int
+    var y: Float
+    val s: String
+    init(x: Int) {
+        self.x = x
+        self.y = Float(x) * 1.5
+        self.s = "str-{x}-padding-padding-padding"
+    }
+    readonly func total() -> Float { return Float(self.x) + self.y }
+    func bump(n: Int) { self.x += n }
+}
+func show(xs: [P, layout: soa]) {
+    print("[{xs.len()}]")
+    for p in xs { print(" {p.x}/{p.y}/{p.s}") }
+    println("")
+}
+func show_plain(xs: [P]) {
+    print("[{xs.len()}]")
+    for p in xs { print(" {p.x}") }
+    println("")
+}
+func observe(p: *P) -> Int { return p.x }
+func edit(p: *var P) { p.x += 10 }
+func observe_i(p: *Int) -> String { return "{p}" }
+func byval(p: P) -> Int { return p.x }
+func byvar(var p: P) { p.x += 3 }
+func grow(var xs: [P, layout: soa], n: Int) { xs.push(P(n)) }
+func grow_plain(var xs: [P], n: Int) { xs.push(P(n)) }
+func make(n: Int) -> [P, layout: soa] {
+    var out: [P, layout: soa] = []
+    for i in range(n) { out.push(P(i)) }
+    return out
+}
+func make_plain(n: Int) -> [P] {
+    var out: [P] = []
+    for i in range(n) { out.push(P(i)) }
+    return out
+}
+func pass(xs: [P, layout: soa]) -> [P, layout: soa] { return xs.copy() }
+func first[T](xs: [T]) -> T { return xs[0] }
+func count[T](xs: [T]) -> Int { var n = 0
+    for x in xs { n += 1 }
+    return n }
+func main() {
+    var ps = make(4)
+    println("{observe(&ps[1])} {byval(ps[2])}")
+    edit(&ps[1])
+    println("{observe_i(&ps[2].x)}")
+    ps[0].bump(5)
+    show(ps)
+    grow(ps, 50)
+    grow_plain(ps, 60)
+    show(ps)
+    show_plain(ps)
+    var qs: [P, layout: soa] = make_plain(3)
+    qs.push(P(9))
+    show(qs)
+    var rs: [P] = make(3)
+    rs.push(P(8))
+    rs[0].bump(1)
+    show(rs)
+    show_plain(rs)
+    val c = pass(ps)
+    show(c)
+    println("{first(ps).x} {count(ps)} {first(rs).s}")
+    var ws = ps.take()
+    ws.push(P(70))
+    show(ws)
+    var zs: [P, layout: soa] = []
+    zs = make(2)
+    zs = make_plain(1)
+    show(zs)
+    val f = func(xs: [P, layout: soa]) -> Int { return xs.len() + xs[0].x }
+    println("{f(zs)}")
+    -- lists that never grow may be kept on the stack, whatever their type
+    var still: [P] = [P(7), P(8)]
+    still[0].bump(1)
+    still[1].x += 2
+    edit(&still[1])
+    println("{still[0].x} {still[1].x} {observe(&still[1])} {still[0].total()}")
+    var cols: [P, layout: soa] = [P(7), P(8)]
+    cols[0].bump(1)
+    cols[1].x += 2
+    edit(&cols[1])
+    println("{cols[0].x} {cols[1].x} {observe(&cols[1])} {cols[0].total()}")
+    val frozen: [P, layout: soa] = [P(1), P(2), P(3)]
+    println("{frozen[2].x} {frozen[1].total()} {observe(&frozen[0])} {frozen[0..2].len()}")
+}

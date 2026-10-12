@@ -116,7 +116,9 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
             const char *res_list_type = emit_type_to_c(terminal_instr->type, ctx);
             if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", res_list_type);
             emit_val(sb, terminal_instr->id);
-            iron_strbuf_appendf(sb, " = %s_create();\n", res_list_type);
+            iron_strbuf_appendf(sb, " = %s_create%s();\n", res_list_type,
+                emit_list_has_columns(ctx, terminal_instr->type) &&
+                terminal_instr->type->array.layout_hint == 1 ? "_soa" : "");
         }
 
         /* 2. Open scoped block with lambda typedefs + memcpy casts */

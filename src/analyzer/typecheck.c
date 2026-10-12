@@ -12556,10 +12556,14 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
 
         if (decl->kind == IRON_NODE_VAL_DECL) {
             Iron_ValDecl *vd = (Iron_ValDecl *)decl;
+            /* The annotation is the initializer's expected type, as for a
+             * local binding: `var g: [T] = []` had no element type to
+             * infer (E0229) and a literal ignored the annotated layout. */
+            Iron_Type *ann_type = vd->type_ann
+                ? resolve_type_annotation(&ctx, vd->type_ann) : NULL;
             Iron_Type *init_type = NULL;
-            if (vd->init) init_type = check_expr(&ctx, vd->init);
-            Iron_Type *decl_type = vd->type_ann
-                ? resolve_type_annotation(&ctx, vd->type_ann) : init_type;
+            if (vd->init) init_type = check_expr_with_expected(&ctx, vd->init, ann_type);
+            Iron_Type *decl_type = vd->type_ann ? ann_type : init_type;
             vd->declared_type = decl_type;
             /* B9 soundness fix: check the initializer against an explicit
              * annotation (mirrors the function-local VAL_DECL binding check;
@@ -12572,10 +12576,14 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             if (sym) sym->type = decl_type;
         } else if (decl->kind == IRON_NODE_VAR_DECL) {
             Iron_VarDecl *vd = (Iron_VarDecl *)decl;
+            /* The annotation is the initializer's expected type, as for a
+             * local binding: `var g: [T] = []` had no element type to
+             * infer (E0229) and a literal ignored the annotated layout. */
+            Iron_Type *ann_type = vd->type_ann
+                ? resolve_type_annotation(&ctx, vd->type_ann) : NULL;
             Iron_Type *init_type = NULL;
-            if (vd->init) init_type = check_expr(&ctx, vd->init);
-            Iron_Type *decl_type = vd->type_ann
-                ? resolve_type_annotation(&ctx, vd->type_ann) : init_type;
+            if (vd->init) init_type = check_expr_with_expected(&ctx, vd->init, ann_type);
+            Iron_Type *decl_type = vd->type_ann ? ann_type : init_type;
             vd->declared_type = decl_type;
             /* B9 soundness fix: same annotation-vs-initializer check. */
             check_top_level_binding_init(&ctx, decl_type, init_type,
