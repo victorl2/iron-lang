@@ -19,6 +19,18 @@ endif()
 add_test(NAME test_json_float_format COMMAND json_float_check 400000)
 set_tests_properties(test_json_float_format PROPERTIES LABELS "stdlib")
 
+# The benchmark's documented markdown formatter must be directly runnable.
+if(NOT WIN32)
+    add_test(
+        NAME test_json_bench_table
+        COMMAND ${CMAKE_SOURCE_DIR}/bench/json/table.py
+                ${CMAKE_SOURCE_DIR}/tests/json/bench_table_fixture.txt
+    )
+    set_tests_properties(test_json_bench_table PROPERTIES
+        LABELS "stdlib"
+        PASS_REGULAR_EXPRESSION "Parse to a tree.*Iron \\(-O2\\).*1\\.000")
+endif()
+
 # Spec conformance beyond JSONTestSuite: JSON_checker, number round trips,
 # escapes and UTF-8, structure and limits (tests/json/conformance).
 if(NOT WIN32)

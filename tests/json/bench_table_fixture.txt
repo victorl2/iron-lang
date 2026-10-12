@@ -1,0 +1,2 @@
+# fixture Linux x86_64 cpu=0 warmup=1 samples=3
+RESULT default iron parse twitter.json 1000000000 1000000000,1000000000,1000000000
