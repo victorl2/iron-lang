@@ -26,5 +26,11 @@ fi
 
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
+# tree-sitter caches the compiled parser by language name in a directory
+# shared by every checkout and rebuilds it only when src/parser.c is newer,
+# so a parser built from another checkout of the grammar would be used
+# here. Compile this checkout's parser into a directory of its own.
+export TREE_SITTER_LIBDIR="$out/ts-lib"
+mkdir -p "$TREE_SITTER_LIBDIR"
 "$PY" "$REPO/tests/fuzz/ts_diff.py" --ironc "$IRONC" --tree-sitter "$TS" \
     --seed 1 --count 200 --corpus 100 --mutants 2 -j 4 --out "$out"
