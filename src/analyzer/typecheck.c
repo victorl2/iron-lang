@@ -3769,7 +3769,8 @@ static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
         if (!pn || pn->kind != IRON_NODE_PARAM || !mc->args[i]) continue;
         Iron_Param *mp = (Iron_Param *)pn;
         Iron_Type *pt = resolve_type_annotation(ctx, mp->type_ann);
-        if (!((Iron_ExprNode *)mc->args[i])->resolved_type && pt &&
+        Iron_Type *arg_resolved = ((Iron_ExprNode *)mc->args[i])->resolved_type;
+        if ((!arg_resolved || arg_resolved->kind == IRON_TYPE_ERROR) && pt &&
             pt->kind != IRON_TYPE_ERROR && !type_mentions_generic(pt))
             check_expr_with_expected(ctx, mc->args[i], pt);
         Iron_Type *at = ((Iron_ExprNode *)mc->args[i])->resolved_type;
