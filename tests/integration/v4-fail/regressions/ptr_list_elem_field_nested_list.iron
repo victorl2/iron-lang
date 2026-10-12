@@ -1,0 +1,7 @@
+-- The address of a place inside a growable list element can only be a
+-- call argument, whatever leads to it (#680): E0330.
+func main() {
+    var xs: [[Int]] = [[1, 2]]
+    val p = &xs[0][1]
+    println("{p}")
+}
