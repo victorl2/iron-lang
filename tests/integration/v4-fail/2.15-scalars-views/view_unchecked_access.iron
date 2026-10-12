@@ -1,0 +1,4 @@
+func main() {
+    val bytes = "abc".bytes()
+    println("{bytes.get_unchecked(0)}")
+}

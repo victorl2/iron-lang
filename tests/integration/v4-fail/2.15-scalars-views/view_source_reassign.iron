@@ -1,0 +1,6 @@
+func main() {
+    var text = "first"
+    val bytes = text.bytes()
+    text = "second"
+    println("{bytes[0]}")
+}

@@ -1,0 +1,6 @@
+//iron:align=3
+object BadAlign {
+    val n: Int
+}
+
+func main() {}

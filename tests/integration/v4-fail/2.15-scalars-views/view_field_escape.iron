@@ -1,0 +1,5 @@
+object Bad {
+    val bytes: Bytes
+}
+
+func main() {}

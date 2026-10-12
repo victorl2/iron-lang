@@ -1,0 +1,6 @@
+func bad() -> Bytes {
+    val text = "abc"
+    return text.bytes()
+}
+
+func main() {}
