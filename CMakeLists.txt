@@ -2016,7 +2016,16 @@ if(NOT WIN32)
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_partial_init_cleanup\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.iron && actual=\$(\"\$d/boundary_partial_init_cleanup\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_7_boundary_partial_init_cleanup PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    # This compiles the full runtime and can spend most of a short cap waiting
+    # for CPU on a loaded runner (#759). Keep a finite cap with load headroom.
+    set_tests_properties(v4_7_boundary_partial_init_cleanup PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 180)
+    add_test(NAME test_v4_partial_init_cleanup_timeout
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
+            ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
+            v4_7_boundary_partial_init_cleanup 180)
+    set_tests_properties(test_v4_partial_init_cleanup_timeout PROPERTIES
+        LABELS "integration;phase24-invariant;unit")
 endif()
 
 # `ctest -L phase25-invariant` aggregates the Wave 0 RED→GREEN corpus for Phase 25
