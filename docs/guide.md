@@ -237,8 +237,9 @@ it captured (a captured `var` as its current value), a checked pointer or
 `heap` value as the value it points at (`freed` once freed), a `Mutex`
 as `Mutex(5) locked by thread 4711` or `unlocked`, a `Json` value as its
 JSON text, a `JsonWriter` as what it wrote so far, and a `MysqlResult`,
-`MysqlConn` or `MysqlPool` as what its handle holds (rows, columns and
-the first rows; the server and connection state; the pool's counts).
+`MysqlConn`, `MysqlPool` or `HttpClient` as what its handle holds (rows,
+columns and the first rows; the server and connection state; the pool's
+counts; the origin and how many of its connections are open and busy).
 The Globals scope lists the program's global bindings. C declares a
 function's locals at its top, so a binding declared further down the
 function is listed too: until its statement runs it holds whatever its

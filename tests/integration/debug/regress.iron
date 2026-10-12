@@ -1,4 +1,6 @@
+import http
 import json
+import mysql
 
 enum Color {
     Red,
@@ -118,6 +120,47 @@ func stepping() {
     println("x {x}")
 }
 
+func bump(wk: *var Counter) -> Int {
+    wk.n = wk.n + 1
+    return wk.n -- @pointer
+}
+
+-- Debugging services (#548): a checked pointer parameter, a held Mutex,
+-- native handles (nothing listens on port 9: no server is needed).
+func services() {
+    var ctr = Counter(3)
+    val bumped = bump(&ctr)
+    val lk = Mutex(5)
+    val hc = HttpClient.open("http://127.0.0.1:9", "", false, 4, 0)
+    var conn = Mysql.connect_url("mysql://root@127.0.0.1:9/db")
+    val res = conn.query("select 1")
+    val dbs = Mysql.open_pool_url("mysql://root@127.0.0.1:9/db", MysqlPoolOptions(0, 2))
+    {
+        val g = lk.lock()
+        g.set(g.get() + bumped)
+        println("held {g.get()} {hc.error} {res.error.code} {dbs.error.code}") -- @held
+    }
+    println("released {bumped}") -- @released
+    HttpClient.close(hc.client)
+}
+
+-- Lists kept as C arrays whose elements are not Int (#588), and bindings
+-- declared after the stop, holding whatever their memory held (#585).
+func arrays(names: [String], halves: [Float32], bytes: [UInt8]) -> Int {
+    val total = names.len() + halves.len() + bytes.len()
+    println("total {total}") -- @arrays
+    var later = Map[String, String?]()
+    later.put("key", "a string long enough to live on the heap, not inline")
+    var after = [1, 2, 3]
+    after.push(4)
+    var seen = Set[String]()
+    seen.add("x")
+    val plus = func(a: Int) -> Int {
+        return a + total
+    }
+    return total + later.len() + after.len() + seen.len() + plus(1)
+}
+
 func work(n: Int) -> Int {
     var t = 0
     for i in range(n) {
@@ -129,6 +172,8 @@ func work(n: Int) -> Int {
 func main() {
     values()
     stepping()
+    services()
+    println("{arrays(["a", "b"], [Float32(0.5)], [UInt8(1), UInt8(2)])}")
     val h = spawn("worker") {
         return work(3) -- @spawn_body
     }

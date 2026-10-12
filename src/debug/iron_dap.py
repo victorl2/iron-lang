@@ -123,6 +123,14 @@ def frame(msg):
 
 IRON_KEYWORDS = ["and", "or", "not", "true", "false", "null", "len"]
 
+# Requests that let the program run.
+RESUME_REQUESTS = ("launch", "attach", "restart", "continue", "next", "stepIn", "stepOut",
+                   "stepBack", "reverseContinue", "restartFrame", "goto")
+# Debugger commands typed in the debug console that do.
+RESUME_COMMAND = re.compile(r"^\s*`?\s*(-exec\s+)?(c|continue|n|next|s|step|si|ni|stepi|nexti|"
+                            r"fin|finish|r|run|start|until|advance|jump|kill|"
+                            r"process\s+[\w-]+|thread\s+[\w-]+)(\s+[\w./-]|\s*$)")
+
 # The requests of the Debug Adapter Protocol: anything else is answered
 # with an error here (lldb-dap leaves an unknown request unanswered).
 DAP_REQUESTS = {
@@ -1391,6 +1399,8 @@ class Proxy:
         self.launched = False    # a launch or attach went to the debugger
         self.label_frames = set()  # frame ids the adapter made up (spawn sites)
         self.capabilities = {}     # the debugger's initialize response
+        self.threads_asked = False  # the first stop asked lldb-dap for its threads
+        self.resumed = True      # a request that runs the program went out since the last stop
         self.pending_since = {}  # client request seq -> when it went to the debugger
         threading.Thread(target=self.watchdog, daemon=True).start()
 
@@ -1412,6 +1422,10 @@ class Proxy:
 
     # Output to the debugger.
     def to_child(self, msg):
+        if msg.get("command") in RESUME_REQUESTS or (
+                msg.get("command") == "evaluate" and
+                RESUME_COMMAND.match(str((msg.get("arguments") or {}).get("expression") or ""))):
+            self.resumed = True
         with self.child_lock:
             if self.child and self.child.stdin:
                 self.child.stdin.write(frame(msg))
@@ -1742,6 +1756,18 @@ class Proxy:
             return
         if msg.get("type") != "response":
             ev = msg.get("event") if msg.get("type") == "event" else None
+            if self.kind == "gdb":
+                # gdb reports a function it calls in the program (a value
+                # formatter asking the runtime what a handle holds, a call
+                # typed in the console) as `continued` then `stopped`
+                # ("function call"). The program is where it was: a client
+                # told otherwise reads the Locals again, which calls again.
+                if ev == "stopped" and (msg.get("body") or {}).get("reason") == "function call":
+                    return
+                if ev == "continued" and not self.resumed:
+                    return
+                if ev == "stopped":
+                    self.resumed = False
             if ev in ("stopped", "continued"):
                 self.local_scopes.clear()
                 self.global_scopes.clear()
@@ -1926,6 +1952,13 @@ class Proxy:
         body = msg.get("body") or {}
         tid = body.get("threadId")
         self.trap_texts.pop(tid, None)   # set again below if this stop is a trap
+        if self.kind == "lldb-dap" and not self.threads_asked:
+            # lldb-dap answers its first threads request with the list it
+            # kept when the configuration was done: a client that asks only
+            # now (nvim-dap) would not find the thread of a stop in a
+            # spawned task. Ask once ourselves.
+            self.threads_asked = True
+            self.request("threads", {})
         if tid is not None and body.get("reason") in ("breakpoint", "signal", "exception",
                                                        "function breakpoint", "stopped", None):
             r = self.request("stackTrace", {"threadId": tid, "startFrame": 0, "levels": 40})

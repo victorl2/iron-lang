@@ -154,6 +154,8 @@ Iron_HttpResponse Iron_httpclient_request(
     Iron_String headers, Iron_String body, int64_t max_body_bytes,
     int64_t timeout);
 void Iron_httpclient_close(Iron_HttpClient client);
+/* The debugger's summary of a client (src/debug). */
+const char *iron_http_debug_text(int64_t handle);
 
 Iron_HttpResponse Iron_http_response(int64_t status, Iron_String headers,
                                       Iron_String body);

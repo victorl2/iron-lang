@@ -381,7 +381,12 @@ def _is_object(t, name):
     return not _is_tagged(t) and len(_fields(t)) > 0
 
 
-MYSQL_HANDLES = {"MysqlResult": 0, "MysqlConn": 1, "MysqlPool": 2}
+# Objects that hold only a native handle, and the runtime call that
+# describes what the handle holds.
+HANDLE_TEXT = {"MysqlResult": "iron_mysql_debug_text(%d, 0)",
+               "MysqlConn": "iron_mysql_debug_text(%d, 1)",
+               "MysqlPool": "iron_mysql_debug_text(%d, 2)",
+               "HttpClient": "iron_http_debug_text(%d)"}
 
 
 def _json_text(v, budget):
@@ -430,7 +435,7 @@ def _json_text(v, budget):
 class ObjectPrinter:
     """An object: Point {x = 3, y = 4}, as LLDB and rc values show it. A
     Json value shows as its JSON text, a MySQL result, connection or pool
-    as what its handle holds."""
+    and an HttpClient as what its handle holds."""
 
     def __init__(self, val, name):
         self.val, self.name = val, _short(name)
@@ -438,10 +443,16 @@ class ObjectPrinter:
     def to_string(self):
         if self.name == "Json":
             return "Json " + _json_text(self.val, [400])
-        if self.name in MYSQL_HANDLES:
+        if self.name.startswith("MutexGuard"):
             try:
-                text = gdb.parse_and_eval("(const char *)iron_mysql_debug_text(%d, %d)" % (
-                    int(self.val["handle"]), MYSQL_HANDLES[self.name])).string()
+                p = self.val["valptr"]
+                return "MutexGuard(%s)" % (_text(p.dereference()) if int(p) else "null")
+            except (gdb.error, gdb.MemoryError):
+                pass
+        if self.name in HANDLE_TEXT:
+            try:
+                text = gdb.parse_and_eval("(const char *)" + HANDLE_TEXT[self.name] % int(
+                    self.val["handle"])).string()
                 return "%s %s" % (self.name, text)
             except (gdb.error, UnicodeDecodeError):
                 pass

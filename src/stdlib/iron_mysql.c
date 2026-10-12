@@ -3893,10 +3893,16 @@ __attribute__((used)) const char *iron_mysql_debug_text(int64_t h, int64_t kind)
     }
     if (kind == 1) {
         MyConn *c = AS_CONN(h);
-        snprintf(tmp, sizeof(tmp), "%s%s, server %s, thread %u",
+        snprintf(tmp, sizeof(tmp), "%s%s",
                  c->open && !c->broken ? "open" : c->broken ? "broken" : "closed",
-                 c->tls ? " (TLS)" : "", c->version, (unsigned)c->thread_id);
+                 c->tls ? " (TLS)" : "");
         dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+        /* A connection that never reached a server has neither. */
+        if (c->version[0]) {
+            snprintf(tmp, sizeof(tmp), ", server %s, thread %u", c->version,
+                     (unsigned)c->thread_id);
+            dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+        }
         if (c->err.code != 0) {
             snprintf(tmp, sizeof(tmp), ", last error %lld: %s", (long long)c->err.code,
                      c->err.message);

@@ -697,7 +697,12 @@ def is_object(sbtype, _dict):
     return not is_tagged(sbtype, _dict) and t.GetNumberOfFields() > 0
 
 
-MYSQL_HANDLES = {"MysqlResult": 0, "MysqlConn": 1, "MysqlPool": 2}
+# Objects that hold only a native handle, and the runtime call that
+# describes what the handle holds.
+HANDLE_TEXT = {"MysqlResult": "iron_mysql_debug_text(%d, 0)",
+               "MysqlConn": "iron_mysql_debug_text(%d, 1)",
+               "MysqlPool": "iron_mysql_debug_text(%d, 2)",
+               "HttpClient": "iron_http_debug_text(%d)"}
 
 
 def _json_text(v, budget):
@@ -756,18 +761,18 @@ def _json_buffer_text(v):
     return iron_quote(raw.decode("utf-8", "replace")) + (" ..." if n > 300 else "")
 
 
-def _mysql_text(v, kind):
+def _handle_text(v, call):
     handle = v.GetChildMemberWithName("handle").GetValueAsSigned(0)
-    r = v.GetTarget().EvaluateExpression(
-        "(const char *)iron_mysql_debug_text(%d, %d)" % (handle, kind))
+    r = v.GetTarget().EvaluateExpression("(const char *)" + call % handle)
     s = r.GetSummary() if r and r.IsValid() and r.GetError().Success() else None
     return s[1:-1] if s and len(s) >= 2 and s.startswith('"') else None
 
 
 def object_summary(valobj, _dict):
     """An object: Point {x = 3, y = 4}, as rc values show it. A Json value
-    shows as its JSON text, a MySQL result, connection or pool as what its
-    handle holds (rows and columns, the server, the pool's counts)."""
+    shows as its JSON text, a MySQL result, connection or pool and an
+    HttpClient as what its handle holds (rows and columns, the server, the
+    pool's counts, the origin and its connections)."""
     v = valobj.GetNonSyntheticValue()
     name = _short((v.GetType().GetCanonicalType().GetName() or "").replace("struct ", ""))
     if name == "Json":
@@ -775,8 +780,8 @@ def object_summary(valobj, _dict):
     if name.startswith("MutexGuard") and v.GetChildMemberWithName("valptr").IsValid():
         p = v.GetChildMemberWithName("valptr")
         return "MutexGuard(%s)" % (_text(p.Dereference()) if p.GetValueAsUnsigned(0) else "null")
-    if name in MYSQL_HANDLES:
-        text = _mysql_text(v, MYSQL_HANDLES[name])
+    if name in HANDLE_TEXT:
+        text = _handle_text(v, HANDLE_TEXT[name])
         if text is not None:
             return "%s %s" % (name, text)
     if name in ("JsonBuffer", "JsonWriter"):

@@ -16,8 +16,18 @@ Lines of regress.iron marked `-- @name` are the stops. Checks:
              `if` line; nested loops; Step Into reaches init, a method, a
              generic instance and a lambda, named Counter.add, gid[Int],
              func; the closing brace after a return (#631, #595)
-  spawn      a spawned task's thread is named after spawn("worker"), its
-             frame `spawn "worker"`, with a label frame where it was spawned
+  services   a checked pointer parameter shows the object it points at; a
+             Mutex shows its value, `locked by thread N` while a guard is
+             alive and `unlocked` after; an HttpClient, a MysqlConn, a
+             MysqlResult and a MysqlPool show what their handles hold
+             (#548), and reading them sends the client no event (#709)
+  arrays     lists kept as C arrays show as lists whatever their elements
+             (#588); Locals with bindings not assigned yet are answered
+             (#585)
+  spawn      a spawned task's thread is named after spawn("worker") in the
+             Threads view, also when the client first asks at that stop
+             (#710), its frame `spawn "worker"`, with a label frame where
+             it was spawned (#548)
   protocol   junk requests are answered with errors and the session goes on
              (#663)
 Exit 0 on success, 1 on a failed check, 77 when no DAP debugger is found.
@@ -166,11 +176,79 @@ def main():
     got = step("stepIn")
     check(got == ("func", lines["lambda"]), "step into the lambda: %s" % (got,))
 
+    # Debugging services (#548)
+    c.call("setBreakpoints", {"source": {"path": src}, "breakpoints": [
+        {"line": lines[n]} for n in ("pointer", "held", "released", "arrays", "spawn_body")]})
+
+    def stop_at(mark):
+        c.call("continue", {"threadId": tid})
+        t = c.event("stopped", 60)["body"]["threadId"]
+        f = c.call("stackTrace", {"threadId": t})["stackFrames"][0]
+        check(f.get("line") == lines[mark], "the %s stop is at %s" % (mark, f.get("line")))
+        out = {}
+        for sc in c.call("scopes", {"frameId": f["id"]})["scopes"]:
+            if sc["name"].lower() in ("locals", "arguments"):
+                for v in c.call("variables", {"variablesReference": sc["variablesReference"]})["variables"]:
+                    out[v["name"]] = v
+        return t, out
+
+    def kids(v):
+        ref = (v or {}).get("variablesReference")
+        return {k["name"]: k["value"] for k in
+                c.call("variables", {"variablesReference": ref})["variables"]} if ref else {}
+    tid, shown = stop_at("pointer")
+    wk = shown.get("wk", {})
+    check(wk.get("value") == "Counter {n = 4}", "the pointer parameter shows %r" % wk.get("value"))
+    check(kids(wk) == {"n": "4"}, "the pointee's fields: %s" % kids(wk))
+    tid, shown = stop_at("held")
+    c.seen[:] = [m for m in c.seen if m.get("event") != "continued"]
+    got = {n: str(shown.get(n, {}).get("value")) for n in ("lk", "g", "hc", "conn", "res", "dbs")}
+    check(re.fullmatch(r"Mutex\(9\) locked by thread \d+ \(0x[0-9a-f]+\)", got["lk"]) is not None,
+          "the held Mutex shows %r" % got["lk"])
+    check(kids(shown.get("lk")).get("value") == "9", "the Mutex's value: %s" % kids(shown.get("lk")))
+    check(got["g"] == "MutexGuard(9)", "the guard shows %r" % got["g"])
+    client = kids(shown.get("hc")).get("client")
+    check(client == "HttpClient http://127.0.0.1:9, 0 of 4 connections open, 0 busy",
+          "the HttpClient shows %r" % client)
+    check(got["conn"] == "MysqlConn closed, last error 7004: connection is closed",
+          "the MysqlConn shows %r" % got["conn"])
+    check(got["res"] == "MysqlResult error 7004: connection is closed",
+          "the MysqlResult shows %r" % got["res"])
+    check(got["dbs"].startswith("rc MysqlPool 0 connections (0 idle, 0 in use), min 0, max 2"),
+          "the MysqlPool shows %r" % got["dbs"])
+    # Reading the handles runs code in the program (the runtime describes
+    # them): the client is not told the program ran and stopped again
+    # (#709).
+    c.call("stackTrace", {"threadId": tid})
+    stray = [m.get("event") for m in c.seen if m.get("event") in ("stopped", "continued")]
+    check(not stray, "events after reading the handles: %s" % stray)
+    tid, shown = stop_at("released")
+    check(str(shown.get("lk", {}).get("value")) == "Mutex(9) unlocked",
+          "the released Mutex shows %r" % shown.get("lk", {}).get("value"))
+
+    # C-array lists of any element type show as lists (#588); the Locals of
+    # a frame with bindings not assigned yet are answered (#585).
+    tid, shown = stop_at("arrays")
+    for n, w in (("names", '["a", "b"]'), ("halves", "[0.5]"), ("bytes", "[1, 2]"), ("total", "5")):
+        check(str(shown.get(n, {}).get("value")) == w,
+              "%s shows %r, want %r" % (n, shown.get(n, {}).get("value"), w))
+    check(not [n for n in shown if n.endswith("_len")], "length temporaries in Locals: %s" % sorted(shown))
+    check({"later", "after", "seen"} <= set(shown), "bindings declared later: %s" % sorted(shown))
+    for n in ("later", "after", "seen", "plus"):
+        if shown.get(n, {}).get("variablesReference"):
+            r = c.response(c.send("variables", {"variablesReference": shown[n]["variablesReference"]}),
+                           "variables", 30)
+            check(r is not None, "the children of %s (not assigned yet) are answered" % n)
+
     # The spawned task
-    c.call("setBreakpoints", {"source": {"path": src}, "breakpoints": [{"line": lines["spawn_body"]}]})
     c.call("continue", {"threadId": tid})
     stop = c.event("stopped", 60)
     tid = stop["body"]["threadId"]
+    # The session's first threads request to the debugger (#710).
+    listed = c.call("threads", {})["threads"]
+    named = [t.get("name") for t in listed if t.get("id") == tid]
+    check(len(named) == 1 and "worker" in (named[0] or ""),
+          "the task's thread %s in the threads: %s" % (tid, listed))
     frames = c.call("stackTrace", {"threadId": tid})["stackFrames"]
     names = [f.get("name") for f in frames[:3]]
     check(names[:2] == ['spawn "worker"', "spawned in main"],
