@@ -1,0 +1,4 @@
+-- One diagnostic for a whole UTF-8 character, not one per byte.
+func main() {
+    val y = 1 中 2
+}

@@ -1,0 +1,8 @@
+-- `T[]` was read as `T`: a list of T is written [T].
+func total(xs: Int[]) -> Int {
+    return 0
+}
+
+func main() {
+    println("a")
+}

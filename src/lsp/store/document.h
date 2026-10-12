@@ -20,8 +20,12 @@
  *   - ilsp_document_destroy: free buffer + line index + uri + doc.
  *
  * Thread discipline: a given doc is mutated ONLY on the main dispatcher
- * thread (Plan 05 will add per-doc mailbox + worker thread). No locks
- * on the buffer in Plan 04. */
+ * thread, which also serves every request. The document's AST worker
+ * runs on its own thread and reads the document only through
+ * ilsp_document_snapshot; text_lock orders that copy against the edits:
+ * the main thread holds it (ilsp_document_lock) around each didChange
+ * batch, so a snapshot never sees half a batch or a version that does not
+ * match the text. */
 
 #include <setjmp.h>
 
@@ -66,6 +70,11 @@ typedef struct IronLsp_Document {
 
     uint8_t            sha256[32];   /* hash of text[0..text_len]. */
 
+    /* Held while an edit changes text / line_idx / version, and while the
+     * AST worker copies them (ilsp_document_snapshot). */
+    iron_mutex_t       text_lock;
+    bool               owns_lock;    /* false in a snapshot */
+
     /* ── Plan 05 fields ───────────────────────────────────────────────── */
     /* Per-document mailbox + worker thread. Owned by this document;
      * created in ilsp_document_create_with_worker (or lazily by the
@@ -109,6 +118,20 @@ bool ilsp_document_apply_incremental(IronLsp_Document        *doc,
                                       size_t                   new_len,
                                       IronLsp_PositionEncoding enc,
                                       int32_t                  new_version);
+
+/* Hold the document's text_lock around a batch of edits (the apply
+ * functions do not lock), so the AST worker's snapshot sees whole
+ * versions. */
+void ilsp_document_lock(IronLsp_Document *doc);
+void ilsp_document_unlock(IronLsp_Document *doc);
+
+/* Copy uri (shared, not owned), text, line index and version into `out`
+ * under the document's lock, for the AST worker: it analyzes the copy
+ * while the main thread applies later edits, and the diagnostics it
+ * publishes then carry the version of the text they were computed on.
+ * Returns false on OOM. Free with ilsp_document_snapshot_free. */
+bool ilsp_document_snapshot(IronLsp_Document *doc, IronLsp_Document *out);
+void ilsp_document_snapshot_free(IronLsp_Document *snap);
 
 /* Utility: convert an LSP Position to a byte offset within doc->text.
  * Exposed for test harnesses + facade callers. Returns doc->text_len on

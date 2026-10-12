@@ -105,6 +105,10 @@ iron_add_fuzz_target(fuzz_typecheck   fuzz_typecheck.c)
 iron_add_fuzz_target(fuzz_hir_to_lir  fuzz_hir_to_lir.c)
 # Comments, documentation, directives, fmt --migrate-comments and fmt.
 iron_add_fuzz_target(fuzz_comments    fuzz_comments.c)
+# Source in, analysis as `ironc check` and the language server run it (with
+# the stdlib prelude, broken buffers included) and the formatter's
+# idempotence. Seed it with the integration corpus.
+iron_add_fuzz_target(fuzz_check       fuzz_check.c)
 
 # Build-time helper (NOT a fuzz target — no -fsanitize=fuzzer).
 # Copies tests/integration/*.iron into corpus/parser/ and creates the
@@ -149,6 +153,7 @@ add_custom_command(TARGET iron_seed_blobs POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/parser"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/typecheck"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/hir_to_lir"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/check"
     COMMAND ${CMAKE_COMMAND} -E env "ASAN_OPTIONS=detect_leaks=0"
             $<TARGET_FILE:iron_seed_blobs>
             "${_FUZZ_INTEGRATION_DIR}"
