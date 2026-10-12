@@ -1986,6 +1986,14 @@ local declared after it, which is already destroyed. A panic raised while
 a destructor runs is reported as `destructor panicked`, followed by the
 type, the `cause` (one of the messages above) and the site.
 
+The variable of a `for` loop is a local of the iteration. A `var` narrowed
+from `T?` by a null check, or to one implementor of an interface by `is`,
+holds a value that the next assignment destroys or replaces: its address
+(explicit, or taken automatically for a `*T` parameter) can only be a call
+argument (`E0270` otherwise), the pointer lives for that call, and so does
+a pointer a method called on the narrowed `var` takes from `self`. A `var`
+that is never assigned again and a narrowed `val` have no such limit.
+
 Inside a lambda, a captured `val` is the closure's own copy: a pointer to
 it taken in the lambda ends when the lambda returns. A captured `var` is
 the variable itself (the table above).

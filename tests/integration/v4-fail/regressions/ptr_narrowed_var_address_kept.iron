@@ -1,0 +1,35 @@
+-- The address of a narrowed var can only be a call argument: E0270.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Hub {
+    var p: ?*P
+    var q: ?*Int
+    init() {
+        self.p = null
+        self.q = null
+    }
+}
+
+func clobber() -> Int {
+    val y = P(9)
+    val z = P(10)
+    return y.hp + z.hp
+}
+
+func main() {
+    var hub = Hub()
+    var o: P? = P(4)
+    if o != null {
+        hub.p = &o
+    }
+    o = null
+    val q = hub.p
+    if q != null {
+        println("{q.hp}")
+    }
+}

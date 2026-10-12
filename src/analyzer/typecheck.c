@@ -5041,6 +5041,24 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                         break;
                     }
                 }
+                /* `&o` of a var narrowed from `T?` (or to one implementor
+                 * of an interface) points into the value the var holds now;
+                 * the next assignment destroys or replaces that value. As a
+                 * call argument the pointer lives for the call. */
+                if (!ue->is_call_arg && ue->operand && ue->operand->kind == IRON_NODE_IDENT) {
+                    const char *nk = narrowing_key(ctx, ue->operand);
+                    Iron_Symbol *nsym = ((Iron_Ident *)ue->operand)->resolved_sym;
+                    if (nk && narrowing_get(ctx, nk) && nsym && nsym->is_mutable) {
+                        emit_error(ctx, IRON_ERR_PTR_AMP_ON_RVALUE, ue->span,
+                                   "cannot keep the address of a narrowed 'var': "
+                                   "assigning to it would leave the pointer to a value that is gone",
+                                   "pass it directly as a call argument, or copy the value"
+                                   " into a binding and take that binding's address");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        ue->resolved_type = result;
+                        break;
+                    }
+                }
                 bool is_var_src = arg_source_is_mutable(ctx, ue->operand);
                 mark_requires_mutable(ctx, ue->operand);
                 Iron_Type *ptr_t = iron_type_make_ptr(ctx->arena,

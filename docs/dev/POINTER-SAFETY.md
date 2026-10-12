@@ -78,7 +78,10 @@ pointer was taken from has not ended".
 | `self` or a field of it in a pointer-receiver method | the receiver's, handed over by the caller in `iron_self_gen` (the method's own scope when no caller handed one over, which only ends the pointer early) |
 | a growable list element (call argument only, E0330) | a generation made for the call and ended when it returns; the list is pinned meanwhile |
 
-`&` of a temporary or of a place inside one is rejected (E0270).
+| the payload of a narrowed `T?` or interface `var` that is assigned again, closure-shared or global (call argument only, E0270) | a generation made for the call and ended when it returns |
+
+`&` of a temporary or of a place inside one is rejected (E0270). The
+variable of a `for` loop belongs to the scope of the iteration.
 
 ## I4. Scopes follow destruction order
 

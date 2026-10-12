@@ -1,0 +1,56 @@
+-- @expect-panic: stale pointer dereference
+-- &self.field taken by a method called on a narrowed var: the pointer lives
+-- for the call, as a pointer argument into the var's value does.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Hub {
+    var p: ?*P
+    var q: ?*Int
+    init() {
+        self.p = null
+        self.q = null
+    }
+}
+
+func clobber() -> Int {
+    val y = P(9)
+    val z = P(10)
+    return y.hp + z.hp
+}
+
+object HS {
+    var p: ?*String
+    init() {
+        self.p = null
+    }
+}
+object B {
+    var s: String
+    init(s: String) {
+        self.s = s
+    }
+    func reg(h: *var HS) {
+        h.p = &self.s
+    }
+}
+func main() {
+    var hub = HS()
+    var o: B? = B("a long heap string that is definitely not inline 0123456789")
+    if o != null {
+        o.reg(&hub)
+        val q0 = hub.p
+        if q0 != null {
+            println("in {q0.len()}")
+        }
+    }
+    o = null
+    val q = hub.p
+    if q != null {
+        println("{q.len()}")
+    }
+}

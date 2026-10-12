@@ -1389,6 +1389,20 @@ static IronLIR_ValueId lir_storage_chain_root(IronLIR_Func *fn, IronLIR_ValueId 
             vid = cur->index.array;
             continue;
         }
+        if (cur->kind == IRON_LIR_CAST) {
+            /* The payload of a narrowed `T?` or interface binding is storage
+             * inside the binding. */
+            IronLIR_ValueId cv = cur->cast.value;
+            IronLIR_Instr *cin = (cv != IRON_LIR_VALUE_INVALID &&
+                                  (ptrdiff_t)cv < arrlen(fn->value_table))
+                                 ? fn->value_table[cv] : NULL;
+            if (cin && cin->type && (cin->type->kind == IRON_TYPE_NULLABLE ||
+                                     cin->type->kind == IRON_TYPE_INTERFACE)) {
+                vid = cv;
+                continue;
+            }
+            break;
+        }
         if (cur->kind == IRON_LIR_LOAD) {
             IronLIR_ValueId p = cur->load.ptr;
             IronLIR_Instr *pin = (p != IRON_LIR_VALUE_INVALID &&

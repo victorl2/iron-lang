@@ -1463,6 +1463,56 @@ static IronLIR_ValueId emit_elem_list(IronLIR_Func *fn, IronLIR_ValueId v, int d
     return IRON_LIR_VALUE_INVALID;
 }
 
+/* Whether place `v` lies in the payload of a narrowed binding (a `T?`
+ * known not to be null, an interface value known to hold one implementor)
+ * whose slot can change afterwards: assigning null, another value or
+ * another implementor leaves a pointer into the payload looking at a
+ * destroyed or different value. A slot that is stored once and not shared
+ * with a closure cannot change. */
+static bool emit_place_in_changeable_narrowed(IronLIR_Func *fn, EmitCtx *ctx,
+                                              IronLIR_ValueId v, int depth) {
+    IronLIR_Instr *d = emit_def_instr(fn, v);
+    if (!d || depth > 32) return false;
+    if (d->kind == IRON_LIR_GET_FIELD) {
+        Iron_Type *ot = emit_get_value_type(fn, d->field.object);
+        if (!ot || ot->kind == IRON_TYPE_PTR || ot->kind == IRON_TYPE_RC) return false;
+        if (emit_val_is_any_fat_ptr(fn, d->field.object)) return false;
+        return emit_place_in_changeable_narrowed(fn, ctx, d->field.object, depth + 1);
+    }
+    if (d->kind == IRON_LIR_GET_INDEX) {
+        Iron_Type *at = emit_get_value_type(fn, d->index.array);
+        if (!at || at->kind != IRON_TYPE_ARRAY || (at->array.size < 0 && !at->array.is_bounded))
+            return false;
+        return emit_place_in_changeable_narrowed(fn, ctx, d->index.array, depth + 1);
+    }
+    if (!(emit_is_optional_unwrap(fn, d) || emit_is_iface_object_view(fn, d, NULL, NULL, NULL)))
+        return false;
+    IronLIR_Instr *src = emit_def_instr(fn, d->cast.value);
+    if (!src) return false;                    /* a parameter: a copy of this frame */
+    if (src->kind != IRON_LIR_LOAD)
+        return emit_place_in_changeable_narrowed(fn, ctx, d->cast.value, depth + 1);
+    IronLIR_ValueId slot = src->load.ptr;
+    IronLIR_Instr *a = emit_def_instr(fn, slot);
+    if (!a || a->kind != IRON_LIR_ALLOCA) return true;
+    /* (The whole value is only ever written by a store to the slot: no
+     * pointer assigns through to its pointee.) */
+    if (a->alloca.global_name || a->alloca.is_boxed) return true;
+    if (ctx->capture_alias_map && hmgeti(ctx->capture_alias_map, slot) >= 0) return true;
+    int stores = 0;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            if (in->kind == IRON_LIR_STORE && in->store.ptr == slot) stores++;
+            if (in->kind == IRON_LIR_CALL && in->call.args_by_addr) {
+                for (int ai = 0; ai < in->call.arg_count; ai++)
+                    if (in->call.args[ai] == slot && in->call.args_by_addr[ai]) return true;
+            }
+        }
+    }
+    return stores > 1;
+}
+
 static void emit_place_gen(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
                            IronLIR_ValueId vid, int depth);
 /* The scope stamped on the ADDR_OF being emitted (addr_of.scope_id). */
@@ -6306,17 +6356,28 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         for (int i = 0; i < instr->call.arg_count && i < 16; i++) {
             IronLIR_ValueId av = instr->call.args[i];
             IronLIR_ValueId lv = IRON_LIR_VALUE_INVALID;
+            /* A pointer into the payload of a narrowed binding that can
+             * change (or the receiver's generation handed to a method that
+             * takes &self there) lives for the call only, like an element
+             * pointer: a copy the callee keeps must not outlive the next
+             * assignment to the binding. */
+            bool narrowed = false;
             if (instr->call.self_by_addr && i == 0) {
                 if (instr->call.pin_recv) lv = emit_elem_list(fn, av, 0);
+                if (lv == IRON_LIR_VALUE_INVALID && instr->call.pass_self_gen)
+                    narrowed = emit_place_in_changeable_narrowed(fn, ctx, av, 0);
             } else if (emit_val_is_checked_ptr_typed(fn, av)) {
                 IronLIR_Instr *ad = emit_def_instr(fn, av);
-                if (ad && ad->kind == IRON_LIR_ADDR_OF)
+                if (ad && ad->kind == IRON_LIR_ADDR_OF) {
                     lv = emit_elem_list(fn, ad->addr_of.target, 0);
+                    if (lv == IRON_LIR_VALUE_INVALID)
+                        narrowed = emit_place_in_changeable_narrowed(fn, ctx, ad->addr_of.target, 0);
+                }
             }
-            if (lv == IRON_LIR_VALUE_INVALID) continue;
+            if (lv == IRON_LIR_VALUE_INVALID && !narrowed) continue;
             lpinned[i] = true;
             emit_indent(sb, ind);
-            if (get_stack_array_origin(ctx, lv) != IRON_LIR_VALUE_INVALID) {
+            if (narrowed || get_stack_array_origin(ctx, lv) != IRON_LIR_VALUE_INVALID) {
                 /* A list the optimizer keeps as a stack array never moves,
                  * but the pointer still lives only for the call, whatever
                  * the list's representation (the same program must behave

@@ -1,0 +1,46 @@
+-- @expect-panic: stale pointer dereference
+-- A pointer to the implementor inside an interface var narrowed with is:
+-- assigning another implementor replaces the payload, so the pointer lives
+-- for the call it was passed to.
+interface Shape {
+    func area() -> Int
+}
+object Sq impl Shape {
+    var s: Int
+    init(s: Int) {
+        self.s = s
+    }
+    func area() -> Int {
+        return self.s * self.s
+    }
+}
+object Ci impl Shape {
+    var name: String
+    init() {
+        self.name = "a long heap string that is definitely not inline 0123456789"
+    }
+    func area() -> Int {
+        return 3
+    }
+}
+object HQ {
+    var p: ?*Sq
+    init() {
+        self.p = null
+    }
+}
+func keep(h: *var HQ, p: *Sq) {
+    h.p = p
+}
+func main() {
+    var hub = HQ()
+    var sh: Shape = Sq(4)
+    if sh is Sq {
+        keep(&hub, sh)
+    }
+    sh = Ci()
+    val q = hub.p
+    if q != null {
+        println("{q.s}")
+    }
+}

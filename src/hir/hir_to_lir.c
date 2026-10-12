@@ -5145,6 +5145,15 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                                                        iterable_val, idx_body, elem_type, span)->id;
         iron_lir_store(ctx->current_func, body_blk, var_alloca, elem_val, span);
         push_defer_scope(ctx);
+        /* The loop variable is a local of the iteration: a pointer to it
+         * kept past the iteration dangles (it named a slot of the enclosing
+         * scope that held a view of an element the list may have dropped). */
+        if (var_alloca != IRON_LIR_VALUE_INVALID &&
+            (ptrdiff_t)var_alloca < arrlen(ctx->current_func->value_table) &&
+            ctx->current_func->value_table[var_alloca] &&
+            ctx->current_func->value_table[var_alloca]->kind == IRON_LIR_ALLOCA)
+            ctx->current_func->value_table[var_alloca]->alloca.scope_id = cur_scope_id(ctx);
+        hmput(ctx->var_scope_map, stmt->for_loop.var_id, cur_scope_id(ctx));
         int for_base_depth = ctx->defer_depth;
         struct HIR_LoopTarget flt = { exit_blk->id, inc_blk->id, for_base_depth };
         arrput(ctx->loops, flt);
@@ -6024,6 +6033,20 @@ static IronLIR_ValueId ssa_root_alloca(IronLIR_Func *fn, IronLIR_ValueId vid) {
             return vid;
         case IRON_LIR_LOAD:      vid = in->load.ptr;     break;
         case IRON_LIR_GET_FIELD: vid = in->field.object; break;
+        case IRON_LIR_CAST: {
+            /* The payload of a narrowed `T?` or interface binding lives in
+             * the binding: `&o` wrote into an unwrapped copy when the slot
+             * was promoted. */
+            IronLIR_ValueId cv = in->cast.value;
+            IronLIR_Instr *cin = (cv != IRON_LIR_VALUE_INVALID &&
+                                  (ptrdiff_t)cv < arrlen(fn->value_table))
+                                 ? fn->value_table[cv] : NULL;
+            if (!cin || !cin->type || (cin->type->kind != IRON_TYPE_NULLABLE &&
+                                       cin->type->kind != IRON_TYPE_INTERFACE))
+                return IRON_LIR_VALUE_INVALID;
+            vid = cv;
+            break;
+        }
         case IRON_LIR_GET_INDEX: {
             /* An element of a bounded vector lives inside the vector. */
             IronLIR_ValueId av = in->index.array;

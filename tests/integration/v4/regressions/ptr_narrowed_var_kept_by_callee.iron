@@ -1,0 +1,53 @@
+-- @expect-panic: stale pointer dereference
+-- A pointer into the value of a var narrowed from T?, passed to a call:
+-- it lives for the call. A copy the callee keeps must not outlive the next
+-- assignment to the var, which destroys the value (it read the freed string).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Hub {
+    var p: ?*P
+    var q: ?*Int
+    init() {
+        self.p = null
+        self.q = null
+    }
+}
+
+func clobber() -> Int {
+    val y = P(9)
+    val z = P(10)
+    return y.hp + z.hp
+}
+
+object B {
+    var s: String
+    init(s: String) {
+        self.s = s
+    }
+}
+object HB {
+    var p: ?*B
+    init() {
+        self.p = null
+    }
+}
+func keep(h: *var HB, p: *B) {
+    h.p = p
+}
+func main() {
+    var hub = HB()
+    var o: B? = B("a long heap string that is definitely not inline 0123456789")
+    if o != null {
+        keep(&hub, o)
+    }
+    o = null
+    val q = hub.p
+    if q != null {
+        println("{q.s}")
+    }
+}
