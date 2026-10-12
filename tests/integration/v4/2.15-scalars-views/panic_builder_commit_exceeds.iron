@@ -1,3 +1,5 @@
+-- @expect-panic: range out of bounds
+
 func main() {
     var sb = StringBuilder.with_capacity(32)
     val room = sb.spare(1)

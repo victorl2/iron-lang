@@ -1,3 +1,5 @@
+-- @expect-panic: index out of bounds
+
 func read_after_wrap(v: View[Int]) -> Int {
     var i = 0
     while i + 2 <= v.len() {

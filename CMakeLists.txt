@@ -1562,6 +1562,15 @@ if(NOT WIN32)
         LABELS "unit;hijack-canary"
         TIMEOUT 30
     )
+    add_test(
+        NAME test_run_tests_expect_panic_directives
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/run_tests_expect_panic_smoke.sh
+    )
+    set_tests_properties(test_run_tests_expect_panic_directives PROPERTIES
+        PASS_REGULAR_EXPRESSION "run_tests expect-panic directives OK"
+        LABELS "unit"
+        TIMEOUT 30
+    )
 endif()
 
 # ── Benchmark rows (2026-07 realism split) ─────────────────────────────────

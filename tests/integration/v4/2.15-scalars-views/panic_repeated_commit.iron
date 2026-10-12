@@ -1,3 +1,5 @@
+-- @expect-panic: range out of bounds
+
 func main() {
     var xs: [UInt8] = []
     val room = xs.spare(2)
