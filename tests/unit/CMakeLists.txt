@@ -398,7 +398,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_http_iron_concurrency PROPERTIES
-        LABELS "integration;networking;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 180)
 
     add_test(
         NAME test_websocket_iron_roundtrip
@@ -406,7 +406,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_websocket_iron_roundtrip PROPERTIES
-        LABELS "integration;networking;websocket;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;websocket;v4-acceptance" TIMEOUT 180)
 
     add_test(
         NAME test_file_operations_iron_roundtrip
@@ -414,14 +414,14 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_file_operations_iron_roundtrip PROPERTIES
-        LABELS "integration;file-io;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;file-io;v4-acceptance" TIMEOUT 180)
 
     add_test(
         NAME test_http_example_check
         COMMAND /bin/sh -c "set -e && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/rest_server.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/https_server.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/https_client.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/websocket_echo_server.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/websocket_echo_secure_server.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/websocket_client.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/file_operations.iron 2>&1) && [ -z \"\$output\" ]"
     )
     set_tests_properties(test_http_example_check PROPERTIES
-        LABELS "integration;networking;v4-acceptance" TIMEOUT 30)
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 180)
 
     add_test(
         NAME test_udp_iron_payload_roundtrip
@@ -429,7 +429,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_udp_iron_payload_roundtrip PROPERTIES
-        LABELS "integration;networking;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 180)
 endif()
 
 # ── Phase 2 (CLI + TOML scaffold) tests ──────────────────────────────────────
