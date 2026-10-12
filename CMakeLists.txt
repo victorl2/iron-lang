@@ -1683,13 +1683,15 @@ if(Python3_EXECUTABLE)
                 --ironls $<TARGET_FILE:ironls> --ironc $<TARGET_FILE:ironc>
                 --seed 1 --sessions 12 --steps 250 -j 3 --quiet
                 --out ${CMAKE_BINARY_DIR}/lsp_fuzz --tmp ${CMAKE_BINARY_DIR}/lsp_fuzz/tmp)
-        set_tests_properties(lsp_fuzz_short PROPERTIES LABELS "lsp;fuzz" TIMEOUT 600)
+        set_tests_properties(lsp_fuzz_short PROPERTIES
+            LABELS "lsp;fuzz" TIMEOUT 600 PROCESSORS 3)
         add_test(NAME fmt_fuzz_short
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/fmt_fuzz.py
                 --ironc $<TARGET_FILE:ironc> --ironls $<TARGET_FILE:ironls>
                 --seed 1 --count 150 -j 3 --quiet
                 --out ${CMAKE_BINARY_DIR}/fmt_fuzz --tmp ${CMAKE_BINARY_DIR}/fmt_fuzz/tmp)
-        set_tests_properties(fmt_fuzz_short PROPERTIES LABELS "fmt;fuzz" TIMEOUT 600)
+        set_tests_properties(fmt_fuzz_short PROPERTIES
+            LABELS "fmt;fuzz" TIMEOUT 600 PROCESSORS 3)
     endif()
     # Packages, the module system and the iron project tool
     # (tests/fuzz/mod_fuzz.py), and the iron / ironc command lines

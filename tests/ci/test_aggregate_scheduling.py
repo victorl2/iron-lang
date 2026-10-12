@@ -26,13 +26,23 @@ def main() -> int:
     )
     tests = {test["name"]: test for test in json.loads(listed.stdout)["tests"]}
 
-    names = ("test_v4_acceptance", "test_opt_parity", "test_leak_check")
-    for name in names:
+    aggregate_names = (
+        "test_v4_acceptance",
+        "test_opt_parity",
+        "test_leak_check",
+        "test_freestanding",
+        "test_v4_migrated_from_v3",
+    )
+    for name in aggregate_names:
         props = properties(tests[name])
         assert props.get("PROCESSORS") == 4, f"{name} must reserve four CTest slots"
         assert props.get("RESOURCE_LOCK") == ["iron_exhaustive_corpus"], (
             f"{name} must share the exhaustive-corpus resource lock"
         )
+
+    long_names = ("test_v4_acceptance", "test_opt_parity", "test_leak_check")
+    for name in long_names:
+        props = properties(tests[name])
         assert props.get("TIMEOUT", 0) >= 7200, f"{name} needs two hours of headroom"
 
     leak_labels = properties(tests["test_leak_check"])["LABELS"]
@@ -59,6 +69,9 @@ def main() -> int:
     assert properties(tests["json_fuzz"]).get("PROCESSORS") == 2, (
         "json_fuzz must reserve two CTest slots"
     )
+    for name in ("lsp_fuzz_short", "fmt_fuzz_short"):
+        props = properties(tests[name])
+        assert props.get("PROCESSORS") == 3, f"{name} must reserve three CTest slots"
 
     workflow = Path(sys.argv[2]).read_text(encoding="utf-8")
     timeout = re.search(r"^\s*timeout-minutes:\s*(\d+)\s*$", workflow, re.MULTILINE)

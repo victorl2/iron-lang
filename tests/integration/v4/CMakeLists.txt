@@ -124,5 +124,7 @@ if(NOT WIN32)
     )
     set_tests_properties(test_freestanding PROPERTIES
         LABELS "oracle"
+        PROCESSORS 4
+        RESOURCE_LOCK iron_exhaustive_corpus
         TIMEOUT 1800)
 endif()
