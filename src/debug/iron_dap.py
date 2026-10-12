@@ -1977,6 +1977,12 @@ class Proxy:
                     src = f.get("source") or {}
                     if is_iron_source(src.get("path") or src.get("name")):
                         self.panic_frames[tid] = i
+                        # The runtime wrote its message before it aborted,
+                        # but the output can reach us after the stop (a
+                        # busy machine): give it a moment.
+                        end = time.monotonic() + 3
+                        while not self.panic_text and time.monotonic() < end:
+                            time.sleep(0.05)
                         msg = dict(msg, body=dict(body, reason="exception", description="Panic",
                                                   text=self.panic_text or "Iron panic"))
                         break
