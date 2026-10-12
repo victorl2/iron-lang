@@ -108,3 +108,12 @@ if(NOT WIN32)
             ${CMAKE_BINARY_DIR}/cg_check/generic_nullable_param)
     set_tests_properties(cg_generic_nullable_param PROPERTIES LABELS "codegen" TIMEOUT 120)
 endif()
+
+if(NOT WIN32)
+    # pop() of an interface list with the result unused: warning free C.
+    add_test(NAME cg_iface_list_pop_discard
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_check.sh $<TARGET_FILE:ironc>
+            ${_cg_reg}/iface_list_pop_discard.iron ${_cg_reg}/iface_list_pop_discard.expected
+            ${CMAKE_BINARY_DIR}/cg_check/iface_list_pop_discard)
+    set_tests_properties(cg_iface_list_pop_discard PROPERTIES LABELS "codegen" TIMEOUT 120)
+endif()

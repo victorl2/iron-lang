@@ -3945,8 +3945,34 @@ static Iron_Type *check_container_construct(TypeCtx *ctx, const char *type_name,
     mc->is_ctor_desugar = true;
     *desugared = (Iron_Node *)mc;
 
+    /* Channel[T](capacity), Mutex[T](value), RWLock[T](value): one
+     * argument, and a channel's capacity is an integer. The C called the
+     * runtime constructor with whatever was written. */
+    bool one_arg_ctor = strcmp(type_name, "Channel") == 0 || strcmp(type_name, "Mutex") == 0 ||
+                        strcmp(type_name, "RWLock") == 0;
+    if (one_arg_ctor && arg_count != 1) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "'%s' is constructed with 1 argument, got %d",
+                 type_name, arg_count);
+        emit_error(ctx, IRON_ERR_ARG_COUNT, span, msg,
+                   strcmp(type_name, "Channel") == 0 ? "Channel[T](capacity)"
+                                                     : "the value it guards");
+        for (int i = 0; i < arg_count; i++) check_expr(ctx, args[i]);
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+
     Iron_Type *t = check_expr(ctx, (Iron_Node *)mc);
     if (!t || t->kind == IRON_TYPE_ERROR) return iron_type_make_primitive(IRON_TYPE_ERROR);
+    if (strcmp(type_name, "Channel") == 0 && arg_count == 1 && args[0]) {
+        Iron_Type *ct = ((Iron_ExprNode *)args[0])->resolved_type;
+        if (ct && ct->kind != IRON_TYPE_ERROR && !iron_type_is_integer(ct)) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "the capacity of a Channel is an Int, got '%s'",
+                     iron_type_to_string(ct, ctx->arena));
+            emit_error(ctx, IRON_ERR_ARG_TYPE, args[0]->span, msg, NULL);
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
+    }
 
     bool generic = strcmp(type_name, "Arena") != 0;
     if (generic_arg_count > 0 && !generic) {
@@ -8415,6 +8441,20 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             result = check_expr(ctx, he->inner);
             ctx->heap_operand = saved_heap_operand;
             he->resolved_type = result;
+            /* `heap` allocates an object or an array (manual 6.2). A
+             * number or a Bool has no heap form: the binding was a heap
+             * pointer the C used as the number. */
+            if (result && (iron_type_is_numeric(result) || result->kind == IRON_TYPE_BOOL)) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "'heap' cannot allocate a value of type '%s'",
+                         iron_type_to_string(result, ctx->arena));
+                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, he->span, msg,
+                           "heap takes an object construction, `heap T(args)`, or an "
+                           "array, `heap [T; N]`; use Box[T] for a single value");
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                he->resolved_type = result;
+                break;
+            }
             /* Phase 22 READ-05: readonly method allocating heap memory.
              * Guard: Pitfall 1 — !ctx->in_pure_method prevents double-emit.
              * (Pure-tier heap-escape is a separate future check; readonly-tier

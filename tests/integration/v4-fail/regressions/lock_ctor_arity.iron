@@ -1,0 +1,4 @@
+-- A Mutex is constructed with the value it guards (E0216).
+func main() {
+    val m = Mutex[Int]()
+}

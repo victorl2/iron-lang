@@ -5735,12 +5735,14 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 }
                             }
 
-                            emit_indent(sb, ind);
+                            /* A hoisted result is declared already: `_vN;`
+                             * alone was an unused expression statement. */
                             if (!is_hoisted) {
+                                emit_indent(sb, ind);
                                 iron_strbuf_appendf(sb, "%s ", pop_type);
+                                emit_val(sb, instr->id);
+                                iron_strbuf_appendf(sb, ";\n");
                             }
-                            emit_val(sb, instr->id);
-                            iron_strbuf_appendf(sb, ";\n");
 
                             if (any_soa) {
                                 /* SoA fallback: known limitation — pop on split
@@ -5854,12 +5856,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 }
                             }
 
-                            emit_indent(sb, ind);
                             if (!is_hoisted) {
+                                emit_indent(sb, ind);
                                 iron_strbuf_appendf(sb, "%s ", get_type);
+                                emit_val(sb, instr->id);
+                                iron_strbuf_appendf(sb, ";\n");
                             }
-                            emit_val(sb, instr->id);
-                            iron_strbuf_appendf(sb, ";\n");
 
                             if (any_soa) {
                                 /* SoA fallback: known limitation — get on split
@@ -6043,12 +6045,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (emit_func_use_sret(callee_fn)) {
                     /* sret call: declare stack slot, call with &slot as first arg */
                     const char *array_c_type = emit_type_to_c(callee_fn->return_type, ctx);
-                    emit_indent(sb, ind);
                     if (!is_hoisted) {
+                        emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "%s ", array_c_type);
+                        emit_val(sb, instr->id);
+                        iron_strbuf_appendf(sb, ";\n");
                     }
-                    emit_val(sb, instr->id);
-                    iron_strbuf_appendf(sb, ";\n");
                     /* Emit the call: callee_c(&_vID, args...) */
                     emit_indent(sb, ind);
                     const char *callee_c_name;

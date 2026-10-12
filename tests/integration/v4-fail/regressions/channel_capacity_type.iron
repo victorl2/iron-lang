@@ -1,0 +1,4 @@
+-- The capacity of a Channel is an Int (E0217).
+func main() {
+    val ch = Channel[Int]("a")
+}
