@@ -46,6 +46,11 @@ typedef struct {
      * Used by web builds to resolve [web].assets paths relative to iron.toml's
      * location rather than the shell's cwd (WEB-ASSET-04). */
     char *toml_dir;
+
+    /* The first syntax error in a [package] value ("line 3: ..."), or NULL.
+     * The iron CLI refuses to build such a manifest; the other readers
+     * (fmt, the language server) ignore it. Freed by iron_toml_free. */
+    char *error;
 } IronProject;
 
 /* Parse iron.toml at the given path.

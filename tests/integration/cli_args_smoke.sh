@@ -39,8 +39,10 @@ expect_unknown_flag --bogus "${IRONC}" build hello.iron --bogus
 # dropped (issue 454); program arguments of run go after --.
 for bin in "${IRON}" "${IRONC}"; do
     if out=$("${bin}" run hello.iron extra 2>&1); then fail "'${bin} run hello.iron extra' exited 0"; fi
-    echo "${out}" | grep -qF "unexpected argument 'extra': program arguments go after --" \
+    echo "${out}" | grep -qF "unexpected argument 'extra'" \
         || fail "'${bin} run hello.iron extra' printed: ${out}"
+    echo "${out}" | grep -qF "after --" \
+        || fail "'${bin} run hello.iron extra' did not point at --: ${out}"
     if out=$("${bin}" check hello.iron extra 2>&1); then fail "'${bin} check hello.iron extra' exited 0"; fi
     echo "${out}" | grep -qF "unexpected argument 'extra'" || fail "check printed: ${out}"
 done

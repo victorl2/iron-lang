@@ -1,0 +1,16 @@
+-- Two globals whose initializers read each other through functions:
+-- neither can be initialized first (E0345).
+val A = b() + 1
+val B = a() + 1
+
+func a() -> Int {
+    return A
+}
+
+func b() -> Int {
+    return B
+}
+
+func main() {
+    println("{A} {B}")
+}

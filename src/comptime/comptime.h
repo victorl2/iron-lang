@@ -104,6 +104,12 @@ double iron_comptime_fmod(double x, double y);
 bool iron_comptime_eval_int_const(Iron_Program *program, Iron_Scope *global_scope,
                                   Iron_Arena *arena, Iron_Node *expr, int64_t *out);
 
+/* The package directory the `-- @file:` paths of a combined package
+ * source are relative to (ironc --package-root); read_file resolves a
+ * relative path against the directory of the calling file. */
+void iron_comptime_set_package_root(const char *dir);
+const char *iron_comptime_package_root(void);   /* NULL outside a package */
+
 /* Convert a comptime value back to a literal AST node suitable for codegen.
  * The resolved_type is copied from the original COMPTIME node so codegen
  * type mapping works correctly. */
