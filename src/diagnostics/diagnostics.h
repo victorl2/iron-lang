@@ -566,6 +566,14 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_RETURN_IN_DEFER          336   /* `return` inside a defer body */
 #define IRON_ERR_GLOBAL_INIT_CYCLE        345   /* a global depends on itself through its initializer */
 #define IRON_ERR_NOT_STRINGABLE           334   /* `{x}` where x has no text form: not a number, Bool, String, enum, their nullable, or an object with to_string() */
+/* Static functions and `Self` in interfaces (#455). */
+#define IRON_ERR_STATIC_ON_VALUE          350   /* `v.f()` where f is a static function: call it as `T.f()` */
+#define IRON_ERR_METHOD_ON_TYPE           351   /* `T.m()` where m is a method: it needs a receiver value */
+#define IRON_ERR_IFACE_STATIC_MISMATCH    352   /* implementor's function is static and the interface's is not, or the reverse */
+#define IRON_ERR_IFACE_SIGNATURE          353   /* implementor's parameters or result differ from the interface signature (Self = the implementor) */
+#define IRON_ERR_IFACE_VALUE_CALL         354   /* calling a static function, or a method taking `Self`, through an interface value */
+#define IRON_ERR_CONSTRAINT_NO_STATIC     355   /* `T.f()` on a type parameter whose constraint declares no static function f */
+#define IRON_ERR_GENERATED_ONLY           356   /* `T.__fields(...)` (memberwise construction) or a member named __fields outside compiler-generated code */
 
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400

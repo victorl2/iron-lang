@@ -86,6 +86,9 @@ static void synthesize_one(Iron_Program *program, Iron_Arena *arena,
     Iron_Parser parser = iron_parser_create(tokens, token_count, snippet, src_name,
                                             arena, diags);
     parser.quiet_hints = true;  /* reported on the original */
+    /* The copy is compiler-generated code for a type that opted in with
+     * `impl`: it may use the generated-code forms (#455). */
+    parser.generated = true;
     Iron_Node *ast = iron_parse(&parser);
     arrfree(tokens);
     if (!ast || ast->kind != IRON_NODE_PROGRAM) return;

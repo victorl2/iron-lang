@@ -52,7 +52,7 @@
 //   13 UNARY           - ! ~ not  (right-associative, prefix)
 //   14 CALL            . [] ()    (left-associative, suffix/member/call)
 //
-// Drift-guard (preserved from Plan 06-01): 'and', 'await', 'break', 'comptime', 'continue', 'copy', 'defer', 'drop', 'elif', 'else', 'enum', 'extends', 'extern', 'false', 'for', 'free', 'func', 'heap', 'if', 'impl', 'import', 'in', 'init', 'interface', 'is', 'leak', 'match', 'mut', 'nocopy', 'not', 'null', 'object', 'or', 'parallel', 'patch', 'pool', 'private', 'pub', 'pure', 'rc', 'readonly', 'return', 'self', 'spawn', 'super', 'true', 'unchecked', 'val', 'var', 'weak', 'while' expands
+// Drift-guard (preserved from Plan 06-01): 'and', 'await', 'break', 'comptime', 'continue', 'copy', 'defer', 'drop', 'elif', 'else', 'enum', 'extends', 'extern', 'false', 'for', 'free', 'func', 'heap', 'if', 'impl', 'import', 'in', 'init', 'interface', 'is', 'leak', 'match', 'mut', 'nocopy', 'not', 'null', 'object', 'or', 'parallel', 'patch', 'pool', 'private', 'pub', 'pure', 'rc', 'readonly', 'return', 'self', 'spawn', 'static', 'super', 'true', 'unchecked', 'val', 'var', 'weak', 'while' expands
 // to the kw_table keywords at configure time; the _keyword rule below
 // still carries it so test_grammar_keyword_drift_tree_sitter remains
 // meaningful.
@@ -121,11 +121,11 @@ module.exports = grammar({
     ),
 
     // Keywords generated from src/lexer/lexer.c kw_table at configure time.
-    // 'and', 'await', 'break', 'comptime', 'continue', 'copy', 'defer', 'drop', 'elif', 'else', 'enum', 'extends', 'extern', 'false', 'for', 'free', 'func', 'heap', 'if', 'impl', 'import', 'in', 'init', 'interface', 'is', 'leak', 'match', 'mut', 'nocopy', 'not', 'null', 'object', 'or', 'parallel', 'patch', 'pool', 'private', 'pub', 'pure', 'rc', 'readonly', 'return', 'self', 'spawn', 'super', 'true', 'unchecked', 'val', 'var', 'weak', 'while' expands to 'and', 'await', ..., 'while'.
+    // 'and', 'await', 'break', 'comptime', 'continue', 'copy', 'defer', 'drop', 'elif', 'else', 'enum', 'extends', 'extern', 'false', 'for', 'free', 'func', 'heap', 'if', 'impl', 'import', 'in', 'init', 'interface', 'is', 'leak', 'match', 'mut', 'nocopy', 'not', 'null', 'object', 'or', 'parallel', 'patch', 'pool', 'private', 'pub', 'pure', 'rc', 'readonly', 'return', 'self', 'spawn', 'static', 'super', 'true', 'unchecked', 'val', 'var', 'weak', 'while' expands to 'and', 'await', ..., 'while'.
     // Present so test_grammar_keyword_drift_tree_sitter has a substitution
     // target even though the full grammar inlines keyword literals in
     // concrete rules.
-    _keyword: $ => choice('and', 'await', 'break', 'comptime', 'continue', 'copy', 'defer', 'drop', 'elif', 'else', 'enum', 'extends', 'extern', 'false', 'for', 'free', 'func', 'heap', 'if', 'impl', 'import', 'in', 'init', 'interface', 'is', 'leak', 'match', 'mut', 'nocopy', 'not', 'null', 'object', 'or', 'parallel', 'patch', 'pool', 'private', 'pub', 'pure', 'rc', 'readonly', 'return', 'self', 'spawn', 'super', 'true', 'unchecked', 'val', 'var', 'weak', 'while'),
+    _keyword: $ => choice('and', 'await', 'break', 'comptime', 'continue', 'copy', 'defer', 'drop', 'elif', 'else', 'enum', 'extends', 'extern', 'false', 'for', 'free', 'func', 'heap', 'if', 'impl', 'import', 'in', 'init', 'interface', 'is', 'leak', 'match', 'mut', 'nocopy', 'not', 'null', 'object', 'or', 'parallel', 'patch', 'pool', 'private', 'pub', 'pure', 'rc', 'readonly', 'return', 'self', 'spawn', 'static', 'super', 'true', 'unchecked', 'val', 'var', 'weak', 'while'),
 
     // ── Declarations ───────────────────────────────────────────────────
 
@@ -199,6 +199,7 @@ module.exports = grammar({
     // skip list. Mirrors the modifier-prefix discipline applied to
     // func_declaration (D-13) and block_method_declaration (D-11).
     method_signature: $ => seq(
+      optional($.static_modifier),
       repeat($.mutation_tier_modifier),
       'func',
       field('name', $.identifier),
@@ -328,6 +329,9 @@ module.exports = grammar({
     // `pure`; multi-tier stacking via repeat(...) at the call site.
     visibility_modifier:    $ => 'pub',
     mutation_tier_modifier: $ => choice('readonly', 'pure'),
+    // `static func` in an object, patch or interface body: a function of
+    // the type, called as `Type.f()`, with no receiver.
+    static_modifier:        $ => 'static',
     param_mut_modifier:     $ => choice('mut', 'var', 'val'),
 
     // ── v3 init declaration (D-05) ─────────────────────────────────────
@@ -378,6 +382,7 @@ module.exports = grammar({
     block_method_declaration: $ => seq(
       optional(seq('@', 'fusible')),
       optional($.visibility_modifier),
+      optional($.static_modifier),
       repeat($.mutation_tier_modifier),
       'func',
       field('name', $.identifier),

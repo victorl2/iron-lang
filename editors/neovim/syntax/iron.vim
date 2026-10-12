@@ -16,7 +16,7 @@ syn keyword ironRepeat      while for in break continue parallel
 syn keyword ironStatement   return defer free leak spawn await
 syn keyword ironKeyword     func val var init object interface enum patch impl extends extern import
 syn keyword ironKeyword     drop copy heap rc weak pool comptime super
-syn keyword ironModifier    pub private pure readonly mut nocopy unchecked
+syn keyword ironModifier    pub private static pure readonly mut nocopy unchecked
 syn keyword ironOperator    and or not is
 syn keyword ironBoolean     true false
 syn keyword ironConstant    null

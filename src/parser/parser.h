@@ -37,6 +37,10 @@ typedef struct {
      * already parsed (generic instances, interface default copies): the
      * `//iron:` hint warnings were reported on the original. */
     bool                quiet_hints;
+    /* The tokens are compiler-generated source (an interface default body
+     * copied into an implementor): method calls and field accesses are
+     * marked is_generated, which allows the generated-code forms. */
+    bool                generated;
 } Iron_Parser;
 
 /* ── API ─────────────────────────────────────────────────────────────────── */

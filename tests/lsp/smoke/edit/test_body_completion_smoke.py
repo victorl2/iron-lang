@@ -37,6 +37,27 @@ CASES = [
     # A method is reached through its receiver, never by its bare name.
     ('object P {\n    val x: Int\n    func area() -> Int { return self.x }\n}\n'
      'func main() {\n    val p = P(1)\n    a|\n}\n', set(), {"area"}),
+    # A type name offers its static functions and named inits, a value its
+    # methods (#455).
+    ('object V {\n    val x: Int\n    init zero() { self.x = 0 }\n'
+     '    static func make(n: Int) -> V { return V(n) }\n'
+     '    readonly func get() -> Int { return self.x }\n}\n'
+     'func main() {\n    val v = V.|\n}\n', {"make", "zero"}, {"get"}),
+    ('object V {\n    val x: Int\n'
+     '    static func make(n: Int) -> V { return V(n) }\n'
+     '    readonly func get() -> Int { return self.x }\n}\n'
+     'func main() {\n    val v = V(1)\n    v.|\n}\n', {"get", "x"}, {"make"}),
+    # Through an interface value only what it can dispatch.
+    ('interface I {\n    static func make() -> Self\n    readonly func same(o: Self) -> Bool\n'
+     '    readonly func get() -> Int\n}\n'
+     'func f(i: I) {\n    i.|\n}\n', {"get"}, {"make", "same"}),
+    # A constrained type parameter offers the constraint's static functions.
+    ('interface Seeded {\n    static func seed(n: Int) -> Self\n'
+     '    readonly func value() -> Int\n}\n'
+     'func f[T: Seeded]() {\n    val x = T.|\n}\n', {"seed"}, {"value"}),
+    ('interface Seeded {\n    static func seed(n: Int) -> Self\n}\n'
+     'object Factory {\n    func build[T: Seeded]() {\n        val x = T.|\n    }\n}\n',
+     {"seed"}, set()),
     # Member completion on an indexed receiver.
     ('object P {\n    val x: Int\n}\nfunc main() {\n    val ps = [P(1)]\n    ps[0].|\n}\n',
      {"x"}, set()),

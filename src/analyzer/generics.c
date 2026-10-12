@@ -259,6 +259,42 @@ static char *rewrite_template(const char *src, GenInst *gi, Iron_Arena *arena) {
     size_t cursor = 0;
     for (int i = 0; i < nt; i++) {
         Iron_Token *t = &toks[i];
+        if (t->kind == IRON_TOK_INTERP_STRING && t->line > 0 &&
+            (ptrdiff_t)t->line <= arrlen(line_start) && t->len > 0) {
+            /* `"{T.name()}"`: a type parameter inside an interpolation is
+             * part of the string token, and was left as `T` (#455). */
+            size_t off = line_start[t->line - 1] + (t->col > 0 ? t->col - 1 : 0);
+            size_t end = off + t->len;
+            if (end > srclen) end = srclen;
+            int depth = 0;
+            for (size_t k = off; k < end; k++) {
+                char ch = src[k];
+                if (ch == '\\') { k++; continue; }
+                if (ch == '{') { depth++; continue; }
+                if (ch == '}') { if (depth > 0) depth--; continue; }
+                if (depth == 0) continue;
+                if (!(isalpha((unsigned char)ch) || ch == '_')) continue;
+                if (k > 0 && (isalnum((unsigned char)src[k - 1]) || src[k - 1] == '_' ||
+                              src[k - 1] == '.'))
+                    continue;
+                size_t e = k;
+                while (e < end && (isalnum((unsigned char)src[e]) || src[e] == '_')) e++;
+                char word[128];
+                size_t wl = e - k;
+                if (wl < sizeof(word)) {
+                    memcpy(word, src + k, wl);
+                    word[wl] = '\0';
+                    int pidx = -1;
+                    if (is_param_name(gps, ngp, word, &pidx)) {
+                        iron_strbuf_appendf(&out, "%.*s%s", (int)(k - cursor), src + cursor,
+                                            gi->arg_texts[pidx]);
+                        cursor = e;
+                    }
+                }
+                k = e - 1;
+            }
+            continue;
+        }
         if (t->kind != IRON_TOK_IDENTIFIER || !t->value) continue;
         if (t->line == 0 || (ptrdiff_t)t->line > arrlen(line_start)) continue;
         size_t off = line_start[t->line - 1] + (t->col > 0 ? t->col - 1 : 0);

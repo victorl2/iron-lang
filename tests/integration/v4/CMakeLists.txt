@@ -16,7 +16,10 @@ if(NOT WIN32)
     # decouples this aggregate from the gate the per-fixture ctest rows use.
     set_tests_properties(test_v4_acceptance PROPERTIES
         LABELS "v4-acceptance"
-        ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}")
+        ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}"
+        PROCESSORS 4
+        RESOURCE_LOCK iron_exhaustive_corpus
+        TIMEOUT 7200)
 endif()
 
 # Optimizer parity oracle: every runnable v4 / algorithms fixture must behave
@@ -32,14 +35,14 @@ if(NOT WIN32)
     )
     # Not in the v4-acceptance label: it builds every fixture twice, which
     # pushed that 30-minute gate over its limit. The full test jobs run it.
-    # Under ASan on a 4-core CI runner it takes about 25 minutes next to the
-    # other rows, so its own cap is an hour. Reserve the four processors that
-    # the script uses internally; otherwise CTest starts other aggregate
-    # corpus jobs beside it and can push a correct run past that cap (#787).
+    # These exhaustive oracles each run an internal worker pool. Reserve a
+    # four-core runner and serialize them with one another so ctest -j4 does
+    # not multiply that parallelism into timeouts.
     set_tests_properties(test_opt_parity PROPERTIES
         LABELS "oracle"
         PROCESSORS 4
-        TIMEOUT 3600)
+        RESOURCE_LOCK iron_exhaustive_corpus
+        TIMEOUT 7200)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_EXECUTABLE)
         add_test(
@@ -73,9 +76,10 @@ if(NOT WIN32)
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(test_leak_check PROPERTIES
-        LABELS "oracle;v4-acceptance"
-        PROCESSORS 2
-        TIMEOUT 3600)
+        LABELS "oracle"
+        PROCESSORS 4
+        RESOURCE_LOCK iron_exhaustive_corpus
+        TIMEOUT 7200)
 endif()
 
 # Crypto cross-check: the crypto and encoding modules against Python's
