@@ -259,8 +259,9 @@ static void reserve_header_symbols_in(const char *dir) {
     intptr_t h = _findfirst(pat, &fd);
     if (h == -1) return;
     do {
-        char *p = malloc(strlen(dir) + strlen(fd.name) + 2);
-        if (p) { sprintf(p, "%s/%s", dir, fd.name); arrput(files, p); }
+        size_t cap = strlen(dir) + strlen(fd.name) + 2;
+        char *p = malloc(cap);
+        if (p) { snprintf(p, cap, "%s/%s", dir, fd.name); arrput(files, p); }
     } while (_findnext(h, &fd) == 0);
     _findclose(h);
 #else
@@ -270,8 +271,9 @@ static void reserve_header_symbols_in(const char *dir) {
     while ((e = readdir(d)) != NULL) {
         size_t n = strlen(e->d_name);
         if (n < 3 || strcmp(e->d_name + n - 2, ".h") != 0) continue;
-        char *p = malloc(strlen(dir) + n + 2);
-        if (p) { sprintf(p, "%s/%s", dir, e->d_name); arrput(files, p); }
+        size_t cap = strlen(dir) + n + 2;
+        char *p = malloc(cap);
+        if (p) { snprintf(p, cap, "%s/%s", dir, e->d_name); arrput(files, p); }
     }
     closedir(d);
 #endif
