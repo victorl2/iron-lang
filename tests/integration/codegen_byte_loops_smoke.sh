@@ -77,7 +77,7 @@ want "static const Iron_String Iron_g_S = { .sso = { .data = \"hello\", .len = 5
 want "static const int64_t Iron_g_N = "
 want "static int64_t Iron_g_COUNTER;"
 lack "Iron_List_int64_t_push(&"
-out="$("${IRONC}" run loops.iron 2>&1)"
+out="$("${IRONC}" run loops.iron)"
 [ "${out}" = "10 5 6 100 2 2 a string longer than twenty three bytes 64 1" ] ||
     { echo "FAIL: program printed: ${out}"; fail=1; }
 [ "${fail}" -eq 0 ] && echo "codegen_byte_loops_smoke: PASS"
