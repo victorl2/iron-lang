@@ -5,7 +5,9 @@
 -- (Phase 80 commit 3bc6329 convention). Phase 87 IFACE convention
 -- (test_typecheck.c:2727-2748) wires this fixture via a paired
 -- substring-lock unit test. To verify standalone:
---   ./build/iron build FIXTURE 2>&1 | grep -qF "$(cat FIXTURE.expected)"
+--   IRON_MULTI_FILE_TEST=1 ./build/iron build FIXTURE 2>&1 | grep -qF "$(cat FIXTURE.expected)"
+-- (the markers below are honored in multi-file test mode only; without
+-- it they are comments and this is one file).
 --
 -- This fixture exercises the Phase 93 multi-file `-- @file:` marker
 -- (Plan 04 Task 1): the lexer recognizes the directive and re-tags
