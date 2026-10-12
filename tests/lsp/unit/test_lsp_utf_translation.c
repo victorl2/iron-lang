@@ -132,19 +132,25 @@ static void test_bom_prefix(void) {
 
 /* ── UTF-8-identity API (for UTF-8 encoding negotiation path) ──────── */
 static void test_utf8_column_identity(void) {
-    /* UTF-8 column == codepoint index (same code-unit count as UTF-16 for
-     * BMP code points; but for supplementary, UTF-8 is 1 codepoint while
-     * UTF-16 is 2 code units). The ilsp_utf8_*_utf8_* variants return
-     * the codepoint index -- NOT the byte index. This function is called
-     * at the facade boundary when the negotiated encoding is UTF-8. */
+    /* With the UTF-8 position encoding LSP counts UTF-8 code units (bytes),
+     * so the column is the byte offset; an offset inside a codepoint
+     * rounds up to its end. */
     const unsigned char src[] = { 'h', 0xE2, 0x82, 0xAC, 'l' };  /* "h€l" */
     const char *line = (const char *)src;
-    /* Byte 0 -> col 0; byte 4 (past €) -> col 2; byte 5 -> col 3. */
     TEST_ASSERT_EQUAL_UINT32(0, ilsp_utf8_byte_to_utf8_column(line, 5, 0));
-    TEST_ASSERT_EQUAL_UINT32(2, ilsp_utf8_byte_to_utf8_column(line, 5, 4));
-    TEST_ASSERT_EQUAL_UINT32(3, ilsp_utf8_byte_to_utf8_column(line, 5, 5));
-    /* Inverse: col 2 -> byte 4 (start of 'l' past €). */
-    TEST_ASSERT_EQUAL_size_t(4, ilsp_utf8_column_to_utf8_byte(line, 5, 2));
+    TEST_ASSERT_EQUAL_UINT32(1, ilsp_utf8_byte_to_utf8_column(line, 5, 1));
+    TEST_ASSERT_EQUAL_UINT32(4, ilsp_utf8_byte_to_utf8_column(line, 5, 2));
+    TEST_ASSERT_EQUAL_UINT32(4, ilsp_utf8_byte_to_utf8_column(line, 5, 4));
+    TEST_ASSERT_EQUAL_UINT32(5, ilsp_utf8_byte_to_utf8_column(line, 5, 5));
+    TEST_ASSERT_EQUAL_UINT32(5, ilsp_utf8_byte_to_utf8_column(line, 5, 9));
+    TEST_ASSERT_EQUAL_size_t(4, ilsp_utf8_column_to_utf8_byte(line, 5, 4));
+    TEST_ASSERT_EQUAL_size_t(4, ilsp_utf8_column_to_utf8_byte(line, 5, 3));
+    TEST_ASSERT_EQUAL_size_t(1, ilsp_utf8_column_to_utf8_byte(line, 5, 1));
+    TEST_ASSERT_EQUAL_size_t(5, ilsp_utf8_column_to_utf8_byte(line, 5, 7));
+    /* A supplementary codepoint is four code units. */
+    const unsigned char emo[] = { 'a', 0xF0, 0x9F, 0x98, 0x80, 'b' };  /* "a😀b" */
+    TEST_ASSERT_EQUAL_UINT32(5, ilsp_utf8_byte_to_utf8_column((const char *)emo, 6, 5));
+    TEST_ASSERT_EQUAL_size_t(5, ilsp_utf8_column_to_utf8_byte((const char *)emo, 6, 2));
 }
 
 int main(void) {
