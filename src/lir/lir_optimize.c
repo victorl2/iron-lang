@@ -7169,7 +7169,16 @@ void iron_lir_prune_stack_scopes(IronLIR_Module *module) {
         IronLIR_Func *fn = module->funcs[fi];
         if (fn->is_extern || fn->block_count == 0) continue;
         struct { int key; bool value; } *used = NULL;
+        struct { int key; bool value; } *flat = NULL;
         bool any_addr = false, any_scope = false;
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind == IRON_LIR_SCOPE_ENTER && in->scope.flat)
+                    hmput(flat, in->scope.id, true);
+            }
+        }
         for (int bi = 0; bi < fn->block_count; bi++) {
             IronLIR_Block *blk = fn->blocks[bi];
             for (int ii = 0; ii < blk->instr_count; ii++) {
@@ -7190,11 +7199,14 @@ void iron_lir_prune_stack_scopes(IronLIR_Module *module) {
                 /* A pointer that never leaves the function cannot be read
                  * after its scope ends: that scope needs no runtime identity
                  * (the pointer takes a generation live for the whole call). */
-                if (!esc_value_escapes_in(module, fn, in->id, esc_sums, sid > 0)) continue;
+                if (!esc_value_escapes_in(module, fn, in->id, esc_sums,
+                                          sid > 0 && hmgeti(flat, sid) < 0))
+                    continue;
                 if (sid > 0) hmput(used, sid, true);
                 else any_addr = true;
             }
         }
+        hmfree(flat);
         fn->takes_local_addr = any_addr || fn->needs_self_gen;
         if (any_scope) {
             for (int bi = 0; bi < fn->block_count; bi++) {

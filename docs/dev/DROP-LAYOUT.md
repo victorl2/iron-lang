@@ -257,13 +257,14 @@ Text channel (default):
 ```
 iron: destructor panicked
   type: <TypeName>
-  drop site: <file>:<line>
+  cause: <the panic raised in the destructor, e.g. dangling stack pointer to frame>
+  site: <file>:<line>
 ```
 
 JSON channel (`IRON_PANIC_FORMAT=json`):
 
 ```json
-{"panic":"destructor_aborted","type":"<TypeName>","drop_site":{"file":"<f>","line":<l>}}
+{"panic":"destructor_aborted","type":"<TypeName>","cause":"<panic>","drop_site":{"file":"<f>","line":<l>}}
 ```
 
 The function calls `abort()` after printing; it is `__attribute__((noreturn))`

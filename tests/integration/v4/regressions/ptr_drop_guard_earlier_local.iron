@@ -1,0 +1,66 @@
+-- A guard that holds a pointer to a local declared before it reads the
+-- local in its drop block: the local is destroyed after the guard, so the
+-- pointer is valid there, on every way out of the block (fall through,
+-- break, continue, return, nested blocks).
+object Cnt {
+    var n: Int
+    var name: String
+    init(n: Int) {
+        self.n = n
+        self.name = "counter number one with a long name"
+    }
+}
+object Guard {
+    val c: *Cnt
+    val tag: String
+    init(c: *Cnt, tag: String) {
+        self.c = c
+        self.tag = tag
+    }
+    drop {
+        println("{self.tag} sees {self.c.n}")
+    }
+}
+func early(k: Int) -> Int {
+    var c = Cnt(k)
+    val g = Guard(&c, "g")
+    if k == 5 {
+        println("ret 5")
+        return 1
+    }
+    c.n = 99
+    return 2
+}
+func main() {
+    var top = Cnt(1000)
+    val gt = Guard(&top, "g")
+    {
+        var c = Cnt(1)
+        val g1 = Guard(&c, "g1")
+    }
+    for i in range(5) {
+        var c = Cnt(10 + i)
+        val g = Guard(&c, "g")
+        if i == 2 {
+            println("brk")
+            break
+        }
+        println("loop {i}")
+        if i == 0 {
+            continue
+        }
+    }
+    early(5)
+    early(6)
+    {
+        var a = Cnt(3)
+        val ga = Guard(&a, "g")
+        {
+            var b = Cnt(7)
+            val gb = Guard(&b, "g")
+            println("nested in")
+        }
+        println("nested out")
+    }
+    println("end")
+}

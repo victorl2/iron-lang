@@ -1,0 +1,16 @@
+g1 sees 1
+loop 0
+g sees 10
+loop 1
+g sees 11
+brk
+g sees 12
+ret 5
+g sees 5
+g sees 99
+nested in
+g sees 7
+nested out
+g sees 3
+end
+g sees 1000

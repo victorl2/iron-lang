@@ -1,0 +1,29 @@
+-- @expect-panic: dangling stack pointer to frame
+-- Locals are destroyed in reverse order of declaration. A drop block that
+-- reads a pointer to a local declared after its own value reaches a value
+-- that is already destroyed (here its string is released): the pointer
+-- dangles there. The scope check covered the whole block, so the drop
+-- block read the freed string.
+object B {
+    var s: String
+    init(s: String) {
+        self.s = s
+    }
+}
+object A {
+    var p: ?*B
+    init() {
+        self.p = null
+    }
+    drop {
+        val q = self.p
+        if q != null {
+            println("drop sees {q.s}")
+        }
+    }
+}
+func main() {
+    var a = A()
+    val b = B("a long heap string that is definitely not inline 0123456789")
+    a.p = &b
+}

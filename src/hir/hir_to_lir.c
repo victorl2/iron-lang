@@ -409,6 +409,8 @@ typedef struct {
     int             *scope_ids;
     int              next_scope_id;
     struct { IronHIR_VarId key; int value; } *var_scope_map;
+    /* Whether the program declares any `drop` block: 0 unknown, 1 no, 2 yes. */
+    int              user_drop_state;
 
     /* Phase 24 DROP-01 (Plan 24-02): per-scope drop-call entries (LIFO).
      * Parallel to defer_stacks — one stb_ds IronLIR_DropEntry array per
@@ -610,6 +612,94 @@ static void push_defer_scope(HIR_to_LIR_Ctx *ctx) {
         leave.scope_leave = scope_id;
         arrput(ctx->drop_stacks[ctx->defer_depth - 1], leave);
     }
+}
+
+/* ── Destruction order and pointers ───────────────────────────────────────
+ * A block's locals are destroyed in reverse order of declaration, and the
+ * `drop` block of one can dereference a pointer to another. A pointer to a
+ * local declared later reaches a value that is already destroyed (its
+ * strings, lists and handles released): it has to dangle there. A pointer
+ * to a local declared earlier is fine (a guard that holds a pointer to what
+ * it guards).
+ *
+ * So the locals declared after a local whose destruction can run user code
+ * get a scope of their own, entered right after that local's declaration
+ * and left right before its destruction: the leave marker sits on the drop
+ * stack just above the local's own entry. Scopes none of whose locals have
+ * an escaping address are pruned like any other block scope. */
+static bool program_has_user_drop(HIR_to_LIR_Ctx *ctx) {
+    if (ctx->user_drop_state == 0) {
+        ctx->user_drop_state = 1;
+        Iron_Program *program = ctx->program;
+        for (int i = 0; program && i < program->decl_count; i++) {
+            Iron_Node *d = program->decls[i];
+            if (d && d->kind == IRON_NODE_METHOD_DECL && ((Iron_MethodDecl *)d)->is_drop) {
+                ctx->user_drop_state = 2;
+                break;
+            }
+        }
+    }
+    return ctx->user_drop_state == 2;
+}
+
+/* Whether destroying a value of type t can run a `drop` block. Anything
+ * whose contents are not known here (an interface value, a closure and
+ * what it captured, an enum, a tuple, a Map or a Set) counts. */
+static bool type_may_run_user_drop(HIR_to_LIR_Ctx *ctx, Iron_Type *t, int depth) {
+    if (!t || !program_has_user_drop(ctx)) return false;
+    if (depth > 16) return true;
+    switch ((int)t->kind) {
+    case IRON_TYPE_STRING:
+    case IRON_TYPE_PTR:
+    case IRON_TYPE_WEAK_RC:
+        return false;
+    case IRON_TYPE_NULLABLE:
+        return type_may_run_user_drop(ctx, t->nullable.inner, depth + 1);
+    case IRON_TYPE_RC:
+        return type_may_run_user_drop(ctx, t->rc.inner, depth + 1);
+    case IRON_TYPE_ARRAY:
+        return type_may_run_user_drop(ctx, t->array.elem, depth + 1);
+    case IRON_TYPE_OBJECT: {
+        Iron_ObjectDecl *od = t->object.decl;
+        if (!od) return true;
+        if (type_has_drop_block(t, ctx->program)) return true;
+        if (od->name && strcmp(od->name, "Arena") == 0) return false;
+        if (od->generic_param_count > 0 || (od->name && (strcmp(od->name, "Map") == 0 ||
+                                                         strcmp(od->name, "Set") == 0)))
+            return true;
+        for (int i = 0; i < od->field_count; i++) {
+            Iron_Type *ft = field_stored_type((Iron_Field *)od->fields[i]);
+            if (!ft) return true;
+            if (type_may_run_user_drop(ctx, ft, depth + 1)) return true;
+        }
+        return false;
+    }
+    default:
+        if (iron_type_is_integer(t) || iron_type_is_float(t) || t->kind == IRON_TYPE_BOOL)
+            return false;
+        return true;
+    }
+}
+
+/* Open the scope of the locals declared after a local whose drop entry was
+ * just pushed at the current depth. */
+static void open_scope_after_droppable(HIR_to_LIR_Ctx *ctx) {
+    if (ctx->defer_depth <= 0 || !ctx->current_func || !ctx->current_block ||
+        block_is_terminated(ctx->current_block) ||
+        ctx->defer_depth > (int)arrlen(ctx->scope_ids) ||
+        ctx->defer_depth > (int)arrlen(ctx->drop_stacks))
+        return;
+    int scope_id = ++ctx->next_scope_id;
+    IronLIR_Instr *en = iron_lir_scope_enter(ctx->current_func, ctx->current_block, scope_id,
+                                             (Iron_Span){0});
+    /* At the function's own depth nothing of the function runs after the
+     * scope ends except destructors. */
+    if (en) en->scope.flat = ctx->defer_depth == 1;
+    ctx->scope_ids[ctx->defer_depth - 1] = scope_id;
+    IronLIR_DropEntry leave = {0};
+    leave.alloca_id = IRON_LIR_VALUE_INVALID;
+    leave.scope_leave = scope_id;
+    arrput(ctx->drop_stacks[ctx->defer_depth - 1], leave);
 }
 
 static void pop_defer_scope(HIR_to_LIR_Ctx *ctx) {
@@ -4398,6 +4488,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         bool is_mut        = stmt->let.is_mutable;
 
         if (!type && stmt->let.init) type = stmt->let.init->type;
+        int let_depth = ctx->defer_depth;
+        int drops_before = (let_depth > 0 && ctx->drop_stacks &&
+                            let_depth <= (int)arrlen(ctx->drop_stacks))
+                           ? (int)arrlen(ctx->drop_stacks[let_depth - 1]) : -1;
 
         if (is_mut) {
             /* Mutable: ALLOCA in entry block + STORE initial value.
@@ -4654,6 +4748,14 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
             }
         }
+        /* The binding is destroyed at scope exit and its destruction can
+         * run a drop block: the locals declared from here on end before it
+         * (see open_scope_after_droppable). */
+        if (drops_before >= 0 && ctx->defer_depth == let_depth &&
+            let_depth <= (int)arrlen(ctx->drop_stacks) &&
+            (int)arrlen(ctx->drop_stacks[let_depth - 1]) > drops_before &&
+            type_may_run_user_drop(ctx, type, 0))
+            open_scope_after_droppable(ctx);
         break;
     }
 
