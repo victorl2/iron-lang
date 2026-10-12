@@ -2394,6 +2394,11 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         return iron_type_make_primitive(IRON_TYPE_ERROR);
     }
 
+    /* `[Self]` keeps the element's name on the list annotation: it names
+     * the enclosing type as a bare `Self` does. */
+    if (name && strcmp(name, "Self") == 0 && ctx->enclosing_type_name)
+        name = ctx->enclosing_type_name;
+
     /* Phase 59 01d: tuple-type annotation — (T0, T1, ...) */
     if (ann->is_tuple) {
         int n = ann->tuple_elem_count;
@@ -3761,7 +3766,12 @@ static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
         Iron_Node *pn = params[first + i];
         if (!pn || pn->kind != IRON_NODE_PARAM || !mc->args[i]) continue;
         Iron_Param *mp = (Iron_Param *)pn;
+        /* `Self` in the callee's signature names the callee's type, not
+         * the caller's. */
+        const char *saved_enc = ctx->enclosing_type_name;
+        if (owner && iron_type_ann_mentions_self(mp->type_ann)) ctx->enclosing_type_name = owner;
         Iron_Type *pt = resolve_type_annotation(ctx, mp->type_ann);
+        ctx->enclosing_type_name = saved_enc;
         if (!((Iron_ExprNode *)mc->args[i])->resolved_type && pt &&
             pt->kind != IRON_TYPE_ERROR && !type_mentions_generic(pt))
             check_expr_with_expected(ctx, mc->args[i], pt);
@@ -3791,6 +3801,92 @@ static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
     }
 }
 
+/* ── Generated-code forms (#455) ──────────────────────────────────────────
+ * Code the compiler generates for a type that opted in (an interface
+ * default body copied into an implementor, and later the reflection
+ * expander's output) builds values of that type field by field, which the
+ * language does not let a program do:
+ *
+ *   T.__fields(v1, ..., vn)   T built from its field values in declaration
+ *                             order, without running any init (the
+ *                             positional construction of an init-less
+ *                             object, for any object);
+ *   v.f = x                   on a local `var v: T` of the type the
+ *                             generated method belongs to, even when f is
+ *                             a `val` field (filling a value being built).
+ *
+ * A decoder builds a T as `var v = T()` when T has a zero-argument init
+ * (its defaults are kept) and as `var v = T.__fields(<defaults>)`
+ * otherwise, then assigns the fields it decodes. Everything is resolved
+ * while compiling: the result is ordinary field stores. Elsewhere both
+ * forms are errors (E0356 and E0265). */
+static const char *const GENERATED_FIELDS_NAME = "__fields";
+
+static bool generated_val_field_write(TypeCtx *ctx, Iron_FieldAccess *tfa,
+                                      Iron_ObjectDecl *od) {
+    if (!tfa || !tfa->is_generated || !od || !od->name || !ctx->current_method_type)
+        return false;
+    if (strcmp(od->name, ctx->current_method_type) != 0) return false;
+    if (!tfa->object || tfa->object->kind != IRON_NODE_IDENT) return false;
+    Iron_Ident *root = (Iron_Ident *)tfa->object;
+    if (!root->name || strcmp(root->name, "self") == 0) return false;
+    Iron_Symbol *sym = root->resolved_sym ? root->resolved_sym
+                                          : iron_scope_lookup(ctx->current_scope, root->name);
+    return sym && sym->sym_kind == IRON_SYM_VARIABLE;
+}
+
+/* `T.__fields(args)`: returns the type (Error after a report), or NULL
+ * when the call is not that form. */
+static Iron_Type *check_generated_fields_call(TypeCtx *ctx, Iron_MethodCallExpr *mc) {
+    if (!mc->method || strcmp(mc->method, GENERATED_FIELDS_NAME) != 0) return NULL;
+    if (!mc->object || mc->object->kind != IRON_NODE_IDENT) return NULL;
+    Iron_Ident *tid = (Iron_Ident *)mc->object;
+    Iron_Symbol *ts = tid->resolved_sym ? tid->resolved_sym
+                    : (tid->name ? iron_scope_lookup(ctx->global_scope, tid->name) : NULL);
+    if (!ts || ts->sym_kind != IRON_SYM_TYPE || !ts->type ||
+        ts->type->kind != IRON_TYPE_OBJECT || !ts->type->object.decl)
+        return NULL;
+    Iron_ObjectDecl *od = ts->type->object.decl;
+    if (!mc->is_generated) {
+        emit_error(ctx, IRON_ERR_GENERATED_ONLY, mc->span,
+                   "'__fields' is reserved for code the compiler generates",
+                   "construct the object with its init, or derive the code from an "
+                   "interface default body");
+        for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    if (od->generic_param_count > 0 || mc->arg_count != od->field_count) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "'%s.__fields' takes one value per field (%d), got %d",
+                 od->name ? od->name : "?", od->field_count, mc->arg_count);
+        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+        for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    for (int i = 0; i < mc->arg_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        Iron_Type *ft = f ? (f->resolved_type ? f->resolved_type
+                                              : resolve_type_annotation(ctx, f->type_ann))
+                          : NULL;
+        Iron_Type *at = check_expr_with_expected(ctx, mc->args[i], ft);
+        if (at && ft && at->kind != IRON_TYPE_ERROR && ft->kind != IRON_TYPE_ERROR &&
+            !types_assignable(ft, at) && !is_int_literal_narrowing(ft, at, mc->args[i]) &&
+            !literal_range_error(ctx, ft, at, mc->args[i])) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "field '%s' is '%s', got '%s'",
+                     f->name ? f->name : "?", iron_type_to_string(ft, ctx->arena),
+                     iron_type_to_string(at, ctx->arena));
+            emit_error(ctx, IRON_ERR_ARG_TYPE, mc->args[i]->span, msg, NULL);
+        }
+        if (is_int_literal_narrowing(ft, at, mc->args[i]))
+            ((Iron_IntLit *)mc->args[i])->resolved_type = ft;
+    }
+    mc->is_memberwise = true;
+    tid->resolved_sym = ts;
+    tid->resolved_type = ts->type;
+    return ts->type;
+}
+
 /* Argument check for a call that resolved to method `md`.
  * via_type: the call names the type (`T.m(...)`). Lowering then treats
  * `T.m(x, ...)` as `x.m(...)` when the argument count covers the receiver
@@ -3798,9 +3894,18 @@ static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
  * (the stdlib module convention, `Math.sqrt(x)`). The check mirrors that. */
 static void check_method_call_args(TypeCtx *ctx, Iron_MethodCallExpr *mc,
                                    Iron_MethodDecl *md, bool via_type) {
-    if (md->generic_param_count > 0 || md->is_array_extension) return;
+    if (md->is_array_extension) return;
+    if (md->is_static && !via_type) {
+        /* `v.f()` on a static function: there is no receiver to pass. */
+        char msg[256], help[256];
+        snprintf(msg, sizeof(msg), "'%s' is a static function of '%s', not a method",
+                 md->method_name ? md->method_name : "?", md->type_name ? md->type_name : "?");
+        snprintf(help, sizeof(help), "call it on the type: `%s.%s(...)`",
+                 md->type_name ? md->type_name : "T", md->method_name ? md->method_name : "f");
+        emit_error(ctx, IRON_ERR_STATIC_ON_VALUE, mc->span, msg, help);
+    }
     bool args_include_receiver = false;
-    if (via_type && md->is_receiver_form && mc->arg_count == md->param_count &&
+    if (via_type && iron_method_recv_count(md) == 1 && mc->arg_count == md->param_count &&
         mc->arg_count > 0 && mc->args[0] && md->params[0] &&
         md->params[0]->kind == IRON_NODE_PARAM) {
         Iron_Type *self_t = resolve_type_annotation(
@@ -3808,9 +3913,156 @@ static void check_method_call_args(TypeCtx *ctx, Iron_MethodCallExpr *mc,
         Iron_Type *a0 = ((Iron_ExprNode *)mc->args[0])->resolved_type;
         args_include_receiver = self_t && a0 && iron_type_equals(self_t, a0);
     }
-    int first = (md->is_receiver_form && !args_include_receiver) ? 1 : 0;
+    /* `T.m()` on a method of a program's own type: the call has no value
+     * for `self`, and the method used to run on an uninitialized one. The
+     * standard library's namespace objects (`Math.sqrt(x)`) keep the
+     * module convention. */
+    if (via_type && iron_method_recv_count(md) == 1 && !args_include_receiver &&
+        !md->is_init && !md->is_iface_default &&
+        iron_stdlib_origin_classify(md->span.filename) == 0) {
+        char msg[256], help[320];
+        snprintf(msg, sizeof(msg), "'%s' is a method of '%s' and needs a value to call it on",
+                 md->method_name ? md->method_name : "?", md->type_name ? md->type_name : "?");
+        snprintf(help, sizeof(help),
+                 "call it on a value (`x.%s(...)`), or declare it `static func %s` "
+                 "if it does not use `self`",
+                 md->method_name ? md->method_name : "m", md->method_name ? md->method_name : "m");
+        emit_error(ctx, IRON_ERR_METHOD_ON_TYPE, mc->span, msg, help);
+        return;
+    }
+    if (md->generic_param_count > 0) return;
+    int first = (iron_method_recv_count(md) == 1 && !args_include_receiver) ? 1 : 0;
     check_call_params(ctx, mc, md->params, md->param_count, first,
                       md->type_name, md->method_name);
+}
+
+static bool type_ann_mentions_self(Iron_Node *n) {
+    return iron_type_ann_mentions_self(n);
+}
+
+/* A call through a value of interface type dispatches on the object the
+ * value holds. A static function has no receiver to dispatch on, and a
+ * method taking `Self` would accept any implementor where the one held
+ * expects its own type. Both are callable on a concrete type or a type
+ * parameter constrained by the interface. Returns false after reporting. */
+static bool check_iface_value_call(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                   Iron_InterfaceDecl *iface, Iron_FuncDecl *fd) {
+    const char *in = iface && iface->name ? iface->name : "?";
+    char msg[320], help[320];
+    bool via_name = mc->object && mc->object->kind == IRON_NODE_IDENT &&
+                    ((Iron_Ident *)mc->object)->resolved_sym &&
+                    ((Iron_Ident *)mc->object)->resolved_sym->sym_kind == IRON_SYM_INTERFACE;
+    if (fd->is_static) {
+        snprintf(msg, sizeof(msg),
+                 via_name ? "'%s' is a static function of interface '%s': an interface "
+                            "has no implementation of it to call"
+                          : "'%s' is a static function of interface '%s' and cannot be "
+                            "called through an interface value", fd->name, in);
+        snprintf(help, sizeof(help),
+                 "call it on a type: `T.%s(...)` with a concrete type, or a type "
+                 "parameter `[T: %s]`", fd->name, in);
+        emit_error(ctx, IRON_ERR_IFACE_VALUE_CALL, mc->span, msg, help);
+        return false;
+    }
+    if (iron_iface_sig_dispatchable(fd)) return true;
+    for (int i = 0; i < fd->param_count; i++) {
+        Iron_Param *pp = (Iron_Param *)fd->params[i];
+        if (!pp || !type_ann_mentions_self(pp->type_ann)) continue;
+        snprintf(msg, sizeof(msg),
+                 "'%s.%s' takes a parameter of type Self and cannot be called "
+                 "through an interface value", in, fd->name);
+        snprintf(help, sizeof(help),
+                 "the value may hold any implementor of '%s'; call it on a concrete "
+                 "type, or in a generic function `[T: %s]`", in, in);
+        emit_error(ctx, IRON_ERR_IFACE_VALUE_CALL, mc->span, msg, help);
+        return false;
+    }
+    snprintf(msg, sizeof(msg),
+             "'%s.%s' returns a type built from Self and cannot be called "
+             "through an interface value", in, fd->name);
+    snprintf(help, sizeof(help),
+             "only a plain `-> Self` result is converted to the interface; call it "
+             "on a concrete type, or in a generic function `[T: %s]`", in);
+    emit_error(ctx, IRON_ERR_IFACE_VALUE_CALL, mc->span, msg, help);
+    return false;
+}
+
+/* `T.f(args)` in a generic function or method, where T is one of its type
+ * parameters: f must be a static function of T's constraint (#455). The
+ * template itself is not type checked (its instances are, with T replaced
+ * by the concrete type, which is where the arguments and result are
+ * checked), so this is a syntactic walk over the template body: without
+ * it, any type argument that happened to have a static `f` would do. */
+typedef struct {
+    TypeCtx    *ctx;
+    Iron_Node **gps;
+    int         ngp;
+} TplStaticCtx;
+
+static bool tpl_static_visit(Iron_Visitor *v, Iron_Node *node) {
+    TplStaticCtx *tc = (TplStaticCtx *)v->ctx;
+    if (!node || node->kind != IRON_NODE_METHOD_CALL) return true;
+    Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+    if (!mc->object || mc->object->kind != IRON_NODE_IDENT || !mc->method) return true;
+    const char *tp_name = ((Iron_Ident *)mc->object)->name;
+    if (!tp_name) return true;
+    Iron_Ident *gp = NULL;
+    for (int i = 0; i < tc->ngp; i++) {
+        Iron_Ident *g = (Iron_Ident *)tc->gps[i];
+        if (g && g->kind == IRON_NODE_IDENT && g->name && strcmp(g->name, tp_name) == 0) {
+            gp = g;
+            break;
+        }
+    }
+    if (!gp) return true;
+    const char *cname = gp->constraint_name;
+    Iron_InterfaceDecl *iface = NULL;
+    if (cname) {
+        Iron_Symbol *cs = iron_scope_lookup(tc->ctx->global_scope, cname);
+        if (cs && cs->sym_kind == IRON_SYM_INTERFACE && cs->decl_node &&
+            cs->decl_node->kind == IRON_NODE_INTERFACE_DECL)
+            iface = (Iron_InterfaceDecl *)cs->decl_node;
+        else
+            return true;   /* not an interface: reported elsewhere */
+    }
+    Iron_FuncDecl *sig = NULL;
+    for (int i = 0; iface && i < iface->method_count; i++) {
+        Iron_Node *n = iface->method_sigs[i];
+        if (!n || n->kind != IRON_NODE_FUNC_DECL) continue;
+        Iron_FuncDecl *fd = (Iron_FuncDecl *)n;
+        if (fd->name && strcmp(fd->name, mc->method) == 0) { sig = fd; break; }
+    }
+    if (sig && sig->is_static) return true;
+    char msg[320], help[320];
+    if (!cname) {
+        snprintf(msg, sizeof(msg),
+                 "type parameter '%s' has no constraint, so it has no static function '%s'",
+                 tp_name, mc->method);
+        snprintf(help, sizeof(help),
+                 "constrain it with an interface that declares `static func %s`: `[%s: I]`",
+                 mc->method, tp_name);
+    } else if (sig) {
+        snprintf(msg, sizeof(msg),
+                 "'%s.%s' is a method, not a static function: call it on a value of type '%s'",
+                 cname, mc->method, tp_name);
+        snprintf(help, sizeof(help), "write `x.%s(...)` with `x: %s`", mc->method, tp_name);
+    } else {
+        snprintf(msg, sizeof(msg),
+                 "constraint '%s' of type parameter '%s' declares no static function '%s'",
+                 cname, tp_name, mc->method);
+        snprintf(help, sizeof(help), "add `static func %s(...)` to interface '%s'",
+                 mc->method, cname);
+    }
+    emit_error(tc->ctx, IRON_ERR_CONSTRAINT_NO_STATIC, mc->span, msg, help);
+    return true;
+}
+
+static void check_template_static_calls(TypeCtx *ctx, Iron_Node **gps, int ngp,
+                                        Iron_Node *body) {
+    if (!body || ngp <= 0 || !gps) return;
+    TplStaticCtx tc = { ctx, gps, ngp };
+    Iron_Visitor vis = { .ctx = &tc, .visit_node = tpl_static_visit, .post_visit = NULL };
+    iron_ast_walk(body, &vis);
 }
 
 /* Argument check for a call dispatched through interface signature `fd`
@@ -5786,9 +6038,15 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                          expected_count, ce->arg_count);
                 const char *callee_name = (ce->callee && ce->callee->kind == IRON_NODE_IDENT)
                     ? ((Iron_Ident *)ce->callee)->name : "the function";
+                /* The declaration's names, when it is the one the type
+                 * came from: a second declaration of the name (E0201) can
+                 * have fewer parameters, and reading its list up to the
+                 * type's count ran past it. */
+                Iron_Node **sig_params =
+                    (fd_for_parm && fd_for_parm->param_count == expected_count)
+                        ? fd_for_parm->params : NULL;
                 emit_error(ctx, IRON_ERR_ARG_COUNT, ce->span, msg,
-                           params_signature(ctx, callee_name,
-                                            fd_for_parm ? fd_for_parm->params : NULL,
+                           params_signature(ctx, callee_name, sig_params,
                                             expected_count, 0,
                                             callee_type->func.param_types));
                 for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
@@ -6391,6 +6649,32 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
+            /* `Self.f(args)` in a method or interface default body: the
+             * receiver names the enclosing type. Rewritten before the
+             * receiver is checked: `Self` has no symbol, so checking it first
+             * typed the call Error with no diagnostic and lowering emitted a
+             * call on an undeclared `Self` (#455). */
+            if (mc->object && mc->object->kind == IRON_NODE_IDENT &&
+                ctx->enclosing_type_name &&
+                ((Iron_Ident *)mc->object)->name &&
+                strcmp(((Iron_Ident *)mc->object)->name, "Self") == 0) {
+                Iron_Ident *self_recv0 = (Iron_Ident *)mc->object;
+                Iron_Symbol *concrete0 =
+                    iron_scope_lookup(ctx->global_scope, ctx->enclosing_type_name);
+                if (concrete0 && concrete0->sym_kind == IRON_SYM_TYPE) {
+                    self_recv0->name = ctx->enclosing_type_name;
+                    self_recv0->resolved_sym = concrete0;
+                    self_recv0->resolved_type = concrete0->type;
+                }
+            }
+            {
+                Iron_Type *mw = check_generated_fields_call(ctx, mc);
+                if (mw) {
+                    result = mw;
+                    mc->resolved_type = result;
+                    break;
+                }
+            }
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
             /* An empty list literal argument waits for the parameter type
              * (`m.get_or(k, [])` against V, `",".join([])` against [String]):
@@ -7067,6 +7351,10 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                         if (!msig || msig->kind != IRON_NODE_FUNC_DECL) continue;
                         Iron_FuncDecl *fd = (Iron_FuncDecl *)msig;
                         if (strcmp(fd->name, mc->method) != 0) continue;
+                        if (!check_iface_value_call(ctx, mc, iface_mc, fd)) {
+                            result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                            break;
+                        }
                         check_iface_call_args(ctx, mc, iface_mc, fd);
                         if (iface_call_may_mutate(ctx, iface_mc, fd))
                             check_mutating_receiver(ctx, mc, mc->object);
@@ -7249,7 +7537,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                              * receiver binding and user args start at
                              * params[1]; offset accordingly so mc->args[i]
                              * lines up with params[i + recv_off]. */
-                            int recv_off = md->is_receiver_form ? 1 : 0;
+                            int recv_off = iron_method_recv_count(md);
                             for (int ai = 0; ai < mc->arg_count; ai++) {
                                 int pi = ai + recv_off;
                                 if (pi >= md->param_count) break;
@@ -7278,8 +7566,12 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                  * pointee → set is_auto_address_target on
                                  * the existing AST node (Pitfall 4 lock).
                                  * E0270 on rvalue, E0267 on val→*var T. */
+                                const char *saved_enc_mp = ctx->enclosing_type_name;
+                                if (iron_type_ann_mentions_self(mp->type_ann))
+                                    ctx->enclosing_type_name = md->type_name;
                                 Iron_Type *mp_t = resolve_type_annotation(
                                     ctx, mp->type_ann);
+                                ctx->enclosing_type_name = saved_enc_mp;
                                 Iron_Type *ma_t = mc->args[ai]
                                     ? ((Iron_ExprNode *)mc->args[ai])->resolved_type
                                     : NULL;
@@ -7469,6 +7761,10 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     if (!fd->name || !mc->method || strcmp(fd->name, mc->method) != 0)
                         continue;
                     found_ni = true;
+                    if (!check_iface_value_call(ctx, mc, iface_ni, fd)) {
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        break;
+                    }
                     check_iface_call_args(ctx, mc, iface_ni, fd);
                     if (iface_call_may_mutate(ctx, iface_ni, fd))
                         check_mutating_receiver(ctx, mc, mc->object);
@@ -10030,36 +10326,45 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * mutually exclusive with the pub-val branch below — both
              * cannot fire on the same write. */
             if (!ctx->in_synth_accessor &&
-                !ctx->in_init_method &&
                 as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
                 Iron_FieldAccess *tfa = (Iron_FieldAccess *)as->target;
-                if (tfa->object && tfa->object->kind == IRON_NODE_IDENT) {
-                    Iron_Ident *rid = (Iron_Ident *)tfa->object;
-                    if (rid->name && strcmp(rid->name, "self") == 0 &&
-                        tfa->field && ctx->current_method_type) {
-                        Iron_Symbol *ts = iron_scope_lookup(
-                            ctx->global_scope, ctx->current_method_type);
-                        if (ts && ts->decl_node &&
-                            ts->decl_node->kind == IRON_NODE_OBJECT_DECL) {
-                            Iron_ObjectDecl *od = (Iron_ObjectDecl *)ts->decl_node;
-                            for (int fi = 0; fi < od->field_count; fi++) {
-                                Iron_Field *ff = (Iron_Field *)od->fields[fi];
-                                if (ff && ff->name &&
-                                    strcmp(ff->name, tfa->field) == 0 &&
-                                    !ff->is_var && !ff->is_pub) {
-                                    /* non-pub val field write outside init */
-                                    char msg[256];
-                                    snprintf(msg, sizeof(msg),
-                                             "cannot reassign 'val' field '%s' "
-                                             "after initialization",
-                                             tfa->field);
-                                    emit_error(ctx, IRON_ERR_VAL_FIELD_REASSIGN,
-                                               as->span, msg,
-                                               "declare field as 'var' to allow "
-                                               "reassignment after init");
-                                    break;
-                                }
-                            }
+                bool via_self = tfa->object && tfa->object->kind == IRON_NODE_IDENT &&
+                                ((Iron_Ident *)tfa->object)->name &&
+                                strcmp(((Iron_Ident *)tfa->object)->name, "self") == 0;
+                /* The receiver's object type: `self` in a method, or any
+                 * other value (`w.id = 3` on a local wrote a val field of a
+                 * var binding, #653). An init assigns its own fields. */
+                Iron_ObjectDecl *od = NULL;
+                if (via_self && ctx->current_method_type) {
+                    Iron_Symbol *ts = iron_scope_lookup(ctx->global_scope,
+                                                        ctx->current_method_type);
+                    if (ts && ts->decl_node && ts->decl_node->kind == IRON_NODE_OBJECT_DECL)
+                        od = (Iron_ObjectDecl *)ts->decl_node;
+                } else if (tfa->object) {
+                    Iron_Type *rt = ((Iron_ExprNode *)tfa->object)->resolved_type;
+                    if (rt && rt->kind == IRON_TYPE_RC && rt->rc.inner) rt = rt->rc.inner;
+                    if (rt && rt->kind == IRON_TYPE_PTR && rt->ptr.pointee) rt = rt->ptr.pointee;
+                    if (rt && rt->kind == IRON_TYPE_OBJECT) od = rt->object.decl;
+                }
+                bool own_init = via_self && ctx->in_init_method;
+                if (od && tfa->field && !own_init &&
+                    !generated_val_field_write(ctx, tfa, od)) {
+                    for (int fi = 0; fi < od->field_count; fi++) {
+                        Iron_Field *ff = (Iron_Field *)od->fields[fi];
+                        if (ff && ff->name &&
+                            strcmp(ff->name, tfa->field) == 0 &&
+                            !ff->is_var && !ff->is_pub) {
+                            /* non-pub val field write outside init */
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot reassign 'val' field '%s' "
+                                     "after initialization",
+                                     tfa->field);
+                            emit_error(ctx, IRON_ERR_VAL_FIELD_REASSIGN,
+                                       as->span, msg,
+                                       "declare field as 'var' to allow "
+                                       "reassignment after init");
+                            break;
                         }
                     }
                 }
@@ -10118,7 +10423,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         } else if (mf->is_var) {
                             /* pub var: route through synthesized setter. */
                             as->is_pub_setter = true;
-                        } else if (!ctx->in_init_method) {
+                        } else if (!(ctx->in_init_method && tfa->object &&
+                                     tfa->object->kind == IRON_NODE_IDENT &&
+                                     ((Iron_Ident *)tfa->object)->name &&
+                                     strcmp(((Iron_Ident *)tfa->object)->name, "self") == 0) &&
+                                   !generated_val_field_write(ctx, tfa, od)) {
                             /* pub val: read-only outside init — cannot be
                              * written.  Init bodies are the sole place where
                              * val fields may be populated (Phase 88 E0264
@@ -11801,6 +12110,11 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
                    "a method cannot be named 'drop': it is the destructor",
                    "write `drop { ... }` for the destructor, or give the method another name");
     }
+    if (md && md->method_name && strcmp(md->method_name, GENERATED_FIELDS_NAME) == 0) {
+        emit_error(ctx, IRON_ERR_GENERATED_ONLY, md->span,
+                   "'__fields' is reserved for code the compiler generates",
+                   "give the member another name");
+    }
     bool saved = ctx->in_iface_default;
     ctx->in_iface_default = md && md->is_iface_default;
     check_method_decl_inner(ctx, md);
@@ -12095,8 +12409,11 @@ static void check_interface_completeness(TypeCtx *ctx, Iron_Program *program) {
                     if (!has_default_body) {
                         char msg[512];
                         snprintf(msg, sizeof(msg),
-                                 "object '%s' implements '%s' but is missing method '%s'",
-                                 od->name, iface_name, method_name);
+                                 "object '%s' implements '%s' but is missing %s '%s'",
+                                 od->name, iface_name,
+                                 ((Iron_FuncDecl *)sig_node)->is_static
+                                     ? "static function" : "method",
+                                 method_name);
                         emit_error(ctx, IRON_ERR_MISSING_IFACE_METHOD, od->span, msg, NULL);
                     }
                 }
@@ -12125,6 +12442,83 @@ static Iron_MethodDecl *find_method_for_object(Iron_Program *program,
         }
     }
     return NULL;
+}
+
+/* The implementing function must have the interface signature's shape
+ * (#455): static where the interface says static, the same parameters
+ * (types and `var`) and the same result, with `Self` in the signature
+ * standing for the implementing type. Without this a mismatch compiled and
+ * failed in the C compiler on the interface's dispatcher. Returns false
+ * after reporting. */
+static bool check_iface_impl_signature(TypeCtx *ctx, Iron_ObjectDecl *od,
+                                       const char *iface_name, Iron_FuncDecl *sig,
+                                       Iron_MethodDecl *impl) {
+    if (impl->is_iface_default || impl->is_synth_accessor) return true;
+    char msg[512];
+    if (impl->is_static != sig->is_static) {
+        snprintf(msg, sizeof(msg),
+                 sig->is_static
+                     ? "'%s.%s' implements static function '%s.%s' but is not static"
+                     : "'%s.%s' implements method '%s.%s' but is static",
+                 od->name, sig->name, iface_name, sig->name);
+        emit_error(ctx, IRON_ERR_IFACE_STATIC_MISMATCH, impl->span, msg,
+                   sig->is_static ? "declare it `static func`"
+                                  : "remove `static`: the interface declares a method");
+        return false;
+    }
+    int off = iron_method_recv_count(impl);
+    int n_impl = impl->param_count - off;
+    if (n_impl < 0) n_impl = 0;
+    const char *saved_enc = ctx->enclosing_type_name;
+    ctx->enclosing_type_name = od->name;
+    bool ok = true;
+    if (n_impl != sig->param_count) {
+        snprintf(msg, sizeof(msg),
+                 "'%s.%s' takes %d parameter(s) but '%s.%s' declares %d",
+                 od->name, sig->name, n_impl, iface_name, sig->name, sig->param_count);
+        emit_error(ctx, IRON_ERR_IFACE_SIGNATURE, impl->span, msg,
+                   "match the interface's parameter list");
+        ok = false;
+    }
+    for (int i = 0; ok && i < sig->param_count; i++) {
+        Iron_Param *sp = (Iron_Param *)sig->params[i];
+        Iron_Param *ip = (Iron_Param *)impl->params[i + off];
+        if (!sp || !ip || sp->kind != IRON_NODE_PARAM || ip->kind != IRON_NODE_PARAM) continue;
+        Iron_Type *st = resolve_type_annotation(ctx, sp->type_ann);
+        Iron_Type *it = resolve_type_annotation(ctx, ip->type_ann);
+        if (!st || !it || st->kind == IRON_TYPE_ERROR || it->kind == IRON_TYPE_ERROR) continue;
+        if (!iron_type_equals(st, it) || sp->is_var != ip->is_var) {
+            snprintf(msg, sizeof(msg),
+                     "parameter %d of '%s.%s' is '%s%s' but '%s.%s' declares '%s%s'",
+                     i + 1, od->name, sig->name, ip->is_var ? "var " : "",
+                     iron_type_to_string(it, ctx->arena), iface_name, sig->name,
+                     sp->is_var ? "var " : "", iron_type_to_string(st, ctx->arena));
+            emit_error(ctx, IRON_ERR_IFACE_SIGNATURE, ip->span, msg,
+                       type_ann_mentions_self(sp->type_ann)
+                           ? "`Self` in the interface stands for the implementing type"
+                           : "use the interface's parameter type");
+            ok = false;
+        }
+    }
+    if (ok) {
+        Iron_Type *srt = sig->return_type ? resolve_type_annotation(ctx, sig->return_type)
+                                          : iron_type_make_primitive(IRON_TYPE_VOID);
+        Iron_Type *irt = impl->return_type ? resolve_type_annotation(ctx, impl->return_type)
+                                           : iron_type_make_primitive(IRON_TYPE_VOID);
+        if (srt && irt && srt->kind != IRON_TYPE_ERROR && irt->kind != IRON_TYPE_ERROR &&
+            !iron_type_equals(srt, irt)) {
+            snprintf(msg, sizeof(msg), "'%s.%s' returns '%s' but '%s.%s' declares '%s'",
+                     od->name, sig->name, iron_type_to_string(irt, ctx->arena),
+                     iface_name, sig->name, iron_type_to_string(srt, ctx->arena));
+            emit_error(ctx, IRON_ERR_IFACE_SIGNATURE, impl->span, msg,
+                       type_ann_mentions_self(sig->return_type)
+                           ? "`Self` in the interface stands for the implementing type"
+                           : "use the interface's result type");
+            ok = false;
+        }
+    }
+    ctx->enclosing_type_name = saved_enc;
+    return ok;
 }
 
 /* Tier-strengthening scan (IFACE-02).
@@ -12172,6 +12566,8 @@ static void check_iface_tier_strengthening(TypeCtx *ctx, Iron_Program *program) 
                 /* A missing method is reported once, by the conformance
                  * check (E0205); only the tier comparison happens here. */
                 if (!impl) continue;
+
+                if (!check_iface_impl_signature(ctx, od, iface_name, sig, impl)) continue;
 
                 /* Tier comparison:
                  *   iface pure     => impl must be pure
@@ -12335,6 +12731,10 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         Iron_Symbol *esym = iron_scope_lookup(ctx.global_scope, ed->name);
         if (!esym || !esym->type || esym->type->kind != IRON_TYPE_ENUM) continue;
         Iron_Type *ty = esym->type;
+        /* A second declaration of the name (E0201) does not own the type:
+         * filling the type's arrays from its variants sized them for the
+         * wrong enum, and a construct of the first one read past them. */
+        if (ty->enu.decl != ed) continue;
         /* Allocate outer array of Iron_Type** pointers */
         Iron_Type ***vpt = iron_arena_alloc(ctx.arena,
             sizeof(Iron_Type **) * (size_t)ed->variant_count, _Alignof(Iron_Type **));
@@ -12467,7 +12867,6 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
              * later in the file (or in a later file) used to be typed Void. */
             if (!md->resolved_return_type || stale_signature_type(md->resolved_return_type, 0))
                 md->resolved_return_type = ret_type;
-            ctx.enclosing_type_name = NULL;  /* restore after pre-pass sig build */
             /* Method signatures are looked up by mangled name (type_method).
              * Phase 33 OQ-02: lookup runs against the REAL global scope, but
              * param-annotation resolution below stays under the generic scope
@@ -12490,6 +12889,8 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                 }
                 sym->type = iron_type_make_func(ctx.arena, param_types, pc, ret_type);
             }
+            /* Restored after the parameters too: `o: Self` names the type. */
+            ctx.enclosing_type_name = NULL;
             ctx.global_scope = pp_md_saved;  /* Phase 33 OQ-02: restore */
         } else if (decl->kind == IRON_NODE_INTERFACE_DECL) {
             /* An interface method's parameter types, for the dispatcher the
@@ -12506,7 +12907,8 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                     if (!p || p->resolved_type || !p->type_ann ||
                         p->type_ann->kind != IRON_NODE_TYPE_ANNOTATION) continue;
                     Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)p->type_ann;
-                    if (ta->is_self_type || (ta->name && strcmp(ta->name, "Self") == 0)) continue;
+                    (void)ta;
+                    if (iron_type_ann_mentions_self(p->type_ann)) continue;
                     Iron_Type *pt = resolve_type_annotation(&ctx, p->type_ann);
                     if (pt && pt->kind != IRON_TYPE_ERROR) p->resolved_type = pt;
                 }
@@ -12660,6 +13062,48 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         if (iron_generics_is_template(program, decl)) continue;
         Iron_ObjectDecl *od = (Iron_ObjectDecl *)decl;
 
+        /* Two methods (or static functions) of the same name in one object
+         * body reached lowering as two C functions of one name ("function
+         * body is NULL", #673). A type with patches is covered by the
+         * patch conflict scan above. */
+        if (!od->is_patch && od->name) {
+            bool has_patch = false;
+            for (int pj = 0; pj < program->decl_count && !has_patch; pj++) {
+                Iron_Node *dj = program->decls[pj];
+                if (!dj || dj->kind != IRON_NODE_OBJECT_DECL) continue;
+                Iron_ObjectDecl *odj = (Iron_ObjectDecl *)dj;
+                const char *tj = odj->target_type_name ? odj->target_type_name : odj->name;
+                if (odj->is_patch && tj && strcmp(tj, od->name) == 0) has_patch = true;
+            }
+            for (int ma = 0; ma < program->decl_count && !has_patch; ma++) {
+                Iron_Node *na = program->decls[ma];
+                if (!na || na->kind != IRON_NODE_METHOD_DECL) continue;
+                Iron_MethodDecl *a = (Iron_MethodDecl *)na;
+                if (!a->type_name || !a->method_name || strcmp(a->type_name, od->name) != 0 ||
+                    a->is_init || a->is_drop || a->is_copy || a->is_synth_accessor ||
+                    a->is_iface_default)
+                    continue;
+                for (int mb = ma + 1; mb < program->decl_count; mb++) {
+                    Iron_Node *nb = program->decls[mb];
+                    if (!nb || nb->kind != IRON_NODE_METHOD_DECL) continue;
+                    Iron_MethodDecl *b = (Iron_MethodDecl *)nb;
+                    if (!b->type_name || !b->method_name ||
+                        strcmp(b->type_name, od->name) != 0 ||
+                        strcmp(b->method_name, a->method_name) != 0 ||
+                        b->is_init || b->is_drop || b->is_copy || b->is_synth_accessor ||
+                        b->is_iface_default)
+                        continue;
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "'%s' declares '%s' twice", od->name,
+                             a->method_name);
+                    emit_error(&ctx, IRON_ERR_DUPLICATE_DECL, b->span, msg,
+                               "methods and static functions cannot be overloaded: "
+                               "rename one of them");
+                    break;
+                }
+            }
+        }
+
         /* Duplicate drop/copy detection.
          * Methods are NOT stored on Iron_ObjectDecl (Plan 86 layout) — scan
          * program->decls for IRON_NODE_METHOD_DECL nodes whose type_name == od->name. */
@@ -12717,7 +13161,32 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
-        if (iron_generics_is_template(program, decl)) continue;
+        if (iron_generics_is_template(program, decl)) {
+            if (decl->kind == IRON_NODE_FUNC_DECL) {
+                Iron_FuncDecl *tfd = (Iron_FuncDecl *)decl;
+                check_template_static_calls(&ctx, tfd->generic_params,
+                                            tfd->generic_param_count, tfd->body);
+            } else if (decl->kind == IRON_NODE_METHOD_DECL) {
+                Iron_MethodDecl *tmd = (Iron_MethodDecl *)decl;
+                check_template_static_calls(&ctx, tmd->generic_params,
+                                            tmd->generic_param_count, tmd->body);
+                /* A static function of a generic object has no value to
+                 * fix the type arguments, and `Box[Int].f()` is not an
+                 * expression. */
+                Iron_Symbol *ots = tmd->is_static && tmd->type_name
+                    ? iron_scope_lookup(ctx.global_scope, tmd->type_name) : NULL;
+                if (ots && ots->decl_node && ots->decl_node->kind == IRON_NODE_OBJECT_DECL &&
+                    ((Iron_ObjectDecl *)ots->decl_node)->generic_param_count > 0) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "static function '%s' of generic object '%s' is not supported",
+                             tmd->method_name ? tmd->method_name : "?", tmd->type_name);
+                    emit_error(&ctx, IRON_ERR_TIER_MODIFIER_PLACEMENT, tmd->span, msg,
+                               "write a top-level generic function, or a named init");
+                }
+            }
+            continue;
+        }
 
         if (decl->kind == IRON_NODE_FUNC_DECL) {
             check_func_decl(&ctx, (Iron_FuncDecl *)decl);

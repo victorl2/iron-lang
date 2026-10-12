@@ -81,6 +81,12 @@ static inline bool iron_cancel_requested(const _Atomic bool *flag) {
  * func_or_method / object_decl would be harmless but redundant — these
  * are reached only through iron_parse_decl, already wrapped. */
 #define IRON_PARSER_MAX_DEPTH 256
+/* Operators and postfix layers one expression may stack (`a + b + c ...`,
+ * `x.f().g()...`): the Pratt climb is iterative, but every layer is one
+ * level of the AST, and each later pass recurses once per level. A chain
+ * of a few thousand overflowed the 8 MB stack in check and build (release;
+ * far fewer under the sanitizers). */
+#define IRON_EXPR_MAX_LAYERS 1024
 
 /* Forward decls for helpers used before their definitions. */
 static Iron_Span   iron_token_span(Iron_Parser *p, Iron_Token *t);
@@ -205,6 +211,7 @@ Iron_Parser iron_parser_create(Iron_Token *tokens, int token_count,
     /* Default no-carve-out. build.c / check.c override after counting
      * prepended stdlib lines. */
     p.user_source_start_line = 0;
+    p.generated = false;
     return p;
 }
 
@@ -744,6 +751,13 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         Iron_Node *inner = iron_parse_type_annotation_impl(p);
         if (inner && inner->kind == IRON_NODE_TYPE_ANNOTATION) {
             Iron_TypeAnnotation *ia = (Iron_TypeAnnotation *)inner;
+            if (ia->is_pointer && ia->is_nullable) {
+                /* `??*T` read as `?*T`. */
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN, q_span,
+                               "a pointer type takes one leading '?'", NULL);
+                return inner;
+            }
             if (ia->is_pointer) {
                 ia->is_nullable = true;
                 ia->span = iron_span_merge(q_span, ia->span);
@@ -1046,6 +1060,14 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
             iron_skip_newlines(p);
         }
         IRON_ARENA_ARR_ADOPT(p->arena, ann->generic_args);
+        if (ann->generic_arg_count == 0 && iron_check(p, IRON_TOK_RBRACKET)) {
+            /* `T[]` was read as a plain `T` (a list is `[T]`). */
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected a type argument",
+                           "a list of T is written [T]");
+        }
         iron_expect(p, IRON_TOK_RBRACKET);
         /* `Name[T]?`: the `?` after the type arguments (the printer's form;
          * `Name?[T]` is still accepted above). */
@@ -1114,6 +1136,14 @@ static Iron_Node **iron_parse_generic_params(Iron_Parser *p, int *out_count,
         iron_skip_newlines(p);
         if (!iron_match(p, IRON_TOK_COMMA)) break;
         iron_skip_newlines(p);
+    }
+    if (*out_count == 0 && iron_check(p, IRON_TOK_RBRACKET)) {
+        /* `func f[]()` was read as a function with no type parameters. */
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, iron_current(p)),
+                       "expected a type parameter name",
+                       "drop the empty '[]'");
     }
     iron_expect(p, IRON_TOK_RBRACKET);
     return AST_ARR(arr);
@@ -1227,6 +1257,29 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
 /* ── Block: { stmt* } ────────────────────────────────────────────────────── */
 
 /* HARD-08: wrapper — see iron_parse_type_annotation for the pattern. */
+/* CLI mode replaces a statement with a parse error by an error node, so
+ * checking it adds no follow-on errors. A declaration keeps its names
+ * (with an error initializer, which the checker accepts silently):
+ * dropping it would turn every later use of the name into an "undefined
+ * identifier" error that is only a consequence of the first. */
+static Iron_Node *iron_drop_broken_stmt(Iron_Parser *p, Iron_Node *s) {
+    if (s && s->kind == IRON_NODE_VAL_DECL) {
+        Iron_ValDecl *d = (Iron_ValDecl *)s;
+        if (d->name || d->binding_count > 0) {
+            d->init = iron_make_error(p);
+            return s;
+        }
+    } else if (s && s->kind == IRON_NODE_VAR_DECL) {
+        Iron_VarDecl *d = (Iron_VarDecl *)s;
+        if (d->name) {
+            d->init = iron_make_error(p);
+            d->requires_mutable = true;   /* its uses may be in the broken text */
+            return s;
+        }
+    }
+    return iron_make_error(p);
+}
+
 static Iron_Node *iron_parse_block(Iron_Parser *p) {
     if (iron_parser_depth_exceeded(p)) {
         return iron_make_error(p);
@@ -1274,7 +1327,7 @@ static Iron_Node *iron_parse_block_impl(Iron_Parser *p) {
             /* The error is reported; checking what was parsed of the broken
              * statement would only add follow-on errors. The LSP keeps the
              * partial tree for hover and completion. */
-            if (p->mode != IRON_ANALYSIS_MODE_LSP) s = iron_make_error(p);
+            if (p->mode != IRON_ANALYSIS_MODE_LSP) s = iron_drop_broken_stmt(p, s);
         }
         p->stmt_errored = outer_errored;
         arrput(stmts, s);
@@ -2158,6 +2211,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
         return iron_make_error(p);
     }
     Iron_Node *left = iron_parse_primary(p);
+    int layers = 0;
 
     for (;;) {
         /* HARD-08 companion: never attach postfix/infix layers to an error
@@ -2182,6 +2236,15 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
         int prec = iron_infix_prec(cur);
         if (prec <= min_prec && cur != IRON_TOK_IS) break;
         if (cur == IRON_TOK_IS && PREC_IS <= min_prec) break;
+        if (++layers > IRON_EXPR_MAX_LAYERS) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_PARSE_DEPTH_EXCEEDED,
+                           iron_token_span(p, iron_current(p)),
+                           "expression too long: more than 1024 operators or calls in a row",
+                           "split it with intermediate bindings");
+            p->in_error_recovery = true;
+            return iron_make_error(p);
+        }
 
         /* Field access / method call: expr.name or expr.name(args) */
         if (cur == IRON_TOK_DOT) {
@@ -2300,6 +2363,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                         mc->arg_count = arg_count;
                         mc->generic_args      = m_type_args;
                         mc->generic_arg_count = m_type_arg_count;
+                        mc->is_generated      = p->generated;
                         left = (Iron_Node *)mc;
                     }
                 } else {
@@ -2319,6 +2383,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                     mc->arg_count = arg_count;
                     mc->generic_args      = m_type_args;
                     mc->generic_arg_count = m_type_arg_count;
+                    mc->is_generated      = p->generated;
                     left = (Iron_Node *)mc;
                 }
             } else {
@@ -2353,6 +2418,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                 /* Phase 83-02: defensive default; typecheck flips it for
                  * pub-field reads so HIR routes through synthesized getter. */
                 fa->is_pub_access = false;
+                fa->is_generated  = p->generated;
                 left = (Iron_Node *)fa;
             }
             continue;
@@ -3198,6 +3264,7 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                 Iron_Parser sub = iron_parser_create(expr_toks, tok_count,
                                                       expr_buf, interp_fname,
                                                       p->arena, p->diags);
+                sub.generated = p->generated;
                 int errors_before = p->diags->error_count;
                 Iron_Node *expr_node = iron_parse_expr_prec(&sub, PREC_NONE);
                 /* The sub-parser reported why (`{t.0}`): no generic error. */
@@ -3288,9 +3355,13 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
  * keyword is then read as the name so the declaration parses on. */
 static void iron_keyword_as_binding_name(Iron_Parser *p) {
     Iron_Token *t = iron_current(p);
-    if (t->kind == IRON_TOK_IDENTIFIER || t->kind == IRON_TOK_WILDCARD) return;
+    /* Only a keyword: anything else (the EOF token after `var`, whose
+     * spelling used to be the alphabetic "IRON_TOK_EOF") turned into an
+     * identifier lost the end of the token stream, and error recovery
+     * then walked past the end of the token array. */
+    if (!iron_token_is_keyword(t->kind)) return;
     const char *sp = iron_token_spelling(t->kind);
-    if (!sp || !(isalpha((unsigned char)sp[0]) || sp[0] == '_')) return;
+    if (!sp) return;
     char msg[160], help[160];
     snprintf(msg, sizeof(msg), "'%s' is a keyword and cannot name a binding", sp);
     snprintf(help, sizeof(help), "rename it, for example '%s_' or a more specific name", sp);
@@ -3346,12 +3417,17 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
                 iron_advance(p);
                 arrput(names, NULL);  /* sentinel for wildcard */
             } else {
-                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                               IRON_ERR_UNEXPECTED_TOKEN,
+                iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
                                iron_token_span(p, iron_current(p)),
-                               "expected identifier or '_' in tuple destructure binding", NULL);
-                if (iron_peek(p) != IRON_TOK_EOF) iron_advance(p);
-                break;
+                               "expected identifier or '_' in tuple destructure binding");
+                /* Skip the bad element and keep it as a wildcard, so the
+                 * names after it still bind and the arity is kept. */
+                while (!iron_check(p, IRON_TOK_COMMA) && !iron_check(p, IRON_TOK_RPAREN) &&
+                       !iron_check(p, IRON_TOK_ASSIGN) && !iron_check(p, IRON_TOK_NEWLINE) &&
+                       !iron_check(p, IRON_TOK_EOF))
+                    iron_advance(p);
+                if (!iron_check(p, IRON_TOK_COMMA) && !iron_check(p, IRON_TOK_RPAREN)) break;
+                arrput(names, NULL);
             }
             iron_skip_newlines(p);
             if (!iron_check(p, IRON_TOK_COMMA)) break;
@@ -3361,12 +3437,24 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
         iron_expect(p, IRON_TOK_RPAREN);
         int count = (int)arrlen(names);
         if (count < 2) {
-            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                           IRON_ERR_UNEXPECTED_TOKEN,
-                           iron_token_span(p, start),
-                           "tuple destructure requires at least 2 binding names", NULL);
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN, iron_token_span(p, start),
+                           "tuple destructure requires at least 2 binding names");
+            /* Bind a lone name anyway (`val (a, = 1`, `val (a) = 1`), so its
+             * uses are not reported as undefined. */
+            const char *only = count == 1 ? names[0] : NULL;
             arrfree(names);
-            return iron_make_error(p);
+            Iron_Node *init = NULL;
+            if (iron_match(p, IRON_TOK_ASSIGN)) init = iron_parse_expr(p);
+            if (!only) return iron_make_error(p);
+            Iron_ValDecl *n = ARENA_ALLOC(p->arena, Iron_ValDecl);
+            if (!n) { p->in_error_recovery = true; return iron_make_error(p); }
+            memset(n, 0, sizeof(*n));
+            n->kind = IRON_NODE_VAL_DECL;
+            n->span = iron_span_merge(iron_token_span(p, start),
+                                      init ? init->span : iron_token_span(p, iron_current(p)));
+            n->name = only;
+            n->init = init ? init : iron_make_error(p);
+            return (Iron_Node *)n;
         }
         /* Transfer binding names into arena. */
         const char **arena_names = (const char **)iron_arena_arr_new(
@@ -4434,6 +4522,42 @@ static const char *tokens_text(Iron_Parser *p, int from, int to) {
     return r;
 }
 
+/* `static` before `func` in an object, patch or interface body (#455): a
+ * function of the type, called as `Type.f(args)`, with no receiver. It is
+ * written after `pub` and before `func`; a tier modifier on either side of
+ * it is an error (there is no `self` for the tier to restrict), and only a
+ * function can be static. Returns true when the member is a static func. */
+static bool iron_parse_static_modifier(Iron_Parser *p, bool *is_readonly, bool *is_pure) {
+    bool tier_before = *is_readonly || *is_pure;
+    if (!iron_check(p, IRON_TOK_STATIC)) return false;
+    Iron_Token *st = iron_advance(p);
+    bool tier_after = false;
+    if (iron_check(p, IRON_TOK_READONLY) || iron_check(p, IRON_TOK_PURE)) {
+        tier_after = true;
+        iron_advance(p);
+        if (iron_check(p, IRON_TOK_READONLY) || iron_check(p, IRON_TOK_PURE)) iron_advance(p);
+    }
+    if (tier_before || tier_after) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                       iron_token_span(p, st),
+                       "a static function has no receiver: 'readonly' and "
+                       "'pure' do not apply to it",
+                       "remove the modifier, or drop `static` to declare a method");
+        *is_readonly = false;
+        *is_pure     = false;
+    }
+    if (!iron_check(p, IRON_TOK_FUNC)) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                       iron_token_span(p, st),
+                       "only a function can be static",
+                       "write `static func name(params) -> T { ... }`");
+        return false;
+    }
+    return true;
+}
+
 static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool is_pub,
                                          bool is_nocopy, Iron_Node ***extra_decls_out) {
     Iron_Token *start = iron_current(p);
@@ -4545,6 +4669,9 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
                 iron_advance(p);  /* consume 'readonly' to recover */
             }
         }
+
+        bool member_is_static =
+            iron_parse_static_modifier(p, &member_is_readonly, &member_is_pure);
 
         /* Phase 85 INIT-03/07/08/11: init declaration inside object body.
          *
@@ -4911,6 +5038,11 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             for (int i = 0; i < explicit_count; i++) {
                 all_params[i + 1] = explicit_params[i];
             }
+            if (member_is_static) {
+                /* No receiver: the declared parameters only. */
+                all_params = explicit_params;
+                total      = explicit_count;
+            }
 
             /* Build the Iron_MethodDecl; mirror parser.c:2413-2436. */
             Iron_MethodDecl *m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
@@ -4957,6 +5089,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->is_init              = false;
             m->init_name            = NULL;
             m->is_patch_member      = false;  /* Phase 94 LIB-02: in-block func on regular object */
+            m->is_static            = member_is_static;
 
             if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
@@ -5777,6 +5910,9 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             }
         }
 
+        bool member_is_static =
+            iron_parse_static_modifier(p, &member_is_readonly, &member_is_pure);
+
         /* Phase 16: `copy { ... }` and `drop { ... }` inside a patch body
          * mirror the object-body branches above. Semantics reserved for Phase 24. */
         if (iron_check(p, IRON_TOK_COPY) || iron_check(p, IRON_TOK_DROP)) {
@@ -6070,6 +6206,10 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             for (int i = 0; i < explicit_count; i++) {
                 all_params[i + 1] = explicit_params[i];
             }
+            if (member_is_static) {
+                all_params = explicit_params;
+                total      = explicit_count;
+            }
 
             Iron_MethodDecl *m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
             if (!m) iron_oom_abort("parser.c:iron_parse_patch_decl method MethodDecl");
@@ -6107,6 +6247,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->is_init              = false;
             m->init_name            = NULL;
             m->is_patch_member      = true;  /* Phase 94 LIB-02: stub generator suppresses */
+            m->is_static            = member_is_static;
 
             if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
@@ -6251,7 +6392,10 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
             }
         }
 
-        /* Method signature: [readonly|pure] func name(params) [-> Type] [{ body }] */
+        bool member_is_static =
+            iron_parse_static_modifier(p, &member_is_readonly, &member_is_pure);
+
+        /* Method signature: [static] [readonly|pure] func name(params) [-> Type] [{ body }] */
         if (!iron_check(p, IRON_TOK_FUNC)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_UNEXPECTED_TOKEN,
@@ -6263,8 +6407,12 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         Iron_Token *fsig_start = iron_current(p);
         iron_advance(p);  /* consume 'func' */
 
-        /* Method name: must be a regular identifier */
+        /* Method name: must be a regular identifier (it was skipped without
+         * a word, so `func func area()` passed). */
         if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected method name after 'func'");
             iron_parser_sync_member(p);
             continue;
         }
@@ -6315,6 +6463,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         sig->is_readonly          = member_is_readonly;
         sig->is_pure              = member_is_pure;
         sig->doc_comment          = sig_doc;  /* Phase 3 NAV-14 */
+        sig->is_static            = member_is_static;
         arrput(method_sigs, (Iron_Node *)sig);
         method_count++;
         iron_skip_newlines(p);
@@ -6462,6 +6611,12 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub) {
                 } else {
                     v->explicit_value = (int)parsed;
                 }
+            } else {
+                /* `P =` with no ordinal was accepted as a plain `P`. */
+                iron_emit_diag_help(p, IRON_ERR_EXPECTED_EXPR,
+                                    iron_token_span(p, iron_current(p)),
+                                    "expected an integer after '=' in an enum variant",
+                                    "write the ordinal, as in 'Red = 1', or drop the '='");
             }
         }
         arrput(variants, (Iron_Node *)v);
@@ -6757,8 +6912,18 @@ Iron_Node *iron_parse(Iron_Parser *p) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_EOF)) break;
 
-        /* Skip stray closing braces from incomplete declarations */
+        /* Skip stray closing braces from incomplete declarations. In a file
+         * with no error so far the brace is the error itself (it used to be
+         * skipped silently, so `}` alone was a valid file); after an error
+         * it is recovery debris, not worth a report. */
         if (iron_check(p, IRON_TOK_RBRACE)) {
+            if (p->diags->error_count == 0) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "unexpected '}' at top level",
+                               "remove it, or check the braces of the declaration above");
+            }
             iron_advance(p);
             iron_skip_newlines(p);
             continue;
@@ -6786,6 +6951,19 @@ Iron_Node *iron_parse(Iron_Parser *p) {
                            NULL);
             iron_advance(p);
             iron_parser_sync_toplevel(p);
+            continue;
+        }
+        /* `static func` belongs in an object, patch or interface body; a
+         * top-level function already has no receiver. Report it and parse
+         * the function that follows. */
+        if (iron_check(p, IRON_TOK_STATIC)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_TIER_MODIFIER_PLACEMENT,
+                           iron_token_span(p, iron_current(p)),
+                           "'static' is only valid on a function inside an "
+                           "object, patch or interface body",
+                           "a top-level function has no receiver already: remove `static`");
+            iron_advance(p);
             continue;
         }
         /* Phase 24 DROP-08 (Plan 24-01): `nocopy object T { ... }` modifier.

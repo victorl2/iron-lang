@@ -265,6 +265,10 @@
         },
         {
           "type": "STRING",
+          "value": "static"
+        },
+        {
+          "type": "STRING",
           "value": "super"
         },
         {
@@ -666,6 +670,18 @@
     "method_signature": {
       "type": "SEQ",
       "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "static_modifier"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
         {
           "type": "REPEAT",
           "content": {
@@ -1708,6 +1724,10 @@
         }
       ]
     },
+    "static_modifier": {
+      "type": "STRING",
+      "value": "static"
+    },
     "param_mut_modifier": {
       "type": "CHOICE",
       "members": [
@@ -1927,6 +1947,18 @@
             {
               "type": "SYMBOL",
               "name": "visibility_modifier"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "static_modifier"
             },
             {
               "type": "BLANK"
@@ -2466,6 +2498,26 @@
         },
         {
           "type": "SYMBOL",
+          "name": "defer_statement"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "free_statement"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "leak_statement"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "while_statement"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "match_statement"
+        },
+        {
+          "type": "SYMBOL",
           "name": "_expression"
         }
       ]
@@ -2524,6 +2576,14 @@
             {
               "type": "SYMBOL",
               "name": "free_statement"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "leak_statement"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "assignment_statement"
             },
             {
               "type": "SYMBOL",

@@ -15,6 +15,8 @@
 #include "lsp/transport/writer.h"
 #include "lsp/transport/json.h"
 #include "util/arena.h"
+#include "lsp/store/document.h"
+#include "vendor/stb_ds.h"
 #include "vendor/yyjson/yyjson.h"
 
 #include "support/posix_test.h"
@@ -252,6 +254,58 @@ static void test_cancel_thread_visibility_requires_signal(void) {
     check_thread_visibility(0, 0, 0, false);
 }
 
+/* ── Test 6: a request's cancel flag is released after it is answered ──
+ * Handlers registered a flag per request and nothing released it: one
+ * allocation leaked per request (and per edit), for the life of the
+ * server. A request whose flag was set gets RequestCancelled. */
+static void route(IronLsp_Server *s, const char *body) {
+    Iron_Arena a = iron_arena_create(8 * 1024);
+    ilsp_dispatch_route(s, body, strlen(body), &a);
+    iron_arena_free(&a);
+}
+
+static void test_request_flag_released_and_cancel_answered(void) {
+    char *buf = NULL; size_t len = 0;
+    FILE *sink = open_memstream(&buf, &len);
+    IronLsp_Writer *w = ilsp_writer_create(sink);
+
+    IronLsp_Server s; memset(&s, 0, sizeof(s));
+    s.lifecycle = ILSP_LIFECYCLE_RUNNING;
+    s.writer    = w;
+    s.cancels   = ilsp_cancel_registry_create();
+    s.dyn_reg   = ilsp_dyn_register_create();
+    atomic_store(&s.next_request_id, 1);
+    const char *text = "func main() {\n}\n";
+    IronLsp_Document *d = ilsp_document_create("file:///c.iron", text, strlen(text), 1);
+    sh_new_strdup(s.documents);
+    shput(s.documents, "file:///c.iron", d);
+
+    route(&s, "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"textDocument/semanticTokens/full\","
+              "\"params\":{\"textDocument\":{\"uri\":\"file:///c.iron\"}}}");
+    TEST_ASSERT_FALSE_MESSAGE(ilsp_cancel_signal(s.cancels, "11"),
+        "the flag of an answered request must be released");
+
+    /* A flag already set when the request runs (cancelled ahead of it):
+     * the handler drops its result, the dispatcher answers -32800. */
+    _Atomic bool *f = ilsp_cancel_register(s.cancels, "12");
+    atomic_store(f, true);
+    route(&s, "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"textDocument/semanticTokens/full\","
+              "\"params\":{\"textDocument\":{\"uri\":\"file:///c.iron\"}}}");
+    while (ilsp_writer_drain_one(w)) { }
+    fflush(sink);
+    TEST_ASSERT_NOT_NULL(buf);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"id\":12"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "-32800"));
+
+    shfree(s.documents);
+    ilsp_document_destroy(d);
+    ilsp_cancel_registry_destroy(s.cancels);
+    ilsp_dyn_register_destroy(s.dyn_reg);
+    ilsp_writer_destroy(w);
+    fclose(sink);
+    free(buf);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_cancel_register_returns_false_atomic);
@@ -264,5 +318,6 @@ int main(void) {
     RUN_TEST(test_cancel_thread_visibility_delayed_signal);
     RUN_TEST(test_cancel_thread_visibility_delayed_poll);
     RUN_TEST(test_cancel_thread_visibility_requires_signal);
+    RUN_TEST(test_request_flag_released_and_cancel_answered);
     return UNITY_END();
 }

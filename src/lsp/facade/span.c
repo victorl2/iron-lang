@@ -22,6 +22,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "vendor/stb_ds.h"
+
 /* Locate a line's byte range within doc->text. Returns (start, len);
  * if line is past the last recorded start, returns (text_len, 0). */
 static void line_byte_range(const IronLsp_Document *doc, uint32_t line0,
@@ -42,6 +44,10 @@ static void line_byte_range(const IronLsp_Document *doc, uint32_t line0,
         end_ex = doc->text_len;
     }
     if (end_ex < start) end_ex = start;
+    /* A CRLF line ends at its '\r': the terminator is not part of the
+     * line in LSP positions, and a span ending on it (a token at the end
+     * of the line) must not reach one past the line's last character. */
+    if (end_ex > start && doc->text && doc->text[end_ex - 1] == '\r') end_ex--;
 
     *out_start = start;
     *out_len   = end_ex - start;
@@ -74,6 +80,17 @@ static void convert_endpoint(const IronLsp_Document  *doc,
         lsp_line = 0;
     } else {
         lsp_line = iron_line - 1;
+    }
+    /* A span can end past the last line (the EOF token after a final
+     * newline, or a span computed on a longer buffer): clamp it to the
+     * end of the document. */
+    uint32_t nlines = doc->line_idx.starts
+                      ? (uint32_t)arrlenu(doc->line_idx.starts) : 1;
+    if (nlines == 0) nlines = 1;
+    if (lsp_line >= nlines) {
+        lsp_line = nlines - 1;
+        iron_col = UINT32_MAX;
+        is_exclusive_end = false;
     }
 
     size_t line_start, line_len;

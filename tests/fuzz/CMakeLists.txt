@@ -103,6 +103,10 @@ endfunction()
 iron_add_fuzz_target(fuzz_parser      fuzz_parser.c)
 iron_add_fuzz_target(fuzz_typecheck   fuzz_typecheck.c)
 iron_add_fuzz_target(fuzz_hir_to_lir  fuzz_hir_to_lir.c)
+# Source in, analysis as `ironc check` and the language server run it (with
+# the stdlib prelude, broken buffers included) and the formatter's
+# idempotence. Seed it with the integration corpus.
+iron_add_fuzz_target(fuzz_check       fuzz_check.c)
 # Standard library parsers of untrusted input: numbers, IP addresses, case
 # mapping, WebSocket frames (see fuzz_stdlib.c).
 iron_add_fuzz_target(fuzz_stdlib      fuzz_stdlib.c)
@@ -150,6 +154,7 @@ add_custom_command(TARGET iron_seed_blobs POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/parser"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/typecheck"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/hir_to_lir"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${_FUZZ_CORPUS_DIR}/check"
     COMMAND ${CMAKE_COMMAND} -E env "ASAN_OPTIONS=detect_leaks=0"
             $<TARGET_FILE:iron_seed_blobs>
             "${_FUZZ_INTEGRATION_DIR}"

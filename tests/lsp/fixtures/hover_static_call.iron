@@ -1,0 +1,15 @@
+-- Hover on a static function call shows `static func Type.name`.
+--
+-- HOVER@13:15
+object Vec {
+    val x: Int
+    static func zero() -> Self {
+        return Vec(0)
+    }
+}
+
+func main() {
+    val v =
+        Vec.zero()
+    println("{v.x}")
+}
