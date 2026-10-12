@@ -352,6 +352,11 @@ static Iron_Node *make_flag_decl(ExpandCtx *ctx, Iron_Span span,
     v->span = span;
     v->name = name;
     v->init = make_bool(ctx, span, value);
+    /* These bookkeeping locals are intentionally mutable. Some fields are
+     * already initialized, so an individual flag may not receive a write in
+     * the expanded body. Do not offer the user a warning about generated
+     * implementation details. */
+    v->requires_mutable = true;
     return (Iron_Node *)v;
 }
 
@@ -861,7 +866,21 @@ static void expand_stmt(ExpandCtx *ctx, Iron_Node *stmt, Iron_Node ***out) {
                            "use field metadata, tag/doc null tests, boolean operators, or literal comparisons");
             return;
         }
-        Iron_Node *chosen = take ? s->body : s->else_body;
+        Iron_Node *chosen = take ? s->body : NULL;
+        for (int i = 0; !chosen && !take && i < s->elif_count; i++) {
+            s->elif_conds[i] = expand_expr(ctx, s->elif_conds[i]);
+            bool elif_take = false;
+            if (!const_value(s->elif_conds[i], &elif_take)) {
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_COMPTIME_CONDITION,
+                               s->elif_conds[i]->span,
+                               "comptime elif condition is not a compile-time reflection constant",
+                               "use field metadata, tag/doc null tests, boolean operators, or literal comparisons");
+                return;
+            }
+            if (elif_take) chosen = s->elif_bodies[i];
+        }
+        if (!chosen && !take) chosen = s->else_body;
         if (chosen) {
             Iron_Node *copy = clone_block(ctx, chosen,
                                           ctx->field ? ctx->field->span : s->span);

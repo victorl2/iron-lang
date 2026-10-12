@@ -302,6 +302,43 @@ func main() {
 3 7
 ```
 
+## Compile-time field reflection
+
+Reflection is expanded to ordinary Iron before type checking and code
+generation. It is intended for generic functions and interface default bodies
+that are instantiated with a concrete object type.
+
+```iron
+interface FieldNames {
+    readonly func field_names() -> String {
+        var result = ""
+        comptime for f in fields(Self) {
+            result = result + f.name + ";"
+        }
+        return result
+    }
+}
+
+object Pair impl FieldNames {
+    val left: Int
+    val right: String
+}
+```
+
+Within the loop, use `f.name`, `f.index`, `f.type`, `f.is_var`,
+`f.is_nullable`, `f.is_pub`, and `f.visibility`. `value.(f)` is a direct read
+or write. Use `comptime match f.type` to select code for exact types, `[E]`,
+`E?`, constructed generic types, or implemented interfaces. Use `comptime if`
+for field metadata conditions. Branches not selected are not type checked.
+
+`Fields[T]()` is the construction counterpart in an opted-in interface
+default: assign with `b.(f)`, check the first absent required field with
+`b.missing()`, and return `b.build()`. A zero-argument `init` is called when
+one exists; otherwise construction is field by field. `f.doc` and
+`f.tag("name")` are stable hooks for directive metadata, but return `null`
+until slash-comment directives are integrated. Reflection has no run-time
+field table, and it does not yet cover enums or generic object declarations.
+
 
 ## Enums and generics
 
