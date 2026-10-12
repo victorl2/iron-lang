@@ -107,7 +107,7 @@ static void parse_iron(const uint8_t *message, size_t len) {
         print_iron_headers(request.headers);
         putchar('\n');
     }
-    Iron_httprequest_release(request);
+    Iron_httprequest_dispose(request);
     close(pair[0]);
     Iron_httpconnection_close(connection);
 }

@@ -76,16 +76,16 @@ static int server_upgrade(WsServerCase *test, Iron_WebSocket *socket,
     Iron_HttpConnectionResult accepted = Iron_httpserver_accept(test->server, 5000);
     if (accepted.error != 0) {
         int error = (int)accepted.error;
-        Iron_httpconnectionresult_release(accepted);
+        Iron_httpconnectionresult_dispose(accepted);
         return error;
     }
     Iron_HttpRequest request = Iron_httpconnection_read_request(
         accepted.connection, 16384, 1024, 5000);
     if (request.error != 0) {
         int error = (int)request.error;
-        Iron_httprequest_release(request);
+        Iron_httprequest_dispose(request);
         Iron_httpconnection_close(accepted.connection);
-        Iron_httpconnectionresult_release(accepted);
+        Iron_httpconnectionresult_dispose(accepted);
         return error;
     }
     Iron_WebSocketResult upgraded = test->mode == 7 || test->mode == 8
@@ -98,9 +98,9 @@ static int server_upgrade(WsServerCase *test, Iron_WebSocket *socket,
     if (upgraded.error != 0) {
         int error = (int)upgraded.error;
         Iron_websocketresult_release(upgraded);
-        Iron_httprequest_release(request);
+        Iron_httprequest_dispose(request);
         Iron_httpconnection_close(accepted.connection);
-        Iron_httpconnectionresult_release(accepted);
+        Iron_httpconnectionresult_dispose(accepted);
         return error;
     }
     *socket = upgraded.socket;
@@ -108,8 +108,8 @@ static int server_upgrade(WsServerCase *test, Iron_WebSocket *socket,
         iron_string_cstr(&upgraded.protocol),
         iron_string_byte_len(&upgraded.protocol));
     Iron_websocketresult_release(upgraded);
-    Iron_httprequest_release(request);
-    Iron_httpconnectionresult_release(accepted);
+    Iron_httprequest_dispose(request);
+    Iron_httpconnectionresult_dispose(accepted);
     return 0;
 }
 
@@ -256,7 +256,7 @@ static Iron_HttpServer make_server(int64_t *port) {
     *port = Iron_httpserver_port(result.server);
     TEST_ASSERT_GREATER_THAN_INT64(0, *port);
     Iron_HttpServer server = result.server;
-    Iron_httpserverresult_release(result);
+    Iron_httpserverresult_dispose(result);
     return server;
 }
 

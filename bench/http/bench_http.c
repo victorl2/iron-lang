@@ -270,14 +270,14 @@ static int serve_iron(int listener, size_t total) {
         if (request.error != 0 ||
             Iron_httpconnection_send_response_keep_alive(
                 connection, response, true, 10000) != 0) {
-            Iron_httprequest_release(request);
-            Iron_httpresponse_release(response);
+            Iron_httprequest_dispose(request);
+            Iron_httpresponse_dispose(response);
             Iron_httpconnection_close(connection);
             return 1;
         }
-        Iron_httprequest_release(request);
+        Iron_httprequest_dispose(request);
     }
-    Iron_httpresponse_release(response);
+    Iron_httpresponse_dispose(response);
     Iron_httpconnection_close(connection);
     return 0;
 }

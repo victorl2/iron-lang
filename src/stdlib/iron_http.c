@@ -123,31 +123,62 @@ static void http_response_error(Iron_HttpResponse *r, int64_t code) {
 }
 
 void Iron_httpserverresult_release(Iron_HttpServerResult result) {
+    /* Iron's automatic drop glue releases owned strings after this
+     * compatibility helper returns. Direct C callers use _dispose. */
+    (void)result;
+}
+
+void Iron_httpserverresult_dispose(Iron_HttpServerResult result) {
     iron_string_release(&result.error_message);
 }
 
 void Iron_httpconnectionresult_release(Iron_HttpConnectionResult result) {
+    (void)result;
+}
+
+void Iron_httpconnectionresult_dispose(Iron_HttpConnectionResult result) {
     iron_string_release(&result.error_message);
 }
 
 void Iron_httpsserverresult_release(Iron_HttpsServerResult result) {
+    (void)result;
+}
+
+void Iron_httpsserverresult_dispose(Iron_HttpsServerResult result) {
     iron_string_release(&result.error_message);
 }
 
 void Iron_httpsconnectionresult_release(Iron_HttpsConnectionResult result) {
+    (void)result;
+}
+
+void Iron_httpsconnectionresult_dispose(Iron_HttpsConnectionResult result) {
     iron_string_release(&result.error_message);
 }
 
 void Iron_httpspendingconnectionresult_release(
     Iron_HttpsPendingConnectionResult result) {
+    (void)result;
+}
+
+void Iron_httpspendingconnectionresult_dispose(
+    Iron_HttpsPendingConnectionResult result) {
     iron_string_release(&result.error_message);
 }
 
 void Iron_httpclientresult_release(Iron_HttpClientResult result) {
+    (void)result;
+}
+
+void Iron_httpclientresult_dispose(Iron_HttpClientResult result) {
     iron_string_release(&result.error_message);
 }
 
 void Iron_httprequest_release(Iron_HttpRequest request) {
+    (void)request;
+}
+
+void Iron_httprequest_dispose(Iron_HttpRequest request) {
     iron_string_release(&request.method);
     iron_string_release(&request.target);
     iron_string_release(&request.path);
@@ -159,6 +190,10 @@ void Iron_httprequest_release(Iron_HttpRequest request) {
 }
 
 void Iron_httpresponse_release(Iron_HttpResponse response) {
+    (void)response;
+}
+
+void Iron_httpresponse_dispose(Iron_HttpResponse response) {
     iron_string_release(&response.reason);
     iron_string_release(&response.headers);
     iron_string_release(&response.body);
@@ -1868,7 +1903,7 @@ static Iron_HttpResponse read_client_response(HttpTransport transport,
             transport, max_body, deadline, suppress_body);
         if (out.error != 0 || out.status < 100 || out.status >= 200 ||
             out.status == 101) return out;
-        Iron_httpresponse_release(out);
+        Iron_httpresponse_dispose(out);
     }
     Iron_HttpResponse out = http_response_empty();
     http_response_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
@@ -2357,7 +2392,7 @@ uint64_t iron_http_bench_parse_requests(
                 1000);
             if (request.error != 0) {
                 *error_out = request.error;
-                Iron_httprequest_release(request);
+                Iron_httprequest_dispose(request);
                 http_pending_clear(memory_fd);
                 return checksum;
             }
@@ -2366,7 +2401,7 @@ uint64_t iron_http_bench_parse_requests(
                         iron_string_byte_len(&request.headers) * 7u +
                         iron_string_byte_len(&request.body) * 11u +
                         (uint64_t)request.keep_alive;
-            Iron_httprequest_release(request);
+            Iron_httprequest_dispose(request);
         }
         http_pending_clear(memory_fd);
     }
@@ -2397,7 +2432,7 @@ uint64_t iron_http_bench_serialize_response(
     iron_string_release(&body_string);
     if (response.error != 0) {
         *error_out = response.error;
-        Iron_httpresponse_release(response);
+        Iron_httpresponse_dispose(response);
         free(output);
         return 0;
     }
@@ -2422,7 +2457,7 @@ uint64_t iron_http_bench_serialize_response(
         checksum += memory.output_len ? output[memory.output_len - 1] : 0;
         checksum += memory.output_len;
     }
-    Iron_httpresponse_release(response);
+    Iron_httpresponse_dispose(response);
     free(output);
     return checksum;
 }

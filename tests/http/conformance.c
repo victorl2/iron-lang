@@ -117,7 +117,7 @@ static void check_request_case(const RequestCase *test, size_t split) {
         CHECK(string_is(out.body, test->body), "%s: body", test->name);
         CHECK(out.keep_alive == test->keep_alive, "%s: keep_alive", test->name);
     }
-    Iron_httprequest_release(out);
+    Iron_httprequest_dispose(out);
 }
 
 static void test_request_lines_headers_and_framing(void) {
@@ -202,13 +202,13 @@ static void test_request_lines_headers_and_framing(void) {
         large, strlen(large), SIZE_MAX, 32, 1024);
     CHECK(limited.error == IRON_ERR_HTTP_HEADERS_TOO_LARGE,
           "header limit: error %lld", (long long)limited.error);
-    Iron_httprequest_release(limited);
+    Iron_httprequest_dispose(limited);
 
     const char *body = "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\nhello";
     limited = parse_request(body, strlen(body), SIZE_MAX, 1024, 4);
     CHECK(limited.error == IRON_ERR_HTTP_BODY_TOO_LARGE,
           "body limit: error %lld", (long long)limited.error);
-    Iron_httprequest_release(limited);
+    Iron_httprequest_dispose(limited);
 }
 
 static void test_pipelined_requests(void) {
@@ -229,9 +229,9 @@ static void test_pipelined_requests(void) {
           "pipeline second");
     CHECK(three.error == 0 && string_is(three.path, "/three") && !three.keep_alive,
           "pipeline third");
-    Iron_httprequest_release(one);
-    Iron_httprequest_release(two);
-    Iron_httprequest_release(three);
+    Iron_httprequest_dispose(one);
+    Iron_httprequest_dispose(two);
+    Iron_httprequest_dispose(three);
     close(pair[0]);
     Iron_httpconnection_close(connection);
 }
@@ -268,7 +268,7 @@ static void test_expect_continue(void) {
     (void)pthread_join(thread, NULL);
     CHECK(reader.result.error == 0 && string_is(reader.result.body, "body"),
           "expect parsed body");
-    Iron_httprequest_release(reader.result);
+    Iron_httprequest_dispose(reader.result);
     close(pair[0]);
     Iron_httpconnection_close(reader.connection);
 }
@@ -295,7 +295,7 @@ static void test_body_free_serialization(void) {
                 CHECK(strstr(wire, "Content-Length") == NULL,
                       "status %d serialized Content-Length", statuses[i]);
         }
-        Iron_httpresponse_release(response);
+        Iron_httpresponse_dispose(response);
         close(pair[0]);
         Iron_httpconnection_close(connection);
     }
@@ -332,9 +332,9 @@ static void *serve_raw_response(void *arg) {
                            len - first)) server->error = -1;
         }
     }
-    Iron_httprequest_release(request);
+    Iron_httprequest_dispose(request);
     Iron_httpconnection_close(accepted.connection);
-    Iron_httpconnectionresult_release(accepted);
+    Iron_httpconnectionresult_dispose(accepted);
     return NULL;
 }
 
@@ -364,7 +364,7 @@ static Iron_HttpResponse parse_response_split(
     CHECK(server.error == 0, "raw response server error %lld",
           (long long)server.error);
     Iron_httpserver_close(listening.server);
-    Iron_httpserverresult_release(listening);
+    Iron_httpserverresult_dispose(listening);
     return out;
 }
 
@@ -471,7 +471,7 @@ static void test_response_lines_headers_and_framing(void) {
             CHECK(out.keep_alive == cases[i].keep_alive,
                   "%s: response keep_alive", cases[i].name);
         }
-        Iron_httpresponse_release(out);
+        Iron_httpresponse_dispose(out);
     }
 
     static const size_t split_cases[] = {0, 4, 8};
@@ -485,7 +485,7 @@ static void test_response_lines_headers_and_framing(void) {
                   string_is(out.body, test->body),
                   "%s split %zu: error %lld", test->name, split,
                   (long long)out.error);
-            Iron_httpresponse_release(out);
+            Iron_httpresponse_dispose(out);
         }
     }
 
@@ -493,7 +493,7 @@ static void test_response_lines_headers_and_framing(void) {
         "GET", "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello", 4);
     CHECK(limited.error == IRON_ERR_HTTP_BODY_TOO_LARGE,
           "response body limit: %lld", (long long)limited.error);
-    Iron_httpresponse_release(limited);
+    Iron_httpresponse_dispose(limited);
 }
 
 int main(void) {
