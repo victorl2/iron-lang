@@ -281,13 +281,16 @@ bool iron_recv_is_pinned(const void *addr) { return addr_is_pinned(addr, 1); }
  * its thread-local scope block under it. At thread exit the number goes
  * back, together with the thread's last id, so the next thread to take the
  * number continues the id sequence: a pointer into a dead thread's scope
- * never matches a scope of the thread that reuses the number. Other
+ * never matches a scope of the thread that reuses the number. A thread
+ * that uses up the ids of its number takes another one; the old number
+ * stays registered to the thread's block while the thread lives (scopes
+ * opened under it may still be open) and is never given out again. Other
  * threads read a registered block only under the registry lock, which the
  * exit takes before the block disappears with its thread. */
 _Thread_local IronStackTLS iron_stk = { .gen = IRON_STACK_GEN_INIT };
 static atomic_flag s_stack_lock = ATOMIC_FLAG_INIT;
 static struct {
-    IronStackTLS *tls;        /* NULL when the number is free */
+    IronStackTLS *tls;        /* NULL when the number is free or retired */
     uint64_t      next_id;    /* the id sequence, kept across owners */
 } s_stack_reg[IRON_STACK_THREADS];
 static uint32_t s_stack_free[IRON_STACK_THREADS];
@@ -297,18 +300,37 @@ static uint32_t s_stack_next = 1;
 static void stack_lock(void)   { while (atomic_flag_test_and_set_explicit(&s_stack_lock, memory_order_acquire)) { } }
 static void stack_unlock(void) { atomic_flag_clear_explicit(&s_stack_lock, memory_order_release); }
 
-void iron_stack_attach(void) {
+/* A number with ids left, registered to this thread. Under the lock. */
+static uint32_t stack_take_number(void) {
     uint32_t n = 0;
-    stack_lock();
-    if (s_stack_nfree > 0) n = s_stack_free[--s_stack_nfree];
-    else if (s_stack_next < IRON_STACK_THREADS) n = s_stack_next++;
+    while (s_stack_nfree > 0 && !n) {
+        n = s_stack_free[--s_stack_nfree];
+        if (s_stack_reg[n].next_id >= IRON_STACK_ID_MASK) n = 0;   /* used up: retired */
+    }
+    if (!n && s_stack_next < IRON_STACK_THREADS) n = s_stack_next++;
     if (n) {
         s_stack_reg[n].tls = &iron_stk;
         iron_stk.next_id = s_stack_reg[n].next_id;
         iron_stk.tno = n;
     }
+    return n;
+}
+
+void iron_stack_attach(void) {
+    stack_lock();
+    uint32_t n = stack_take_number();
     stack_unlock();
     if (!n) iron_oom_abort("stack scopes: more than 4095 threads take addresses of locals");
+}
+
+void iron_stack_renumber(void) {
+    stack_lock();
+    /* The old number keeps pointing at this block until the thread exits. */
+    s_stack_reg[iron_stk.tno].next_id = IRON_STACK_ID_MASK;
+    uint32_t n = stack_take_number();
+    iron_stk.renumbered = true;
+    stack_unlock();
+    if (!n) iron_oom_abort("stack scopes: scope ids used up");
 }
 
 static iron_atomic_u64 *stack_deep_slot(IronStackTLS *t, uint32_t d, bool make) {
@@ -337,9 +359,9 @@ static iron_atomic_u64 *stack_deep_slot(IronStackTLS *t, uint32_t d, bool make) 
 /* The owner's own deep slots: the owner allocates chunks, other threads
  * only read them under the lock, and the chunks go away at thread exit
  * under the lock. */
-void iron_stack_set_deep(uint32_t d, uint64_t id) {
+void iron_stack_set_deep(uint32_t d, uint64_t key) {
     iron_atomic_u64 *slot = stack_deep_slot(&iron_stk, d, true);
-    atomic_store_explicit(slot, id, memory_order_relaxed);
+    atomic_store_explicit(slot, key, memory_order_relaxed);
 }
 
 void iron_stack_thread_exit(void) {
@@ -350,6 +372,11 @@ void iron_stack_thread_exit(void) {
     s_stack_reg[t->tno].tls = NULL;
     s_stack_reg[t->tno].next_id = t->next_id;
     s_stack_free[s_stack_nfree++] = t->tno;
+    if (t->renumbered) {
+        /* The numbers this thread used up still point at its block. */
+        for (uint32_t n = 1; n < IRON_STACK_THREADS; n++)
+            if (s_stack_reg[n].tls == t) s_stack_reg[n].tls = NULL;
+    }
     iron_stack_chunk_ptr *more = atomic_load_explicit(&t->more, memory_order_relaxed);
     if (more) {
         for (uint32_t k = 0; k < IRON_STACK_CHUNKS; k++)
@@ -359,25 +386,28 @@ void iron_stack_thread_exit(void) {
     }
     stack_unlock();
     t->tno = 0;
+    t->renumbered = false;
     atomic_store_explicit(&t->depth, 0, memory_order_relaxed);
     t->gen = IRON_STACK_GEN_INIT;
 }
 
-/* Recorded id at depth d of t, 0 when that depth is not open. Under the
+/* Recorded key at depth d of t, 0 when that depth is not open. Under the
  * registry lock. */
-static uint64_t stack_id_at(IronStackTLS *t, uint32_t d) {
+static uint64_t stack_key_at(IronStackTLS *t, uint32_t d) {
     if (d < IRON_STACK_CHUNK) return atomic_load_explicit(&t->ids[d], memory_order_relaxed);
     iron_atomic_u64 *slot = stack_deep_slot(t, d, false);
     return slot ? atomic_load_explicit(slot, memory_order_relaxed) : 0;
 }
 
-/* A stack-form gen of another thread, or one 1024 or more scopes deep:
- * look it up in its owner's block under the registry lock. A thread that
- * ended took its scopes with it: its pointers are dangling. */
+/* A stack-form gen the fast path did not find open in this thread's first
+ * 1024 depths: a scope that ended, one of another thread, or one 1024 or
+ * more scopes deep. Look it up in its owner's block under the registry
+ * lock. A thread that ended took its scopes with it: its pointers are
+ * dangling. */
 bool iron_stack_live_slow(uint64_t gen) {
     uint32_t n = IRON_STACK_THREAD(gen);
     if (n == 0 || n >= IRON_STACK_THREADS) return false;
-    uint64_t id = gen & IRON_STACK_ID_MASK;
+    uint64_t key = gen & IRON_STACK_KEY_MASK;
     uint32_t d = IRON_STACK_DEPTH(gen);
     bool live = false;
     stack_lock();
@@ -385,17 +415,21 @@ bool iron_stack_live_slow(uint64_t gen) {
     if (t) {
         uint32_t cur = atomic_load_explicit(&t->depth, memory_order_relaxed);
         if (d < 0xFFFF) {
-            live = d <= cur && stack_id_at(t, d) == id;
-        } else if (cur >= 0xFFFF) {
-            /* Saturated depth: ids increase with depth along the open
-             * scopes, so binary search depths 0xFFFF..cur. */
+            live = d <= cur && stack_key_at(t, d) == key;
+        } else if (cur >= 0xFFFF && !t->renumbered) {
+            /* Saturated depth: keys increase with depth along the open
+             * scopes of one thread number, so binary search 0xFFFF..cur. */
             uint32_t lo = 0xFFFF, hi = cur;
             while (lo <= hi) {
                 uint32_t mid = lo + (hi - lo) / 2;
-                uint64_t v = stack_id_at(t, mid);
-                if (v == id) { live = true; break; }
-                if (v == 0 || v > id) { if (mid == lo) break; hi = mid - 1; } else lo = mid + 1;
+                uint64_t v = stack_key_at(t, mid);
+                if (v == key) { live = true; break; }
+                if (v == 0 || v > key) { if (mid == lo) break; hi = mid - 1; } else lo = mid + 1;
             }
+        } else if (cur >= 0xFFFF) {
+            /* The thread changed number while these scopes were open: the
+             * keys are no longer ordered. */
+            for (uint32_t k = 0xFFFF; k <= cur && !live; k++) live = stack_key_at(t, k) == key;
         }
     }
     stack_unlock();

@@ -208,6 +208,65 @@ void test_list_pins(void) {
     TEST_ASSERT_FALSE(iron_gen_live(g3));
 }
 
+/* A thread that uses up the 2^35 scope ids of its thread number takes a
+ * fresh number: scopes opened before stay live under the old one, a scope
+ * that ended is never matched by a later scope at the same depth, and the
+ * used-up number is not given out again. */
+void test_stack_ids_never_repeat(void) {
+    uint64_t s0 = iron_stack_enter();              /* keeps the thread attached */
+    uint64_t g0 = iron_stack_gen;
+    uint32_t old_no = iron_stack_thread_no();
+    TEST_ASSERT_TRUE(old_no != 0);
+
+    /* The last ids of this number. */
+    iron_stk.next_id = IRON_STACK_ID_MASK - 2;
+    uint64_t s1 = iron_stack_enter();
+    uint64_t g1 = iron_stack_gen;                  /* id MASK-1, stays open */
+    uint64_t s2 = iron_stack_enter();
+    uint64_t g2 = iron_stack_gen;                  /* id MASK, the last one */
+    iron_stack_leave(s2);
+    TEST_ASSERT_FALSE(iron_stack_gen_live(g2));
+    TEST_ASSERT_EQUAL_UINT32(old_no, iron_stack_thread_no());
+
+    /* The next scope needs a new number; it sits at g2's depth. */
+    uint64_t s3 = iron_stack_enter();
+    uint64_t g3 = iron_stack_gen;
+    uint32_t new_no = iron_stack_thread_no();
+    TEST_ASSERT_TRUE(new_no != old_no);
+    TEST_ASSERT_TRUE(iron_stack_gen_live(g3));
+    TEST_ASSERT_FALSE(iron_stack_gen_live(g2));    /* same depth, ended */
+    TEST_ASSERT_TRUE(iron_stack_gen_live(g1));     /* opened under the old number */
+    TEST_ASSERT_TRUE(iron_stack_gen_live(g0));
+
+    /* Every id the old number could give at this depth is gone: no later
+     * scope of the new number has g2's key, whatever its id. */
+    iron_stack_leave(s3);
+    for (int i = 0; i < 1000; i++) {
+        uint64_t s = iron_stack_enter();
+        TEST_ASSERT_TRUE((iron_stack_gen & IRON_STACK_KEY_MASK) != (g2 & IRON_STACK_KEY_MASK));
+        TEST_ASSERT_FALSE(iron_stack_gen_live(g2));
+        TEST_ASSERT_FALSE(iron_stack_gen_live(g3));
+        iron_stack_leave(s);
+    }
+    iron_stack_leave(s1);
+    TEST_ASSERT_FALSE(iron_stack_gen_live(g1));
+    TEST_ASSERT_TRUE(iron_stack_gen_live(g0));
+    iron_stack_leave(s0);
+    TEST_ASSERT_FALSE(iron_stack_gen_live(g0));
+
+    /* After the thread lets go of its numbers, the used-up one is retired:
+     * a new attach never gets it back. */
+    iron_stack_thread_exit();
+    for (int i = 0; i < 8; i++) {
+        uint64_t s = iron_stack_enter();
+        TEST_ASSERT_TRUE(iron_stack_thread_no() != old_no);
+        TEST_ASSERT_FALSE(iron_stack_gen_live(g1));
+        TEST_ASSERT_FALSE(iron_stack_gen_live(g2));
+        iron_stack_leave(s);
+        iron_stack_thread_exit();
+    }
+}
+
 int main(void) {
     iron_runtime_init(0, NULL);
     UNITY_BEGIN();
@@ -219,5 +278,6 @@ int main(void) {
     RUN_TEST(test_stack_deep_scopes);
     RUN_TEST(test_stack_cross_thread);
     RUN_TEST(test_list_pins);
+    RUN_TEST(test_stack_ids_never_repeat);
     return UNITY_END();
 }

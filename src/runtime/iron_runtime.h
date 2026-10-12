@@ -546,17 +546,20 @@ uint64_t iron_heap_next_gen(void);
  *     bits 35-46  the thread's number (1-4095; 0 for static storage)
  *     bits 0-34   the scope's id
  * The pointer is live while its scope is: the table of its thread still
- * records its id at its depth, and that depth is not deeper than the
- * thread's current depth. Ids grow monotonically per thread number and
- * keep growing when a number is reused by a later thread, so an id is
- * never found again at a depth after its scope ended (up to the 2^35 wrap
- * of the id counter). The tables are published in a registry and never
- * freed, so a pointer read on another thread is checked against its
- * owner's table (a spawned task reading a pointer to a local of a frame
- * that has returned panics). Depths up to IRON_STACK_DEPTH_MAX are
- * recorded; a scope deeper than 0xFFFF is found by its id. */
+ * records the scope's key (thread number and id, bits 0-46) at its depth.
+ * Ids grow monotonically per thread number and keep growing when a number
+ * is reused by a later thread. A thread that uses up the 2^35 ids of its
+ * number takes a fresh number and the old one is retired for good, so a
+ * key is never given out twice in the life of the process: a pointer to a
+ * scope that ended never matches a later scope. The tables are published
+ * in a registry and never freed, so a pointer read on another thread is
+ * checked against its owner's table (a spawned task reading a pointer to a
+ * local of a frame that has returned panics). Depths up to
+ * IRON_STACK_DEPTH_MAX are recorded; a scope deeper than 0xFFFF is found
+ * by its key. */
 #define IRON_STACK_TAG        (1ULL << 63)
 #define IRON_STACK_ID_MASK    ((1ULL << 35) - 1)
+#define IRON_STACK_KEY_MASK   ((1ULL << 47) - 1)   /* thread number and id */
 #define IRON_STACK_THREAD(g)  ((uint32_t)(((g) >> 35) & 0xFFF))
 #define IRON_STACK_DEPTH(g)   ((uint32_t)(((g) >> 47) & 0xFFFF))
 #define IRON_STACK_GEN_INIT   IRON_STACK_TAG
@@ -566,7 +569,7 @@ uint64_t iron_heap_next_gen(void);
 #define IRON_STACK_THREADS    4096u
 /* A thread's scope state, in one thread-local block so the hot paths
  * (entering and leaving a scope, checking a pointer of this thread) touch
- * no other memory. ids[d] is the id of the scope open at depth d (0 when
+ * no other memory. ids[d] is the key of the scope open at depth d (0 when
  * none); depths from 1024 live in heap chunks reached through `more`.
  * Other threads read this block only under the registry lock, which the
  * thread's exit takes to unregister it, so they never read a block that
@@ -578,6 +581,7 @@ typedef struct IronStackTLS {
     _Atomic uint32_t depth;        /* written by the owner only */
     uint32_t         tno;          /* thread number, 0 until the first scope */
     uint64_t         next_id;      /* last id given out */
+    bool             renumbered;   /* took a second thread number (ids used up) */
     _Atomic(iron_stack_chunk_ptr *) more;   /* chunk pointers for depths >= 1024 */
     iron_atomic_u64  ids[IRON_STACK_CHUNK];
 } IronStackTLS;
@@ -587,7 +591,8 @@ extern _Thread_local IronStackTLS iron_stk;
  * method it calls (#542); 0 when none was handed over. */
 #define iron_self_gen  (iron_stk.self_gen)
 void iron_stack_attach(void);                          /* first scope of a thread */
-void iron_stack_set_deep(uint32_t d, uint64_t id);     /* d >= 1024 */
+void iron_stack_renumber(void);                        /* ids of this number used up */
+void iron_stack_set_deep(uint32_t d, uint64_t key);    /* d >= 1024 */
 bool iron_stack_live_slow(uint64_t gen);
 void iron_stack_thread_exit(void);
 /* Thread number of the calling thread (0 before its first scope). */
@@ -602,13 +607,12 @@ IRON_CHECK_FN uint64_t iron_stack_enter(void) {
     uint64_t saved = t->gen;
     if (!t->tno) iron_stack_attach();
     uint32_t d = atomic_load_explicit(&t->depth, memory_order_relaxed) + 1;
-    uint64_t id = (++t->next_id) & IRON_STACK_ID_MASK;
-    if (!id) id = (++t->next_id) & IRON_STACK_ID_MASK;   /* 0 marks a closed scope */
-    if (d < IRON_STACK_CHUNK) atomic_store_explicit(&t->ids[d], id, memory_order_relaxed);
-    else iron_stack_set_deep(d, id);
+    if (t->next_id >= IRON_STACK_ID_MASK) iron_stack_renumber();
+    uint64_t key = ((uint64_t)t->tno << 35) | ++t->next_id;   /* an id is never 0 */
+    if (d < IRON_STACK_CHUNK) atomic_store_explicit(&t->ids[d], key, memory_order_relaxed);
+    else iron_stack_set_deep(d, key);
     atomic_store_explicit(&t->depth, d, memory_order_relaxed);
-    t->gen = IRON_STACK_TAG | ((uint64_t)(d < 0xFFFF ? d : 0xFFFF) << 47) |
-             ((uint64_t)t->tno << 35) | id;
+    t->gen = IRON_STACK_TAG | ((uint64_t)(d < 0xFFFF ? d : 0xFFFF) << 47) | key;
     return saved;
 }
 
@@ -625,15 +629,17 @@ IRON_CHECK_FN void iron_stack_leave(uint64_t saved) {
 /* Whether the scope a stack-form gen names is still live. A gen without the
  * stack tag is not a stack pointer: true (iron_check_ptr routes those). The
  * fast path is a pointer of this thread into its first 1024 depths: the
- * slot of its depth still holds its id. */
+ * slot of its depth still holds its key (which no other thread's scope and
+ * no later scope ever has). */
 IRON_CHECK_FN bool iron_stack_gen_live(uint64_t gen) {
     if (!(gen & IRON_STACK_TAG)) return true;
     uint32_t d = IRON_STACK_DEPTH(gen);
     IronStackTLS *t = &iron_stk;
-    if (IRON_STACK_THREAD(gen) == t->tno && d - 1u < IRON_STACK_CHUNK - 1u)
-        return atomic_load_explicit(&t->ids[d], memory_order_relaxed) == (gen & IRON_STACK_ID_MASK);
+    if (d - 1u < IRON_STACK_CHUNK - 1u &&
+        atomic_load_explicit(&t->ids[d], memory_order_relaxed) == (gen & IRON_STACK_KEY_MASK))
+        return true;                               /* an open scope of this thread */
     if (d == 0) return true;                       /* static storage */
-    return iron_stack_live_slow(gen);              /* another thread, or very deep */
+    return iron_stack_live_slow(gen);              /* ended, another thread, or very deep */
 }
 
 /* Phase 20 PTR-10: stack-pointer panic variant (NEW Plan 20-02b).
