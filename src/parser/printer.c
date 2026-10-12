@@ -1380,7 +1380,10 @@ static void stub_emit_generic_params(FILE *out, Iron_Node **gps, int count) {
     for (int i = 0; i < count; i++) {
         if (i > 0) fprintf(out, ", ");
         if (gps[i]->kind == IRON_NODE_IDENT) {
-            fprintf(out, "%s", ((Iron_Ident *)gps[i])->name);
+            Iron_Ident *id = (Iron_Ident *)gps[i];
+            fprintf(out, "%s", id->name);
+            if (id->constraint_name)
+                fprintf(out, ": %s", id->constraint_name);
         } else if (gps[i]->kind == IRON_NODE_TYPE_ANNOTATION) {
             stub_emit_type_ann(out, gps[i]);
         }
@@ -1418,6 +1421,9 @@ static void stub_emit_method(FILE *out, Iron_MethodDecl *md) {
             fprintf(out, "init");
         }
     } else {
+        if (md->is_static) fprintf(out, "static ");
+        else if (md->is_readonly) fprintf(out, "readonly ");
+        else if (md->is_pure) fprintf(out, "pure ");
         fprintf(out, "func %s", md->method_name ? md->method_name : "?");
     }
     stub_emit_generic_params(out, md->generic_params, md->generic_param_count);

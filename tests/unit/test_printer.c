@@ -315,6 +315,28 @@ void test_v94_pub_stubs_groups_methods_under_owner(void) {
     free(out);
 }
 
+void test_v94_pub_stubs_preserve_api_modifiers(void) {
+    const char *src =
+        "pub object Parser {\n"
+        "    val n: Int\n"
+        "    pub static func empty() -> Parser { return Parser(0) }\n"
+        "    pub readonly func get() -> Int { return self.n }\n"
+        "    pub pure func positive() -> Bool { return self.n > 0 }\n"
+        "}\n"
+        "pub func keyed[T: Hashable](x: T) -> Int { return x.hash() }\n";
+    char *out = capture_stub(src, "mylib", "0.1.0", NULL);
+    TEST_ASSERT_NOT_NULL(out);
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(out, "pub static func empty() -> Parser"), out);
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(out, "pub readonly func get() -> Int"), out);
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(out, "pub pure func positive() -> Bool"), out);
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(out, "pub func keyed[T: Hashable](x: T) -> Int"), out);
+    free(out);
+}
+
 void test_v94_pub_stubs_round_trip(void) {
     /* The plan's RESEARCH "Critical constraint" line 241: the consumer's
      * parser will re-parse the concatenated stubs through the SAME parse
@@ -382,6 +404,7 @@ int main(void) {
     RUN_TEST(test_v94_pub_stubs_skips_private_decls);
     RUN_TEST(test_v94_pub_stubs_skips_patch_object);
     RUN_TEST(test_v94_pub_stubs_groups_methods_under_owner);
+    RUN_TEST(test_v94_pub_stubs_preserve_api_modifiers);
     RUN_TEST(test_v94_pub_stubs_round_trip);
     RUN_TEST(test_v94_pub_stubs_strips_method_body);
     RUN_TEST(test_v94_pub_stubs_header_format);
