@@ -1,0 +1,13 @@
+-- A field declared twice in one object (E0201).
+object H {
+    var n: Int
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+}
+
+func main() {
+    val h = H(1)
+    println("{h.n}")
+}

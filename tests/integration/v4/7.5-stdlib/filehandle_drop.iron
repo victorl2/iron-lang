@@ -2,15 +2,31 @@ import io
 -- section: 7.5-stdlib
 -- @req: STDLIB-09
 -- @expected-pass-after: phase-33 (Wave 5 FileHandle nocopy + drop closes fd)
--- A single FileHandle dropped at scope exit closes its fd.
--- RED until Wave 5 lands FileHandle nocopy.
+-- A single FileHandle dropped at scope exit closes its fd: the next open
+-- gets the same descriptor back (POSIX hands out the lowest free one).
+-- Opening keeps an existing file's contents.
 
 func main() {
+    IO.write_text("iron_fh_drop.txt", "kept")
+    var first = -1
     {
         var fh = FileHandle.open("iron_fh_drop.txt")
-        println("opened")
+        first = fh.fd
+        println("opened {fh.fd >= 0}")
         -- scope exit: FileHandle drop closes fd
     }
+    var second = -1
+    {
+        var fh = FileHandle.open("iron_fh_drop.txt")
+        second = fh.fd
+        fh.close()
+        fh.close()
+        println("closed twice {fh.fd}")
+    }
+    println("reused {first == second}")
+    println("contents {IO.read_file("iron_fh_drop.txt")}")
+    val bad = FileHandle.open("")
+    println("empty path {bad.fd}")
     println("done")
     IO.delete_file("iron_fh_drop.txt")
 }

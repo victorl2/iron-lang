@@ -1,0 +1,64 @@
+-- net edge cases (#602): out-of-range ports are invalid arguments (not
+-- clamped or wrapped), TcpSocket.write writes the whole buffer within
+-- its deadline, address parsing stops at nothing (a zero byte is an
+-- error), an empty zone is an error, octets outside 0..255 do not format.
+import net
+
+func main() {
+    val nul = String.from_byte(0)
+    val (a, e) = IPv4Addr.parse("127.0.0.1" + nul + "junk")
+    val (b, e2) = IPv6Addr.parse("::1" + nul)
+    val (z, e3) = IPv6Addr.parse("fe80::1%")
+    val (z2, e4) = IPv6Addr.parse("fe80::1%25eth0")
+    println("{e.code} {e2.code} {e3.code} {e4.code} {z2.zone} <{IPv4Addr.format(IPv4Addr(256, 0, 0, 1))}>")
+    val (c, de) = Net.tcp_dial("127.0.0.1", 70000, 500)
+    val (l, le) = Net.tcp_listen("127.0.0.1", -5)
+    val (u, ue) = Net.udp_bind("127.0.0.1", 65536)
+    val (h, he) = Net.tcp_dial("127.0.0.1" + nul + "x", 80, 500)
+    println("{de.code} {le.code} {ue.code} {he.code}")
+    val (tx, te) = Net.udp_bind("127.0.0.1", 0)
+    val (lo, pe) = IPv4Addr.parse("127.0.0.1")
+    val (n1, se1) = Net.udp_sendto_v4(tx, "x", lo, 70000, 100)
+    val (n2, se2) = Net.udp_sendto_v4(tx, "x", IPv4Addr(127, 0, 0, 300), 9, 100)
+    println("{se1.code} {se2.code}")
+    UdpSocket.close(tx)
+    -- a name holding a zero byte is no host: it is not looked up as its prefix
+    val (addrs, dns) = Net.lookup_host("127.0.0.1" + nul + "evil", 5000)
+    val (lit4, dns4) = Net.lookup_host("127.0.0.1", 5000)
+    println("{dns.code} {addrs.len()} {dns4.code} {lit4.len()}")
+    -- a name too long for the inline string form was a heap copy that
+    -- every lookup leaked (the leak oracle runs this test)
+    val (lit6, dns6) = Net.lookup_host("2001:0db8:0000:0000:0000:0000:0000:0007", 5000)
+    val (none, dnsn) = Net.lookup_host("x".repeat(300), 5000)
+    println("{dns6.code} {lit6.len()} {dnsn.code != 0} {none.len()}")
+
+    var port = 0
+    var listener = TcpListener(-1)
+    var p = 34611
+    while port == 0 and p < 34700 {
+        val (cand, ce) = Net.tcp_listen("127.0.0.1", p)
+        if ce.code == 0 {
+            listener = cand
+            port = p
+        }
+        p += 1
+    }
+    val drain = spawn("drain") {
+        val (sc, ae) = TcpListener.accept(listener, 10000)
+        var total = 0
+        var going = ae.code == 0
+        while going {
+            val (d, re) = TcpSocket.read(sc, 9223372036854775806, 10000)
+            total += d.byte_len()
+            going = re.code == 0 and d.byte_len() > 0
+        }
+        TcpSocket.close(sc)
+        return total
+    }
+    val (client, ce) = Net.tcp_dial("127.0.0.1", port, 5000)
+    val big = "0123456789abcdef".repeat(131072)
+    val (w, we) = TcpSocket.write(client, big, 20000)
+    TcpSocket.close(client)
+    println("{ce.code} {w} {we.code} {await drain}")
+    TcpListener.close(listener)
+}

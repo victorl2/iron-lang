@@ -226,11 +226,31 @@ static void port_to_service(int64_t port, char *out, size_t cap) {
     out[w] = '\0';
 }
 
+/* A port outside 0..65535 is an error, not clamped or wrapped into a
+ * different port (#602). */
+static bool iron_net_port_ok(int64_t port) {
+    return port >= 0 && port <= 65535;
+}
+
+/* A host name holding a zero byte would be looked up as its prefix. */
+static bool iron_net_host_ok(const Iron_String *host) {
+    size_t n = iron_string_byte_len(host);
+    return n == 0 || memchr(iron_string_cstr(host), '\0', n) == NULL;
+}
+
 Iron_Result_TcpListener_Error Iron_net_tcp_listen(Iron_String host, int64_t port) {
     Iron_Result_TcpListener_Error out;
     out.v0.fd = -1;
     out.v1    = iron_net_err_none();
 
+    if (!iron_net_port_ok(port)) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_INVALID_ARGUMENT);
+        return out;
+    }
+    if (!iron_net_host_ok(&host)) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_ADDR_NOT_AVAIL);
+        return out;
+    }
     const char *host_c = iron_string_cstr(&host);
     if (!host_c) host_c = "";
 
@@ -311,6 +331,15 @@ Iron_Result_TcpSocket_Error Iron_net_tcp_dial(Iron_String host, int64_t port, in
     Iron_Result_TcpSocket_Error out;
     out.v0.fd = -1;
     out.v1    = iron_net_err_none();
+
+    if (!iron_net_port_ok(port)) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_INVALID_ARGUMENT);
+        return out;
+    }
+    if (!iron_net_host_ok(&host)) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_ADDR_NOT_AVAIL);
+        return out;
+    }
 
     const char *host_c = iron_string_cstr(&host);
     if (!host_c) host_c = "";
@@ -601,13 +630,16 @@ Iron_Result_String_NetError Iron_tcpsocket_read(Iron_TcpSocket s,
     }
     if (max_bytes == 0) return out;
 
-    uint8_t *buffer = (uint8_t *)malloc((size_t)max_bytes);
+    /* A read returns what one recv gives, never more than 1 MiB: the
+     * buffer is not sized from a large max_bytes (#602). */
+    int64_t cap = max_bytes < (int64_t)(1 << 20) ? max_bytes : (int64_t)(1 << 20);
+    uint8_t *buffer = (uint8_t *)malloc((size_t)cap);
     if (!buffer) {
         out.v1 = iron_net_err_code(IRON_ERR_NET_NO_MEMORY);
         return out;
     }
     Iron_Result_Int_Error received = Iron_net_tcp_recv_bytes(
-        s, buffer, max_bytes, timeout);
+        s, buffer, cap, timeout);
     if (received.v1.code == 0 && received.v0 > 0) {
         out.v0 = iron_string_from_cstr((const char *)buffer, (size_t)received.v0);
     }
@@ -616,10 +648,36 @@ Iron_Result_String_NetError Iron_tcpsocket_read(Iron_TcpSocket s,
     return out;
 }
 
+/* Writes the whole buffer within one deadline (the sockets are
+ * non-blocking, so one send may take only part of it): the result is the
+ * byte count, equal to the length on success; on an error or timeout it
+ * is what was written before it (#602). */
 Iron_Result_Int_Error Iron_tcpsocket_write(Iron_TcpSocket s, Iron_String buf, int64_t timeout) {
-    const char *base = iron_string_cstr(&buf);
-    int64_t     len  = (int64_t)iron_string_byte_len(&buf);
-    return Iron_net_tcp_send_bytes(s, (const uint8_t *)base, len, timeout);
+    const uint8_t *base = (const uint8_t *)iron_string_cstr(&buf);
+    int64_t        len  = (int64_t)iron_string_byte_len(&buf);
+    Iron_Deadline  dl   = Iron_deadline_from_timeout_ms(timeout);
+    Iron_Result_Int_Error out;
+    out.v0 = 0;
+    out.v1 = iron_net_err_none();
+    while (out.v0 < len) {
+        int64_t budget = timeout <= 0 ? 0 : (int64_t)Iron_deadline_remaining_ms(dl);
+        if (timeout > 0 && budget <= 0) {
+            out.v1 = iron_net_err_timeout();
+            return out;
+        }
+        Iron_Result_Int_Error part = Iron_net_tcp_send_bytes(
+            s, base + out.v0, len - out.v0, timeout <= 0 ? 0 : budget);
+        if (part.v1.code != 0) {
+            out.v1 = part.v1;
+            return out;
+        }
+        if (part.v0 <= 0) {
+            out.v1 = iron_net_err_timeout();
+            return out;
+        }
+        out.v0 += part.v0;
+    }
+    return out;
 }
 
 /* ── close — idempotent via the fd>=0 check ─────────────────────────── */
@@ -710,7 +768,8 @@ Iron_Result_IPv4Addr_NetError Iron_ipv4addr_parse(Iron_String s) {
     out.v0.d = 0;
 
     size_t len = iron_string_byte_len(&s);
-    if (len == 0 || len >= INET_ADDRSTRLEN) {
+    if (len == 0 || len >= INET_ADDRSTRLEN ||
+        memchr(iron_string_cstr(&s), '\0', len) != NULL) {
         out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_IP);
         return out;
     }
@@ -730,6 +789,12 @@ Iron_Result_IPv4Addr_NetError Iron_ipv4addr_parse(Iron_String s) {
 }
 
 Iron_String Iron_ipv4addr_format(Iron_IPv4Addr a) {
+    /* An octet outside 0..255 has no text form (it was masked to its
+     * low byte, naming a different address). */
+    if (a.a < 0 || a.a > 255 || a.b < 0 || a.b > 255 || a.c < 0 || a.c > 255 ||
+        a.d < 0 || a.d > 255) {
+        return iron_string_from_literal("", 0);
+    }
     uint8_t octets[4];
     ipv4_octets_to_bytes(a, octets);
     char buf[INET_ADDRSTRLEN];
@@ -754,7 +819,8 @@ Iron_Result_IPv6Addr_NetError Iron_ipv6addr_parse(Iron_String s) {
     out.v0.zone  = iron_string_from_literal("", 0);
 
     size_t len = iron_string_byte_len(&s);
-    if (len == 0 || len >= INET6_ADDRSTRLEN + 64) {
+    if (len == 0 || len >= INET6_ADDRSTRLEN + 64 ||
+        memchr(iron_string_cstr(&s), '\0', len) != NULL) {
         out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_IP);
         return out;
     }
@@ -776,7 +842,9 @@ Iron_Result_IPv6Addr_NetError Iron_ipv6addr_parse(Iron_String s) {
         }
     }
 
-    if (addr_len == 0 || addr_len >= INET6_ADDRSTRLEN || zone_len > 63) {
+    /* A '%' must be followed by a zone (fe80::1% names none). */
+    if (addr_len == 0 || addr_len >= INET6_ADDRSTRLEN || zone_len > 63 ||
+        (percent && zone_len == 0)) {
         out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_IP);
         return out;
     }
@@ -830,6 +898,15 @@ Iron_Result_UdpSocket_NetError Iron_net_udp_bind(Iron_String host, int64_t port)
     Iron_Result_UdpSocket_NetError out;
     out.v0.fd = -1;
     out.v1    = iron_net_err_none();
+
+    if (!iron_net_port_ok(port)) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_INVALID_ARGUMENT);
+        return out;
+    }
+    if (!iron_net_host_ok(&host)) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_IP);
+        return out;
+    }
 
     const char *host_c = iron_string_cstr(&host);
     if (!host_c) host_c = "";
@@ -921,6 +998,11 @@ static Iron_Result_Int_NetError iron_udp_sendto_flat(Iron_UdpSocket s,
     Iron_Result_Int_NetError out;
     out.v0 = 0;
     out.v1 = iron_net_err_none();
+
+    if (!iron_net_port_ok(port)) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_INVALID_ARGUMENT);
+        return out;
+    }
 
     Iron_Deadline dl = Iron_deadline_from_timeout_ms(timeout_ms);
 
@@ -1014,6 +1096,13 @@ Iron_Result_Int_NetError Iron_net_udp_sendto_v4(Iron_UdpSocket s,
                                                   Iron_IPv4Addr  addr,
                                                   int64_t        port,
                                                   int64_t        timeout) {
+    if (addr.a < 0 || addr.a > 255 || addr.b < 0 || addr.b > 255 ||
+        addr.c < 0 || addr.c > 255 || addr.d < 0 || addr.d > 255) {
+        Iron_Result_Int_NetError err_out;
+        err_out.v0 = 0;
+        err_out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_IP);
+        return err_out;
+    }
     uint8_t octets[4];
     ipv4_octets_to_bytes(addr, octets);
     Iron_String empty_zone = iron_string_from_literal("", 0);
@@ -1195,6 +1284,9 @@ Iron_UdpPacket Iron_udpsocket_recvfrom(Iron_UdpSocket s,
         out.error = iron_net_err_code(IRON_ERR_NET_INVALID_ARGUMENT);
         return out;
     }
+    /* No datagram is larger than 65535 bytes: a larger max_bytes does not
+     * need a larger buffer (#602). */
+    if (max_bytes > 65536) max_bytes = 65536;
     uint8_t *buffer = (uint8_t *)malloc((size_t)max_bytes);
     if (!buffer) {
         out.error = iron_net_err_code(IRON_ERR_NET_NO_MEMORY);
@@ -1298,6 +1390,7 @@ static void dns_abandoned_destructor(void *p) {
     /* Free the wait struct too — caller walked away without destroying
      * it (that's the whole point of the abandoned-flag variant). */
     if (job->wait) Iron_poolwait_destroy(job->wait);
+    iron_string_release(&job->name_copy);
     free(job);
 }
 
@@ -1399,6 +1492,13 @@ Iron_Tuple__Address__NetError Iron_net_lookup_host(Iron_String name,
     memset(&out, 0, sizeof(out));
     out.v1 = iron_net_err_none();
 
+    /* A name holding a zero byte is no host name: getaddrinfo would look
+     * up its prefix ("127.0.0.1\0evil" resolved to 127.0.0.1). */
+    if (!iron_net_host_ok(&name)) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_HOST);
+        return out;
+    }
+
     DnsJob *job = (DnsJob *)calloc(1, sizeof(*job));
     if (!job) {
         out.v1 = iron_net_err_code(IRON_ERR_NET_NO_MEMORY);
@@ -1414,6 +1514,7 @@ Iron_Tuple__Address__NetError Iron_net_lookup_host(Iron_String name,
 
     job->wait = Iron_poolwait_create();
     if (!job->wait) {
+        iron_string_release(&job->name_copy);
         free(job);
         out.v1 = iron_net_err_code(IRON_ERR_NET_NO_MEMORY);
         return out;
@@ -1486,6 +1587,7 @@ Iron_Tuple__Address__NetError Iron_net_lookup_host(Iron_String name,
         if (code == 0) code = IRON_ERR_NET_DNS_OTHER;
         if (ai) freeaddrinfo(ai);
         Iron_poolwait_destroy(job->wait);
+        iron_string_release(&job->name_copy);
         free(job);
         out.v1 = iron_net_err_code(code);
         return out;
@@ -1497,6 +1599,9 @@ Iron_Tuple__Address__NetError Iron_net_lookup_host(Iron_String name,
 
     freeaddrinfo(ai);
     Iron_poolwait_destroy(job->wait);
+    /* (a name of 24 bytes or more is a heap copy: it leaked on every
+     * lookup) */
+    iron_string_release(&job->name_copy);
     free(job);
 
     out.v1 = iron_net_err_none();

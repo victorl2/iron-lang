@@ -1,0 +1,778 @@
+-- HTTP API: routing, input validation and JSON responses.
+--
+--   GET    /healthz                       liveness
+--   GET    /readyz                        readiness (database reachable, schema migrated)
+--   GET    /metrics                       Prometheus metrics
+--   POST   /v1/items                      create an item
+--   GET    /v1/items                      list: category, min_price, max_price, q, after, limit, currency
+--   GET    /v1/items/{id}                 one item; ?currency=EUR adds the converted price
+--   PATCH  /v1/items/{id}                 change name, category or price_cents
+--   POST   /v1/items/{id}/stock           {"delta": -3, "reason": "sale"}
+--   GET    /v1/items/{id}/movements       newest stock movements; ?limit=
+--   GET    /v1/reports/categories         per category totals; ?currency=, ?window= seconds
+--   GET    /v1/rates/{currency}           cached exchange rate
+import http
+import json
+import math
+import mysql
+import time
+
+pub object Reply {
+    pub val route: Route
+    pub val status: Int
+    pub val body: String
+    pub val text: Bool
+    pub val allow: String
+}
+
+func json_reply(route: Route, status: Int, body: String) -> Reply {
+    return Reply(route, status, body, false, "")
+}
+
+pub func error_reply(route: Route, status: Int, message: String) -> Reply {
+    val w = JsonWriter.compact()
+    w.begin_object()
+    w.field_string("error", message)
+    w.end_object()
+    return Reply(route, status, w.finish(), false, "")
+}
+
+func method_not_allowed(route: Route, allow: String) -> Reply {
+    return Reply(route, 405, "\{\"error\":\"method not allowed\"}", false, allow)
+}
+
+-- ── Query strings ─────────────────────────────────────────────────────────
+
+func hex_value(b: Int) -> Int {
+    if b >= 48 and b <= 57 { return b - 48 }
+    if b >= 65 and b <= 70 { return b - 55 }
+    if b >= 97 and b <= 102 { return b - 87 }
+    return -1
+}
+
+-- Decode application/x-www-form-urlencoded text ('+' is a space). null
+-- when a percent escape is malformed.
+pub func form_decode(s: String) -> String? {
+    if s.index_of("%") < 0 and s.index_of("+") < 0 {
+        return s
+    }
+    var parts: [String] = []
+    var start = 0
+    var i = 0
+    val n = s.byte_len()
+    while i < n {
+        val b = s.byte_at(i)
+        if b == 43 {
+            parts.push(s.byte_slice(start, i))
+            parts.push(" ")
+            i += 1
+            start = i
+        } elif b == 37 {
+            if i + 2 >= n {
+                return null
+            }
+            val hi = hex_value(s.byte_at(i + 1))
+            val lo = hex_value(s.byte_at(i + 2))
+            if hi < 0 or lo < 0 {
+                return null
+            }
+            parts.push(s.byte_slice(start, i))
+            parts.push(String.from_byte(hi * 16 + lo))
+            i += 3
+            start = i
+        } else {
+            i += 1
+        }
+    }
+    parts.push(s.byte_slice(start, n))
+    return "".join(parts)
+}
+
+pub object Query {
+    val params: Map[String, String]
+    val bad: String
+
+    pub readonly func get(name: String) -> String {
+        return self.params.get_or(name, "")
+    }
+
+    pub readonly func has(name: String) -> Bool {
+        return self.params.has(name)
+    }
+}
+
+pub func parse_query(raw: String) -> Query {
+    var params = Map[String, String]()
+    if raw.len() == 0 {
+        return Query(params.take(), "")
+    }
+    for part in raw.split("&") {
+        if part.len() == 0 {
+            continue
+        }
+        val eq = part.index_of("=")
+        var k = part
+        var v = ""
+        if eq >= 0 {
+            k = part.substring(0, eq)
+            v = part.substring(eq + 1, part.len())
+        }
+        val dk = form_decode(k)
+        val dv = form_decode(v)
+        if dk == null or dv == null {
+            return Query(params.take(), "malformed percent escape in query")
+        }
+        params.put(dk, dv)
+    }
+    return Query(params.take(), "")
+}
+
+-- A query integer within [lo, hi]; `fallback` when absent. null when present
+-- but invalid.
+func query_int(q: Query, name: String, fallback: Int, lo: Int, hi: Int) -> Int? {
+    if not q.has(name) {
+        return fallback
+    }
+    val v = parse_int_strict(q.get(name))
+    if v == null or v < lo or v > hi {
+        return null
+    }
+    return v
+}
+
+-- ── Validation ────────────────────────────────────────────────────────────
+
+pub object FieldError {
+    pub val field: String
+    pub val message: String
+}
+
+func is_sku_byte(b: Int) -> Bool {
+    return (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b == 45 or b == 95 or b == 46
+}
+
+func is_category_byte(b: Int) -> Bool {
+    return (b >= 48 and b <= 57) or (b >= 97 and b <= 122) or b == 45 or b == 95
+}
+
+func all_bytes(s: String, sku: Bool) -> Bool {
+    var i = 0
+    while i < s.byte_len() {
+        val b = s.byte_at(i)
+        if sku {
+            if not is_sku_byte(b) {
+                return false
+            }
+        } elif not is_category_byte(b) {
+            return false
+        }
+        i += 1
+    }
+    return true
+}
+
+func has_control(s: String) -> Bool {
+    var i = 0
+    while i < s.byte_len() {
+        val b = s.byte_at(i)
+        if b < 32 or b == 127 {
+            return true
+        }
+        i += 1
+    }
+    return false
+}
+
+func check_name(v: Json, var errors: [FieldError]) -> String {
+    val s = v.as_string()
+    if s == null {
+        errors.push(FieldError("name", "must be a string"))
+        return ""
+    }
+    val t = s.trim()
+    if t.len() == 0 or t.len() > 200 {
+        errors.push(FieldError("name", "must be 1 to 200 characters"))
+    } elif has_control(t) {
+        errors.push(FieldError("name", "must not contain control characters"))
+    }
+    return t
+}
+
+func check_category(v: Json, var errors: [FieldError]) -> String {
+    val s = v.as_string()
+    if s == null {
+        errors.push(FieldError("category", "must be a string"))
+        return ""
+    }
+    if s.len() == 0 or s.len() > 64 or not all_bytes(s, false) {
+        errors.push(FieldError("category", "must be 1 to 64 of a-z, 0-9, - and _"))
+    }
+    return s
+}
+
+func check_price(v: Json, var errors: [FieldError]) -> Int {
+    val p = v.as_int()
+    if p == null {
+        errors.push(FieldError("price_cents", "must be an integer"))
+        return 0
+    }
+    if p < 0 or p > 1000000000000 {
+        errors.push(FieldError("price_cents", "must be between 0 and 1000000000000"))
+    }
+    return p
+}
+
+func validation_reply(route: Route, errors: [FieldError]) -> Reply {
+    val w = JsonWriter.compact()
+    w.begin_object()
+    w.field_string("error", "validation failed")
+    w.key("details")
+    w.begin_array()
+    for e in errors {
+        w.begin_object()
+        w.field_string("field", e.field)
+        w.field_string("message", e.message)
+        w.end_object()
+    }
+    w.end_array()
+    w.end_object()
+    return Reply(route, 422, w.finish(), false, "")
+}
+
+-- The request body as a JSON object, or a reply explaining why not.
+object BodyResult {
+    val doc: Json
+    val ok: Bool
+    val reply: Reply
+}
+
+func json_body(route: Route, request: HttpRequest) -> BodyResult {
+    val ct = Http.header(request.headers, "Content-Type").lower()
+    if ct.len() > 0 and not ct.starts_with("application/json") {
+        return BodyResult(Json.null(), false, error_reply(route, 415, "expected Content-Type: application/json"))
+    }
+    val parsed = Json.parse_with(request.body, JsonLimits(16, 1048576))
+    if parsed.error != 0 {
+        return BodyResult(Json.null(), false, error_reply(route, 400, "malformed JSON: {parsed.error_message}"))
+    }
+    if not parsed.value.is_object() {
+        return BodyResult(Json.null(), false, error_reply(route, 400, "expected a JSON object"))
+    }
+    return BodyResult(parsed.value, true, json_reply(route, 200, ""))
+}
+
+-- ── Writing items ─────────────────────────────────────────────────────────
+
+-- A price conversion applied to item responses.
+object Conversion {
+    val active: Bool
+    val currency: String
+    val rate: Float
+    val stale: Bool
+    val as_of: String
+    val unavailable: String
+}
+
+func no_conversion() -> Conversion {
+    return Conversion(false, "", 1.0, false, "", "")
+}
+
+func convert_cents(cents: Int, rate: Float) -> Int {
+    return Int(Math.round(Float(cents) * rate))
+}
+
+func write_item(w: JsonWriter, item: Item, conv: Conversion) {
+    w.begin_object()
+    w.field_int("id", item.id)
+    w.field_string("sku", item.sku)
+    w.field_string("name", item.name)
+    w.field_string("category", item.category)
+    w.field_int("price_cents", item.price_cents)
+    w.field_int("quantity", item.quantity)
+    w.field_string("created_at", item.created_at)
+    w.field_string("updated_at", item.updated_at)
+    if conv.active {
+        w.key("price")
+        w.begin_object()
+        w.field_string("currency", conv.currency)
+        w.field_int("amount_cents", convert_cents(item.price_cents, conv.rate))
+        w.field_float("rate", conv.rate)
+        w.field_bool("stale", conv.stale)
+        w.field_string("as_of", conv.as_of)
+        w.end_object()
+    } elif conv.unavailable.len() > 0 {
+        w.field_null("price")
+        w.field_string("price_error", conv.unavailable)
+    }
+    w.end_object()
+}
+
+-- Resolve ?currency=. An unknown or invalid currency is a client error
+-- (returned as a reply); an unavailable rate degrades to no conversion.
+object ConversionResult {
+    val conv: Conversion
+    val ok: Bool
+    val reply: Reply
+}
+
+func resolve_currency(app: rc App, wk: *Worker, route: Route, q: Query) -> ConversionResult {
+    if not q.has("currency") {
+        return ConversionResult(no_conversion(), true, json_reply(route, 200, ""))
+    }
+    val code = q.get("currency").upper()
+    val found = lookup_rate(app.rates, wk.metrics, app.db, code)
+    if found.status == 400 {
+        return ConversionResult(no_conversion(), false, error_reply(route, 400, found.message))
+    }
+    if found.status != 0 {
+        return ConversionResult(Conversion(false, code, 1.0, false, "", found.message), true, json_reply(route, 200, ""))
+    }
+    return ConversionResult(Conversion(true, code, found.rate, found.stale, found.as_of, ""), true, json_reply(route, 200, ""))
+}
+
+func db_reply(wk: *Worker, route: Route, status: Int, err: MysqlError, message: String) -> Reply {
+    if status >= 500 {
+        wk.metrics.db_error()
+        logger_warn("database error").str("route", route_name(route_index(route))).int("code", err.code).str("error", err.message).emit()
+        if status == 503 {
+            return error_reply(route, 503, "database unavailable, retry later")
+        }
+        return error_reply(route, 500, "internal error")
+    }
+    return error_reply(route, status, message)
+}
+
+-- ── Handlers ──────────────────────────────────────────────────────────────
+
+func create_item_handler(app: rc App, wk: *Worker, request: HttpRequest) -> Reply {
+    val route = Route.ItemCreate
+    val body = json_body(route, request)
+    if not body.ok {
+        return body.reply
+    }
+    val doc = body.doc
+    var errors: [FieldError] = []
+    val sku_v = doc.get("sku").as_string()
+    var sku = ""
+    if sku_v == null {
+        errors.push(FieldError("sku", "must be a string"))
+    } else {
+        sku = sku_v
+        if sku.len() == 0 or sku.len() > 64 or not all_bytes(sku, true) {
+            errors.push(FieldError("sku", "must be 1 to 64 of A-Z, a-z, 0-9, -, _ and ."))
+        }
+    }
+    val name = check_name(doc.get("name"), errors)
+    val category = check_category(doc.get("category"), errors)
+    val price = check_price(doc.get("price_cents"), errors)
+    var quantity = 0
+    if doc.has("quantity") {
+        val qv = doc.get("quantity").as_int()
+        if qv == null or qv < 0 or qv > 1000000000 {
+            errors.push(FieldError("quantity", "must be an integer between 0 and 1000000000"))
+        } else {
+            quantity = qv
+        }
+    }
+    if errors.len() > 0 {
+        return validation_reply(route, errors)
+    }
+    val r = create_item(app.db, NewItem(sku, name, category, price, quantity))
+    if r.error.failed() or not r.found {
+        return db_reply(wk, route, r.status, r.error, r.message)
+    }
+    val w = JsonWriter.compact()
+    write_item(w, r.item, no_conversion())
+    return json_reply(route, 201, w.finish())
+}
+
+func get_item_handler(app: rc App, wk: *Worker, id: Int, q: Query) -> Reply {
+    val route = Route.ItemGet
+    val conv = resolve_currency(app, wk, route, q)
+    if not conv.ok {
+        return conv.reply
+    }
+    val r = get_item(app.db, id)
+    if not r.found {
+        return db_reply(wk, route, r.status, r.error, r.message)
+    }
+    val w = JsonWriter.compact()
+    write_item(w, r.item, conv.conv)
+    return json_reply(route, 200, w.finish())
+}
+
+func list_items_handler(app: rc App, wk: *Worker, q: Query) -> Reply {
+    val route = Route.ItemList
+    var f = ItemFilter()
+    f.category = q.get("category")
+    f.name_prefix = q.get("q")
+    val min_price = query_int(q, "min_price", -1, 0, 1000000000000)
+    val max_price = query_int(q, "max_price", -1, 0, 1000000000000)
+    val after = query_int(q, "after", 0, 0, 9000000000000000000)
+    val limit = query_int(q, "limit", 50, 1, 500)
+    if min_price == null or max_price == null or after == null or limit == null {
+        return error_reply(route, 400, "min_price, max_price and after must be non-negative integers and limit 1 to 500")
+    }
+    f.min_price = min_price
+    f.max_price = max_price
+    f.after = after
+    f.limit = limit
+    if f.name_prefix.len() > 200 or f.category.len() > 64 {
+        return error_reply(route, 400, "filter too long")
+    }
+    val conv = resolve_currency(app, wk, route, q)
+    if not conv.ok {
+        return conv.reply
+    }
+    val page = list_items(app.db, f)
+    if page.status != 200 {
+        return db_reply(wk, route, page.status, page.error, "")
+    }
+    val w = JsonWriter.compact()
+    w.begin_object()
+    w.key("items")
+    w.begin_array()
+    for item in page.items {
+        write_item(w, item, conv.conv)
+    }
+    w.end_array()
+    w.field_int("count", page.items.len())
+    if page.next_after > 0 {
+        w.field_int("next_after", page.next_after)
+    } else {
+        w.field_null("next_after")
+    }
+    w.end_object()
+    return json_reply(route, 200, w.finish())
+}
+
+func update_item_handler(app: rc App, wk: *Worker, id: Int, request: HttpRequest) -> Reply {
+    val route = Route.ItemUpdate
+    val body = json_body(route, request)
+    if not body.ok {
+        return body.reply
+    }
+    val doc = body.doc
+    var errors: [FieldError] = []
+    var p = ItemPatch()
+    var fields = 0
+    if doc.has("name") {
+        p.name = check_name(doc.get("name"), errors)
+        fields += 1
+    }
+    if doc.has("category") {
+        p.category = check_category(doc.get("category"), errors)
+        fields += 1
+    }
+    if doc.has("price_cents") {
+        p.price_cents = check_price(doc.get("price_cents"), errors)
+        fields += 1
+    }
+    var i = 0
+    while i < doc.len() {
+        val k = doc.key_at(i)
+        if k != "name" and k != "category" and k != "price_cents" {
+            errors.push(FieldError(k, "cannot be changed"))
+        }
+        i += 1
+    }
+    if fields == 0 and errors.len() == 0 {
+        errors.push(FieldError("", "nothing to change: give name, category or price_cents"))
+    }
+    if errors.len() > 0 {
+        return validation_reply(route, errors)
+    }
+    val r = update_item(app.db, id, p)
+    if not r.found {
+        return db_reply(wk, route, r.status, r.error, r.message)
+    }
+    val w = JsonWriter.compact()
+    write_item(w, r.item, no_conversion())
+    return json_reply(route, 200, w.finish())
+}
+
+func stock_handler(app: rc App, wk: *Worker, id: Int, request: HttpRequest) -> Reply {
+    val route = Route.ItemStock
+    val body = json_body(route, request)
+    if not body.ok {
+        return body.reply
+    }
+    val doc = body.doc
+    var errors: [FieldError] = []
+    val delta = doc.get("delta").as_int()
+    if delta == null or delta == 0 or delta < -1000000000 or delta > 1000000000 {
+        errors.push(FieldError("delta", "must be a non-zero integer between -1000000000 and 1000000000"))
+    }
+    var reason = "adjustment"
+    if doc.has("reason") {
+        val rv = doc.get("reason").as_string()
+        if rv == null or rv.len() == 0 or rv.len() > 64 or not all_bytes(rv, false) {
+            errors.push(FieldError("reason", "must be 1 to 64 of a-z, 0-9, - and _"))
+        } else {
+            reason = rv
+        }
+    }
+    if errors.len() > 0 or delta == null {
+        return validation_reply(route, errors)
+    }
+    val r = adjust_stock(app.db, id, delta, reason)
+    if r.status == 409 {
+        val w = JsonWriter.compact()
+        w.begin_object()
+        w.field_string("error", "insufficient stock")
+        w.field_int("quantity", r.quantity)
+        w.field_int("requested", delta)
+        w.end_object()
+        return json_reply(route, 409, w.finish())
+    }
+    if r.status != 200 {
+        return db_reply(wk, route, r.status, r.error, r.message)
+    }
+    val w = JsonWriter.compact()
+    w.begin_object()
+    w.field_int("id", r.item_id)
+    w.field_int("quantity", r.quantity)
+    w.field_int("movement_id", r.movement_id)
+    w.end_object()
+    return json_reply(route, 200, w.finish())
+}
+
+func movements_handler(app: rc App, wk: *Worker, id: Int, q: Query) -> Reply {
+    val route = Route.ItemMovements
+    val limit = query_int(q, "limit", 20, 1, 200)
+    if limit == null {
+        return error_reply(route, 400, "limit must be 1 to 200")
+    }
+    val page = list_movements(app.db, id, limit)
+    if page.status != 200 {
+        return db_reply(wk, route, page.status, page.error, "item not found")
+    }
+    val w = JsonWriter.compact()
+    w.begin_object()
+    w.field_int("item_id", id)
+    w.key("movements")
+    w.begin_array()
+    for m in page.movements {
+        w.begin_object()
+        w.field_int("id", m.id)
+        w.field_int("delta", m.delta)
+        w.field_string("reason", m.reason)
+        w.field_string("created_at", m.created_at)
+        w.end_object()
+    }
+    w.end_array()
+    w.end_object()
+    return json_reply(route, 200, w.finish())
+}
+
+func report_handler(app: rc App, wk: *Worker, q: Query) -> Reply {
+    val route = Route.Report
+    val window = query_int(q, "window", 86400, 1, 31536000)
+    if window == null {
+        return error_reply(route, 400, "window must be 1 to 31536000 seconds")
+    }
+    val conv = resolve_currency(app, wk, route, q)
+    if not conv.ok {
+        return conv.reply
+    }
+    val report = cached_report(app.reports, app.db, window)
+    if report.status != 200 {
+        return db_reply(wk, route, report.status, report.error, "")
+    }
+    var currency = app.cfg.rates_base
+    var rate = 1.0
+    if conv.conv.active {
+        currency = conv.conv.currency
+        rate = conv.conv.rate
+    }
+    val w = JsonWriter.compact()
+    w.begin_object()
+    w.field_string("currency", currency)
+    w.field_int("window_seconds", window)
+    if conv.conv.active {
+        w.field_bool("rate_stale", conv.conv.stale)
+    }
+    if conv.conv.unavailable.len() > 0 {
+        w.field_bool("degraded", true)
+        w.field_string("rate_error", conv.conv.unavailable)
+    }
+    w.key("categories")
+    w.begin_array()
+    var total_value = 0
+    var total_units = 0
+    for row in report.rows {
+        val value = convert_cents(row.value_cents, rate)
+        total_value += value
+        total_units += row.units
+        w.begin_object()
+        w.field_string("category", row.category)
+        w.field_int("items", row.items)
+        w.field_int("units", row.units)
+        w.field_int("value_cents", value)
+        w.field_int("movements", row.movements)
+        w.field_int("net_change", row.net_change)
+        w.end_object()
+    }
+    w.end_array()
+    w.field_int("total_units", total_units)
+    w.field_int("total_value_cents", total_value)
+    w.end_object()
+    return json_reply(route, 200, w.finish())
+}
+
+func rate_handler(app: rc App, wk: *Worker, code: String) -> Reply {
+    val route = Route.RateGet
+    val found = lookup_rate(app.rates, wk.metrics, app.db, code)
+    if found.status != 0 {
+        return error_reply(route, found.status, found.message)
+    }
+    val w = JsonWriter.compact()
+    w.begin_object()
+    w.field_string("base", app.cfg.rates_base)
+    w.field_string("currency", code.upper())
+    w.field_float("rate", found.rate)
+    w.field_bool("stale", found.stale)
+    w.field_string("as_of", found.as_of)
+    w.field_int("age_ms", found.age_ms)
+    w.end_object()
+    return json_reply(route, 200, w.finish())
+}
+
+func ready_handler(app: rc App) -> Reply {
+    val route = Route.Ready
+    val db_ready = app.state.is_db_ready()
+    var db_ok = false
+    var db_message = "migrations pending"
+    if db_ready {
+        val err = ping(app.db)
+        db_ok = err.ok()
+        if not db_ok {
+            db_message = err.message
+        }
+    }
+    val snap = rates_snapshot(app.rates)
+    var rates_state = "unavailable"
+    if snap.has_table {
+        rates_state = "fresh"
+        if snap.age_ms >= app.cfg.rates_ttl_ms {
+            rates_state = "stale"
+        }
+    }
+    val draining = app.poller.closed()
+    val w = JsonWriter.compact()
+    w.begin_object()
+    if db_ok and not draining {
+        w.field_string("status", "ready")
+    } else {
+        w.field_string("status", "not ready")
+    }
+    w.key("checks")
+    w.begin_object()
+    if db_ok {
+        w.field_string("database", "ok")
+    } else {
+        w.field_string("database", db_message)
+    }
+    w.field_string("rates", rates_state)
+    w.field_bool("breaker_open", snap.breaker_open)
+    w.field_bool("draining", draining)
+    w.end_object()
+    w.end_object()
+    if db_ok and not draining {
+        return json_reply(route, 200, w.finish())
+    }
+    return json_reply(route, 503, w.finish())
+}
+
+func metrics_handler(app: rc App) -> Reply {
+    val snap = rates_snapshot(app.rates)
+    val gauges = Gauges(app.db.size(), app.db.idle(), app.db.in_use(), app.state.is_db_ready(),
+        app.poller.parked(), app.poller.accepted(), app.poller.expired(),
+        max(snap.age_ms, 0), snap.count, snap.breaker_open)
+    return Reply(Route.MetricsPage, 200, render_metrics(app.metrics_set, gauges, Time.now_ms()), true, "")
+}
+
+-- An id path segment: a positive integer.
+func path_id(s: String) -> Int {
+    val v = parse_int_strict(s)
+    if v == null or v <= 0 {
+        return 0
+    }
+    return v
+}
+
+pub func dispatch(app: rc App, wk: *Worker, request: HttpRequest) -> Reply {
+    val path = request.path
+    val method = request.method
+    if path == "/healthz" {
+        if method != "GET" and method != "HEAD" {
+            return method_not_allowed(Route.Health, "GET, HEAD")
+        }
+        return json_reply(Route.Health, 200, "\{\"status\":\"ok\"}")
+    }
+    if path == "/readyz" {
+        return ready_handler(app)
+    }
+    if path == "/metrics" {
+        return metrics_handler(app)
+    }
+    if not path.starts_with("/v1/") {
+        return error_reply(Route.NotFound, 404, "not found")
+    }
+    val q = parse_query(request.query)
+    if q.bad.len() > 0 {
+        return error_reply(Route.BadRequest, 400, q.bad)
+    }
+    val segs = path.split("/")
+    -- "/v1/items/7/stock" splits into ["", "v1", "items", "7", "stock"].
+    val n = segs.len()
+    if n >= 3 and segs[2] == "items" {
+        if n == 3 or (n == 4 and segs[3] == "") {
+            if method == "POST" {
+                return create_item_handler(app, wk, request)
+            }
+            if method == "GET" {
+                return list_items_handler(app, wk, q)
+            }
+            return method_not_allowed(Route.ItemList, "GET, POST")
+        }
+        val id = path_id(segs[3])
+        if id == 0 {
+            return error_reply(Route.ItemGet, 404, "item not found")
+        }
+        if n == 4 {
+            if method == "GET" {
+                return get_item_handler(app, wk, id, q)
+            }
+            if method == "PATCH" {
+                return update_item_handler(app, wk, id, request)
+            }
+            return method_not_allowed(Route.ItemGet, "GET, PATCH")
+        }
+        if n == 5 and segs[4] == "stock" {
+            if method == "POST" {
+                return stock_handler(app, wk, id, request)
+            }
+            return method_not_allowed(Route.ItemStock, "POST")
+        }
+        if n == 5 and segs[4] == "movements" {
+            if method == "GET" {
+                return movements_handler(app, wk, id, q)
+            }
+            return method_not_allowed(Route.ItemMovements, "GET")
+        }
+    }
+    if n == 4 and segs[2] == "reports" and segs[3] == "categories" {
+        if method == "GET" {
+            return report_handler(app, wk, q)
+        }
+        return method_not_allowed(Route.Report, "GET")
+    }
+    if n == 4 and segs[2] == "rates" {
+        if method == "GET" {
+            return rate_handler(app, wk, segs[3])
+        }
+        return method_not_allowed(Route.RateGet, "GET")
+    }
+    return error_reply(Route.NotFound, 404, "not found")
+}

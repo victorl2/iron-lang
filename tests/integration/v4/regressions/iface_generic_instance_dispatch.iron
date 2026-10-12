@@ -1,0 +1,27 @@
+-- Interface dispatch to generic instances whose type arguments are generic
+-- instances or lists calls each method by its own name (#601).
+interface Show {
+    readonly func show() -> String
+}
+
+object Gp[A, B] {
+    val a: A
+    val b: B
+}
+
+object GH[T] impl Show {
+    val v: T
+    val tag: String
+    readonly func show() -> String {
+        return self.tag
+    }
+}
+
+func main() {
+    val s: Show = GH[Gp[Int, [String]]](Gp[Int, [String]](1, ["z"]), "tag")
+    println(s.show())
+    val ss: [Show] = [GH[Int](1, "one"), GH[String]("x", "two"), GH[[Int]]([1], "three")]
+    for x in ss {
+        println(x.show())
+    }
+}

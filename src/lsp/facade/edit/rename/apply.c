@@ -43,6 +43,9 @@
 #include "lsp/server/server.h"
 #include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h"
+#include "util/os.h"
+#include <limits.h>
+#include <stdlib.h>
 #include "analyzer/scope.h"
 #include "parser/ast.h"
 #include "diagnostics/diagnostics.h"
@@ -252,6 +255,13 @@ void ilsp_facade_rename(IronLsp_Server        *server,
     const char *key_name = at ? at->name : (sym ? sym->name : NULL);
     if (!key_decl || !key_name) goto done;  /* graceful: empty WorkspaceEdit */
     if (sym && sym->decl_node != key_decl) sym = NULL;
+    /* The cursor on a declaration's own name: its symbol is the one any
+     * use of it resolves to, in this document or in the package's other
+     * files, so the uses in those files are renamed too. */
+    if (!sym) {
+        const Iron_Symbol *ds = ilsp_nav_symbol_of_decl(program, key_decl);
+        if (ds && ds->decl_node == key_decl && ds->name && strcmp(ds->name, key_name) == 0) sym = ds;
+    }
     /* The stdlib is not the user's to rename (prepareRename says so). */
     if (key_decl->span.filename && ilsp_facade_is_stdlib_path(key_decl->span.filename))
         goto done;
@@ -296,6 +306,18 @@ void ilsp_facade_rename(IronLsp_Server        *server,
         const char *decl_path = (sym->decl_node && sym->decl_node->span.filename)
             ? sym->decl_node->span.filename
             : (doc->uri ? doc->uri : "");
+        /* The index names a declaring file by its canonical path; the
+         * open document's declarations carry its URI. */
+        char decl_canon[PATH_MAX];
+        if (strncmp(decl_path, "file://", 7) == 0) {
+            const char *fs = ilsp_nav_uri_to_path(decl_path, &walk_arena);
+            if (fs && realpath(fs, decl_canon) != NULL) {
+                for (char *c = decl_canon; *c; c++) if (*c == '\\') *c = '/';
+                decl_path = decl_canon;
+            } else if (fs) {
+                decl_path = fs;
+            }
+        }
         IronLsp_SymbolId triple = ilsp_symbol_id_derive(
             sym, decl_path, program, &walk_arena);
         if (triple.hash == 0) goto done;
