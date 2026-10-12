@@ -1583,7 +1583,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         l.capacity = cap; \
         l.items = NULL; \
         if (cap > 0) { \
-            l.items = (T *)iron_mem_alloc((size_t)cap * sizeof(T)); \
+            l.items = (T *)IRON_LIST_ALLOC(T, (size_t)cap * sizeof(T)); \
             if (!l.items) iron_oom_abort("Iron_List_" #suffix "_create_with_capacity"); \
         } \
         return l; \
@@ -1595,7 +1595,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
             if (new_cap < self->capacity) { \
                 iron_oom_abort("Iron_List_" #suffix "_push: capacity overflow"); \
             } \
-            T *new_items = (T *)iron_mem_realloc(self->items, (size_t)new_cap * sizeof(T)); \
+            T *new_items = (T *)IRON_LIST_REALLOC(T, self->items, (size_t)self->capacity * sizeof(T), (size_t)new_cap * sizeof(T)); \
             if (!new_items) iron_oom_abort("Iron_List_" #suffix "_push"); \
             self->items = new_items; \
             self->capacity = new_cap; \
@@ -1657,7 +1657,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         dst.count = src->count; \
         dst.capacity = src->count; \
         if (src->count > 0) { \
-            dst.items = (T *)iron_mem_alloc((size_t)src->count * sizeof(T)); \
+            dst.items = (T *)IRON_LIST_ALLOC(T, (size_t)src->count * sizeof(T)); \
             if (!dst.items) iron_oom_abort("Iron_List_" #suffix "_clone"); \
             iron_mem_copy(dst.items, src->items, (size_t)src->count * sizeof(T)); \
         } else { \
@@ -1669,7 +1669,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
-        iron_mem_free(self->items); \
+        IRON_LIST_FREE(T, self->items); \
         self->items = NULL; self->count = 0; self->capacity = 0; \
     }
 
@@ -1695,7 +1695,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         l.capacity = cap; \
         l.items = NULL; \
         if (cap > 0) { \
-            l.items = (T *)iron_mem_alloc((size_t)cap * sizeof(T)); \
+            l.items = (T *)IRON_LIST_ALLOC(T, (size_t)cap * sizeof(T)); \
             if (!l.items) iron_oom_abort("Iron_List_" #suffix "_create_with_capacity"); \
         } \
         return l; \
@@ -1705,7 +1705,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         dst.count = src->count; \
         dst.capacity = src->count; \
         if (src->count > 0) { \
-            dst.items = (T *)iron_mem_alloc((size_t)src->count * sizeof(T)); \
+            dst.items = (T *)IRON_LIST_ALLOC(T, (size_t)src->count * sizeof(T)); \
             if (!dst.items) iron_oom_abort("Iron_List_" #suffix "_clone"); \
             iron_mem_copy(dst.items, src->items, (size_t)src->count * sizeof(T)); \
         } else { \
@@ -1719,7 +1719,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
             if (new_cap < self->capacity) { \
                 iron_oom_abort("Iron_List_" #suffix "_push: capacity overflow"); \
             } \
-            T *new_items = (T *)iron_mem_realloc(self->items, (size_t)new_cap * sizeof(T)); \
+            T *new_items = (T *)IRON_LIST_REALLOC(T, self->items, (size_t)self->capacity * sizeof(T), (size_t)new_cap * sizeof(T)); \
             if (!new_items) iron_oom_abort("Iron_List_" #suffix "_push"); \
             self->items = new_items; \
             self->capacity = new_cap; \
@@ -1776,7 +1776,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
-        iron_mem_free(self->items); \
+        IRON_LIST_FREE(T, self->items); \
         self->items = NULL; self->count = 0; self->capacity = 0; \
     }
 

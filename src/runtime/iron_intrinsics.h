@@ -248,6 +248,31 @@ IRON_INTR_FN int64_t  iron_i64_from_bits(uint64_t u) { return (int64_t)u; }
 #define iron_hint_likely(c)   __builtin_expect(!!(c), 1)
 #define iron_hint_unlikely(c) __builtin_expect(!!(c), 0)
 
+/* ── Alignment ───────────────────────────────────────────────────────────────
+ * `//iron:align=cacheline`: 128 on Apple arm64 (its cores prefetch 128-byte
+ * line pairs), 64 everywhere else. */
+#if defined(__APPLE__) && defined(__aarch64__)
+#define IRON_CACHELINE 128
+#else
+#define IRON_CACHELINE 64
+#endif
+
+/* Over-aligned storage: list buffers of an element type aligned above 16
+ * bytes (an `//iron:align=N` object) come from these (iron_os.c:
+ * posix_memalign, or _aligned_malloc on the Windows UCRT) and go back
+ * through iron_mem_free_aligned. The IRON_LIST_* macros pick the plain or
+ * aligned allocator from _Alignof(T) at compile time. */
+void *iron_mem_alloc_aligned(size_t size, size_t align);
+void  iron_mem_free_aligned(void *p);
+void *iron_mem_realloc_aligned(void *p, size_t old_size, size_t new_size, size_t align);
+#define IRON_LIST_ALLOC(T, bytes) \
+    (_Alignof(T) > 16 ? iron_mem_alloc_aligned((bytes), _Alignof(T)) : iron_mem_alloc(bytes))
+#define IRON_LIST_REALLOC(T, p, old_bytes, new_bytes) \
+    (_Alignof(T) > 16 ? iron_mem_realloc_aligned((p), (old_bytes), (new_bytes), _Alignof(T)) \
+                      : iron_mem_realloc((p), (new_bytes)))
+#define IRON_LIST_FREE(T, p) \
+    do { if (_Alignof(T) > 16) iron_mem_free_aligned(p); else iron_mem_free(p); } while (0)
+
 /* ── Views ───────────────────────────────────────────────────────────────────
  * View[T] and ViewMut[T] are { T *ptr; int64_t len; } passed by value; the
  * emitter declares the struct for each element type it meets, the scalar
@@ -422,7 +447,8 @@ void Iron_stringbuilder__release(int64_t data);
        if (_n > _l->capacity - _l->count) {                                     \
            int64_t _cap = _l->capacity ? _l->capacity * 2 : 8;                  \
            if (_cap < _l->count + _n) _cap = _l->count + _n;                    \
-           void *_ni = iron_mem_realloc(_l->items, (size_t)_cap * sizeof(*_l->items)); \
+           void *_ni = IRON_LIST_REALLOC(__typeof__(*_l->items), _l->items,     \
+               (size_t)_l->capacity * sizeof(*_l->items), (size_t)_cap * sizeof(*_l->items)); \
            if (!_ni) iron_oom_abort("spare");                                   \
            _l->items = (__typeof__(_l->items))_ni; _l->capacity = _cap;         \
        }                                                                        \
@@ -467,7 +493,7 @@ void Iron_stringbuilder__release(int64_t data);
     ({ __typeof__(v) _v = (v); LT _l; _l.count = _v.len; _l.capacity = _v.len;  \
        _l.items = NULL;                                                         \
        if (_v.len > 0) {                                                        \
-           _l.items = (__typeof__(_l.items))iron_mem_alloc((size_t)_v.len * sizeof(*_v.ptr)); \
+           _l.items = (__typeof__(_l.items))IRON_LIST_ALLOC(__typeof__(*_v.ptr), (size_t)_v.len * sizeof(*_v.ptr)); \
            if (!_l.items) iron_oom_abort("to_list");                            \
            iron_mem_copy(_l.items, _v.ptr, (size_t)_v.len * sizeof(*_v.ptr));   \
        }                                                                        \

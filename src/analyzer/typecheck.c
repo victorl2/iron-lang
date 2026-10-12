@@ -2480,6 +2480,27 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     else if (strcmp(name, "String")  == 0) base = iron_type_make_primitive(IRON_TYPE_STRING);
     else if (strcmp(name, "void")    == 0) base = iron_type_make_primitive(IRON_TYPE_VOID);
     else if (strcmp(name, "Void")    == 0) base = iron_type_make_primitive(IRON_TYPE_VOID);
+    /* Views (manual 2.15): `Bytes` is View[UInt8]. A user type of the same
+     * name wins. */
+    else if ((strcmp(name, "View") == 0 || strcmp(name, "ViewMut") == 0 ||
+              strcmp(name, "Bytes") == 0) &&
+             !iron_scope_lookup(ctx->global_scope, name)) {
+        bool is_bytes = strcmp(name, "Bytes") == 0;
+        int want = is_bytes ? 0 : 1;
+        if (ann->generic_arg_count != want) {
+            char msg[160];
+            snprintf(msg, sizeof(msg), "'%s' takes %d type argument(s), got %d",
+                     name, want, ann->generic_arg_count);
+            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ann_node->span, msg,
+                       is_bytes ? "Bytes is View[UInt8]" : "write View[T] or ViewMut[T]");
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
+        Iron_Type *elem = is_bytes ? iron_type_make_primitive(IRON_TYPE_UINT8)
+                                   : resolve_type_annotation(ctx, ann->generic_args[0]);
+        if (!elem || elem->kind == IRON_TYPE_ERROR) return iron_type_make_primitive(IRON_TYPE_ERROR);
+        base = iron_type_make_view(ctx->arena, elem, strcmp(name, "ViewMut") == 0);
+        if (!base) base = iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
     /* Phase 33 STDLIB-10 (Plan 33-06): RawPtr is the type-erased member of the
      * *unchecked T regime. Internally represented as IRON_TYPE_PTR with
      * is_unchecked=true and pointee=Int (a stand-in for the 8-byte erased
@@ -8569,6 +8590,14 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                    idx_e->index->span, msg, NULL);
                     }
                 }
+            } else if (obj_type && obj_type->kind == IRON_TYPE_VIEW) {
+                /* v[i]: element i of the view, bounds checked. */
+                result = obj_type->view.elem;
+                if (idx_type && idx_type->kind != IRON_TYPE_ERROR &&
+                    !iron_type_is_integer(idx_type)) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, idx_e->index->span,
+                               "view index must be an integer type", NULL);
+                }
             } else if (obj_type && obj_type->kind == IRON_TYPE_STRING) {
                 /* s[i]: the character at position i, as a String. */
                 result = obj_type;
@@ -10068,6 +10097,15 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     if (as->value) check_expr(ctx, as->value);
                     break;
                 }
+                /* A View is read-only; a ViewMut writes through to its
+                 * source whatever binding holds it (like a *var pointer). */
+                if (tt && tt->kind == IRON_TYPE_VIEW && !tt->view.is_mut) {
+                    emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, as->target->span,
+                               "cannot assign through a read-only view",
+                               "take a writable view with view_mut() (the source must be var)");
+                    if (as->value) check_expr(ctx, as->value);
+                    break;
+                }
             }
 
             /* Mutability check: use resolved_sym (set by resolver) as authoritative
@@ -11085,6 +11123,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             }
             if (iter_t && iter_t->kind == IRON_TYPE_ARRAY) {
                 loop_var_type = iter_t->array.elem;
+            } else if (iter_t && iter_t->kind == IRON_TYPE_VIEW) {
+                loop_var_type = iter_t->view.elem;
+                if (fs->is_parallel) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, fs->iterable->span,
+                               "parallel for cannot iterate a view",
+                               "iterate range(v.len()) instead");
+                }
             } else if (iter_t && iter_t->kind == IRON_TYPE_STRING) {
                 /* for c in s: each character, as a String */
                 loop_var_type = iter_t;
@@ -11111,7 +11156,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                            "count with range: `for i in range(n)` goes from 0 to n - 1");
             } else if (iter_t && iter_t->kind != IRON_TYPE_ERROR && !hk &&
                 iter_t->kind != IRON_TYPE_ARRAY && iter_t->kind != IRON_TYPE_STRING &&
-                !iron_type_is_integer(iter_t)) {
+                iter_t->kind != IRON_TYPE_VIEW && !iron_type_is_integer(iter_t)) {
                 char msg[256];
                 snprintf(msg, sizeof(msg), "cannot iterate over a value of type '%s'",
                          iron_type_to_string(iter_t, ctx->arena));

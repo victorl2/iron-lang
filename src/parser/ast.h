@@ -197,6 +197,19 @@ typedef struct {
     bool        trailing;  /* at the end of the node's first line */
 } Iron_Directive;
 
+/* Compiler hints recorded from `//iron:<hint>` directives (manual 1.2):
+ * code-generation facts that never change what a program does.
+ *   IRON_HINT_INLINE / NOINLINE / COLD   on a func or method (hints field)
+ *   align                                on an object, field, val or var:
+ *                                        the alignment in bytes, or
+ *                                        IRON_ALIGN_CACHELINE; 0 = none */
+enum {
+    IRON_HINT_INLINE   = 1u << 0,
+    IRON_HINT_NOINLINE = 1u << 1,
+    IRON_HINT_COLD     = 1u << 2,
+};
+#define IRON_ALIGN_CACHELINE 0xFFFFu
+
 /* ── Top-level declarations ──────────────────────────────────────────────── */
 
 typedef struct {
@@ -298,6 +311,8 @@ typedef struct Iron_ObjectDecl {
      * (286) at every copy site (assignment, param-pass-by-value, return) when
      * the source type has is_nocopy=true. */
     bool          is_nocopy;
+    /* `//iron:align=N` above the object: every instance's alignment. */
+    uint16_t      align;
 } Iron_ObjectDecl;
 
 typedef struct Iron_InterfaceDecl {
@@ -378,6 +393,7 @@ typedef struct {
      * (`ironc build --test`); other builds drop it after checking. */
     bool               is_test;
     const char        *test_name;
+    uint8_t            hints;     /* IRON_HINT_* from `//iron:` directives */
 } Iron_FuncDecl;
 
 typedef struct {
@@ -468,6 +484,7 @@ typedef struct {
      * semantics. Plan 20-02b's emit_c.c reads it on method bodies for
      * the iron_stack_gen prologue/epilogue injection. Default false. */
     bool               takes_local_addr;
+    uint8_t            hints;     /* IRON_HINT_* from `//iron:` directives */
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
@@ -522,6 +539,7 @@ typedef struct {
      * the analyzer pass so codegen can read field types without TypeCtx.
      * Default NULL (arena-zalloc); populated on first resolver access. */
     struct Iron_Type *field_type_cached;
+    uint16_t          align;   /* `//iron:align=N` on the field; 0 = none */
 } Iron_Field;
 
 typedef struct {
@@ -643,6 +661,7 @@ typedef struct {
      * NULL entries in binding_names[] mean wildcard (`_`). */
     const char       **binding_names;
     int                binding_count;
+    uint16_t           align;   /* `//iron:align=N` on the binding; 0 = none */
 } Iron_ValDecl;
 
 typedef struct {
@@ -660,6 +679,7 @@ typedef struct {
     /* Set by capture analysis: a closure captures this var, so it lives in
      * a counted cell the closure env shares (#210). */
     bool               is_boxed;
+    uint16_t           align;   /* `//iron:align=N` on the binding; 0 = none */
 } Iron_VarDecl;
 
 typedef struct {

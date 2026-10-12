@@ -4466,6 +4466,9 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         IronHIR_VarId vid  = stmt->let.var_id;
         Iron_Type    *type = stmt->let.type;
         bool is_mut        = stmt->let.is_mutable;
+        /* An over-aligned binding needs a stack slot to carry the
+         * alignment: it takes the slot path of a var. */
+        if (stmt->let.align) is_mut = true;
 
         if (!type && stmt->let.init) type = stmt->let.init->type;
 
@@ -4516,6 +4519,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             const char *name = iron_hir_var_name(ctx->hir, vid);
             IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, alloca_type, name, span);
             hmput(ctx->var_alloca_map, vid, alloca_id);
+            if (stmt->let.align &&
+                alloca_id < (IronLIR_ValueId)arrlen(ctx->current_func->value_table) &&
+                ctx->current_func->value_table[alloca_id])
+                ctx->current_func->value_table[alloca_id]->alloca.align = stmt->let.align;
             /* A var a closure captures lives in a counted cell (#210): the
              * frame releases its share at scope exit and the cell's own
              * drop destroys the value with the last share. */
@@ -5066,6 +5073,9 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             stmt->for_loop.iterable->type->kind == IRON_TYPE_ARRAY) {
             elem_type = stmt->for_loop.iterable->type->array.elem;
         }
+        bool iter_is_view = stmt->for_loop.iterable && stmt->for_loop.iterable->type &&
+                            stmt->for_loop.iterable->type->kind == IRON_TYPE_VIEW;
+        if (iter_is_view) elem_type = stmt->for_loop.iterable->type->view.elem;
         if (!elem_type) elem_type = int_type;
 
         /* The element slot carries the loop variable's name, so a debugger
@@ -5079,7 +5089,8 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         /* Hoist loop bound: evaluate .count once in pre-header */
         IronLIR_ValueId count_alloca = emit_alloca_in_entry(ctx, int_type, "__for_count", span);
         IronLIR_ValueId count_init = iron_lir_get_field(ctx->current_func, pre_header,
-                                                          iterable_val, "count", int_type, span)->id;
+                                                          iterable_val, iter_is_view ? "len" : "count",
+                                                          int_type, span)->id;
         iron_lir_store(ctx->current_func, pre_header, count_alloca, count_init, span);
 
         if (!block_is_terminated(pre_header)) {
@@ -5774,6 +5785,7 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
      * + per-return-path bumps for functions whose body takes the address
      * of a stack-local (set by Plan 20-02a's mark_takes_local_addr_pass). */
     lir_func->takes_local_addr = hir_func->takes_local_addr;
+    lir_func->hints = hir_func->hints;
     /* Phase 22 READ-08: pure pass-through propagation HIR -> LIR.
      * Consumed by emit_c.c emit_func_use_sret helper for symmetric
      * sret ABI at function-decl and call-site emission. */
@@ -6019,6 +6031,8 @@ static void ssa_collect_addr_taken(IronLIR_Func *fn) {
                  * as 0, and value range narrowing then truncated its loads
                  * to the range of the stored constants.) */
                 if (in->alloca.global_name) hmput(g_ssa_addr_taken, in->id, true);
+                /* An over-aligned slot is storage, never a register. */
+                if (in->alloca.align) hmput(g_ssa_addr_taken, in->id, true);
                 break;
             case IRON_LIR_CALL:
                 for (int ai = 0; ai < in->call.arg_count; ai++) {

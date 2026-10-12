@@ -464,7 +464,10 @@ static bool lir_vid_is_global_slot(IronLIR_Func *fn, IronLIR_ValueId vid) {
     if (!fn || vid == IRON_LIR_VALUE_INVALID) return false;
     if ((ptrdiff_t)vid >= arrlen(fn->value_table)) return false;
     IronLIR_Instr *in = fn->value_table[vid];
-    return in && in->kind == IRON_LIR_ALLOCA && in->alloca.global_name != NULL;
+    /* An over-aligned local (`//iron:align=N`) is storage with a stated
+     * address property: keep it, and every access to it, real. */
+    return in && in->kind == IRON_LIR_ALLOCA &&
+           (in->alloca.global_name != NULL || in->alloca.align != 0);
 }
 
 /* ── Stack-array optimization pre-pass (ARR-01) ─────────────────────────── */
@@ -1941,7 +1944,8 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
             if (in->kind == IRON_LIR_ALLOCA) {
                 /* A global slot aliases the module static, which any
                  * callee may write: it is escaped from the start. */
-                hmput(escaped, in->id, in->alloca.global_name != NULL);
+                hmput(escaped, in->id, in->alloca.global_name != NULL ||
+                                       in->alloca.align != 0);
             }
         }
     }
@@ -2129,7 +2133,7 @@ static bool run_dead_alloca_elimination(IronLIR_Module *module) {
                     /* Module-global slot (2026-07 remediation): a STORE
                      * through the slot IS the observable global write —
                      * never delete the slot or its stores. */
-                    if (in->alloca.global_name) continue;
+                    if (in->alloca.global_name || in->alloca.align) continue;
                     if (hmgeti(loaded, in->id) < 0) {
                         hmput(dead_alloca, in->id, true);
                     }
@@ -6466,6 +6470,8 @@ static void run_function_inlining(IronLIR_Module *module,
     for (int fi = 0; fi < module->func_count; fi++) {
         IronLIR_Func *fn = module->funcs[fi];
         if (fn->is_extern || fn->block_count == 0) continue;
+        /* `//iron:noinline` / `//iron:cold`: keep the call. */
+        if (fn->hints & (IRON_HINT_NOINLINE | IRON_HINT_COLD)) continue;
         /* Skip lifted functions — their void *_env calling convention
          * is incompatible with the inliner's parameter remapping. */
         if (strncmp(fn->name, "__lambda_", 9) == 0 ||
