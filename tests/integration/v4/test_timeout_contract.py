@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""Keep sanitizer-heavy compile fixtures above their safe timeout."""
+
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+
+FIXTURES = (
+    "v4_4.3-unchecked-ptr_happy",
+    "v4_4.3-unchecked-ptr_boundary_box_unwrap",
+    "v4_4.3-unchecked-ptr_boundary_box_takes_ownership",
+    "v4_4.3-unchecked-ptr_boundary_box_isnull",
+    "v4_4.3-unchecked-ptr_panic_box_unwrap_null",
+    "v4_8.1-composition-default_happy",
+)
+
+
+def main() -> int:
+    if len(sys.argv) != 3:
+        print("usage: test_timeout_contract.py <ctest> <build-dir>", file=sys.stderr)
+        return 2
+    ctest, build_dir = sys.argv[1:]
+    result = subprocess.run(
+        [ctest, "--test-dir", str(Path(build_dir)), "--show-only=json-v1"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    tests = {test["name"]: test for test in json.loads(result.stdout)["tests"]}
+    failures = []
+    for name in FIXTURES:
+        test = tests.get(name)
+        if test is None:
+            failures.append(f"{name} is not registered")
+            continue
+        properties = {item["name"]: item["value"] for item in test["properties"]}
+        timeout = properties.get("TIMEOUT")
+        if not isinstance(timeout, (int, float)) or timeout < 120:
+            failures.append(f"{name} TIMEOUT is {timeout!r}, expected at least 120")
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        return 1
+    print("sanitizer-heavy fixtures have at least 120 seconds")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -2076,7 +2076,7 @@ if(NOT WIN32)
     iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/happy.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_happy PROPERTIES
         LABELS "integration;phase25-invariant"
-        TIMEOUT 30
+        TIMEOUT 120
         WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
 
@@ -2090,7 +2090,7 @@ if(NOT WIN32)
     iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_unwrap.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_unwrap PROPERTIES
         LABELS "integration;phase25-invariant"
-        TIMEOUT 30
+        TIMEOUT 120
         WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
 
@@ -2104,7 +2104,7 @@ if(NOT WIN32)
     iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_takes_ownership.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_takes_ownership PROPERTIES
         LABELS "integration;phase25-invariant"
-        TIMEOUT 30
+        TIMEOUT 120
         WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
 
@@ -2118,7 +2118,7 @@ if(NOT WIN32)
     iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_isnull.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_isnull PROPERTIES
         LABELS "integration;phase25-invariant"
-        TIMEOUT 30
+        TIMEOUT 120
         WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
 
@@ -2132,9 +2132,21 @@ if(NOT WIN32)
     iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/panic_box_unwrap_null.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_panic_box_unwrap_null PROPERTIES
         LABELS "integration;phase25-invariant"
-        TIMEOUT 30
+        TIMEOUT 120
         WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
+
+    if(Python3_EXECUTABLE)
+        add_test(
+            NAME test_sanitizer_timeout_contract
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/integration/v4/test_timeout_contract.py
+                    ${CMAKE_CTEST_COMMAND}
+                    ${CMAKE_BINARY_DIR}
+        )
+        set_tests_properties(test_sanitizer_timeout_contract PROPERTIES
+            LABELS "phase25-invariant;unit")
+    endif()
 
     add_executable(test_ptr_types tests/unit/test_ptr_types.c)
     target_link_libraries(test_ptr_types PRIVATE iron_compiler iron_runtime unity m pthread)
@@ -3115,7 +3127,7 @@ if(NOT WIN32)
         iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/${_fixrel}.iron")
         set_tests_properties(v4_${_fixname} PROPERTIES
             LABELS "integration;aggregate-parity;v4-acceptance"
-            TIMEOUT 60
+            TIMEOUT 120
             WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
 
