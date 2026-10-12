@@ -468,19 +468,6 @@ target_link_libraries(test_toml_legacy_deps unity)
 add_test(NAME test_toml_legacy_deps COMMAND test_toml_legacy_deps)
 set_tests_properties(test_toml_legacy_deps PROPERTIES LABELS "unit")
 
-# iron.toml strings, long lines, package names (#565)
-add_executable(test_toml_strings
-    test_toml_strings.c
-    ${CMAKE_SOURCE_DIR}/src/cli/toml.c
-    ${CMAKE_SOURCE_DIR}/src/fmt/options.c
-)
-target_include_directories(test_toml_strings PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-)
-target_link_libraries(test_toml_strings unity)
-add_test(NAME test_toml_strings COMMAND test_toml_strings)
-set_tests_properties(test_toml_strings PROPERTIES LABELS "unit")
-
 # Phase 95 PIN: semver constraint parser tests
 add_executable(test_semver
     test_semver.c

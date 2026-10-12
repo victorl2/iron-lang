@@ -9,6 +9,7 @@
  */
 
 #include "hir/stdlib_origin.h"
+#include "comptime/comptime.h"
 #include "analyzer/generics.h"
 #include "analyzer/resolve.h"
 #include "analyzer/typo_candidate.h"
@@ -1598,6 +1599,14 @@ static const char *const k_stdlib_modules[] = {
  * src/lib.iron, `greeter` matches vendor/greeter/src/lib.iron, `a.b.c`
  * matches src/a/b/c.iron. */
 static bool file_matches_module(const char *filename, const char *mod) {
+    /* In a package only the path below the package directory counts: a
+     * single-file package is compiled from its absolute path, whose
+     * directories above the package matched (#603). */
+    const char *root = iron_comptime_package_root();
+    size_t rl = root ? strlen(root) : 0;
+    if (rl && strncmp(filename, root, rl) == 0 &&
+        (filename[rl] == '/' || filename[rl] == '\\'))
+        filename += rl + 1;
     char comps[64][128];
     int n = 0;
     const char *p = filename;
@@ -1634,62 +1643,6 @@ static bool file_matches_module(const char *filename, const char *mod) {
     return false;
 }
 
-/* The part of a source path an import can name: the path below the
- * package (the directory holding iron.toml, found by walking up from an
- * absolute path; a relative path is already package-relative), without the
- * leading `src/`, and with `vendor/<name>/src/` read as `<name>/`. A file
- * outside any package is named by its file name alone. Directories above
- * the package never match (#603). */
-static void module_relative_path(const char *filename, char *out, size_t cap) {
-    out[0] = '\0';
-    if (!filename || cap < 2) return;
-    const char *rel = filename;
-    char dir[4096];
-    bool absolute = filename[0] == '/' || filename[0] == '\\' ||
-                    (filename[0] && filename[1] == ':');
-    if (absolute) {
-        size_t n = strlen(filename);
-        if (n >= sizeof(dir)) n = sizeof(dir) - 1;
-        memcpy(dir, filename, n);
-        dir[n] = '\0';
-        const char *base = filename;
-        for (const char *q = filename; *q; q++)
-            if (*q == '/' || *q == '\\') base = q + 1;
-        rel = base;   /* no package: the file name */
-        for (;;) {
-            char *slash = NULL;
-            for (char *q = dir; *q; q++) if (*q == '/' || *q == '\\') slash = q;
-            if (!slash) break;
-            *slash = '\0';
-            char manifest[4200];
-            snprintf(manifest, sizeof(manifest), "%s/iron.toml", dir[0] ? dir : "");
-            FILE *f = fopen(manifest, "r");
-            if (f) {
-                fclose(f);
-                rel = filename + strlen(dir) + 1;
-                break;
-            }
-            if (!dir[0]) break;
-        }
-    }
-    if (strncmp(rel, "src/", 4) == 0) {
-        rel += 4;
-        snprintf(out, cap, "%s", rel);
-        return;
-    }
-    if (strncmp(rel, "vendor/", 7) == 0) {
-        const char *name = rel + 7;
-        const char *e = strchr(name, '/');
-        if (e && strncmp(e + 1, "src/", 4) == 0) {
-            snprintf(out, cap, "%.*s/%s", (int)(e - name), name, e + 5);
-            return;
-        }
-        snprintf(out, cap, "%s", name);
-        return;
-    }
-    snprintf(out, cap, "%s", rel);
-}
-
 /* An import must name a stdlib module or a source file of the build.
  * Skipped when the driver did not register stdlib origins (LSP buffers,
  * unit tests): there the set of files is not known. */
@@ -1701,9 +1654,6 @@ static void validate_imports(ResolveCtx *ctx, Iron_Program *program) {
         Iron_ImportDecl *imp = (Iron_ImportDecl *)d;
         if (!imp->path) continue;
         bool found = false;
-        const char *last_file = NULL;
-        char last_rel[4096];
-        last_rel[0] = '\0';
         for (int k = 0; k_stdlib_modules[k] && !found; k++)
             found = strcmp(imp->path, k_stdlib_modules[k]) == 0;
         for (int j = 0; j < program->decl_count && !found; j++) {
@@ -1715,13 +1665,14 @@ static void validate_imports(ResolveCtx *ctx, Iron_Program *program) {
             bool is_stub = fl > 10 &&
                            strcmp(o->span.filename + fl - 10, ".iron-stub") == 0;
             if (!is_stub && iron_stdlib_origin_classify(o->span.filename) != 0) continue;
-            /* Declarations of one file share its name: compute the
-             * package-relative form once per file. */
-            if (o->span.filename != last_file) {
-                last_file = o->span.filename;
-                module_relative_path(o->span.filename, last_rel, sizeof(last_rel));
-            }
-            found = file_matches_module(last_rel, imp->path);
+            found = file_matches_module(o->span.filename, imp->path);
+        }
+        /* A package file without declarations (empty, or only imports and
+         * comments) still exists: its `-- @file:` marker named it. */
+        for (int j = 0; !found && iron_source_marker_get(j); j++) {
+            const char *mf = iron_source_marker_get(j);
+            if (iron_stdlib_origin_classify(mf) != 0) continue;
+            found = file_matches_module(mf, imp->path);
         }
         if (found) continue;
         char msg[512];

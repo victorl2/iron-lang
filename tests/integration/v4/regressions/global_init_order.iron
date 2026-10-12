@@ -1,0 +1,35 @@
+-- A global is initialized after the globals its initializer reads through
+-- the functions it calls (it read the later one as zero), and every
+-- global is initialized, read or not.
+val HELD = Holder()
+val DOUBLED = base() * 2 + 1
+val BASE = 20
+val NAME = greeting() + "!"
+val GREETING = "hi"
+val UNREAD = announce()
+
+object Holder {
+    val v: Int
+
+    init() {
+        self.v = BASE + 1
+    }
+}
+
+
+func base() -> Int {
+    return BASE
+}
+
+func greeting() -> String {
+    return GREETING
+}
+
+func announce() -> Int {
+    println("initialized")
+    return 0
+}
+
+func main() {
+    println("{DOUBLED} {BASE} {NAME} {HELD.v}")
+}

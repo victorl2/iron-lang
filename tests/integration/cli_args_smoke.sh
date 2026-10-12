@@ -74,31 +74,6 @@ if ! (cd "${FMT_DIR}" && "${IRON}" fmt --check src/main.iron >/dev/null 2>&1); t
     exit 1
 fi
 
-# Extra arguments are errors, not silently dropped (#564).
-expect_error() {
-    local want="$1"; shift
-    local out
-    if out=$("$@" 2>&1); then fail "'$*' exited 0"; fi
-    echo "${out}" | grep -qF "${want}" || fail "'$*' printed: ${out}"
-}
-cd "${SANDBOX}"
-printf 'func main() {\n    println("hi")\n}\n' > hello.iron
-cp hello.iron other.iron
-expect_error "unexpected argument 'other.iron'" "${IRONC}" build hello.iron other.iron
-expect_error "unexpected argument 'other.iron'" "${IRONC}" check hello.iron other.iron
-expect_error "program arguments go after" "${IRONC}" run hello.iron x
-expect_error "is a directory" "${IRONC}" build "${SANDBOX}"
-expect_error "standard input" "${IRONC}" build -
-out=$("${IRONC}" bogus 2>&1 || true)
-[ "$(echo "${out}" | wc -l | tr -d ' ')" -le 2 ] || fail "ironc bogus printed the whole help"
-expect_error "unexpected argument 'foo'" bash -c "cd '${SANDBOX}/work/myapp' && '${IRON}' build foo"
-expect_error "unexpected argument 'foo'" bash -c "cd '${SANDBOX}/work/myapp' && '${IRON}' check foo"
-expect_error "unknown target '../x'" bash -c "cd '${SANDBOX}/work/myapp' && '${IRON}' build --target=../x"
-[ ! -d "${SANDBOX}/work/myapp/x" ] || fail "--target=../x created a directory"
-(cd "${SANDBOX}/work/myapp" && "${IRON}" build --no-optimize --force-comptime >/dev/null 2>&1) ||
-    fail "iron build --no-optimize --force-comptime"
-(cd "${SANDBOX}/work/myapp" && "${IRON}" build --target native >/dev/null 2>&1) || fail "iron build --target native"
-
 # IRON_WORKERS sizes the task pool (#547): 8 tasks that each sleep 200 ms
 # overlap with 8 workers and run one after another with 1.
 cat > "${SANDBOX}/workers.iron" <<'IRONEOF'

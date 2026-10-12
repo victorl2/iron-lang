@@ -163,23 +163,15 @@ int cmd_init(int argc, char **argv) {
     }
 #endif
     pkg_name = (pkg_name != NULL) ? pkg_name + 1 : cwd;
-
-    /* The directory's name may hold characters a package name cannot (a
-     * quote broke the manifest): keep letters, digits, '_' and '-', write
-     * '_' for anything else (#565). */
-    char safe_name[65];
-    size_t sn = 0;
-    for (const char *c = pkg_name; *c && sn < sizeof(safe_name) - 1; c++) {
-        unsigned char ch = (unsigned char)*c;
-        bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-                  (ch >= '0' && ch <= '9') || ch == '_' || ch == '-';
-        safe_name[sn++] = ok ? (char)ch : '_';
-    }
-    safe_name[sn] = '\0';
-    if (sn == 0 || safe_name[0] == '-') {
-        safe_name[0] = '_';
-        if (sn == 0) safe_name[1] = '\0';
-    }
+    /* The directory name becomes the manifest's name and the output file
+     * name: characters neither may hold become '_' (a double quote wrote
+     * a manifest that read as another name). */
+    char safe_name[4096];
+    snprintf(safe_name, sizeof(safe_name), "%s", pkg_name);
+    for (char *c = safe_name; *c; c++)
+        if ((unsigned char)*c < 0x20 || *c == 0x7f || strchr("/\\:\"<>|?*", *c)) *c = '_';
+    if (safe_name[0] == '\0' || strcmp(safe_name, ".") == 0 || strcmp(safe_name, "..") == 0)
+        snprintf(safe_name, sizeof(safe_name), "package");
     pkg_name = safe_name;
 
     /* ── iron.toml ──────────────────────────────────────────────────────── */

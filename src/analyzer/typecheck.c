@@ -10105,16 +10105,17 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                             break;
                         }
                     }
-                    /* In an init, `self.f = v` initializes the field: the
-                     * old contents are uninitialized memory, so it must be a
-                     * plain store like any other field, not the setter, which
-                     * drops the value it replaces. */
-                    bool init_self_store = ctx->in_init_method && tfa->object &&
+                    bool self_in_init = ctx->in_init_method && tfa->object &&
                         tfa->object->kind == IRON_NODE_IDENT &&
                         ((Iron_Ident *)tfa->object)->name &&
                         strcmp(((Iron_Ident *)tfa->object)->name, "self") == 0;
                     if (mf && mf->is_pub) {
-                        if (mf->is_var && !init_self_store) {
+                        if (mf->is_var && self_in_init) {
+                            /* An init's `self.f = v` is the field's first
+                             * value: a direct store. Through the setter it
+                             * destroyed the uninitialized old value (a
+                             * list field crashed). */
+                        } else if (mf->is_var) {
                             /* pub var: route through synthesized setter. */
                             as->is_pub_setter = true;
                         } else if (!ctx->in_init_method) {
