@@ -5141,7 +5141,10 @@ static bool gencheck_place_is_frame_local(IronLIR_Func *fn, IronLIR_ValueId v, i
         if (!at || at->kind == IRON_TYPE_PTR || at->kind == IRON_TYPE_RC ||
             at->kind == IRON_TYPE_WEAK_RC) return false;
         if (fn->capture_count > 0 && alloca_is_capture_alias(fn, v)) return false;
-        if (d->alloca.scope_id != 0) return false;   /* an inner block's local */
+        /* an inner block's local (a scope opened in the function's own
+         * body after a local with a destructor ends with the function) */
+        if (d->alloca.scope_id != 0 && hmgeti(fn->flat_scopes, d->alloca.scope_id) < 0)
+            return false;
         return true;
     }
     case IRON_LIR_LOAD:
@@ -7169,16 +7172,7 @@ void iron_lir_prune_stack_scopes(IronLIR_Module *module) {
         IronLIR_Func *fn = module->funcs[fi];
         if (fn->is_extern || fn->block_count == 0) continue;
         struct { int key; bool value; } *used = NULL;
-        struct { int key; bool value; } *flat = NULL;
         bool any_addr = false, any_scope = false;
-        for (int bi = 0; bi < fn->block_count; bi++) {
-            IronLIR_Block *blk = fn->blocks[bi];
-            for (int ii = 0; ii < blk->instr_count; ii++) {
-                IronLIR_Instr *in = blk->instrs[ii];
-                if (in->kind == IRON_LIR_SCOPE_ENTER && in->scope.flat)
-                    hmput(flat, in->scope.id, true);
-            }
-        }
         for (int bi = 0; bi < fn->block_count; bi++) {
             IronLIR_Block *blk = fn->blocks[bi];
             for (int ii = 0; ii < blk->instr_count; ii++) {
@@ -7200,13 +7194,12 @@ void iron_lir_prune_stack_scopes(IronLIR_Module *module) {
                  * after its scope ends: that scope needs no runtime identity
                  * (the pointer takes a generation live for the whole call). */
                 if (!esc_value_escapes_in(module, fn, in->id, esc_sums,
-                                          sid > 0 && hmgeti(flat, sid) < 0))
+                                          sid > 0 && hmgeti(fn->flat_scopes, sid) < 0))
                     continue;
                 if (sid > 0) hmput(used, sid, true);
                 else any_addr = true;
             }
         }
-        hmfree(flat);
         fn->takes_local_addr = any_addr || fn->needs_self_gen;
         if (any_scope) {
             for (int bi = 0; bi < fn->block_count; bi++) {

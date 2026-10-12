@@ -438,11 +438,8 @@ struct IronLIR_Instr {
          * IRON_LIR_ARENA_POP carries no operands (pops the TLS top). */
         struct { IronLIR_ValueId arena_val; } arena_push;
 
-        /* IRON_LIR_SCOPE_ENTER / IRON_LIR_SCOPE_LEAVE: the scope id (> 0).
-         * flat (on the ENTER): a scope opened in the function's own body
-         * after a local with a destructor; it ends where the function's
-         * scope does, so only destructors run after it. */
-        struct { int id; bool flat; } scope;
+        /* IRON_LIR_SCOPE_ENTER / IRON_LIR_SCOPE_LEAVE: the scope id (> 0). */
+        struct { int id; } scope;
 
         /* IRON_LIR_RC_RETAIN / IRON_LIR_RC_RELEASE (Phase 26 POL-06) */
         struct { IronLIR_ValueId target; } rc_retain;
@@ -775,6 +772,11 @@ struct IronLIR_Func {
     /* The scope that declared each `val` binding's value (#537): a val has
      * no slot, so `&v` addresses the value and takes this scope. */
     struct { IronLIR_ValueId key; int value; } *val_scopes;
+    /* Scopes opened in the function's own body after a local with a
+     * destructor (key: scope id). They end where the function's scope does,
+     * with only destructors running after them, so for code of the function
+     * itself their locals live as long as the function's own. */
+    struct { int key; bool value; } *flat_scopes;
 };
 
 /* ── Module-level global binding (2026-07 remediation) ────────────────────

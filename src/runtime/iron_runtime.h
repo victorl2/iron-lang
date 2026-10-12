@@ -1601,6 +1601,8 @@ uint64_t iron_cell_count(void *value);
 void *iron_cell_alloc(size_t size, void (*drop)(void *value));
 void  iron_cell_retain(void *value);
 void  iron_cell_release(void *value);
+/* The generation `&x` takes when x lives in a capture cell. */
+uint64_t iron_cell_ptr_gen(void *value);
 /* Releasing a share of a cell that holds a closure (#246). A lambda stored
  * in the `var` it captures (`factorial = func(n) { ... factorial(n - 1) }`)
  * is a cycle: the cell holds the closure and the closure's env holds the

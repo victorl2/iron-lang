@@ -690,11 +690,10 @@ static void open_scope_after_droppable(HIR_to_LIR_Ctx *ctx) {
         ctx->defer_depth > (int)arrlen(ctx->drop_stacks))
         return;
     int scope_id = ++ctx->next_scope_id;
-    IronLIR_Instr *en = iron_lir_scope_enter(ctx->current_func, ctx->current_block, scope_id,
-                                             (Iron_Span){0});
+    iron_lir_scope_enter(ctx->current_func, ctx->current_block, scope_id, (Iron_Span){0});
     /* At the function's own depth nothing of the function runs after the
      * scope ends except destructors. */
-    if (en) en->scope.flat = ctx->defer_depth == 1;
+    if (ctx->defer_depth == 1) hmput(ctx->current_func->flat_scopes, scope_id, true);
     ctx->scope_ids[ctx->defer_depth - 1] = scope_id;
     IronLIR_DropEntry leave = {0};
     leave.alloca_id = IRON_LIR_VALUE_INVALID;

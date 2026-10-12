@@ -1492,6 +1492,24 @@ static void emit_place_gen(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
     }
     switch ((int)in->kind) {
     case IRON_LIR_ALLOCA:
+        /* A `var` a closure captured lives in a counted cell, in the frame
+         * that declared it and in the lambda alike: the pointer lives as
+         * long as the cell (it dangled as soon as the lambda returned). */
+        if (in->alloca.is_boxed && !in->alloca.global_name) {
+            iron_strbuf_appendf(sb, "iron_cell_ptr_gen((void *)%s_box)", emit_vname(vid));
+            return;
+        }
+        if (ctx->capture_alias_map) {
+            ptrdiff_t ca_idx = hmgeti(ctx->capture_alias_map, vid);
+            if (ca_idx >= 0) {
+                Iron_CaptureEntry *cap = &ctx->current_captures[ctx->capture_alias_map[ca_idx].value];
+                if (cap->is_mutable && cap->is_boxed && !cap->is_heap_handle) {
+                    iron_strbuf_appendf(sb, "iron_cell_ptr_gen((void *)_e->%s)",
+                                        cap_c_name(cap->name));
+                    return;
+                }
+            }
+        }
         iron_strbuf_appendf(sb, "%s", in->alloca.global_name ? "IRON_STACK_GEN_INIT"
                                                              : emit_scope_gen(fn, g_addr_scope));
         return;
