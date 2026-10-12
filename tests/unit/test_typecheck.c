@@ -3134,11 +3134,11 @@ void test_v93_top_level_pub_init_rejected(void) {
         "expected standalone-pub-init rejection");
 }
 
-void test_v93_top_level_pub_val_rejected(void) {
-    parse_and_resolve("pub val GLOBAL: Int = 0\n");
-    TEST_ASSERT_TRUE_MESSAGE(
-        has_error_msg_substring("top-level `pub val`"),
-        "expected top-level pub val rejection");
+/* #547: a top-level `pub val` / `pub var` is a constant or global shared
+ * with the other files of the program (previously rejected). */
+void test_v93_top_level_pub_val_accepted(void) {
+    parse_and_resolve("pub val GLOBAL: Int = 0\npub var COUNTER: Int = 0\n");
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
 
 /* Phase 93 VIS-04 (Plan 93-02): `pub init` gating on enclosing-object visibility. */
@@ -3571,19 +3571,6 @@ void test_v93_compile_fail_pub_init_in_private_object(void) {
         "tests/compile_fail/v3_pub_init_in_private_object.expected)");
 }
 
-void test_v93_compile_fail_pub_top_level_val(void) {
-    /* Source: tests/compile_fail/v3_pub_top_level_val.iron
-     * Expected substring: tests/compile_fail/v3_pub_top_level_val.expected
-     *
-     * Plan 93-01 rejects top-level `pub val` and points users at `pub func`
-     * returning a constant. */
-    parse_and_resolve("pub val GLOBAL: Int = 0\n");
-    TEST_ASSERT_TRUE_MESSAGE(
-        has_error_msg_substring("top-level `pub val`"),
-        "expected top-level pub val rejection substring (locks "
-        "tests/compile_fail/v3_pub_top_level_val.expected)");
-}
-
 /* ── Phase 96 STR-01/02: String + String concat + narrowed E0202 ────────────
  *
  * Plan 96-01 wires `String + String` as a built-in concatenation operator:
@@ -3914,7 +3901,7 @@ int main(void) {
     RUN_TEST(test_v93_pub_patch_object_parses);
     RUN_TEST(test_v93_pub_private_combined_rejected);
     RUN_TEST(test_v93_top_level_pub_init_rejected);
-    RUN_TEST(test_v93_top_level_pub_val_rejected);
+    RUN_TEST(test_v93_top_level_pub_val_accepted);
     RUN_TEST(test_v93_pub_init_in_pub_object_accepted);
     RUN_TEST(test_v93_pub_init_in_private_object_rejected);
     RUN_TEST(test_v93_plain_init_in_pub_object_stays_private);
@@ -3939,7 +3926,6 @@ int main(void) {
     RUN_TEST(test_v93_compile_fail_cross_module_private);
     RUN_TEST(test_file_marker_in_user_source_is_one_file);
     RUN_TEST(test_v93_compile_fail_pub_init_in_private_object);
-    RUN_TEST(test_v93_compile_fail_pub_top_level_val);
 
     /* Phase 96 STR-01/02: String + String concat + narrowed E0202. */
     RUN_TEST(test_v96_string_plus_string_typechecks_as_string);

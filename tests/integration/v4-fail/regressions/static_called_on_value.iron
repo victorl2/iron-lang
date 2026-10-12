@@ -1,0 +1,12 @@
+-- A static function is called on the type, not on a value (#455).
+object P {
+    val x: Int
+    static func zero() -> P {
+        return P(0)
+    }
+}
+
+func main() {
+    val p = P(1)
+    println("{p.zero().x}")
+}

@@ -108,4 +108,27 @@ for f in *; do
     exit 1
 done
 
+# iron build -o / --output (#523) writes the binary where it is told.
+"${IRON_BIN_ABS}" build -o "${WORK}/B/custom-out" > out.log 2>&1 || {
+    echo "FAIL B: iron build -o failed"
+    cat out.log
+    exit 1
+}
+test -x "${WORK}/B/custom-out" || { echo "FAIL B: iron build -o did not write custom-out"; exit 1; }
+"${IRON_BIN_ABS}" build --output "${WORK}/B/custom-out2" > out.log 2>&1 &&
+    test -x "${WORK}/B/custom-out2" || { echo "FAIL B: iron build --output"; cat out.log; exit 1; }
+rm -f "${WORK}/B/custom-out" "${WORK}/B/custom-out2"
+
+cp src/main.iron "${WORK}/main.iron.orig"
+# A global without pub is private to its file (#547).
+printf 'val hidden = 3\npub val shared = 4\n' > src/consts.iron
+printf 'func main() {\n    println("{shared}")\n}\n' > src/main.iron
+"${IRON_BIN_ABS}" build > out.log 2>&1 || { echo "FAIL B: pub val across files"; cat out.log; exit 1; }
+printf 'func main() {\n    println("{hidden}")\n}\n' > src/main.iron
+if "${IRON_BIN_ABS}" build > out.log 2>&1 || ! grep -q E0320 out.log; then
+    echo "FAIL B: a private global used from another file should be E0320"; cat out.log; exit 1
+fi
+cp "${WORK}/main.iron.orig" src/main.iron
+rm -f src/consts.iron
+
 echo "run_cwd_clean_smoke OK"

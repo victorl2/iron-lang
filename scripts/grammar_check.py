@@ -85,6 +85,53 @@ def lex(src: str) -> List[Token]:
                 col += 1
             i += 1
 
+    def scan_escape(sl: int, sc: int) -> None:
+        """Skip one string escape without treating its braces as interpolation."""
+        adv()  # backslash
+        if i >= n:
+            raise LexError(f"{sl}:{sc}: unterminated string")
+        if src[i] == "u" and i + 1 < n and src[i + 1] == "{":
+            adv(2)
+            while i < n and src[i] != "}":
+                adv()
+            if i < n:
+                adv()
+            return
+        if src[i] == "x":
+            adv(min(3, n - i))
+            return
+        adv()
+
+    def scan_string(sl: int, sc: int) -> None:
+        """Skip a string, recursively including strings in interpolations."""
+        multiline = src.startswith('"""', i)
+        adv(3 if multiline else 1)
+        depth = 0
+        while True:
+            if i >= n:
+                raise LexError(f"{sl}:{sc}: unterminated string")
+            d = src[i]
+            if not multiline and d == "\n":
+                raise LexError(f"{sl}:{sc}: unterminated string")
+            if d == "\\":
+                scan_escape(sl, sc)
+                continue
+            if depth > 0 and d == '"':
+                scan_string(line, col)
+                continue
+            if depth == 0:
+                if multiline and src.startswith('"""', i):
+                    adv(3)
+                    return
+                if not multiline and d == '"':
+                    adv()
+                    return
+            if d == "{":
+                depth += 1
+            elif d == "}" and depth > 0:
+                depth -= 1
+            adv()
+
     while i < n:
         c = src[i]
         if c in " \t\r\n":
@@ -101,68 +148,7 @@ def lex(src: str) -> List[Token]:
         sl, sc = line, col
         if c == '"':
             start = i
-            multiline = src.startswith('"""', i)
-            adv(3 if multiline else 1)
-            depth = 0
-            while True:
-                if i >= n:
-                    raise LexError(f"{sl}:{sc}: unterminated string")
-                d = src[i]
-                if not multiline and d == "\n":
-                    raise LexError(f"{sl}:{sc}: unterminated string")
-                if depth > 0 and d == '"':
-                    # A string literal inside an interpolation expression.
-                    # It may interpolate in turn ("{"a{"}"}b"}"), so its
-                    # {...} expressions and the literals inside those are
-                    # skipped whole, as iron_lex_string does: each stack
-                    # entry is 0 inside a literal, or the brace depth inside
-                    # one of its interpolations.
-                    nest = [0]
-                    adv()
-                    while nest and i < n and src[i] != "\n":
-                        e = src[i]
-                        adv()
-                        if e == "\\":
-                            if i < n and src[i] != "\n":
-                                adv()
-                            continue
-                        if nest[-1] == 0:
-                            if e == '"':
-                                nest.pop()
-                            elif e == "{":
-                                nest.append(1)
-                        elif e == '"':
-                            nest.append(0)
-                        elif e == "{":
-                            nest[-1] += 1
-                        elif e == "}":
-                            nest[-1] -= 1
-                            if nest[-1] == 0:
-                                nest.pop()
-                    continue
-                if depth > 0 and src.startswith('\\"', i):
-                    # The older spelling of a nested literal, \"...\".
-                    adv(2)
-                    while i < n and src[i] != "\n":
-                        if src.startswith('\\"', i):
-                            adv(2)
-                            break
-                        adv()
-                    continue
-                if d == "\\":
-                    adv(2)
-                    continue
-                if d == "{":
-                    depth += 1
-                elif d == "}" and depth > 0:
-                    depth -= 1
-                if multiline and src.startswith('"""', i):
-                    adv(3)
-                    break
-                if not multiline and d == '"':
-                    adv()
-                    break
-                adv()
+            scan_string(sl, sc)
             toks.append(Token("STRING", src[start:i], sl, sc))
             continue
         if c.isdigit():

@@ -63,6 +63,7 @@ typedef enum {
     IRON_TOK_RETURN,
     IRON_TOK_SELF,
     IRON_TOK_SPAWN,
+    IRON_TOK_STATIC,     /* `static func`: a function of a type, called as Type.f() (#455). */
     IRON_TOK_SUPER,
     IRON_TOK_TRUE,
     IRON_TOK_UNCHECKED,  /* Phase 16: v4 unchecked pointer-regime keyword (semantics: Phase 25) */

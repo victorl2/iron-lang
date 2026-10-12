@@ -1242,6 +1242,13 @@ if(NOT WIN32)
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
   set_tests_properties(debug_stepping_smoke PROPERTIES TIMEOUT 120)
 endif()
+# #595: a breakpoint stops when the program reaches its line, not earlier.
+if(NOT WIN32)
+  add_test(NAME debug_line_order_smoke
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_line_order_smoke.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_line_order_smoke PROPERTIES TIMEOUT 120)
+endif()
 # #312: `ironc build --debug` maps debug info to the .iron source.
 if(NOT WIN32)
   add_test(NAME debug_info_smoke
@@ -1608,6 +1615,14 @@ else()
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 endif()
 if(UNIX)
+    add_test(NAME test_aggregate_scheduling
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_aggregate_scheduling.py
+            ${CMAKE_BINARY_DIR}
+            ${CMAKE_SOURCE_DIR}/.github/workflows/v4-acceptance.yml)
+    set_tests_properties(test_aggregate_scheduling PROPERTIES
+        LABELS "unit;oracle" TIMEOUT 30)
+
     add_test(NAME benchmark_process_regressions
         COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/benchmarks/test_benchmark_process.py)

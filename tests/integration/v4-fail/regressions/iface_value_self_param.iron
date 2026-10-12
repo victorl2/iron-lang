@@ -1,0 +1,20 @@
+-- A method taking Self cannot be called through an interface value: the
+-- value may hold another implementor; it failed in the C compiler (#646).
+interface Same {
+    readonly func same(o: Self) -> Bool
+}
+
+object A impl Same {
+    val n: Int
+    readonly func same(o: A) -> Bool {
+        return o.n == self.n
+    }
+}
+
+func use(s: Same) -> Bool {
+    return s.same(A(1))
+}
+
+func main() {
+    println("{use(A(1))}")
+}
