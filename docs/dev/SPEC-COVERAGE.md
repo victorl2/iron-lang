@@ -57,7 +57,7 @@ everywhere else, user source included:
 |---|---|
 | multi-file test mode: every marker of the source | `IRON_MULTI_FILE_TEST=1` in the environment of `iron` / `ironc` (unit tests call `iron_file_markers_set_test_mode`) |
 | the prelude the compiler writes above the user's source (the standard library files it prepends, then one marker naming the user's file) | always; only the physical lines above the user's first line count (`iron_lexer_set_user_start_line`) |
-| a source packed from several files: the `target/combined.iron` or `target/tests.iron` that `iron` writes for a package | `ironc --packed-source`, passed by `iron` (in process: `iron_stdlib_prepend_packed`, whose prelude marker for the user's file says `@packed`); only markers between files count, each giving the length of its file with `@lines:`, so a marker written inside a package file is a comment |
+| a source packed from several files: the `target/combined.iron` or `target/tests.iron` that `iron` writes for a package | `ironc --packed-source`, passed by `iron` (in process, as the language server packs a package's other files above a document: `iron_stdlib_prepend_packed`, whose prelude marker for the user's file says `@packed`); only markers between files count, each giving the length of its file with `@lines:`, so a marker written inside a package file is a comment |
 
 Syntax coverage is exact: the grammar recognizer of
 `scripts/grammar_check.py` accepts the program, and one derivation of it is
