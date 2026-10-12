@@ -10,9 +10,10 @@ a temporary directory:
     E0202 for it, hover and go to definition reach the other file
   - a declaration without `pub` in another file is still an error (E0320)
   - a file outside src/ (tests/tool.iron) is analyzed alone
-  - references from a declaration list the uses in the other files, and
-    workspace symbols list the package's declarations (the workspace index
-    is filled at startup)
+  - references from a declaration list the uses in the other files, a
+    rename of a function edits every file that names it, and workspace
+    symbols list the package's declarations (the workspace index is filled
+    at startup)
   - the type inside `rc T` and `*T` has hover and a definition, and a
     hover signature prints those types
   - saving another file (didChangeWatchedFiles) refreshes the open
@@ -250,6 +251,18 @@ def main():
             refs = c.request("textDocument/references", p)
             files = sorted(set(os.path.basename(r["uri"]) for r in refs or []))
             check(files == ["main.iron", "model.iron"], "references from the declaration: %s" % files)
+
+            # Renaming a function, from its declaration or from a use, edits
+            # every file that names it.
+            for rel, needle in (("src/model.iron", "item_label"), ("src/main.iron", "item_label")):
+                p = c.at(rel, needle, 2)
+                p["newName"] = "label_of"
+                edit = c.request("textDocument/rename", p) or {}
+                changes = edit.get("changes") or {
+                    d["textDocument"]["uri"]: d["edits"] for d in edit.get("documentChanges", [])}
+                got = sorted((os.path.basename(u), len(e)) for u, e in changes.items())
+                check(got == [("main.iron", 1), ("model.iron", 1)],
+                      "rename from %s edits both files: %s" % (rel, got))
 
             # Workspace symbols: the index is filled at startup.
             syms = c.request("workspace/symbol", {"query": "item_label"})
