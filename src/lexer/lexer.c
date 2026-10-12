@@ -1232,6 +1232,14 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                     l->col++;
                 }
                 size_t body_len = l->pos - body_start;
+                /* Match the unified `//` comment representation. Trailing
+                 * horizontal whitespace and CR are not documentation text. */
+                while (body_len > 0 &&
+                       (l->src[body_start + body_len - 1] == ' ' ||
+                        l->src[body_start + body_len - 1] == '\t' ||
+                        l->src[body_start + body_len - 1] == '\r')) {
+                    body_len--;
+                }
                 /* T-03-01: cap at 8192 bytes. If user wrote a pathological
                  * line, truncate and emit a NOTE. */
                 bool truncated = false;

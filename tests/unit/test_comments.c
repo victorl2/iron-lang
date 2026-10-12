@@ -263,6 +263,11 @@ static void test_migrate_keeps_meaning_of_odd_bodies(void) {
                    "// json:x\n//-/\n// /x\n// /q\n// k:v\nval a = 1\n");
 }
 
+static void test_migrate_doc_comment_with_trailing_space(void) {
+    expect_migrate("/// doc \nfunc f() {}\n",
+                   "// doc \nfunc f() {}\n");
+}
+
 static void test_migrate_fusible(void) {
     expect_migrate("@fusible\nfunc f() {}\n    @fusible func g() {}\n",
                    "//iron:fusible\nfunc f() {}\n    //iron:fusible\n    func g() {}\n");
@@ -309,6 +314,7 @@ int main(void) {
     RUN_TEST(test_stubs_carry_docs_and_directives);
     RUN_TEST(test_migrate_rewrites_comment_tokens_only);
     RUN_TEST(test_migrate_keeps_meaning_of_odd_bodies);
+    RUN_TEST(test_migrate_doc_comment_with_trailing_space);
     RUN_TEST(test_migrate_fusible);
     RUN_TEST(test_migrate_aligned_trailing_comments);
     RUN_TEST(test_migrate_file_with_errors);
