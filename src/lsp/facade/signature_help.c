@@ -196,7 +196,10 @@ static void build_sig_info(IronLsp_SignatureInfo *out,
     }
 
     out->label = label.buf ? label.buf : "";
-    out->documentation = fd ? fd->doc_comment : (md ? md->doc_comment : NULL);
+    /* Copied: the declaration lives in the analysis arena, freed before
+     * the caller serializes the result. */
+    const char *dc = fd ? fd->doc_comment : (md ? md->doc_comment : NULL);
+    out->documentation = dc ? iron_arena_strdup(arena, dc, strlen(dc)) : NULL;
     out->parameter_offsets = offs;
     out->parameter_count   = total;
 }
@@ -365,6 +368,11 @@ static bool find_call_visit(Iron_Visitor *v, Iron_Node *n) {
 static void sig_from_label(IronLsp_SignatureInfo *out, const char *label,
                            const char *doc_comment, Iron_Arena *arena) {
     memset(out, 0, sizeof(*out));
+    /* Copied into the caller's arena: a doc comment (and some labels)
+     * live in the analysis arena, which is freed before the caller
+     * serializes the result. */
+    if (label) label = iron_arena_strdup(arena, label, strlen(label));
+    if (doc_comment) doc_comment = iron_arena_strdup(arena, doc_comment, strlen(doc_comment));
     out->label = label ? label : "";
     out->documentation = doc_comment;
     if (!label) return;

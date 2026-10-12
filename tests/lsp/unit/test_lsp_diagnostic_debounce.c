@@ -43,10 +43,28 @@ static _Atomic int g_facade_compile_calls      = 0;
 static _Atomic int g_facade_pull_calls         = 0;
 static _Atomic int32_t g_last_compile_version  = 0;
 
+/* Test 4: the compile holds here until the main thread has edited the
+ * live document, then records what text and version it saw. */
+static _Atomic bool g_race_mode      = false;
+static _Atomic bool g_in_compile     = false;
+static _Atomic bool g_edit_done      = false;
+static _Atomic bool g_saw_old_text   = false;
+static _Atomic int32_t g_saw_version = 0;
+static IronLsp_Document *g_live_doc;
+
+static void sleep_ms(int ms);
+
 void ilsp_facade_compile(struct IronLsp_Server *server,
                           struct IronLsp_Document *doc,
                           const IronLsp_CompileRequest *req) {
-    (void)server; (void)doc;
+    (void)server;
+    if (atomic_load(&g_race_mode)) {
+        atomic_store(&g_in_compile, true);
+        for (int i = 0; i < 400 && !atomic_load(&g_edit_done); i++) sleep_ms(5);
+        atomic_store(&g_saw_old_text, doc != g_live_doc && doc->text &&
+                                      strcmp(doc->text, "func main() {}\n") == 0);
+        atomic_store(&g_saw_version, doc->version);
+    }
     atomic_fetch_add(&g_facade_compile_calls, 1);
     if (req) atomic_store(&g_last_compile_version, req->version);
 }
@@ -55,6 +73,12 @@ void ilsp_facade_pull_diagnostic(struct IronLsp_Server *server,
                                   struct IronLsp_Document *doc,
                                   const char *request_id) {
     (void)server; (void)doc; (void)request_id;
+    atomic_fetch_add(&g_facade_pull_calls, 1);
+}
+
+void ilsp_facade_pull_diagnostic_empty(struct IronLsp_Server *server,
+                                        const char *request_id) {
+    (void)server; (void)request_id;
     atomic_fetch_add(&g_facade_pull_calls, 1);
 }
 
@@ -88,6 +112,8 @@ static IronLsp_Document *make_doc(const char *uri) {
     d->uri = strdup(uri);
     atomic_init(&d->quarantined, false);
     atomic_init(&d->shutdown, false);
+    IRON_MUTEX_INIT(d->text_lock);   /* the worker snapshots the text */
+    d->owns_lock = true;
     d->mailbox = ilsp_mailbox_create();
     return d;
 }
@@ -95,6 +121,7 @@ static IronLsp_Document *make_doc(const char *uri) {
 static void destroy_doc(IronLsp_Document *d) {
     if (!d) return;
     if (d->mailbox) ilsp_mailbox_destroy(d->mailbox);
+    IRON_MUTEX_DESTROY(d->text_lock);
     free(d->uri);
     free(d);
 }
@@ -199,10 +226,53 @@ static void test_debounce_observes_150ms(void) {
     destroy_doc(doc);
 }
 
+/* ── Test 4: the analysis runs on a copy of the text ──────────────────
+ * The worker used to hand the live document to the facade, which read
+ * text, line index and version while the main thread applied the next
+ * edits (a data race; the diagnostics came out labelled with the newer
+ * version, their ranges computed on the older text). */
+static void test_compile_sees_a_snapshot(void) {
+    atomic_store(&g_facade_compile_calls, 0);
+    atomic_store(&g_race_mode, true);
+
+    IronLsp_Server server;
+    memset(&server, 0, sizeof(server));
+
+    const char *v1 = "func main() {}\n";
+    IronLsp_Document *doc = ilsp_document_create("file:///tmp/race.iron", v1,
+                                                 strlen(v1), 1);
+    TEST_ASSERT_NOT_NULL(doc);
+    doc->mailbox = ilsp_mailbox_create();
+    g_live_doc = doc;
+    TEST_ASSERT_TRUE(ilsp_ast_worker_start(&server, doc));
+    ilsp_mailbox_post_compile(doc->mailbox, 1, NULL);
+
+    for (int i = 0; i < 400 && !atomic_load(&g_in_compile); i++) sleep_ms(5);
+    TEST_ASSERT_TRUE_MESSAGE(atomic_load(&g_in_compile), "the compile did not start");
+    const char *v2 = "func main() { val changed = 1 }\n";
+    ilsp_document_lock(doc);   /* as the didChange handler does */
+    bool ok = ilsp_document_apply_full_replace(doc, v2, strlen(v2), 2);
+    ilsp_document_unlock(doc);
+    TEST_ASSERT_TRUE(ok);
+    atomic_store(&g_edit_done, true);
+    TEST_ASSERT_TRUE(wait_for_compile_calls(1, 3000));
+
+    TEST_ASSERT_TRUE_MESSAGE(atomic_load(&g_saw_old_text),
+        "the analysis must see the text it was started on, not the live buffer");
+    TEST_ASSERT_EQUAL_INT32(1, atomic_load(&g_saw_version));
+
+    atomic_store(&g_race_mode, false);
+    ilsp_ast_worker_shutdown_and_join(doc);
+    ilsp_mailbox_destroy(doc->mailbox);
+    doc->mailbox = NULL;
+    ilsp_document_destroy(doc);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_rapid_compiles_coalesce_to_one_call);
     RUN_TEST(test_spaced_compiles_trigger_two_calls);
     RUN_TEST(test_debounce_observes_150ms);
+    RUN_TEST(test_compile_sees_a_snapshot);
     return UNITY_END();
 }

@@ -768,11 +768,19 @@
           "named": true
         },
         {
+          "type": "assignment_statement",
+          "named": true
+        },
+        {
           "type": "block",
           "named": true
         },
         {
           "type": "free_statement",
+          "named": true
+        },
+        {
+          "type": "leak_statement",
           "named": true
         }
       ]
@@ -1629,6 +1637,22 @@
             "named": true
           },
           {
+            "type": "defer_statement",
+            "named": true
+          },
+          {
+            "type": "free_statement",
+            "named": true
+          },
+          {
+            "type": "leak_statement",
+            "named": true
+          },
+          {
+            "type": "match_statement",
+            "named": true
+          },
+          {
             "type": "return_statement",
             "named": true
           },
@@ -1638,6 +1662,10 @@
           },
           {
             "type": "var_declaration",
+            "named": true
+          },
+          {
+            "type": "while_statement",
             "named": true
           }
         ]
@@ -1683,6 +1711,22 @@
             "named": true
           },
           {
+            "type": "defer_statement",
+            "named": true
+          },
+          {
+            "type": "free_statement",
+            "named": true
+          },
+          {
+            "type": "leak_statement",
+            "named": true
+          },
+          {
+            "type": "match_statement",
+            "named": true
+          },
+          {
             "type": "return_statement",
             "named": true
           },
@@ -1692,6 +1736,10 @@
           },
           {
             "type": "var_declaration",
+            "named": true
+          },
+          {
+            "type": "while_statement",
             "named": true
           }
         ]
