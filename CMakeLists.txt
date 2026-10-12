@@ -1703,7 +1703,19 @@ if(Python3_EXECUTABLE)
         add_test(NAME cli_fuzz
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/cli_fuzz.py
                 --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/cli_fuzz)
-        set_tests_properties(cli_fuzz PROPERTIES LABELS "tooling" TIMEOUT 900)
+        # The suite runs four compiler processes internally. Keep a finite
+        # per-command watchdog with enough headroom for loaded CI hosts.
+        set_tests_properties(cli_fuzz PROPERTIES
+            LABELS "tooling"
+            TIMEOUT 1800
+            ENVIRONMENT "CF_TIMEOUT=300")
+        add_test(NAME test_cli_fuzz_timeout
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
+                ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
+                cli_fuzz 1800 env:CF_TIMEOUT=300)
+        set_tests_properties(test_cli_fuzz_timeout PROPERTIES
+            LABELS "tooling;unit")
     endif()
 endif()
 # The standard library prelude, parsed by every compile, stays within the
