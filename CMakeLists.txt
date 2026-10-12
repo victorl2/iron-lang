@@ -1715,25 +1715,25 @@ if(Python3_EXECUTABLE)
         set_tests_properties(cli_fuzz PROPERTIES
             LABELS "tooling" TIMEOUT 900 ENVIRONMENT "CF_TIMEOUT=300")
     endif()
-    if(IRON_ENABLE_SANITIZERS)
-        # These suites run compiler jobs concurrently themselves. Tell CTest
-        # their real CPU demand so a -j4 ASan run does not start up to sixteen
-        # instrumented compiler jobs and starve unrelated timeout-bound tests.
+    # These suites run four compiler jobs concurrently themselves. Tell CTest
+    # their real CPU demand so a documented -j4 run does not start up to
+    # sixteen compiler jobs and starve timeout-bound tests (#800).
+    set_tests_properties(
+        prog_fuzz prog_fuzz_types prog_fuzz_conc prog_fuzz_arena
+        prog_fuzz_sync prog_fuzz_stdlib prog_fuzz_edges_num
+        prog_fuzz_edges_types prog_fuzz_edges_mem
+        PROPERTIES PROCESSORS 4)
+    set_tests_properties(json_fuzz PROPERTIES PROCESSORS 2)
+    if(NOT WIN32)
         set_tests_properties(
-            prog_fuzz prog_fuzz_types prog_fuzz_conc prog_fuzz_arena
-            prog_fuzz_sync prog_fuzz_stdlib prog_fuzz_edges_num
-            prog_fuzz_edges_types prog_fuzz_edges_mem
+            mod_fuzz_pkg mod_fuzz_incr mod_fuzz_tests cli_fuzz
             PROPERTIES PROCESSORS 4)
+    endif()
+    if(IRON_ENABLE_SANITIZERS)
         # Keep the standalone 120-second hang detector, but allow a generated
         # program more time in the internally parallel sanitizer campaign.
         set_tests_properties(prog_fuzz_edges_mem PROPERTIES
             ENVIRONMENT "PF_TIMEOUT=300")
-        set_tests_properties(json_fuzz PROPERTIES PROCESSORS 2)
-        if(NOT WIN32)
-            set_tests_properties(
-                mod_fuzz_pkg mod_fuzz_incr mod_fuzz_tests cli_fuzz
-                PROPERTIES PROCESSORS 4)
-        endif()
     endif()
 endif()
 # The standard library prelude, parsed by every compile, stays within the

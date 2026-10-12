@@ -38,6 +38,28 @@ def main() -> int:
     leak_labels = properties(tests["test_leak_check"])["LABELS"]
     assert "v4-acceptance" not in leak_labels, "the acceptance gate must not run valgrind"
 
+    fuzz_names = (
+        "prog_fuzz",
+        "prog_fuzz_types",
+        "prog_fuzz_conc",
+        "prog_fuzz_arena",
+        "prog_fuzz_sync",
+        "prog_fuzz_stdlib",
+        "prog_fuzz_edges_num",
+        "prog_fuzz_edges_types",
+        "prog_fuzz_edges_mem",
+        "mod_fuzz_pkg",
+        "mod_fuzz_incr",
+        "mod_fuzz_tests",
+        "cli_fuzz",
+    )
+    for name in fuzz_names:
+        props = properties(tests[name])
+        assert props.get("PROCESSORS") == 4, f"{name} must reserve four CTest slots"
+    assert properties(tests["json_fuzz"]).get("PROCESSORS") == 2, (
+        "json_fuzz must reserve two CTest slots"
+    )
+
     workflow = Path(sys.argv[2]).read_text(encoding="utf-8")
     timeout = re.search(r"^\s*timeout-minutes:\s*(\d+)\s*$", workflow, re.MULTILINE)
     assert timeout and int(timeout.group(1)) >= 60, "the acceptance job needs 60 minutes"
