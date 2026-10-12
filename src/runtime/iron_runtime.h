@@ -644,11 +644,14 @@ IRON_CHECK_FN void iron_stack_leave(uint64_t saved) {
  * fast path is a pointer of this thread into its first 1024 depths: the
  * slot of its depth still holds its key (which no other thread's scope and
  * no later scope ever has). */
-/* The inline part of the stack check: the gen names a scope open in this
- * thread's first 1024 depths. False for everything else, slot-form gens
- * included (iron_check_ptr_slow sorts those out). */
+/* The inline part of the stack check: static storage (the generation of a
+ * global, and of a pointer that never leaves a function called outside any
+ * scope), or a scope open in this thread's first 1024 depths. False for
+ * everything else, slot-form gens included (iron_check_ptr_slow sorts
+ * those out). */
 IRON_CHECK_FN bool iron_stack_gen_open(uint64_t gen) {
     uint32_t d = IRON_STACK_DEPTH(gen);
+    if (gen == IRON_STACK_GEN_INIT) return true;
     return (gen & IRON_STACK_TAG) && d - 1u < IRON_STACK_CHUNK - 1u &&
            atomic_load_explicit(&iron_stk.ids[d], memory_order_relaxed) ==
                (gen & IRON_STACK_KEY_MASK);
