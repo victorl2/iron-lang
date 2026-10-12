@@ -59,6 +59,11 @@ CASES = [
     # Member completion on an indexed receiver.
     ('object P {\n    val x: Int\n}\nfunc main() {\n    val ps = [P(1)]\n    ps[0].|\n}\n',
      {"x"}, set()),
+    # A field descriptor exposes only compile-time reflection metadata.
+    ('object P {\n    val x: Int\n}\nfunc names() {\n'
+     '    comptime for f in fields(P) {\n        val x = f.|\n    }\n}\n',
+     {"name", "index", "type", "is_var", "is_nullable", "is_pub",
+      "visibility", "doc", "tag"}, {"x"}),
 ]
 
 

@@ -45,6 +45,7 @@
 
 #include "keyword_mirror.h"
 
+#include <ctype.h>
 #include <math.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -75,8 +76,89 @@
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
 
+static bool maybe_push(IronLsp_CompletionCandidate **out_arr,
+                       Iron_Arena *arena, const char *label, int kind,
+                       int bucket, const char *detail,
+                       const char *canonical_path, const char *name_path,
+                       bool is_extern, bool needs_auto_import,
+                       const char *query_prefix);
+
 static bool canceled(_Atomic bool *cancel) {
     return cancel != NULL && atomic_load(cancel);
+}
+
+static bool reflection_loop_contains(const char *text, size_t len,
+                                     size_t cursor, const char *receiver,
+                                     size_t receiver_len) {
+    if (!text || !receiver || receiver_len == 0 || cursor > len) return false;
+    const char *needle = "comptime";
+    size_t best_open = len;
+    for (size_t at = 0; at + 8 <= cursor; at++) {
+        if (memcmp(text + at, needle, 8) != 0) continue;
+        size_t p = at + 8;
+#define SKIP_SPACE() while (p < cursor && (text[p] == ' ' || text[p] == '\t' || text[p] == '\r' || text[p] == '\n')) p++
+        SKIP_SPACE();
+        if (p + 3 > cursor || memcmp(text + p, "for", 3) != 0) continue;
+        p += 3; SKIP_SPACE();
+        if (p + receiver_len > cursor ||
+            memcmp(text + p, receiver, receiver_len) != 0) continue;
+        p += receiver_len; SKIP_SPACE();
+        if (p + 2 > cursor || memcmp(text + p, "in", 2) != 0) continue;
+        p += 2; SKIP_SPACE();
+        if (p + 6 > cursor || memcmp(text + p, "fields", 6) != 0) continue;
+        p += 6; SKIP_SPACE();
+        if (p >= cursor || text[p] != '(') continue;
+        while (p < cursor && text[p] != '{') p++;
+        if (p < cursor) best_open = p;
+#undef SKIP_SPACE
+    }
+    if (best_open == len) return false;
+    int depth = 0;
+    for (size_t p = best_open; p < cursor; p++) {
+        if (text[p] == '{') depth++;
+        else if (text[p] == '}') depth--;
+    }
+    return depth > 0;
+}
+
+static bool emit_reflection_members(IronLsp_CompletionCandidate **out,
+                                    Iron_Arena *arena,
+                                    const IronLsp_Document *doc,
+                                    size_t cursor, const char *prefix) {
+    if (!doc || !doc->text || cursor > doc->text_len) return false;
+    size_t query_start = cursor;
+    while (query_start > 0) {
+        unsigned char c = (unsigned char)doc->text[query_start - 1];
+        if (isalnum(c) || c == '_') query_start--;
+        else break;
+    }
+    if (query_start == 0 || doc->text[query_start - 1] != '.') return false;
+    size_t end = query_start - 1;
+    size_t start = end;
+    while (start > 0) {
+        unsigned char c = (unsigned char)doc->text[start - 1];
+        if (isalnum(c) || c == '_') start--;
+        else break;
+    }
+    if (!reflection_loop_contains(doc->text, doc->text_len, cursor,
+                                  doc->text + start, end - start)) return false;
+
+    static const struct { const char *name; const char *detail; int kind; } members[] = {
+        { "name", "compile-time field name: String", LSP_CK_PROPERTY },
+        { "index", "compile-time declaration index: Int", LSP_CK_PROPERTY },
+        { "type", "compile-time declared field type", LSP_CK_PROPERTY },
+        { "is_var", "compile-time field mutability: Bool", LSP_CK_PROPERTY },
+        { "is_nullable", "compile-time nullability: Bool", LSP_CK_PROPERTY },
+        { "is_pub", "compile-time visibility flag: Bool", LSP_CK_PROPERTY },
+        { "visibility", "compile-time visibility: String", LSP_CK_PROPERTY },
+        { "doc", "compile-time directive documentation: String?", LSP_CK_PROPERTY },
+        { "tag", "func tag(name: String) -> String?", LSP_CK_METHOD },
+    };
+    for (size_t i = 0; i < sizeof(members) / sizeof(members[0]); i++)
+        maybe_push(out, arena, members[i].name, members[i].kind,
+                   ILSP_COMPLETION_BUCKET_LOCAL, members[i].detail,
+                   "", members[i].name, false, false, prefix);
+    return true;
 }
 
 static const char *arena_dup(const char *s, Iron_Arena *arena) {
@@ -1076,6 +1158,9 @@ void ilsp_complete_buckets_build(struct IronLsp_Server             *server,
 
     /* MEMBER_AFTER_DOT short-circuits all 6 buckets. */
     if (ctx == ILSP_CCTX_MEMBER_AFTER_DOT) {
+        if (emit_reflection_members(&cands, arena, doc,
+                                    cursor_byte_offset, query_prefix))
+            goto finish;
         emit_member_fields(&cands, arena, server, doc, program,
                             cursor_byte_offset, query_prefix);
         goto finish;

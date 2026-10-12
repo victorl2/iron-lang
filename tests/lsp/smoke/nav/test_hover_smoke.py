@@ -92,3 +92,28 @@ async def test_hover_on_whitespace_returns_null(client, tmp_path):
 
     # Whitespace cursor must return None.
     assert result is None, f"expected None on whitespace cursor, got {result!r}"
+
+
+@pytest.mark.asyncio
+async def test_hover_on_reflected_field_metadata(client, tmp_path):
+    src = ("object Point { val x: Int }\n"
+           "func names() {\n"
+           "    comptime for f in fields(Point) {\n"
+           "        println(f.name)\n"
+           "    }\n"
+           "}\n")
+    fp = tmp_path / "hover_reflection.iron"
+    fp.write_text(src, encoding="utf-8")
+    uri = fp.as_uri()
+    client.text_document_did_open(types.DidOpenTextDocumentParams(
+        text_document=types.TextDocumentItem(
+            uri=uri, language_id="iron", version=1, text=src)))
+    result = await asyncio.wait_for(client.text_document_hover_async(
+        types.HoverParams(
+            text_document=types.TextDocumentIdentifier(uri=uri),
+            position=types.Position(line=3, character=20))), timeout=5.0)
+    assert result is not None
+    markdown = (result.contents.value if hasattr(result.contents, "value")
+                else str(result.contents))
+    assert "field.name: String" in markdown
+    assert "compile-time string constant" in markdown
