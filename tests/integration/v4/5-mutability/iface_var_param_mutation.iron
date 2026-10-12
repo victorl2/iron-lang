@@ -17,6 +17,11 @@ object MyGame impl Game {
     readonly func score() -> Int { return self.n }
 }
 
+object GameBox {
+    var game: MyGame
+    init(game: MyGame) { self.game = game }
+}
+
 func run(var game: Game) {
     game.update(1)
     game.update(1)
@@ -39,4 +44,10 @@ func main() {
     var nested = MyGame()
     run_via(nested)
     println("nested var param: {nested.n}")
+
+    var held = GameBox(MyGame())
+    run(held.game)
+    var games: [MyGame] = [MyGame()]
+    run(games[0])
+    println("concrete places: {held.game.n} {games[0].n}")
 }

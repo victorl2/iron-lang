@@ -2,7 +2,9 @@
 -- its argument by reference and writes back, as a free function's does
 -- (issue 433). They were passed by value: a list parameter was an alias of
 -- the caller's list, so `xs.take()` in the callee freed the buffer twice,
--- and an Int parameter's new value was lost.
+-- and an Int parameter's new value was lost. Mutable fields and indexed
+-- elements are places too: they must not fall back to the by-value ABI
+-- (issue 731).
 object Bag {
     var items: [String]
     init with(var xs: [String]) {
@@ -32,6 +34,20 @@ object Box2 {
     }
 }
 
+object Counter {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func bump(var x: Int) {
+        x += 1
+    }
+}
+
+func add_ten(var x: Int) {
+    x += 10
+}
+
 func main() {
     var a: [String] = ["abcdefghijklmnopqrstuvwxyz0123", "two"]
     var b = Bag.with(a)
@@ -47,4 +63,9 @@ func main() {
     var count = 0
     box.fill(dst, count)
     println("{box.items.len()} {d.len()} {dst.len()} {count}")
+    var counter = Counter(1)
+    counter.bump(counter.n)
+    var nums: [Int] = [3]
+    add_ten(nums[0])
+    println("{counter.n} {nums[0]}")
 }

@@ -2494,6 +2494,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 ctx->lir_arena, (size_t)expr->call.arg_count * sizeof(bool),
                 _Alignof(bool));
             if (!by_addr_flags) iron_oom_abort("hir_to_lir.c:EXPR_CALL by_addr_flags");
+            memset(by_addr_flags, 0,
+                   (size_t)expr->call.arg_count * sizeof(bool));
         }
         bool any_by_addr = false;
 
@@ -2501,21 +2503,15 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         IronLIR_ValueId *args = NULL;
         TempOwned *temps = NULL;
         for (int i = 0; i < expr->call.arg_count; i++) {
-            /* PARM-02: arg bound to a `var` param — pass the binding's
-             * alloca; emit_c renders it "&_vN". E0267 already guarantees
-             * the source is mutable. IDENT sources (var local or var
-             * param) own an alloca slot and get full reference semantics.
-             * KNOWN GAP: E0267's other accepted shape — a `var` FIELD of a
-             * mutable object (arg_source_is_mutable FIELD_ACCESS arm) —
-             * falls back to by-value lowering below, so callee mutations
-             * do not write back to the field. No fixture exercises it;
-             * fixing it needs a raw field-address arg form (the ADDR_OF
-             * machinery produces fat pointers, not the bare `T *` the
-             * var-param ABI takes). */
-            if (by_addr_flags && i < callee_hf->param_count &&
-                callee_hf->param_is_var[i] &&
-                expr->call.args[i] &&
-                expr->call.args[i]->kind == IRON_HIR_EXPR_IDENT) {
+            /* PARM-02: an argument bound to a `var` parameter passes the
+             * mutable place itself. An identifier can pass its alloca
+             * directly. Fields and indexed elements keep their GET_FIELD /
+             * GET_INDEX value here; emit_receiver_addr reconstructs a
+             * pointer to that storage instead of taking a temporary's
+             * address (#731). */
+            bool wants_by_addr = by_addr_flags && i < callee_hf->param_count &&
+                                 callee_hf->param_is_var[i] && expr->call.args[i];
+            if (wants_by_addr && expr->call.args[i]->kind == IRON_HIR_EXPR_IDENT) {
                 ptrdiff_t aai = hmgeti(ctx->var_alloca_map,
                                        expr->call.args[i]->ident.var_id);
                 if (aai >= 0) {
@@ -2526,6 +2522,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 }
             }
             IronLIR_ValueId av = lower_expr(ctx, expr->call.args[i]);
+            if (wants_by_addr) {
+                arrput(args, av);
+                by_addr_flags[i] = true;
+                any_by_addr = true;
+                continue;
+            }
             {
                 Iron_Type *ct = expr->call.callee ? expr->call.callee->type : NULL;
                 if (ct && ct->kind == IRON_TYPE_FUNC && i < ct->func.param_count &&
@@ -3657,19 +3659,21 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             /* PARM-02 (#433): an argument bound to a `var` parameter of a
              * method or init passes its binding's slot, as for a free
              * function. */
-            {
-                int vpi = (int)arrlen(args);
-                if (callee_tf && callee_tf->param_is_var && vpi < callee_tf->param_count &&
-                    callee_tf->param_is_var[vpi] && ae && ae->kind == IRON_HIR_EXPR_IDENT) {
+            int vpi = (int)arrlen(args);
+            bool wants_by_addr = callee_tf && callee_tf->param_is_var &&
+                                 vpi < callee_tf->param_count &&
+                                 callee_tf->param_is_var[vpi] && ae;
+            if (wants_by_addr) {
+                if (!m_by_addr) {
+                    int cap = expr->method_call.arg_count + 1;
+                    m_by_addr = (bool *)iron_arena_alloc(
+                        ctx->lir_arena, (size_t)cap * sizeof(bool), _Alignof(bool));
+                    if (!m_by_addr) iron_oom_abort("hir_to_lir.c:METHOD_CALL by_addr");
+                    memset(m_by_addr, 0, (size_t)cap * sizeof(bool));
+                }
+                if (ae->kind == IRON_HIR_EXPR_IDENT) {
                     ptrdiff_t aai = hmgeti(ctx->var_alloca_map, ae->ident.var_id);
                     if (aai >= 0) {
-                        if (!m_by_addr) {
-                            int cap = expr->method_call.arg_count + 1;
-                            m_by_addr = (bool *)iron_arena_alloc(
-                                ctx->lir_arena, (size_t)cap * sizeof(bool), _Alignof(bool));
-                            if (!m_by_addr) iron_oom_abort("hir_to_lir.c:METHOD_CALL by_addr");
-                            memset(m_by_addr, 0, (size_t)cap * sizeof(bool));
-                        }
                         m_by_addr[vpi] = true;
                         arrput(args, ctx->var_alloca_map[aai].value);
                         continue;
@@ -3677,6 +3681,11 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 }
             }
             IronLIR_ValueId av = lower_expr(ctx, ae);
+            if (wants_by_addr) {
+                m_by_addr[vpi] = true;
+                arrput(args, av);
+                continue;
+            }
             note_owned_temp(ctx, &temps, ae, av, span);
             /* A `T?` parameter takes a T argument (or null) wrapped, as a
              * function call does: `w.show("x")` and `T("t")` through an
@@ -5956,8 +5965,12 @@ static void ssa_collect_addr_taken(IronLIR_Func *fn) {
             case IRON_LIR_CALL:
                 for (int ai = 0; ai < in->call.arg_count; ai++) {
                     ssa_mark_addr_taken(fn, in->call.args[ai]);
-                    if (in->call.args_by_addr && in->call.args_by_addr[ai])
-                        ssa_mark_addr_taken(fn, in->call.args[ai]);
+                    if (in->call.args_by_addr && in->call.args_by_addr[ai]) {
+                        IronLIR_ValueId root =
+                            ssa_root_alloca(fn, in->call.args[ai]);
+                        if (root != IRON_LIR_VALUE_INVALID)
+                            hmput(g_ssa_addr_taken, root, true);
+                    }
                 }
                 if (in->call.self_by_addr && in->call.arg_count > 0) {
                     IronLIR_ValueId root = ssa_root_alloca(fn, in->call.args[0]);

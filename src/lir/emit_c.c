@@ -5007,17 +5007,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (!pt || pt->kind != IRON_TYPE_INTERFACE || !pt->interface.decl ||
                     !pt->interface.decl->name) continue;
                 IronLIR_ValueId sv = instr->call.args[i];
-                IronLIR_Instr *slot_in = (sv != IRON_LIR_VALUE_INVALID &&
-                                          sv < (IronLIR_ValueId)arrlen(fn->value_table))
-                                         ? fn->value_table[sv] : NULL;
-                if (!slot_in || slot_in->kind != IRON_LIR_ALLOCA ||
-                    emit_vid_global_slot(fn, sv) ||
-                    !slot_in->alloca.alloc_type ||
-                    slot_in->alloca.alloc_type->kind != IRON_TYPE_OBJECT ||
-                    !slot_in->alloca.alloc_type->object.decl ||
-                    !slot_in->alloca.alloc_type->object.decl->name) continue;
+                Iron_Type *source_type = emit_get_value_type(fn, sv);
+                if (!source_type || source_type->kind != IRON_TYPE_OBJECT ||
+                    !source_type->object.decl ||
+                    !source_type->object.decl->name) continue;
                 const char *iface_c = emit_mangle_name(pt->interface.decl->name, ctx->arena);
-                const char *impl = slot_in->alloca.alloc_type->object.decl->name;
+                const char *impl = source_type->object.decl->name;
                 char ikey[512];
                 snprintf(ikey, sizeof(ikey), "%s:%s", iface_c, impl);
                 bool indirect = ctx->indirect_variants &&
@@ -5025,7 +5020,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "%s _ifw%d_%d = %s_from_%s(",
                                     iface_c, (int)instr->id, i, iface_c, impl);
-                emit_val(sb, sv);
+                iron_strbuf_appendf(sb, "*(");
+                emit_receiver_addr(sb, fn, ctx, sv, ctx->current_block_id);
+                iron_strbuf_appendf(sb, ")");
                 iron_strbuf_appendf(sb, ");\n");
                 ifw[ifw_count].arg_index  = i;
                 ifw[ifw_count].slot       = sv;
@@ -6673,8 +6670,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 (int)instr->id, ifw[k].arg_index, ifw[k].iface_c, ifw[k].impl,
                 ifw[k].iface_name, ifw[k].impl);
             emit_indent(sb, ind);
-            emit_val(sb, ifw[k].slot);
-            iron_strbuf_appendf(sb, " = %s_ifw%d_%d.data.%s;\n",
+            iron_strbuf_appendf(sb, "*(");
+            emit_receiver_addr(sb, fn, ctx, ifw[k].slot,
+                               ctx->current_block_id);
+            iron_strbuf_appendf(sb, ") = %s_ifw%d_%d.data.%s;\n",
                 ifw[k].indirect ? "*" : "", (int)instr->id, ifw[k].arg_index, ifw[k].impl);
         }
         /* 2026-07 remediation (ARENA-10 arena-OOM panic name): an Arena ctor
