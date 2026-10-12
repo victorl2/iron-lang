@@ -189,8 +189,10 @@ def main(argv):
     if len(argv) >= 3 and argv[0] == '--suite':
         ironc, outdir = os.path.abspath(argv[1]), argv[2]
         rc = 0
-        for seed in (1, 2, 3):
-            rc |= campaign(ironc, outdir, seed, 15)
+        # Small enough for a sanitizer build: each case compiles and runs
+        # its program about eight times. Longer campaigns: SEED COUNT.
+        for seed in (1, 2):
+            rc |= campaign(ironc, outdir, seed, 6)
         return rc
     if len(argv) < 3:
         print(__doc__)
