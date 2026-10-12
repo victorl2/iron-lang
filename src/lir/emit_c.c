@@ -4702,6 +4702,16 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, "];\n");
                 }
+            } else if (emit_list_has_columns(ctx, arr_t)) {
+                /* A list that may hold columns: gather the element inline. */
+                emit_indent(sb, ind);
+                if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = %s_read(", emit_type_to_c(arr_t, ctx));
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ", ");
+                emit_column_index(sb, fn, ctx, instr, ctx->current_block_id, NULL);
+                iron_strbuf_appendf(sb, ");\n");
             } else {
                 /* Fallback: result = Iron_List_<suffix>_get(&array, index) */
                 const char *list_type = "Iron_List_int64_t"; /* default fallback */
@@ -4881,6 +4891,16 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
                 emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ";\n");
+            } else if (emit_list_has_columns(ctx, arr_t)) {
+                /* A list that may hold columns: scatter the element inline. */
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "%s_write(&", emit_type_to_c(arr_t, ctx));
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ", ");
+                emit_column_index(sb, fn, ctx, instr, ctx->current_block_id, NULL);
+                iron_strbuf_appendf(sb, ", ");
+                emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ");\n");
             } else {
                 /* Fallback: Iron_List_<suffix>_set(&array, index, value) */
                 const char *list_type = "Iron_List_int64_t"; /* default fallback */
