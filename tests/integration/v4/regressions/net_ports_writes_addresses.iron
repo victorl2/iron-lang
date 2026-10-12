@@ -26,6 +26,11 @@ func main() {
     val (addrs, dns) = Net.lookup_host("127.0.0.1" + nul + "evil", 5000)
     val (lit4, dns4) = Net.lookup_host("127.0.0.1", 5000)
     println("{dns.code} {addrs.len()} {dns4.code} {lit4.len()}")
+    -- a name too long for the inline string form was a heap copy that
+    -- every lookup leaked (the leak oracle runs this test)
+    val (lit6, dns6) = Net.lookup_host("2001:0db8:0000:0000:0000:0000:0000:0007", 5000)
+    val (none, dnsn) = Net.lookup_host("x".repeat(300), 5000)
+    println("{dns6.code} {lit6.len()} {dnsn.code != 0} {none.len()}")
 
     var port = 0
     var listener = TcpListener(-1)

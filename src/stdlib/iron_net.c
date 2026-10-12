@@ -1390,6 +1390,7 @@ static void dns_abandoned_destructor(void *p) {
     /* Free the wait struct too — caller walked away without destroying
      * it (that's the whole point of the abandoned-flag variant). */
     if (job->wait) Iron_poolwait_destroy(job->wait);
+    iron_string_release(&job->name_copy);
     free(job);
 }
 
@@ -1513,6 +1514,7 @@ Iron_Tuple__Address__NetError Iron_net_lookup_host(Iron_String name,
 
     job->wait = Iron_poolwait_create();
     if (!job->wait) {
+        iron_string_release(&job->name_copy);
         free(job);
         out.v1 = iron_net_err_code(IRON_ERR_NET_NO_MEMORY);
         return out;
@@ -1585,6 +1587,7 @@ Iron_Tuple__Address__NetError Iron_net_lookup_host(Iron_String name,
         if (code == 0) code = IRON_ERR_NET_DNS_OTHER;
         if (ai) freeaddrinfo(ai);
         Iron_poolwait_destroy(job->wait);
+        iron_string_release(&job->name_copy);
         free(job);
         out.v1 = iron_net_err_code(code);
         return out;
@@ -1596,6 +1599,9 @@ Iron_Tuple__Address__NetError Iron_net_lookup_host(Iron_String name,
 
     freeaddrinfo(ai);
     Iron_poolwait_destroy(job->wait);
+    /* (a name of 24 bytes or more is a heap copy: it leaked on every
+     * lookup) */
+    iron_string_release(&job->name_copy);
     free(job);
 
     out.v1 = iron_net_err_none();
