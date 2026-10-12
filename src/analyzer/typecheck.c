@@ -7475,24 +7475,24 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                      * stdlib stub is absent, e.g. LSP buffer mode) — those
                      * fall through with type_name_mc == NULL. */
                     type_name_mc = eff_recv_t->object.decl->name;
-                } else if (obj_id->resolved_type &&
-                           obj_id->resolved_type->kind == IRON_TYPE_STRING) {
+                } else if (eff_recv_t &&
+                           eff_recv_t->kind == IRON_TYPE_STRING) {
                     /* String instance method: resolve via string.iron wrapper decls */
                     type_name_mc = "String";
-                } else if (obj_id->resolved_type &&
-                           obj_id->resolved_type->kind == IRON_TYPE_INT) {
+                } else if (eff_recv_t &&
+                           eff_recv_t->kind == IRON_TYPE_INT) {
                     /* Phase 78 FMT-01: Int instance method (e.g. n.to_string()).
                      * Resolve via int.iron wrapper decls (unconditionally prepended
                      * by build.c / check.c — parallel to string.iron). */
                     type_name_mc = "Int";
-                } else if (obj_id->resolved_type &&
-                           obj_id->resolved_type->kind == IRON_TYPE_INT32) {
+                } else if (eff_recv_t &&
+                           eff_recv_t->kind == IRON_TYPE_INT32) {
                     /* Phase 78 FMT-02: Int32 instance method (e.g. n.to_string()).
                      * Int32.to_string is a distinct method, NOT a widening delegate
                      * through Int (CONTEXT.md: type-first design). */
                     type_name_mc = "Int32";
-                } else if (obj_id->resolved_type &&
-                           obj_id->resolved_type->kind == IRON_TYPE_FLOAT) {
+                } else if (eff_recv_t &&
+                           eff_recv_t->kind == IRON_TYPE_FLOAT) {
                     /* Phase 78 FMT-03: Float instance method (e.g. f.to_string()).
                      * Resolve via float.iron wrapper decls. */
                     type_name_mc = "Float";

@@ -468,16 +468,26 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
          * symbol. A destructuring `val (a, b)` is not a module global. */
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)node;
-            if (vd->name && vd->binding_count == 0)
+            if (vd->name && vd->binding_count == 0) {
                 define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
                            /*is_mutable=*/false, /*is_private=*/false);
+                if (vd->is_pub) {
+                    Iron_Symbol *ds = iron_scope_lookup_local(ctx->global_scope, vd->name);
+                    if (ds && ds->decl_node == node) ds->is_pub = true;
+                }
+            }
             break;
         }
         case IRON_NODE_VAR_DECL: {
             Iron_VarDecl *vd = (Iron_VarDecl *)node;
-            if (vd->name)
+            if (vd->name) {
                 define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
                            /*is_mutable=*/true, /*is_private=*/false);
+                if (vd->is_pub) {
+                    Iron_Symbol *ds = iron_scope_lookup_local(ctx->global_scope, vd->name);
+                    if (ds && ds->decl_node == node) ds->is_pub = true;
+                }
+            }
             break;
         }
         /* -Wswitch-enum opt-out: collect_decl only processes top-level
@@ -722,11 +732,17 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                  * excluded — `pub interface` is deferred per RESEARCH Open
                  * Question 3. Stdlib carve-out (line-offset based) makes
                  * stdlib decls implicitly pub. */
+                bool global_binding = sym->sym_kind == IRON_SYM_VARIABLE && sym->decl_node &&
+                    ((sym->decl_node->kind == IRON_NODE_VAL_DECL &&
+                      ((Iron_ValDecl *)sym->decl_node)->is_global) ||
+                     (sym->decl_node->kind == IRON_NODE_VAR_DECL &&
+                      ((Iron_VarDecl *)sym->decl_node)->is_global));
                 bool is_global =
                     sym->sym_kind == IRON_SYM_FUNCTION ||
                     sym->sym_kind == IRON_SYM_TYPE     ||
                     sym->sym_kind == IRON_SYM_ENUM     ||
-                    sym->sym_kind == IRON_SYM_ENUM_VARIANT;
+                    sym->sym_kind == IRON_SYM_ENUM_VARIANT ||
+                    global_binding;
                 if (is_global && !sym->is_pub &&
                     sym->span.filename && id->span.filename &&
                     !is_stdlib_decl(ctx, sym)) {
@@ -894,6 +910,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             } else if (vd->name && !global_predefined(ctx, vd->name, node)) {
                 define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
                            /*is_mutable=*/false, /*is_private=*/false);
+                if (vd->is_pub) {
+                    Iron_Symbol *ds = iron_scope_lookup_local(ctx->current_scope, vd->name);
+                    if (ds) ds->is_pub = true;
+                }
             }
             break;
         }
@@ -904,6 +924,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             if (!global_predefined(ctx, vd->name, node))
                 define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
                            /*is_mutable=*/true, /*is_private=*/false);
+            if (vd->is_pub) {
+                Iron_Symbol *ds = iron_scope_lookup_local(ctx->current_scope, vd->name);
+                if (ds) ds->is_pub = true;
+            }
             break;
         }
 
@@ -1847,7 +1871,7 @@ void iron_type_patch_registry_free(Iron_TypePatchRegistry *reg) {
 
 /* Stdlib modules an `import` may name (src/stdlib/<name>.iron). */
 static const char *const k_stdlib_modules[] = {
-    "arena", "box", "channel", "crypto", "encoding", "filehandle", "float",
+    "arena", "atomic", "box", "channel", "crypto", "encoding", "filehandle", "float",
     "hashable", "hint", "http", "int", "io", "json", "list", "log", "map", "math",
     "mutex", "mysql", "net", "os",
     "rawptr", "raylib", "rwlock", "set", "string", "time", "url",

@@ -1,0 +1,607 @@
+-- Database access: schema migrations and the item repository.
+--
+-- Every function borrows from the shared rc MysqlPool. A single statement
+-- goes through db.exec (one borrowed connection, retried by the pool when a
+-- pooled connection turns out to be dead); multi-statement work acquires a
+-- connection and runs in a transaction that is rolled back on any error.
+import mysql
+import time
+
+-- Ordered schema versions. A version's statements run once, in order, and
+-- the version is recorded in schema_migrations afterwards. Never edit a
+-- shipped version: add a new one.
+func migrations() -> [[String]] {
+    return [
+        [
+            """CREATE TABLE IF NOT EXISTS items (
+                id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                sku VARCHAR(64) NOT NULL,
+                name VARCHAR(200) NOT NULL,
+                category VARCHAR(64) NOT NULL,
+                price_cents BIGINT NOT NULL,
+                quantity INT NOT NULL DEFAULT 0,
+                created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+                UNIQUE KEY uq_items_sku (sku),
+                KEY idx_items_category (category, id),
+                KEY idx_items_price (price_cents, id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+            """CREATE TABLE IF NOT EXISTS stock_movements (
+                id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                item_id BIGINT NOT NULL,
+                delta INT NOT NULL,
+                reason VARCHAR(64) NOT NULL,
+                created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                KEY idx_movements_item (item_id, id),
+                KEY idx_movements_created (created_at),
+                CONSTRAINT fk_movements_item FOREIGN KEY (item_id) REFERENCES items (id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+        ],
+        [
+            """CREATE TABLE IF NOT EXISTS fx_rates (
+                base CHAR(3) NOT NULL,
+                currency CHAR(3) NOT NULL,
+                rate DOUBLE NOT NULL,
+                as_of VARCHAR(32) NOT NULL,
+                fetched_at BIGINT NOT NULL,
+                PRIMARY KEY (base, currency)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+        ],
+    ]
+}
+
+pub object MigrationResult {
+    pub val error: MysqlError
+    pub val applied: Int
+    pub val version: Int
+}
+
+-- Bring the schema up to date. Concurrent instances serialize on a named
+-- lock, so only one of them runs a given version.
+pub func migrate(db: rc MysqlPool) -> MigrationResult {
+    var conn = db.acquire()
+    if conn.error.failed() {
+        return MigrationResult(conn.error, 0, 0)
+    }
+    val lock = conn.query("SELECT GET_LOCK('inventory_schema', 30)")
+    if lock.failed() {
+        return MigrationResult(lock.error, 0, 0)
+    }
+    if lock.int_or(0, 0, 0) != 1 {
+        return MigrationResult(MysqlError(7002, "", "timed out waiting for the schema lock", false), 0, 0)
+    }
+    val created = conn.run("CREATE TABLE IF NOT EXISTS schema_migrations (version INT NOT NULL PRIMARY KEY, applied_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)) ENGINE=InnoDB")
+    if created.failed() {
+        conn.run("DO RELEASE_LOCK('inventory_schema')")
+        return MigrationResult(created, 0, 0)
+    }
+    val current_res = conn.query("SELECT COALESCE(MAX(version), 0) FROM schema_migrations")
+    if current_res.failed() {
+        conn.run("DO RELEASE_LOCK('inventory_schema')")
+        return MigrationResult(current_res.error, 0, 0)
+    }
+    val current = current_res.int_or(0, 0, 0)
+    val all = migrations()
+    var applied = 0
+    var version = current
+    var v = current
+    while v < all.len() {
+        for stmt in all[v] {
+            val err = conn.run(stmt)
+            if err.failed() {
+                conn.run("DO RELEASE_LOCK('inventory_schema')")
+                return MigrationResult(err, applied, version)
+            }
+        }
+        val rec = conn.exec("INSERT INTO schema_migrations (version) VALUES (?)", [MysqlValue.Int(v + 1)])
+        if rec.failed() {
+            conn.run("DO RELEASE_LOCK('inventory_schema')")
+            return MigrationResult(rec.error, applied, version)
+        }
+        applied += 1
+        version = v + 1
+        v += 1
+    }
+    conn.run("DO RELEASE_LOCK('inventory_schema')")
+    return MigrationResult(MysqlError(0, "", "", false), applied, version)
+}
+
+-- ── Items ─────────────────────────────────────────────────────────────────
+
+pub object Item {
+    pub val id: Int
+    pub val sku: String
+    pub val name: String
+    pub val category: String
+    pub val price_cents: Int
+    pub val quantity: Int
+    pub val created_at: String
+    pub val updated_at: String
+}
+
+-- Timestamps come back as RFC 3339 text formatted by the server (the
+-- session time zone is UTC): cheaper than formatting every DATETIME here.
+val ITEM_COLUMNS = "id, sku, name, category, price_cents, quantity, " +
+    "DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%s.%fZ'), DATE_FORMAT(updated_at, '%Y-%m-%dT%H:%i:%s.%fZ')"
+
+func item_at(res: *MysqlResult, row: Int) -> Item {
+    return Item(
+        res.int_or(row, 0, 0),
+        res.text_or(row, 1, ""),
+        res.text_or(row, 2, ""),
+        res.text_or(row, 3, ""),
+        res.int_or(row, 4, 0),
+        res.int_or(row, 5, 0),
+        res.text_or(row, 6, ""),
+        res.text_or(row, 7, ""))
+}
+
+-- Outcome of a repository call: `status` is the HTTP status the API should
+-- answer with when `error` is set (404, 409, 422, 503, 500).
+pub object ItemResult {
+    pub val item: Item
+    pub val found: Bool
+    pub val status: Int
+    pub val error: MysqlError
+    pub val message: String
+}
+
+func no_item() -> Item {
+    return Item(0, "", "", "", 0, 0, "", "")
+}
+
+func ok_error() -> MysqlError {
+    return MysqlError(0, "", "", false)
+}
+
+-- HTTP status for a database failure: connection problems are temporary
+-- (503), anything else is a server error (500).
+pub func db_status(err: MysqlError) -> Int {
+    if err.is_connection_error() or err.code == 7009 or err.code == 7010 or err.code == 7004 {
+        return 503
+    }
+    -- 3024: the server stopped a SELECT at max_execution_time.
+    if err.code == 3024 {
+        return 503
+    }
+    return 500
+}
+
+func db_failure(err: MysqlError) -> ItemResult {
+    return ItemResult(no_item(), false, db_status(err), err, "database unavailable")
+}
+
+pub object NewItem {
+    pub val sku: String
+    pub val name: String
+    pub val category: String
+    pub val price_cents: Int
+    pub val quantity: Int
+}
+
+-- Insert an item and, when it starts with stock, its opening movement, in
+-- one transaction.
+pub func create_item(db: rc MysqlPool, n: NewItem) -> ItemResult {
+    var conn = db.acquire()
+    if conn.error.failed() {
+        return db_failure(conn.error)
+    }
+    val begun = conn.begin()
+    if begun.failed() {
+        return db_failure(begun)
+    }
+    val ins = conn.exec("INSERT INTO items (sku, name, category, price_cents, quantity) VALUES (?, ?, ?, ?, ?)",
+        [MysqlValue.Text(n.sku), MysqlValue.Text(n.name), MysqlValue.Text(n.category),
+         MysqlValue.Int(n.price_cents), MysqlValue.Int(n.quantity)])
+    if ins.failed() {
+        conn.rollback()
+        if ins.error.code == 1062 {
+            return ItemResult(no_item(), false, 409, ins.error, "an item with this sku already exists")
+        }
+        return db_failure(ins.error)
+    }
+    val id = ins.last_insert_id()
+    if n.quantity != 0 {
+        val mv = conn.exec("INSERT INTO stock_movements (item_id, delta, reason) VALUES (?, ?, 'initial')",
+            [MysqlValue.Int(id), MysqlValue.Int(n.quantity)])
+        if mv.failed() {
+            conn.rollback()
+            return db_failure(mv.error)
+        }
+    }
+    val committed = conn.commit()
+    if committed.failed() {
+        return db_failure(committed)
+    }
+    val res = conn.exec("SELECT " + ITEM_COLUMNS + " FROM items WHERE id = ?", [MysqlValue.Int(id)])
+    if res.failed() or res.row_count() == 0 {
+        return ItemResult(Item(id, n.sku, n.name, n.category, n.price_cents, n.quantity, "", ""), true, 201, ok_error(), "")
+    }
+    return ItemResult(item_at(res, 0), true, 201, ok_error(), "")
+}
+
+pub func get_item(db: rc MysqlPool, id: Int) -> ItemResult {
+    val res = db.exec("SELECT " + ITEM_COLUMNS + " FROM items WHERE id = ?", [MysqlValue.Int(id)])
+    if res.failed() {
+        return db_failure(res.error)
+    }
+    if res.row_count() == 0 {
+        return ItemResult(no_item(), false, 404, ok_error(), "item not found")
+    }
+    return ItemResult(item_at(res, 0), true, 200, ok_error(), "")
+}
+
+pub object ItemFilter {
+    pub var category: String
+    pub var min_price: Int
+    pub var max_price: Int
+    pub var name_prefix: String
+    pub var after: Int
+    pub var limit: Int
+
+    pub init() {
+        self.category = ""
+        self.min_price = -1
+        self.max_price = -1
+        self.name_prefix = ""
+        self.after = 0
+        self.limit = 50
+    }
+}
+
+pub object ItemPage {
+    pub val items: [Item]
+    pub val next_after: Int
+    pub val status: Int
+    pub val error: MysqlError
+}
+
+func escape_like(s: String) -> String {
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+}
+
+-- Keyset pagination on id: `after` is the last id of the previous page.
+pub func list_items(db: rc MysqlPool, f: ItemFilter) -> ItemPage {
+    var sql = "SELECT " + ITEM_COLUMNS + " FROM items WHERE id > ?"
+    var params: [MysqlValue] = [MysqlValue.Int(f.after)]
+    if f.category.len() > 0 {
+        sql = sql + " AND category = ?"
+        params.push(MysqlValue.Text(f.category))
+    }
+    if f.min_price >= 0 {
+        sql = sql + " AND price_cents >= ?"
+        params.push(MysqlValue.Int(f.min_price))
+    }
+    if f.max_price >= 0 {
+        sql = sql + " AND price_cents <= ?"
+        params.push(MysqlValue.Int(f.max_price))
+    }
+    if f.name_prefix.len() > 0 {
+        sql = sql + " AND name LIKE ?"
+        params.push(MysqlValue.Text(escape_like(f.name_prefix) + "%"))
+    }
+    sql = sql + " ORDER BY id LIMIT ?"
+    params.push(MysqlValue.Int(f.limit + 1))
+    val res = db.exec(sql, params)
+    var items: [Item] = []
+    if res.failed() {
+        return ItemPage(items.take(), 0, db_status(res.error), res.error)
+    }
+    var row = 0
+    val n = res.row_count()
+    while row < n and row < f.limit {
+        items.push(item_at(res, row))
+        row += 1
+    }
+    var next_after = 0
+    if n > f.limit and items.len() > 0 {
+        next_after = items[items.len() - 1].id
+    }
+    return ItemPage(items.take(), next_after, 200, ok_error())
+}
+
+pub object ItemPatch {
+    pub var name: String?
+    pub var category: String?
+    pub var price_cents: Int?
+
+    pub init() {
+        self.name = null
+        self.category = null
+        self.price_cents = null
+    }
+}
+
+pub func update_item(db: rc MysqlPool, id: Int, p: ItemPatch) -> ItemResult {
+    var sets: [String] = []
+    var params: [MysqlValue] = []
+    val name = p.name
+    if name != null {
+        sets.push("name = ?")
+        params.push(MysqlValue.Text(name))
+    }
+    val category = p.category
+    if category != null {
+        sets.push("category = ?")
+        params.push(MysqlValue.Text(category))
+    }
+    val price = p.price_cents
+    if price != null {
+        sets.push("price_cents = ?")
+        params.push(MysqlValue.Int(price))
+    }
+    if sets.len() > 0 {
+        params.push(MysqlValue.Int(id))
+        val upd = db.exec("UPDATE items SET " + ", ".join(sets) + " WHERE id = ?", params)
+        if upd.failed() {
+            return db_failure(upd.error)
+        }
+    }
+    return get_item(db, id)
+}
+
+pub object StockResult {
+    pub val item_id: Int
+    pub val quantity: Int
+    pub val movement_id: Int
+    pub val status: Int
+    pub val error: MysqlError
+    pub val message: String
+}
+
+func stock_failure(status: Int, err: MysqlError, message: String) -> StockResult {
+    return StockResult(0, 0, 0, status, err, message)
+}
+
+-- Lock the item row, check the new quantity, update it and record the
+-- movement, in one transaction. Deadlocks and lock wait timeouts are
+-- retried a few times.
+pub func adjust_stock(db: rc MysqlPool, id: Int, delta: Int, reason: String) -> StockResult {
+    var attempt = 0
+    while true {
+        attempt += 1
+        val r = adjust_stock_once(db, id, delta, reason)
+        if (r.error.code == 1213 or r.error.code == 1205) and attempt < 3 {
+            continue
+        }
+        return r
+    }
+    return stock_failure(500, ok_error(), "unreachable")
+}
+
+func adjust_stock_once(db: rc MysqlPool, id: Int, delta: Int, reason: String) -> StockResult {
+    var conn = db.acquire()
+    if conn.error.failed() {
+        return stock_failure(db_status(conn.error), conn.error, "database unavailable")
+    }
+    val begun = conn.begin()
+    if begun.failed() {
+        return stock_failure(db_status(begun), begun, "database unavailable")
+    }
+    val cur = conn.exec("SELECT quantity FROM items WHERE id = ? FOR UPDATE", [MysqlValue.Int(id)])
+    if cur.failed() {
+        conn.rollback()
+        return stock_failure(db_status(cur.error), cur.error, "database unavailable")
+    }
+    if cur.row_count() == 0 {
+        conn.rollback()
+        return stock_failure(404, ok_error(), "item not found")
+    }
+    val quantity = cur.int_or(0, 0, 0) + delta
+    if quantity < 0 {
+        conn.rollback()
+        return StockResult(id, quantity - delta, 0, 409, ok_error(), "insufficient stock")
+    }
+    if quantity > 2147483647 {
+        conn.rollback()
+        return stock_failure(422, ok_error(), "quantity would overflow")
+    }
+    val upd = conn.exec("UPDATE items SET quantity = ? WHERE id = ?", [MysqlValue.Int(quantity), MysqlValue.Int(id)])
+    if upd.failed() {
+        conn.rollback()
+        return stock_failure(db_status(upd.error), upd.error, "database unavailable")
+    }
+    val mv = conn.exec("INSERT INTO stock_movements (item_id, delta, reason) VALUES (?, ?, ?)",
+        [MysqlValue.Int(id), MysqlValue.Int(delta), MysqlValue.Text(reason)])
+    if mv.failed() {
+        conn.rollback()
+        return stock_failure(db_status(mv.error), mv.error, "database unavailable")
+    }
+    val movement_id = mv.last_insert_id()
+    val committed = conn.commit()
+    if committed.failed() {
+        return stock_failure(db_status(committed), committed, "database unavailable")
+    }
+    return StockResult(id, quantity, movement_id, 200, ok_error(), "")
+}
+
+pub object Movement {
+    pub val id: Int
+    pub val delta: Int
+    pub val reason: String
+    pub val created_at: String
+}
+
+pub object MovementPage {
+    pub val movements: [Movement]
+    pub val status: Int
+    pub val error: MysqlError
+}
+
+-- Newest first. 404 when the item does not exist.
+pub func list_movements(db: rc MysqlPool, item_id: Int, limit: Int) -> MovementPage {
+    var out: [Movement] = []
+    val res = db.exec("SELECT i.id, m.id, m.delta, m.reason, DATE_FORMAT(m.created_at, '%Y-%m-%dT%H:%i:%s.%fZ') FROM items i LEFT JOIN stock_movements m ON m.item_id = i.id WHERE i.id = ? ORDER BY m.id DESC LIMIT ?",
+        [MysqlValue.Int(item_id), MysqlValue.Int(limit)])
+    if res.failed() {
+        return MovementPage(out.take(), db_status(res.error), res.error)
+    }
+    if res.row_count() == 0 {
+        return MovementPage(out.take(), 404, ok_error())
+    }
+    var row = 0
+    while row < res.row_count() {
+        if not res.is_null(row, 1) {
+            out.push(Movement(res.int_or(row, 1, 0), res.int_or(row, 2, 0), res.text_or(row, 3, ""), res.text_or(row, 4, "")))
+        }
+        row += 1
+    }
+    return MovementPage(out.take(), 200, ok_error())
+}
+
+pub object CategoryRow {
+    pub val category: String
+    pub val items: Int
+    pub val units: Int
+    pub val value_cents: Int
+    pub val movements: Int
+    pub val net_change: Int
+}
+
+pub object Report {
+    pub val rows: [CategoryRow]
+    pub val status: Int
+    pub val error: MysqlError
+}
+
+-- Per category: item count, units in stock, stock value and the movements
+-- of the last `window_s` seconds (a join against an aggregated subquery).
+pub func category_report(db: rc MysqlPool, window_s: Int) -> Report {
+    var rows: [CategoryRow] = []
+    val res = db.exec("""SELECT i.category,
+            COUNT(*),
+            CAST(COALESCE(SUM(i.quantity), 0) AS SIGNED),
+            CAST(COALESCE(SUM(i.price_cents * i.quantity), 0) AS SIGNED),
+            CAST(COALESCE(SUM(m.moves), 0) AS SIGNED),
+            CAST(COALESCE(SUM(m.net), 0) AS SIGNED)
+        FROM items i
+        LEFT JOIN (
+            SELECT item_id, COUNT(*) AS moves, SUM(delta) AS net
+            FROM stock_movements
+            WHERE created_at >= NOW(6) - INTERVAL ? SECOND
+            GROUP BY item_id
+        ) m ON m.item_id = i.id
+        GROUP BY i.category
+        ORDER BY i.category""", [MysqlValue.Int(window_s)])
+    if res.failed() {
+        return Report(rows.take(), db_status(res.error), res.error)
+    }
+    var row = 0
+    while row < res.row_count() {
+        rows.push(CategoryRow(res.text_or(row, 0, ""), res.int_or(row, 1, 0), res.int_or(row, 2, 0),
+            res.int_or(row, 3, 0), res.int_or(row, 4, 0), res.int_or(row, 5, 0)))
+        row += 1
+    }
+    return Report(rows.take(), 200, ok_error())
+}
+
+-- The report aggregates every movement of the window, which grows with
+-- traffic: repeated and concurrent requests within report_cache_ms share
+-- one result, computed by one of them; while it recomputes, the others get
+-- the previous result.
+pub object ReportCache {
+    val lock: Mutex[Int]
+    val ttl_ms: Int
+    var window: Int
+    var at: Int
+    var rows: [CategoryRow]
+    var computing: Bool
+
+    pub init(ttl_ms: Int) {
+        self.lock = Mutex(0)
+        self.ttl_ms = ttl_ms
+        self.window = 0
+        self.at = 0
+        self.rows = []
+        self.computing = false
+    }
+}
+
+pub func cached_report(cache: rc ReportCache, db: rc MysqlPool, window_s: Int) -> Report {
+    if cache.ttl_ms <= 0 {
+        return category_report(db, window_s)
+    }
+    var waited = 0
+    while true {
+        var compute = false
+        if true {
+            val g = cache.lock.lock()
+            val now = Time.now_ms()
+            val have = cache.at > 0 and cache.window == window_s
+            if have and now - cache.at < cache.ttl_ms {
+                return Report(cache.rows.copy(), 200, ok_error())
+            }
+            if not cache.computing or waited >= 10000 {
+                cache.computing = true
+                compute = true
+            } elif have {
+                -- Someone is recomputing: answer from the previous result
+                -- rather than holding this thread until it is done.
+                return Report(cache.rows.copy(), 200, ok_error())
+            }
+        }
+        if compute {
+            val r = category_report(db, window_s)
+            val g = cache.lock.lock()
+            cache.computing = false
+            if r.status == 200 {
+                cache.rows = r.rows.copy()
+                cache.window = window_s
+                cache.at = Time.now_ms()
+            }
+            return r
+        }
+        Time.sleep(5)
+        waited += 5
+    }
+    return category_report(db, window_s)
+}
+
+-- ── Exchange rate snapshots ───────────────────────────────────────────────
+
+pub object StoredRate {
+    pub val currency: String
+    pub val rate: Float
+    pub val as_of: String
+    pub val fetched_at: Int
+}
+
+-- Replace the stored snapshot for `base` in one transaction.
+pub func save_rates(db: rc MysqlPool, base: String, rates: [StoredRate]) -> MysqlError {
+    var conn = db.acquire()
+    if conn.error.failed() {
+        return conn.error
+    }
+    val begun = conn.begin()
+    if begun.failed() {
+        return begun
+    }
+    for r in rates {
+        val res = conn.exec("INSERT INTO fx_rates (base, currency, rate, as_of, fetched_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE rate = VALUES(rate), as_of = VALUES(as_of), fetched_at = VALUES(fetched_at)",
+            [MysqlValue.Text(base), MysqlValue.Text(r.currency), MysqlValue.Float(r.rate), MysqlValue.Text(r.as_of), MysqlValue.Int(r.fetched_at)])
+        if res.failed() {
+            conn.rollback()
+            return res.error
+        }
+    }
+    return conn.commit()
+}
+
+pub func load_rates(db: rc MysqlPool, base: String) -> [StoredRate] {
+    var out: [StoredRate] = []
+    val res = db.exec("SELECT currency, rate, as_of, fetched_at FROM fx_rates WHERE base = ?", [MysqlValue.Text(base)])
+    if res.failed() {
+        return out.take()
+    }
+    var row = 0
+    while row < res.row_count() {
+        out.push(StoredRate(res.text_or(row, 0, ""), res.float_or(row, 1, 0.0), res.text_or(row, 2, ""), res.int_or(row, 3, 0)))
+        row += 1
+    }
+    return out.take()
+}
+
+-- A cheap round trip for readiness checks.
+pub func ping(db: rc MysqlPool) -> MysqlError {
+    return db.run("DO 1")
+}

@@ -11,9 +11,11 @@
 #include <string.h>
 
 #ifdef _WIN32
+#include <winsock2.h>
 #include <windows.h>
 #include <bcrypt.h>
 #else
+#include <sys/socket.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -38,6 +40,9 @@ typedef struct WsSession {
     int close_sent;
     int close_received;
     int open;
+    int failed;      /* a receive failed: the stream is out of step */
+    int clean_timeout;   /* the last receive timed out between frames */
+    size_t bytes_read;   /* frame bytes consumed so far (to tell the two apart) */
     uint8_t *fragment;
     size_t fragment_len;
     size_t fragment_cap;
@@ -511,6 +516,7 @@ static int64_t read_exact(WsSession *session, uint8_t *buffer, size_t length,
         memcpy(buffer, session->prefetch + session->prefetch_pos, count);
         session->prefetch_pos += count;
         used += count;
+        session->bytes_read += count;
         if (session->prefetch_pos == session->prefetch_len) {
             free(session->prefetch);
             session->prefetch = NULL;
@@ -525,6 +531,7 @@ static int64_t read_exact(WsSession *session, uint8_t *buffer, size_t length,
         if (read.v1.code != 0) return read.v1.code;
         if (read.v0 <= 0) return IRON_ERR_WS_CLOSED;
         used += (size_t)read.v0;
+        session->bytes_read += (size_t)read.v0;
     }
     return 0;
 }
@@ -591,10 +598,78 @@ static void session_free(WsSession *session) {
     free(session);
 }
 
+/* ── Handles ────────────────────────────────────────────────────────────────
+ * A WebSocket value holds a slot index and a generation, never the session
+ * pointer: close and abort free the session, and a later call through a
+ * copy of the old value (is_open after close, a second close) found freed
+ * memory (#607). A stale handle now resolves to no session: is_open is
+ * false and the other calls return IRON_ERR_WS_CLOSED. */
+typedef struct WsSlot { WsSession *session; uint32_t generation; } WsSlot;
+static WsSlot *ws_slots;
+static uint32_t ws_slot_count, ws_slot_cap;
+static iron_mutex_t ws_slots_lock;
+static iron_once_t ws_slots_once = IRON_ONCE_INIT;
+
+static void ws_slots_init(void) { iron_mutex_init(&ws_slots_lock); }
+
+static int64_t ws_register(WsSession *session) {
+    iron_once(&ws_slots_once, ws_slots_init);
+    iron_mutex_lock(&ws_slots_lock);
+    uint32_t index = 0;
+    while (index < ws_slot_count && ws_slots[index].session) index++;
+    if (index == ws_slot_count) {
+        if (ws_slot_count == ws_slot_cap) {
+            uint32_t cap = ws_slot_cap ? ws_slot_cap * 2 : 16;
+            WsSlot *grown = (WsSlot *)realloc(ws_slots, (size_t)cap * sizeof(WsSlot));
+            if (!grown) {
+                iron_mutex_unlock(&ws_slots_lock);
+                return 0;
+            }
+            memset(grown + ws_slot_cap, 0, (size_t)(cap - ws_slot_cap) * sizeof(WsSlot));
+            ws_slots = grown;
+            ws_slot_cap = cap;
+        }
+        ws_slot_count++;
+    }
+    ws_slots[index].session = session;
+    int64_t handle = ((int64_t)(ws_slots[index].generation & 0x7fffffffu) << 32) |
+                     (int64_t)(index + 1);
+    iron_mutex_unlock(&ws_slots_lock);
+    return handle;
+}
+
+static WsSession *ws_lookup(int64_t handle) {
+    if (handle <= 0) return NULL;
+    uint32_t index = (uint32_t)(handle & 0xffffffff);
+    uint32_t generation = (uint32_t)(handle >> 32);
+    if (index == 0) return NULL;
+    iron_once(&ws_slots_once, ws_slots_init);
+    iron_mutex_lock(&ws_slots_lock);
+    WsSession *session = NULL;
+    if (index <= ws_slot_count && ws_slots[index - 1].session &&
+        (ws_slots[index - 1].generation & 0x7fffffffu) == generation)
+        session = ws_slots[index - 1].session;
+    iron_mutex_unlock(&ws_slots_lock);
+    return session;
+}
+
+static void ws_unregister(int64_t handle) {
+    uint32_t index = (uint32_t)(handle & 0xffffffff);
+    iron_mutex_lock(&ws_slots_lock);
+    if (index >= 1 && index <= ws_slot_count) {
+        ws_slots[index - 1].session = NULL;
+        ws_slots[index - 1].generation++;
+    }
+    iron_mutex_unlock(&ws_slots_lock);
+}
+
 static int64_t send_frame(WsSession *session, uint8_t opcode,
                           const uint8_t *payload, size_t length,
                           Iron_Deadline deadline) {
     if (!session || !session->open) return IRON_ERR_WS_CLOSED;
+    /* After its close frame an endpoint sends nothing more (RFC 6455
+     * section 5.5.1); a failed connection sends nothing at all. */
+    if (session->close_sent || (session->failed && opcode != 8)) return IRON_ERR_WS_CLOSED;
     if ((opcode & 0x08) && length > 125) return IRON_ERR_WS_INVALID_ARGUMENT;
     if (!(opcode & 0x08) && length > session->max_message)
         return IRON_ERR_WS_MESSAGE_TOO_LARGE;
@@ -681,16 +756,36 @@ static void best_effort_protocol_close(WsSession *session, uint16_t code,
     }
 }
 
+static Iron_WebSocketMessage ws_receive_frames(WsSession *session, int64_t timeout);
+
 Iron_WebSocketMessage Iron_websocket_receive(Iron_WebSocket socket,
                                               int64_t timeout) {
-    WsSession *session = (WsSession *)(intptr_t)socket.handle;
-    if (!session || timeout < 0) return ws_message_error(IRON_ERR_WS_INVALID_ARGUMENT);
-    if (!session->open) return ws_message_error(IRON_ERR_WS_CLOSED);
+    WsSession *session = ws_lookup(socket.handle);
+    if (!session) return ws_message_error(IRON_ERR_WS_CLOSED);
+    if (timeout < 0) return ws_message_error(IRON_ERR_WS_INVALID_ARGUMENT);
+    if (!session->open || session->failed) return ws_message_error(IRON_ERR_WS_CLOSED);
+    Iron_WebSocketMessage message = ws_receive_frames(session, timeout);
+    /* A failed receive (a protocol error, a message too large, invalid
+     * UTF-8, a transport error part way through a frame) leaves the byte
+     * stream out of step: the connection is failed and later receives
+     * report IRON_ERR_WS_CLOSED instead of reading frame data as headers.
+     * A timeout before any byte of a frame arrived keeps it usable. */
+    if (message.error != 0 && !(message.error == IRON_ERR_NET_TIMEOUT && session->clean_timeout))
+        session->failed = 1;
+    session->clean_timeout = 0;
+    return message;
+}
+
+static Iron_WebSocketMessage ws_receive_frames(WsSession *session, int64_t timeout) {
     Iron_Deadline deadline = Iron_deadline_from_timeout_ms(timeout);
 next_frame: ;
     uint8_t head[2];
+    size_t before = session->bytes_read;
     int64_t error = read_exact(session, head, sizeof(head), deadline);
-    if (error) return ws_message_error(error);
+    if (error) {
+        session->clean_timeout = session->bytes_read == before && session->fragment_opcode == 0;
+        return ws_message_error(error);
+    }
     int fin = (head[0] & 0x80) != 0;
     uint8_t opcode = head[0] & 0x0f;
     int masked = (head[1] & 0x80) != 0;
@@ -790,9 +885,15 @@ next_frame: ;
             }
         } else {
             message.data = ws_string((const char *)payload, (size_t)length);
-            if (opcode == 9) {
+            if (opcode == 9 && !session->close_sent) {
                 error = send_frame(session, 10, payload, (size_t)length, deadline);
-                if (error) { free(payload); return ws_message_error(error); }
+                if (error) {
+                    /* (the ping's data was already copied into the message) */
+                    iron_string_release(&message.data);
+                    iron_string_release(&message.error_message);
+                    free(payload);
+                    return ws_message_error(error);
+                }
             }
         }
         free(payload);
@@ -844,12 +945,13 @@ static int custom_headers_valid(Iron_String headers) {
     size_t pos = 0;
     while (pos < length) {
         size_t end = pos;
-        while (end + 1 < length && !(bytes[end] == '\r' && bytes[end + 1] == '\n')) {
-            unsigned char byte = (unsigned char)bytes[end];
-            if ((byte < 32 && byte != '\t') || byte == 127) return 0;
-            end++;
-        }
+        while (end + 1 < length && !(bytes[end] == '\r' && bytes[end + 1] == '\n')) end++;
         size_t line_end = end + 1 < length ? end : length;
+        /* every byte of the line, the last one included */
+        for (size_t i = pos; i < line_end; i++) {
+            unsigned char byte = (unsigned char)bytes[i];
+            if ((byte < 32 && byte != '\t') || byte == 127) return 0;
+        }
         size_t colon = pos;
         while (colon < line_end && bytes[colon] != ':') colon++;
         if (colon == pos || colon == line_end) return 0;
@@ -869,13 +971,13 @@ static int response_headers_valid(const char *headers, size_t length) {
     size_t pos = 0;
     while (pos < length) {
         size_t end = pos;
-        while (end + 1 < length &&
-               !(headers[end] == '\r' && headers[end + 1] == '\n')) {
-            unsigned char byte = (unsigned char)headers[end];
-            if ((byte < 32 && byte != '\t') || byte == 127) return 0;
-            end++;
-        }
+        while (end + 1 < length && !(headers[end] == '\r' && headers[end + 1] == '\n')) end++;
         size_t line_end = end + 1 < length ? end : length;
+        /* every byte of the line, the last one included */
+        for (size_t i = pos; i < line_end; i++) {
+            unsigned char byte = (unsigned char)headers[i];
+            if ((byte < 32 && byte != '\t') || byte == 127) return 0;
+        }
         size_t colon = pos;
         while (colon < line_end && headers[colon] != ':') {
             unsigned char byte = (unsigned char)headers[colon];
@@ -1143,7 +1245,12 @@ static Iron_WebSocketResult websocket_connect_options(
         : ws_cstr("");
     free(response);
     Iron_WebSocketResult result = ws_result_error(0);
-    result.socket.handle = (int64_t)(intptr_t)session;
+    result.socket.handle = ws_register(session);
+    if (result.socket.handle == 0) {
+        transport_close(transport);
+        session_free(session);
+        return ws_result_error(IRON_ERR_WS_NO_MEMORY);
+    }
     result.protocol = negotiated_protocol;
     return result;
 }
@@ -1264,7 +1371,12 @@ static Iron_WebSocketResult upgrade_server(WsTransport transport,
         return ws_result_error(error);
     }
     Iron_WebSocketResult result = ws_result_error(0);
-    result.socket.handle = (int64_t)(intptr_t)session;
+    result.socket.handle = ws_register(session);
+    if (result.socket.handle == 0) {
+        transport_close(transport);
+        session_free(session);
+        return ws_result_error(IRON_ERR_WS_NO_MEMORY);
+    }
     result.protocol = ws_string(selected_protocol, selected_protocol_length);
     return result;
 }
@@ -1305,10 +1417,11 @@ Iron_WebSocketResult Iron_httpsconnection_upgrade_websocket_protocol(
 
 int64_t Iron_websocket_send_text(Iron_WebSocket socket, Iron_String data,
                                   int64_t timeout) {
-    WsSession *session = (WsSession *)(intptr_t)socket.handle;
+    WsSession *session = ws_lookup(socket.handle);
     const uint8_t *bytes = (const uint8_t *)iron_string_cstr(&data);
     size_t length = iron_string_byte_len(&data);
-    if (!session || timeout < 0) return IRON_ERR_WS_INVALID_ARGUMENT;
+    if (!session) return IRON_ERR_WS_CLOSED;
+    if (timeout < 0) return IRON_ERR_WS_INVALID_ARGUMENT;
     if (!utf8_valid(bytes, length)) return IRON_ERR_WS_INVALID_UTF8;
     return send_frame(session, 1, bytes, length,
                       Iron_deadline_from_timeout_ms(timeout));
@@ -1316,8 +1429,9 @@ int64_t Iron_websocket_send_text(Iron_WebSocket socket, Iron_String data,
 
 int64_t Iron_websocket_send_bytes(Iron_WebSocket socket, Iron_String data,
                                    int64_t timeout) {
-    WsSession *session = (WsSession *)(intptr_t)socket.handle;
-    if (!session || timeout < 0) return IRON_ERR_WS_INVALID_ARGUMENT;
+    WsSession *session = ws_lookup(socket.handle);
+    if (!session) return IRON_ERR_WS_CLOSED;
+    if (timeout < 0) return IRON_ERR_WS_INVALID_ARGUMENT;
     return send_frame(session, 2,
         (const uint8_t *)iron_string_cstr(&data), iron_string_byte_len(&data),
         Iron_deadline_from_timeout_ms(timeout));
@@ -1325,9 +1439,10 @@ int64_t Iron_websocket_send_bytes(Iron_WebSocket socket, Iron_String data,
 
 int64_t Iron_websocket_ping(Iron_WebSocket socket, Iron_String data,
                             int64_t timeout) {
-    WsSession *session = (WsSession *)(intptr_t)socket.handle;
+    WsSession *session = ws_lookup(socket.handle);
     size_t length = iron_string_byte_len(&data);
-    if (!session || timeout < 0 || length > 125) return IRON_ERR_WS_INVALID_ARGUMENT;
+    if (!session) return IRON_ERR_WS_CLOSED;
+    if (timeout < 0 || length > 125) return IRON_ERR_WS_INVALID_ARGUMENT;
     return send_frame(session, 9,
         (const uint8_t *)iron_string_cstr(&data), length,
         Iron_deadline_from_timeout_ms(timeout));
@@ -1335,10 +1450,11 @@ int64_t Iron_websocket_ping(Iron_WebSocket socket, Iron_String data,
 
 int64_t Iron_websocket_close(Iron_WebSocket socket, int64_t code,
                               Iron_String reason, int64_t timeout) {
-    WsSession *session = (WsSession *)(intptr_t)socket.handle;
+    WsSession *session = ws_lookup(socket.handle);
     const uint8_t *reason_bytes = (const uint8_t *)iron_string_cstr(&reason);
     size_t reason_length = iron_string_byte_len(&reason);
-    if (!session || timeout < 0 || !close_code_valid((uint16_t)code) ||
+    if (!session) return IRON_ERR_WS_CLOSED;
+    if (timeout < 0 || !close_code_valid((uint16_t)code) ||
         code < 0 || code > UINT16_MAX || reason_length > 123)
         return IRON_ERR_WS_INVALID_ARGUMENT;
     if (!utf8_valid(reason_bytes, reason_length)) return IRON_ERR_WS_INVALID_UTF8;
@@ -1359,6 +1475,30 @@ int64_t Iron_websocket_close(Iron_WebSocket socket, int64_t code,
         if (message.error != 0) { error = message.error; break; }
         if (message.kind == IRON_WEBSOCKET_CLOSE) break;
     }
+    ws_unregister(socket.handle);
+    /* Closing a socket that still has unread input sends a reset, which
+     * can destroy the close frame (and data) the peer has not read yet.
+     * After our close frame, stop sending and drain what the peer still
+     * sends until it closes or the deadline (at most a second) passes. */
+    if (!session->transport.tls && session->close_sent && session->open) {
+        int64_t fd = session->transport.socket.fd;
+#ifdef _WIN32
+        shutdown((SOCKET)fd, SD_SEND);
+#else
+        shutdown((int)fd, SHUT_WR);
+#endif
+        Iron_Deadline linger = Iron_deadline_from_timeout_ms(1000);
+        uint8_t scratch[4096];
+        for (;;) {
+            int rem = Iron_deadline_remaining_ms(linger);
+            int left = Iron_deadline_remaining_ms(deadline);
+            if (left < rem) rem = left;
+            if (rem <= 0) break;
+            Iron_Result_Int_Error got = Iron_net_tcp_recv_bytes(
+                session->transport.socket, scratch, sizeof(scratch), rem);
+            if (got.v1.code != 0 || got.v0 <= 0) break;
+        }
+    }
     session->open = 0;
     transport_close(session->transport);
     session_free(session);
@@ -1366,14 +1506,52 @@ int64_t Iron_websocket_close(Iron_WebSocket socket, int64_t code,
 }
 
 void Iron_websocket_abort(Iron_WebSocket socket) {
-    WsSession *session = (WsSession *)(intptr_t)socket.handle;
+    WsSession *session = ws_lookup(socket.handle);
     if (!session) return;
+    ws_unregister(socket.handle);
     if (session->open) transport_close(session->transport);
     session->open = 0;
     session_free(session);
 }
 
 bool Iron_websocket_is_open(Iron_WebSocket socket) {
-    WsSession *session = (WsSession *)(intptr_t)socket.handle;
-    return session && session->open;
+    WsSession *session = ws_lookup(socket.handle);
+    return session && session->open && !session->failed && !session->close_received;
+}
+
+int64_t iron_websocket_fuzz_frames(const uint8_t *data, size_t length,
+                                   int is_client, size_t max_message) {
+#ifdef _WIN32
+    (void)data; (void)length; (void)is_client; (void)max_message;
+    return -1;
+#else
+    int pair[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0) return -1;
+    close(pair[1]);   /* the peer: reads past the input see the end */
+    fcntl(pair[0], F_SETFL, fcntl(pair[0], F_GETFL, 0) | O_NONBLOCK);
+    Iron_TcpSocket sock;
+    sock.fd = pair[0];
+    WsTransport transport = { sock, NULL };
+    WsSession *session = session_new(transport, is_client, max_message ? max_message : 1);
+    if (!session) { close(pair[0]); return -1; }
+    if (length) {
+        session->prefetch = (uint8_t *)malloc(length);
+        if (!session->prefetch) { session_free(session); close(pair[0]); return -1; }
+        memcpy(session->prefetch, data, length);
+        session->prefetch_len = length;
+    }
+    int64_t handle = ws_register(session);
+    Iron_WebSocket socket = { handle };
+    int64_t received = 0;
+    for (int i = 0; i < 4096; i++) {
+        Iron_WebSocketMessage m = Iron_websocket_receive(socket, 0);
+        int64_t error = m.error;
+        iron_string_release(&m.data);
+        iron_string_release(&m.error_message);
+        if (error != 0) break;
+        received++;
+    }
+    Iron_websocket_abort(socket);
+    return received;
+#endif
 }

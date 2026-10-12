@@ -1207,8 +1207,10 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 IronHIR_Expr **cargs = NULL;
                 arrput(cargs, target_read);
                 arrput(cargs, value);
+                /* (the appending form grows the buffer geometrically:
+                 * repeated += is linear, not quadratic, #597) */
                 binop = iron_hir_expr_call(
-                    mod, iron_hir_expr_func_ref(mod, "iron_string_concat", ty, span),
+                    mod, iron_hir_expr_func_ref(mod, "iron_string_concat_append", ty, span),
                     cargs, 2, ty, span);
             } else {
                 binop = iron_hir_expr_binop(mod, hop, target_read, value, ty, span);
@@ -2488,6 +2490,19 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
          * full DEREF semantics by-value). The flag-read here documents
          * that the HIR layer is aware of the analyzer's tag. */
         (void)mc->is_auto_deref;  /* read flag — explicit handling tracked in 20-03 */
+        /* A String / Int / Int32 / Float method through a pointer (#575):
+         * the method takes the value, so read it through the pointer (a
+         * generation checked load for a checked pointer). Object methods
+         * take the pointer itself and are left as they were. */
+        if (mc->is_auto_deref && obj && obj->type && obj->type->kind == IRON_TYPE_PTR &&
+            obj->type->ptr.pointee &&
+            (obj->type->ptr.pointee->kind == IRON_TYPE_STRING ||
+             obj->type->ptr.pointee->kind == IRON_TYPE_INT ||
+             obj->type->ptr.pointee->kind == IRON_TYPE_INT32 ||
+             obj->type->ptr.pointee->kind == IRON_TYPE_FLOAT)) {
+            obj = iron_hir_expr_deref(mod, obj, ptr_gen_source(mc->object),
+                                      obj->type->ptr.pointee, span);
+        }
         /* NOTE: args stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
         return iron_hir_expr_method_call(mod, obj, mc->method,
                                           args, arg_count,
@@ -2512,12 +2527,14 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         bool list_field = fa->resolved_type &&
             fa->resolved_type->kind == IRON_TYPE_ARRAY &&
             fa->resolved_type->array.size < 0 && !fa->resolved_type->array.is_bounded;
-        if (fa->is_pub_access && !list_field) {
-            IronHIR_Expr **args = NULL;  /* zero-arg getter */
-            return iron_hir_expr_method_call(mod, obj, fa->field,
-                                              args, 0,
-                                              fa->resolved_type, span);
-        }
+        /* A read of a pub field is a field load like any other (#547).
+         * The getter is synthesized and only returns the field, but calling
+         * it copied the whole value: `app.cfg.port` copied the Config,
+         * retaining and then releasing each of its strings, which on a hot
+         * path shared by threads is atomic traffic on the same counters.
+         * The visibility check is the type checker's; writes still go
+         * through the setter. */
+        (void)list_field;
         /* Phase 20 PTR-06 (Plan 20-02b): is_auto_deref flag (set by Plan
          * 20-02a typecheck.c when receiver resolves to IRON_TYPE_PTR)
          * marks the receiver chain as needing iron_check_pointer_gen
@@ -3026,6 +3043,10 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                                                      ret_ty);
             f->is_extern    = fd->is_extern;
             f->extern_c_name = fd->extern_c_name;
+            if (fd->body && fd->body->kind == IRON_NODE_BLOCK) {
+                f->end_span = fd->body->span;
+                f->end_span.line = fd->body->span.end_line;
+            }
             f->is_runtime_stub =
                 fd->body && fd->body->kind == IRON_NODE_BLOCK &&
                 ((Iron_Block *)fd->body)->stmt_count == 0 &&
@@ -3311,6 +3332,10 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             IronHIR_Func *f = iron_hir_func_create(mod, mname, params,
                                                      total_params, ret_ty);
             f->is_runtime_stub = is_stub;
+            if (md->body && md->body->kind == IRON_NODE_BLOCK) {
+                f->end_span = md->body->span;
+                f->end_span.line = md->body->span.end_line;
+            }
             /* Phase 80 MUT-07: propagate receiver mut-ness to the HIR func so
              * HIR→LIR can fire self_by_addr at call sites. Gated on
              * is_receiver_form + params[0]->is_mut_receiver so non-receiver-form

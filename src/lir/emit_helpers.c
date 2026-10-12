@@ -1026,7 +1026,21 @@ void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
         /* _is_null */ struct_name, struct_name,
         /* _null_val */ struct_name, struct_name,
         struct_name);
-    if (!box_elem_drop) {
+    /* A String, list, closure, optional or other value that owns memory
+     * but has no object drop: released through its cell drop thunk before
+     * the cell is freed (Box("..." + s) leaked the string). */
+    const char *cell_drop = box_elem_drop ? "NULL"
+        : emit_cell_drop_fn(ctx, (Iron_Type *)elem_type);
+    if (!box_elem_drop && strcmp(cell_drop, "NULL") != 0) {
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "static void %s_free(%s *box) {\n"
+            "    if (box && box->inner.addr) {\n"
+            "        %s(box->inner.addr);\n"
+            "        iron_heap_free(box->inner); box->inner.addr = NULL;\n"
+            "    }\n"
+            "}\n\n",
+            struct_name, struct_name, cell_drop);
+    } else if (!box_elem_drop) {
         iron_strbuf_appendf(&ctx->lifted_funcs,
             "static void %s_free(%s *box) {\n"
             "    /* Phase 26 (Plan 26-02): rc Box[T] rejected via E0286 -- "
@@ -1391,12 +1405,11 @@ void emit_ensure_filehandle(EmitCtx *ctx) {
         "static void Iron_FileHandle_close(Iron_FileHandle *fh);\n"
         "static void Iron_FileHandle_drop(Iron_FileHandle *fh);\n");
 
-    /* open creates/truncates the file; close prints "closed fd" then closes.
-     * Uses fopen/fileno (portable, no <fcntl.h> needed) — the value is the
-     * underlying fd so the drop path matches the surface contract. */
+    /* open creates the file when needed (an existing file keeps its
+     * contents) and returns the fd; close closes it once and sets -1. */
     iron_strbuf_appendf(&ctx->lifted_funcs,
         "static Iron_FileHandle Iron_FileHandle_open(Iron_String path) {\n"
-        "    Iron_FileHandle fh; fh.fd = iron_filehandle_open(iron_string_cstr(&path));\n"
+        "    Iron_FileHandle fh; fh.fd = iron_filehandle_open(iron_string_cstr(&path), iron_string_byte_len(&path));\n"
         "    return fh;\n"
         "}\n"
         "static void Iron_FileHandle_close(Iron_FileHandle *fh) {\n"
@@ -1917,6 +1930,19 @@ static bool emit_type_is_string_like(const Iron_Type *t);
 static bool emit_type_is_bvec(const Iron_Type *t) {
     return t && t->kind == IRON_TYPE_ARRAY && t->array.is_bounded && t->array.size >= 0;
 }
+/* "Mutex", "RWLock" or "Channel" when `ft` is one of those resources (with
+ * its element type): an object field of that type is destroyed with the
+ * object (its lock or queue allocation would leak otherwise). */
+static const char *emit_resource_field_kind(const Iron_Type *ft) {
+    if (!ft || ft->kind != IRON_TYPE_OBJECT || !ft->object.decl ||
+        !ft->object.decl->name || !ft->object.elem)
+        return NULL;
+    const char *n = ft->object.decl->name;
+    if (strcmp(n, "Mutex") == 0 || strcmp(n, "RWLock") == 0 || strcmp(n, "Channel") == 0)
+        return n;
+    return NULL;
+}
+
 static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
                              bool want_copy, int depth) {
     if (!od || depth > 16) return false;
@@ -1931,6 +1957,7 @@ static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
         if (emit_type_is_rc_like(ft) || emit_field_is_owned_list(ft)) return true;
         if (emit_type_is_string_like(ft)) return true;
         if (!want_copy && emit_field_is_box(ft)) return true;
+        if (!want_copy && emit_resource_field_kind(ft)) return true;
         if (ft->kind == IRON_TYPE_FUNC) return true;
         if (ft->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, ft, want_copy)) return true;
         if (emit_type_is_bvec(ft) && bvec_needs_glue(ctx, ft, want_copy)) return true;
@@ -2368,6 +2395,13 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
             if (enum_needs_glue(ctx, ft, false))
                 iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
                                     emit_type_to_c(ft, ctx), f->name);
+            continue;
+        }
+        const char *resource = emit_resource_field_kind(ft);
+        if (resource) {
+            (void)emit_type_to_c(ft, ctx);   /* seats the resource's helpers */
+            iron_strbuf_appendf(&ctx->lifted_funcs, "    Iron_%s_%s_destroy(&self->%s);\n",
+                                resource, emit_elem_c_escaped(ctx, ft->object.elem), f->name);
             continue;
         }
         if (ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;

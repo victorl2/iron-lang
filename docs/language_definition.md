@@ -1736,8 +1736,10 @@ number 4 word hi end
 `val` and `var` declarations may appear at the top level. A global `val`
 is a constant initialized before `main` runs (its initializer may call
 functions); a global `var` is a mutable variable shared by the whole
-program (and by all threads, without synchronization). Globals cannot be
-`pub`. A `pure` method may not read a global `var` (`E0241`).
+program (and by all threads, without synchronization). Like every other
+top-level declaration a global is private to its file; `pub val` and
+`pub var` share it with the package's other files (`E0320` otherwise). A
+`pure` method may not read a global `var` (`E0241`).
 
 Like every declaration, a global is visible in the whole file, also above
 its declaration. Globals are initialized before `main`, every one of them
@@ -1827,7 +1829,7 @@ an unknown module is an error (`E0209`); an unused import warns (`W0611`).
 declarations are used by their own names.
 
 The modules that require an import are `math`, `io`, `time`, `log`,
-`hint`, `os`, `net`, `http`, `websocket`, `url`, `json`, `crypto`,
+`hint`, `os`, `atomic`, `net`, `http`, `websocket`, `url`, `json`, `crypto`,
 `encoding`, `mysql` and `raylib`; their functions are
 called on the capitalized module object (`import math`, then
 `Math.sqrt(x)`). Everything else in section 9 (strings, lists, `Box`,
@@ -1837,8 +1839,8 @@ is available without an import.
 ### 5.10 Visibility
 
 Every top-level declaration is private to its file unless marked `pub`.
-`pub` may prefix a function, object, patch, interface or enum (not a
-global binding). Using a private declaration from another file of the
+`pub` may prefix a function, object, patch, interface, enum or global
+binding (`pub val`, `pub var`). Using a private declaration from another file of the
 package is an error (`E0320`). Object members are private to the declaring
 file unless marked `pub` (section 5.3). The word `private` is not accepted
 (`E0101`). Visibility does not make names local: all files of a package
@@ -2289,12 +2291,19 @@ func main() {
 
 ### 7.1 `spawn` and `await`
 
-`spawn("name") { body }` runs the body on a new operating system thread and
-evaluates to a handle. The body is a block that must `return` a value, and
+`spawn("name") { body }` runs the body concurrently and evaluates to a
+handle. The body is a block that must `return` a value, and
 `await handle` blocks until the thread finishes and yields that value. A
 handle can be awaited once (`E0325`). A spawn expression may only appear as
 the initializer of a `val` or `var`, or as a statement (its result is then
-discarded and the thread is never awaited). The body may read `val` bindings of the enclosing
+discarded and the task is never awaited). A bound spawn (`val h = spawn`)
+runs on a new operating system thread. A spawn statement is a task for the
+runtime's worker pool, a fixed set of one thread per CPU core but one (the
+environment variable `IRON_WORKERS` sets another size): a
+task that blocks (on a socket, a sleep or a database call) holds a worker
+until it returns, and tasks beyond the pool's size wait their turn. Run
+long-lived loops as bound spawns, and see `Http.poller` (networking guide)
+for servers that keep many idle connections. The body may read `val` bindings of the enclosing
 function and use `Mutex`, `Channel` and `rc` values; a list captured by a
 spawn must be awaited in the same block (`E0328`). Writing a captured
 `var` from a thread is a data race and warns (`W0604`). A thread keeps what
@@ -2545,7 +2554,19 @@ panic: `substring(start, end)` clamps both ends to the string
 `char_at(i)` out of range is `""` and `byte_at(i)` out of range is `-1`.
 `to_int()` and `to_float()` accept whitespace around the number
 (`" 42\n".to_int()` is `42`) and give `0` for anything else that is not
-entirely a number (`"4 2"`, `"3x"`, `""`).
+entirely a number (`"4 2"`, `"3x"`, `""`). `to_int` reads an optional sign
+and decimal digits, and gives `0` for a value outside `Int`; `to_float`
+reads an optional sign, digits with an optional fraction or a fraction
+alone (`".5"`, `"5."`) and an optional exponent (`"1e3"`), and nothing
+else (no hexadecimal, `inf` or `nan`); a value past the `Float` range is
+an infinity. `upper()` and `lower()` apply the simple Unicode case mapping
+(one character to one character); a character whose case form is several
+characters (`ß`) keeps its case. With an empty pattern, `split("")` gives
+the characters, `replace("", x)` returns the string unchanged and
+`count("")` is `0`. `pad_left` and `pad_right` pad with the first
+character of `ch`, or with spaces when `ch` is empty.
+`String.from_byte(b)` is the one-byte string for `b` in `0..255` and `""`
+for any other value.
 
 | Method | Description |
 |---|---|
@@ -2598,7 +2619,7 @@ Methods on `[T]` (and, where noted, on fixed arrays, bounded vectors and
 | `insert(i: Int, v: T)`, `remove(i: Int) -> T` | insert before / remove at index |
 | `get(i: Int) -> T`, `set(i: Int, v: T)` | checked element access (same as `xs[i]`) |
 | `get_unchecked(i: Int) -> T`, `set_unchecked(i: Int, v: T)` | access without the bounds check |
-| `clear()`, `reverse()`, `sort()` | in place; `sort` orders `Int`, `Float` and `String` ascending |
+| `clear()`, `reverse()`, `sort()` | in place; `sort` orders `Int`, `Float` and `String` ascending (NaN after every number, strings in code point order) |
 | `contains(v: T) -> Bool` | membership |
 | `copy() -> [T]`, `take() -> [T]` | independent copy; move the contents out |
 | `map(f: func(T) -> U) -> [U]` | transform |
@@ -2606,6 +2627,10 @@ Methods on `[T]` (and, where noted, on fixed arrays, bounded vectors and
 | `reduce(init: U, f: func(U, T) -> U) -> U` | fold |
 | `forEach(f: func(T))` | call `f` on each element |
 | `sum() -> T` | sum of an `[Int]` or `[Float]` |
+
+A slice `xs[a..b]` must lie within the list with `a <= b`; anything else
+is an index out of bounds panic, like `xs[i]`. `contains` compares with
+`==`, so a list never contains NaN.
 
 The lambdas passed to `map`, `filter`, `reduce` and `forEach` must write
 their parameter types. Chains of `map`/`filter`/`reduce` calls are fused
@@ -2648,7 +2673,11 @@ functions `sin`, `cos`, `tan`, `asin`, `acos`, `sqrt`, `floor`, `ceil`,
 `pow(base, exp)`, `hypot(a, b)`, `lerp(a, b, t)` (`Float` arguments and
 results), `sign(x: Float) -> Int`, `random() -> Float` in `[0, 1)`,
 `random_float(min, max) -> Float`, `random_int(min: Int, max: Int) -> Int`
-(inclusive) and `seed(n: Int)`.
+(inclusive at both ends, over any range including all of `Int`; `min` when
+`max < min`) and `seed(n: Int)`. The functions are the platform C
+library's: `round` rounds halfway cases away from zero, a result outside a
+function's domain is NaN (`sqrt(-1.0)`), and `sign(NaN)` is `0`. After
+`seed(n)` the sequence is the same on every run.
 
 ```iron
 import math
@@ -2675,6 +2704,7 @@ Simple functions on `IO`:
 | `read_file(path) -> String`, `write_file(path, content)`, `append_file(path, content)` | whole-file text I/O (an unreadable file reads as `""`) |
 | `read_lines(path) -> [String]` | the lines of a file |
 | `read_line() -> String` | one line from standard input |
+| `write_stdout(s) -> Int`, `write_stderr(s) -> Int` | write all of `s` at once without buffering (lines from several threads do not interleave; println's buffer is flushed first); the bytes written, or -1 |
 | `file_exists(path) -> Bool`, `is_dir(path) -> Bool` | tests |
 | `create_dir(path)`, `delete_file(path)` | directories and deletion |
 | `list_files(dir) -> String` | the entries of a directory, one per line |
@@ -2690,9 +2720,34 @@ failing silently:
 | `copy_file(src, dst, overwrite: Bool)`, `move_file(src, dst, overwrite: Bool)` | `FileWriteResult` |
 | `file_info(path)` | `FileInfo { exists, is_file, is_dir: Bool, size, modified_unix, error: Int, error_message: String }` |
 
-`error` is 0 on success. `FileHandle.open(path) -> FileHandle` and
-`h.close()` give a `nocopy` handle to an open file descriptor (`h.fd`)
-that closes itself when dropped.
+`error` is 0 on success; otherwise it is one of the codes of
+`src/runtime/iron_errors.h` and `error_message` says which:
+
+| Code | Meaning |
+|---|---|
+| 8000 | not found (the file or a directory on its path does not exist) |
+| 8001 | permission denied |
+| 8002 | invalid argument: an empty path, a path holding a zero byte, a name too long, a negative limit, or copy / move onto the source itself |
+| 8003 | the file is larger than `max_bytes` |
+| 8004, 8005 | read failed, write failed |
+| 8007 | the destination exists (copy / move without `overwrite`) |
+| 8008 | a component of the path is a file, not a directory |
+| 8009 | the path is a directory (reading or writing it as a file) |
+
+A missing file is not an error for `file_info` (`exists` is false). A path
+that is empty or holds a zero byte names no file for every function: the
+simple ones read `""`, write nothing and report `false` (the prefix before
+the zero byte is never used). The path helpers work on the bytes of the
+path with `/` as the separator; `join_path("", b)` is `b`. Files whose
+size the system does not report (`/proc` files, pipes) are read to their
+end, still within `max_bytes`.
+
+`FileHandle.open(path) -> FileHandle` opens the file for reading and
+writing, creating it when it does not exist (an existing file keeps its
+contents); `h.fd` is the descriptor, `-1` when the file could not be opened
+(an empty path, a directory, a missing directory). The handle is `nocopy`
+and closes itself when dropped; `h.close()` closes it at once and sets
+`fd` to `-1`, and a second close does nothing.
 
 ```iron
 import io
@@ -2719,12 +2774,20 @@ false
 
 ### 9.6 `time` (import)
 
-`Time.now() -> Float` (seconds since the Unix epoch), `Time.now_ms() -> Int`
-and `Time.now_ns() -> Int` (milliseconds and nanoseconds), `Time.sleep(ms:
+`Time.now() -> Float` (seconds since the Unix epoch), `Time.unix_ms() -> Int`
+(milliseconds since the Unix epoch), `Time.now_ms() -> Int`
+and `Time.now_ns() -> Int` (milliseconds and nanoseconds of a monotonic clock
+with an arbitrary origin, for measuring durations), `Time.sleep(ms:
 Int)`, `Time.since(start: Float) -> Float` (seconds elapsed since a
 `Time.now()` value), and `Time.Timer(seconds: Float) -> Timer` with the
 fields `elapsed_ms` and `duration_ms` and the methods `done() -> Bool`,
 `update(dt: Float)` and `reset()` (the last two need a `var` timer).
+A timer counts whole milliseconds: `Time.Timer(seconds)` and
+`update(dt)` convert like a `Float` to `Int` conversion (truncating,
+saturating at the `Int` limits, NaN to 0, section 2.9) and the elapsed time
+saturates instead of wrapping. `Time.now_ms()` and `Time.now_ns()` are
+monotonic; `Time.now()` is the wall clock. `Time.sleep` of zero or a
+negative time returns at once.
 `Duration` is a millisecond value type built with `Duration.millis(n)`,
 `Duration.seconds(n)`, `Duration.minutes(n)` or `Duration.from_ms(n)`,
 read with `d.ms` or `d.to_ms()`.
@@ -2748,7 +2811,18 @@ true 2000 false
 `OS.env(name) -> String?` reads an environment variable (`null` when it is
 not set), `OS.env_or(name, fallback) -> String` returns `fallback` instead,
 and `OS.has_env(name) -> Bool` tests for it (an empty value counts as set).
-Names and values are UTF-8 on every platform.
+Names and values are UTF-8 on every platform. A name that is empty or
+holds `=` or a zero byte is never set.
+
+For long-running programs: `OS.trap_shutdown_signals()` makes SIGINT and
+SIGTERM (Ctrl+C, Ctrl+Break and closing the console on Windows) set a flag
+instead of ending the process, and `OS.shutdown_signal() -> Int` returns
+the first such signal received (2 or 15), or 0, for the program to poll and
+shut down cleanly; a second signal ends the process at once.
+`OS.exit(code)` ends the process with an exit status (after flushing
+standard output; drops, defers and other tasks do not run),
+`OS.pid() -> Int` is the process id and `OS.cpu_count() -> Int` the
+number of CPUs the process may run on (its affinity mask on Linux).
 
 ```iron
 import os
@@ -2767,12 +2841,49 @@ unset
 default 0
 ```
 
+### 9.6.2 `atomic` (import)
+
+`AtomicInt.new(v)` and `AtomicBool.new(b)` make a value that tasks share
+without a lock. Copies of the handle (a spawn's capture, a field, an
+argument) refer to the same value, freed with the last copy. `get()`,
+`set(v)`, `swap(v)` (returns the previous value) and
+`compare_and_set(expected, desired)` (whether it stored) work on both;
+`AtomicInt.add(d)` adds and returns the new value. Every operation is
+sequentially consistent.
+
+```iron
+import atomic
+
+func main() {
+    val hits = AtomicInt.new(0)
+    val t = spawn("worker") {
+        for i in range(1000) {
+            hits.add(1)
+        }
+        return 0
+    }
+    for i in range(1000) {
+        hits.add(1)
+    }
+    await t
+    println("{hits.get()} {hits.compare_and_set(2000, 1)} {hits.get()}")
+}
+```
+
+```output
+2000 true 1
+```
+
 ### 9.7 `log` (import)
 
 `Log.debug(msg)`, `Log.info(msg)`, `Log.warn(msg)` and `Log.error(msg)`
-write a timestamped line to standard error; `Log.set_level(level)` with
-`Log.DEBUG`, `Log.INFO`, `Log.WARN` or `Log.ERROR` hides messages below
-the level.
+write a line `[YYYY-MM-DD HH:MM:SS] [LEVEL] msg` (local time; colored
+when standard error is a terminal) to standard error; `Log.set_level(level)`
+with `Log.DEBUG` (0), `Log.INFO` (1, the default), `Log.WARN` (2) or
+`Log.ERROR` (3) hides messages below the level. Any `Int` is a level: one
+below `Log.DEBUG` shows everything, one above `Log.ERROR` hides everything.
+The message is written as given, every byte of it (a newline in it starts
+a new line); a line from one task is never mixed with another's.
 
 ### 9.8 `hint` (import)
 
@@ -2912,6 +3023,30 @@ fields. `websocket` provides `WebSocket.connect` (and the `_with_ca`,
 (Url, UrlError)`, `Url.build(u)`, `Url.resolve(base, ref)`,
 `Url.percent_encode`, `Url.percent_decode` and a `Url.builder()`.
 All timeouts are integer milliseconds.
+
+`Url.parse` splits RFC 3986 references without decoding or case folding:
+the text before the first `:` is the scheme when it is a letter followed
+by letters, digits, `+`, `-` or `.` and no `/`, `?` or `#` comes first
+(otherwise the input is a relative reference); the user info runs to the
+last `@` of the authority; a host in brackets ends at the first `]`, which
+must be followed by nothing or `:` and a port (2004); a host without
+brackets cannot hold `:`, `[` or `]` (2003); the port is decimal digits up
+to 65535 (2005), and an empty port is the scheme default (`port` is -1).
+Errors: 2000 for an empty input, 2009 past 8192 bytes, 2007 for a `%`
+without two hex digits in `percent_decode`. `Url.build` writes the
+reference back so that `Url.parse` of the result gives the same fields.
+`Url.resolve` follows RFC 3986 section 5.2; an empty query or authority
+counts as absent (a `Url` cannot tell them apart).
+
+A port outside 0..65535 given to `net` is an invalid argument (1024).
+`TcpSocket.write` writes the whole buffer within its deadline and returns
+the byte count (on an error, what was written before it); `TcpSocket.read`
+returns what one receive gives, at most `max_bytes`. A `WebSocket` value
+names its connection: after `close` or `abort` every copy of it is stale
+(`is_open` is false, the other calls return 6005); after a receive fails
+(6002 framing, 6003 too large, 6004 invalid UTF-8, or the stream ending
+inside a frame) the connection is failed and later receives and sends
+return 6005; `is_open` is false once a close frame was received.
 
 ### 9.11.1 `json` (import)
 
@@ -3135,7 +3270,11 @@ before the C compiler), `--dump-ir-passes`, `--report-compression`,
 compilation, section 10.6). `--no-strict-v3` accepts a few removed syntax forms for
 debugging old code. `--verbose` prints the generated C and the link line
 and `--version` prints the compiler version and the toolchain it compiles
-with.
+with. On Linux and macOS the environment variable `IRON_CFLAGS` adds C
+compiler flags (separated by spaces, at most 16) to the compilation of the
+program and of the runtime built into it, for example
+`IRON_CFLAGS="-g -fsanitize=address,undefined" iron build` for a sanitizer
+build.
 
 ### 10.5 The web target
 

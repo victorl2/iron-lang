@@ -3132,7 +3132,15 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (l > 0 && l < g_line_fn_first) g_line_fn_first = l;
             }
         }
+        /* A constant has no effect of its own, and the optimizer may have
+         * placed it ahead of its statement (a folded `n < n` emitted before
+         * the loop that precedes it): it keeps the line of what precedes it,
+         * so a breakpoint on its statement does not stop early (#595). */
+        bool is_const = instr->kind == IRON_LIR_CONST_INT || instr->kind == IRON_LIR_CONST_FLOAT ||
+                        instr->kind == IRON_LIR_CONST_BOOL || instr->kind == IRON_LIR_CONST_STRING ||
+                        instr->kind == IRON_LIR_CONST_NULL;
         if (instr->kind == IRON_LIR_ALLOCA) line = g_line_fn_first;
+        else if (is_const) line = g_line_fn_last > 0 ? g_line_fn_last : g_line_fn_first;
         else g_line_fn_last = line;
         emit_line_directive(sb, line, instr->span.filename);
     }
@@ -6286,7 +6294,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 fn->value_table[fptr_chk] != NULL &&
                 fn->value_table[fptr_chk]->kind == IRON_LIR_FUNC_REF) {
                 const char *rn_chk = fn->value_table[fptr_chk]->func_ref.func_name;
-                if (rn_chk && strcmp(rn_chk, "iron_string_concat") == 0) {
+                if (rn_chk && (strcmp(rn_chk, "iron_string_concat") == 0 ||
+                               strcmp(rn_chk, "iron_string_concat_append") == 0)) {
                     runtime_args_by_addr = true;
                 }
                 /* The frame's share of a mutable capture cell (#210): the

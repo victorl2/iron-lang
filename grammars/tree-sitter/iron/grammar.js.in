@@ -262,7 +262,10 @@ module.exports = grammar({
       field('body', $.block),
     ),
 
+    // `pub val` / `pub var` at the top level share a global with the
+    // package's other files; the compiler rejects `pub` on a local.
     val_declaration: $ => seq(
+      optional($.visibility_modifier),
       'val',
       field('binding', choice($.identifier, $.tuple_binding)),
       optional(seq(':', field('type', $._type))),
@@ -270,6 +273,7 @@ module.exports = grammar({
     ),
 
     var_declaration: $ => seq(
+      optional($.visibility_modifier),
       'var',
       field('binding', choice($.identifier, $.tuple_binding, '_')),
       optional(seq(':', field('type', $._type))),

@@ -44,10 +44,20 @@ uint64_t Iron_rng_next(Iron_RNG *rng) {
     return x;
 }
 
+/* A value in [min, max], both ends included (#573); min when max < min.
+ * The span is computed in unsigned arithmetic (max - min overflows Int for
+ * wide ranges) and drawn without modulo bias by rejection. */
 int64_t Iron_rng_next_int(Iron_RNG *rng, int64_t min, int64_t max) {
     if (max <= min) return min;
-    uint64_t range = (uint64_t)(max - min);
-    return min + (int64_t)(Iron_rng_next(rng) % range);
+    uint64_t span = (uint64_t)max - (uint64_t)min;      /* count - 1 */
+    uint64_t r = Iron_rng_next(rng);
+    if (span != UINT64_MAX) {
+        uint64_t count = span + 1;
+        uint64_t limit = UINT64_MAX - (UINT64_MAX % count);   /* multiple of count */
+        while (r >= limit) r = Iron_rng_next(rng);
+        r %= count;
+    }
+    return (int64_t)((uint64_t)min + r);
 }
 
 double Iron_rng_next_float(Iron_RNG *rng) {
