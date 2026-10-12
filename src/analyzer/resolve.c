@@ -508,6 +508,24 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     id->resolved_sym = sym;
                     return;
                 }
+                if (ctx->current_method->is_static) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "'self' is not available in static function '%s'",
+                             ctx->current_method->method_name
+                                 ? ctx->current_method->method_name : "?");
+                    char help[256];
+                    snprintf(help, sizeof(help),
+                             "a static function has no receiver: take a '%s' "
+                             "parameter, or drop `static` to make it a method",
+                             ctx->current_method->type_name
+                                 ? ctx->current_method->type_name : "Self");
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_SELF_OUTSIDE_METHOD, id->span,
+                                   iron_arena_strdup(ctx->arena, msg, strlen(msg)),
+                                   iron_arena_strdup(ctx->arena, help, strlen(help)));
+                    return;
+                }
                 if (ctx->current_method->is_receiver_form) {
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_SELF_OUTSIDE_METHOD, id->span,
@@ -714,7 +732,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
              * Fires once per offending declaration. Gated on is_receiver_form
              * + params[0]->is_mut_receiver so it never hits classic
              * `func T.m()` form or non-mut receiver-form methods. */
-            if (md->is_receiver_form && md->param_count > 0) {
+            if (iron_method_recv_count(md) == 1 && md->param_count > 0) {
                 Iron_Param *recv = (Iron_Param *)md->params[0];
                 if (recv && recv->is_mut_receiver) {
                     bool owner_is_struct_like =
@@ -767,7 +785,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                  * receiver-form method — continue to use the existing is_var
                  * rule. Phase 79's parser guarantees is_mut_receiver is false
                  * on non-receiver params. */
-                if (md->is_receiver_form && i == 0) {
+                if (iron_method_recv_count(md) == 1 && i == 0) {
                     ps->is_mutable = p->is_mut_receiver;
                 } else {
                     ps->is_mutable = p->is_var;

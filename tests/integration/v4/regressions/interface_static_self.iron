@@ -1,0 +1,97 @@
+-- Static functions in interfaces, with and without default bodies, and
+-- Self in interface signatures and default bodies (#455, #646).
+interface Parse {
+    static func parse(text: String) -> Self?
+    static func parse_all(texts: [String]) -> [Self] {
+        var out: [Self] = []
+        for t in texts {
+            val v = Self.parse(t)
+            if v != null {
+                out.push(v)
+            }
+        }
+        return out
+    }
+    static func kind() -> String {
+        return "parsed"
+    }
+    readonly func same(o: Self) -> Bool
+    readonly func show() -> String
+    readonly func describe() -> String {
+        return "{Self.kind()}: {self.show()}"
+    }
+}
+
+object Pt impl Parse {
+    val x: Int
+    val y: Int
+    static func parse(text: String) -> Self? {
+        val parts = text.split(",")
+        if parts.len() != 2 {
+            return null
+        }
+        return Pt(parts[0].len(), parts[1].len())
+    }
+    readonly func same(o: Pt) -> Bool {
+        return o.x == self.x and o.y == self.y
+    }
+    readonly func show() -> String {
+        return "({self.x}, {self.y})"
+    }
+}
+
+object Word impl Parse {
+    val w: String
+    static func parse(text: String) -> Word? {
+        if text.len() == 0 {
+            return null
+        }
+        return Word(text)
+    }
+    static func kind() -> String {
+        return "word"
+    }
+    readonly func same(o: Self) -> Bool {
+        return o.w == self.w
+    }
+    readonly func show() -> String {
+        return self.w
+    }
+}
+
+func first_or_none[T: Parse](texts: [String]) -> String {
+    for t in texts {
+        val v = T.parse(t)
+        if v != null {
+            return v.describe()
+        }
+    }
+    return "none from {T.kind()}"
+}
+
+func count_same[T: Parse](xs: [T], probe: T) -> Int {
+    var n = 0
+    for x in xs {
+        if x.same(probe) {
+            n += 1
+        }
+    }
+    return n
+}
+
+func show_all(items: [Parse]) {
+    for p in items {
+        println(p.show())
+    }
+}
+
+func main() {
+    val pts = Pt.parse_all(["a,bb", "nope", "a,cc", "ccc,d"])
+    println("{pts.len()} {count_same(pts, Pt(1, 2))}")
+    println(first_or_none[Pt](["x", "ab,c"]))
+    println(first_or_none[Word](["", "hello"]))
+    println(first_or_none[Word]([""]))
+    val words = Word.parse_all(["a", "", "b", "a"])
+    println("{words.len()} {count_same(words, Word("a"))} {Word.kind()} {Pt.kind()}")
+    show_all([Pt(1, 2), Word("w")])
+}

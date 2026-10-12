@@ -1,0 +1,9 @@
+-- `Green =` with no ordinal was read as a plain `Green`.
+enum Color {
+    Red = 1,
+    Green =
+}
+
+func main() {
+    println("a")
+}

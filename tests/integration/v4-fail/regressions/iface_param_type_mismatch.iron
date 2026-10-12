@@ -1,0 +1,20 @@
+-- The implementor's parameters must match the interface signature; this
+-- compiled and failed in the C compiler on the dispatcher (#645).
+interface Cl {
+    readonly func v(k: Int) -> Int
+}
+
+object A impl Cl {
+    val n: Int
+    readonly func v(k: String) -> Int {
+        return k.len()
+    }
+}
+
+func use(c: Cl) -> Int {
+    return c.v(3)
+}
+
+func main() {
+    println("{use(A(2))}")
+}

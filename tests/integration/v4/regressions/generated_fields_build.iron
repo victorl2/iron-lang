@@ -1,0 +1,55 @@
+-- Interface default bodies are generated code for the types that opt in:
+-- they may build a value field by field (#455), from T.__fields(...) when
+-- the type has no zero-argument init, or from T() keeping its defaults,
+-- then assign its fields, val fields included.
+interface FromPair {
+    static func from_pair(id: Int, name: String) -> Self {
+        var v = Self.__fields(0, "", [])
+        v.id = id
+        v.name = name
+        v.tags.push(name)
+        v.tags.push("built")
+        return v
+    }
+}
+
+interface WithId {
+    static func with_id(id: Int) -> Self {
+        var v = Self()
+        v.id = id
+        return v
+    }
+}
+
+object User impl FromPair {
+    val id: Int
+    val name: String
+    var tags: [String]
+    init(id: Int) {
+        self.id = id
+        self.name = "anon"
+        self.tags = []
+    }
+    readonly func show() -> String {
+        return "{self.id} {self.name} {self.tags.len()}"
+    }
+}
+
+object Filter impl WithId {
+    val id: Int
+    pub val limit: Int
+    var words: [String]
+    init() {
+        self.id = 0
+        self.limit = 50
+        self.words = ["all"]
+    }
+}
+
+func main() {
+    val u = User.from_pair(7, "ada")
+    println(u.show())
+    println(User(3).show())
+    val f = Filter.with_id(9)
+    println("{f.id} {f.limit} {f.words.len()}")
+}
