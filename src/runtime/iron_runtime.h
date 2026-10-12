@@ -494,6 +494,19 @@ IRON_CHECK_FN bool iron_gen_live(uint64_t gen) {
                                      memory_order_relaxed) == gen;
 }
 
+#if defined(__GNUC__) || defined(__clang__)
+#define IRON_LIKELY(x)   __builtin_expect(!!(x), 1)
+#define IRON_COLD_FN     __attribute__((cold, noinline))
+#else
+#define IRON_LIKELY(x)   (x)
+#define IRON_COLD_FN
+#endif
+/* The rest of a pointer check, out of line so the checked function keeps
+ * no registers for it: a generation the inline test did not find live.
+ * Returns when the pointer is valid after all (static storage, a scope of
+ * another thread or 1024 or more deep), panics otherwise. */
+IRON_COLD_FN void iron_check_ptr_slow(uint64_t gen, const char *deref_file, int deref_line);
+
 /* Panic for a slot-form generation that is no longer live: "stale pointer
  * dereference", with "(arena)" for an arena segment. */
 #if defined(__GNUC__) || defined(__clang__)
@@ -523,7 +536,7 @@ IRON_CHECK_FN void iron_check_pointer_gen(Iron_FatPtr fp,
                                           const char *deref_file,
                                           int deref_line) {
     IRON_GENCHECK_COUNT_BUMP_HEAP();  /* Phase 30 OPT-08: no-op unless IRON_GENCHECK_COUNT */
-    if (!iron_gen_live(fp.gen)) {
+    if (!IRON_LIKELY(iron_gen_live(fp.gen))) {
         iron_panic_stale_gen(deref_file, deref_line, fp.gen);
     }
 }
@@ -631,6 +644,16 @@ IRON_CHECK_FN void iron_stack_leave(uint64_t saved) {
  * fast path is a pointer of this thread into its first 1024 depths: the
  * slot of its depth still holds its key (which no other thread's scope and
  * no later scope ever has). */
+/* The inline part of the stack check: the gen names a scope open in this
+ * thread's first 1024 depths. False for everything else, slot-form gens
+ * included (iron_check_ptr_slow sorts those out). */
+IRON_CHECK_FN bool iron_stack_gen_open(uint64_t gen) {
+    uint32_t d = IRON_STACK_DEPTH(gen);
+    return (gen & IRON_STACK_TAG) && d - 1u < IRON_STACK_CHUNK - 1u &&
+           atomic_load_explicit(&iron_stk.ids[d], memory_order_relaxed) ==
+               (gen & IRON_STACK_KEY_MASK);
+}
+
 IRON_CHECK_FN bool iron_stack_gen_live(uint64_t gen) {
     if (!(gen & IRON_STACK_TAG)) return true;
     uint32_t d = IRON_STACK_DEPTH(gen);
@@ -978,6 +1001,10 @@ IRON_CHECK_FN void iron_check_stack_pointer_gen(Iron_FatPtr fp,
                                                 const char *deref_file,
                                                 int deref_line) {
     IRON_GENCHECK_COUNT_BUMP_STACK();  /* Phase 30 OPT-08: no-op unless IRON_GENCHECK_COUNT */
+#ifndef IRON_DEBUG_TRAPS_ON
+    if (IRON_LIKELY(iron_stack_gen_open(fp.gen))) return;
+    iron_check_ptr_slow(fp.gen, deref_file, deref_line);
+#else
     if (!iron_stack_gen_live(fp.gen)) {
         iron_panic_stale_stack_pointer(deref_file, deref_line, fp.gen);
     }
@@ -986,6 +1013,7 @@ IRON_CHECK_FN void iron_check_stack_pointer_gen(Iron_FatPtr fp,
     if (!(fp.gen & IRON_STACK_TAG) && !iron_gen_live(fp.gen)) {
         iron_panic_stale_gen(deref_file, deref_line, fp.gen);
     }
+#endif
 }
 
 /* ── Phase 28 GA1: arena-pointer deref check (3rd isomorphic sibling) ───────
@@ -1048,11 +1076,21 @@ IRON_CHECK_FN void iron_check_arena_pointer_gen(Iron_FatPtr fp,
  * itself says which check applies (#539). */
 IRON_CHECK_FN void iron_check_ptr(Iron_FatPtr fp, const char *deref_file, int deref_line) {
     uint64_t g = fp.gen;
+#ifndef IRON_DEBUG_TRAPS_ON
+    if (g & IRON_STACK_TAG) {
+        if (IRON_LIKELY(iron_stack_gen_open(g))) return;
+    } else if (IRON_LIKELY(iron_gen_live(g))) {
+        return;
+    }
+    iron_check_ptr_slow(g, deref_file, deref_line);
+#else
+    /* --debug: the panic stops the debugger on the Iron line. */
     if (g & IRON_STACK_TAG) {
         if (!iron_stack_gen_live(g)) iron_panic_stale_stack_pointer(deref_file, deref_line, g);
     } else if (!iron_gen_live(g)) {
         iron_panic_stale_gen(deref_file, deref_line, g);
     }
+#endif
 }
 
 /* ── Threads, mutexes, condition variables, read-write locks (iron_os.c) ──

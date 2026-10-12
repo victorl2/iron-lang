@@ -436,6 +436,18 @@ bool iron_stack_live_slow(uint64_t gen) {
     return live;
 }
 
+/* The out-of-line rest of iron_check_ptr (iron_runtime.h). */
+#undef iron_panic_stale_gen
+#undef iron_panic_stale_stack_pointer
+void iron_check_ptr_slow(uint64_t gen, const char *deref_file, int deref_line) {
+    if (gen & IRON_STACK_TAG) {
+        if (iron_stack_gen_live(gen)) return;
+        iron_panic_stale_stack_pointer(deref_file, deref_line, gen);
+    }
+    if (iron_gen_live(gen)) return;
+    iron_panic_stale_gen(deref_file, deref_line, gen);
+}
+
 /* iron_panic_stale_pointer body lives in src/runtime/iron_panic.c (Plan
  * 19-02). It is forward-declared in src/runtime/iron_runtime.h with
  * __attribute__((noreturn)); the canonical declaration is in
