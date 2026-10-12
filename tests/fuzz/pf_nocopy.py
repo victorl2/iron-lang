@@ -16,9 +16,9 @@ runs under the memory checkers, which see a native Hasher freed twice.
 A negative program (about one in four) holds a single capture that is not
 a borrow: a closure bound, returned, stored in a field, a list or through
 push, handed to a callee that keeps it (directly or through another
-callee), nested in a stored lambda, or a spawn whose handle is discarded,
-never awaited, awaited in one branch only or after a possible return. It
-must not build, with E0286.
+callee), nested in a stored lambda, a parallel for, or a spawn whose handle
+is discarded, never awaited, awaited in one branch only or after a possible
+return. It must not build, with E0286.
 """
 from pf_seg import Seg, SegProgram, iron_lit, ind
 from pf_lang import Expected
@@ -235,8 +235,10 @@ class NocopyGen(SegProgram):
         v = Val(self, 'res' if kind == 'param' else kind)
         form = r.choice(['bound', 'returned', 'field', 'field_assign', 'list', 'push', 'keeper',
                          'keeper_relay', 'nested_stored', 'spawn_stmt', 'spawn_unawaited',
-                         'spawn_if', 'spawn_return'])
+                         'spawn_if', 'spawn_return', 'parallel'])
         if kind == 'param' and form == 'returned':
+            form = 'bound'
+        if form == 'parallel' and v.kind not in EXPR_KINDS:
             form = 'bound'
         self.bad = (kind, form)
         top = []
@@ -283,6 +285,10 @@ class NocopyGen(SegProgram):
             g = self.fresh('g')
             inner = inline_call(f'val {g} = ', lam(body), '') + [f'return {g}()']
             return inline_call(f'val {t} = twice(', lam(inner), ')') + [f'println("{{{t}}}")']
+        if form == 'parallel':
+            i = self.fresh('i')
+            return [f'for {i} in range(2) parallel {{'] + \
+                ind([f'println("{{{i} + {v.read_expr()}}}")']) + ['}']
         h = self.fresh('h')
         spawn = inline_call(f'val {h} = spawn("w") ', ['{'] + ind(body) + ['}'], '')
         if form == 'spawn_stmt':

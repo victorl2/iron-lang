@@ -1,0 +1,12 @@
+-- A parallel for has several workers and is not one of the two permitted
+-- nocopy borrows. Share through rc and guard access with a Mutex. (#703)
+nocopy object Res {
+    val id: Int
+}
+
+func main() {
+    val r = Res(7)
+    for i in range(2) parallel {
+        println("{i}: {r.id}")
+    }
+}

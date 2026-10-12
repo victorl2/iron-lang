@@ -2373,8 +2373,10 @@ func main() {
 threads and waits for all of them. The body must not write bindings of the
 enclosing scope (`E0208`); use a `Mutex` to accumulate. `range(n)` and lists
 may be iterated in parallel; a list is iterated through a binding
-(`for x in xs parallel`), not a list expression. The `parallel(pool)` form parses but pools are
-not implemented (`E0326`).
+(`for x in xs parallel`), not a list expression. A parallel body cannot
+capture a `nocopy` value (`E0286`): share it as `rc` and guard it with a
+`Mutex`, since several worker threads may use it. The `parallel(pool)` form
+parses but pools are not implemented (`E0326`).
 
 ```iron
 func main() {

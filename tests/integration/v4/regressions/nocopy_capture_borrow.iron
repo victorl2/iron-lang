@@ -23,6 +23,10 @@ func twice(f: func() -> Int) -> Int {
     return f() + f()
 }
 
+func sees_same_binding(f: func(*Res) -> Bool, p: *Res) -> Bool {
+    return f(p)
+}
+
 -- hands its parameter on to a callee that only calls it: still a borrow
 func relay(f: func() -> Int) -> Int {
     return twice(f)
@@ -44,6 +48,8 @@ func run(r: Res) -> Int {
 func main() {
     val a = Res(1)
     println("{twice(func() -> Int { return a.id })}")
+    -- The borrowed environment points at a itself, not at a bytewise copy.
+    println("{sees_same_binding(func(p: *Res) -> Bool { return &a == p }, &a)}")
     println("{relay(func() -> Int { return a.id * 10 })}")
     println("{apply_all([1, 2, 3], func(x: Int) -> Int { return x * a.id })}")
     val ys = [1, 2, 3].map(func(x: Int) -> Int { return x + a.id })

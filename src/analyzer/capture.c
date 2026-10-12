@@ -538,8 +538,14 @@ static bool already_reported(CaptureCtx *ctx, Iron_Span sp) {
     return false;
 }
 
+typedef enum {
+    NOCOPY_CAPTURE_CLOSURE,
+    NOCOPY_CAPTURE_SPAWN,
+    NOCOPY_CAPTURE_PARALLEL_FOR
+} NocopyCaptureKind;
+
 static void report_nocopy_capture(CaptureCtx *ctx, const Iron_CaptureEntry *c,
-                                  const struct Iron_Type *nc, bool is_spawn,
+                                  const struct Iron_Type *nc, NocopyCaptureKind kind,
                                   Iron_Span fallback) {
     Iron_Span at = c->span.line > 0 ? c->span : fallback;
     if (already_reported(ctx, at)) return;
@@ -549,16 +555,21 @@ static void report_nocopy_capture(CaptureCtx *ctx, const Iron_CaptureEntry *c,
     bool direct = ct && ct->kind == IRON_TYPE_OBJECT && ct->object.decl == nc->object.decl;
 
     char msg[320], label[320], rel[400], help[900];
-    if (is_spawn)
+    if (kind == NOCOPY_CAPTURE_SPAWN)
         snprintf(msg, sizeof(msg), "spawn captures the nocopy value `%s`, but the task can outlive it", name);
+    else if (kind == NOCOPY_CAPTURE_PARALLEL_FOR)
+        snprintf(msg, sizeof(msg), "parallel for captures the nocopy value `%s`, which cannot be shared with its workers", name);
     else
         snprintf(msg, sizeof(msg), "closure captures the nocopy value `%s`, but the closure can outlive it", name);
 
     const char *un = ctx->lambda_use_name ? ctx->lambda_use_name : "?";
-    if (is_spawn) {
+    if (kind == NOCOPY_CAPTURE_SPAWN) {
         snprintf(label, sizeof(label), ctx->spawn_is_stmt
                  ? "captured here by a spawn whose handle is discarded, so it is never awaited"
                  : "captured here by a spawn that is not surely awaited in the block that starts it");
+    } else if (kind == NOCOPY_CAPTURE_PARALLEL_FOR) {
+        snprintf(label, sizeof(label),
+                 "captured here by a parallel for, which is not a permitted nocopy borrow");
     } else {
         switch (ctx->lambda_use) {
             case LUSE_BOUND: case LUSE_ASSIGNED:
@@ -599,7 +610,7 @@ static void report_nocopy_capture(CaptureCtx *ctx, const Iron_CaptureEntry *c,
                  ctn, ctn, ctn);
         snprintf(guarded, sizeof(guarded), "    val m = Mutex(rc %s(...))", ctn);
     }
-    if (is_spawn) {
+    if (kind == NOCOPY_CAPTURE_SPAWN) {
         snprintf(help, sizeof(help),
                  "await the task in this block (`val t = spawn(\"t\") { ... }`, then `await t`) to lend it to the task;\n"
                  "to share it with a task that outlives this block, make it reference counted:\n"
@@ -609,6 +620,13 @@ static void report_nocopy_capture(CaptureCtx *ctx, const Iron_CaptureEntry *c,
                  "%s\n"
                  "and lock it around each use (`val g = %s.lock()`, then `g.get()`)",
                  share, tn, guarded, rw ? name : "m");
+    } else if (kind == NOCOPY_CAPTURE_PARALLEL_FOR) {
+        snprintf(help, sizeof(help),
+                 "make the value reference counted and guard it with a Mutex, since several worker threads must not use one %s at the same time:\n"
+                 "%s\n"
+                 "lock it in the parallel body (`val g = %s.lock()`, then use `g.get()`); "
+                 "each worker then holds a reference, and the value is dropped once, when the last holder is gone",
+                 tn, guarded, rw ? name : "m");
     } else {
         snprintf(help, sizeof(help),
                  "to share it with a closure that is stored, returned or outlives this block, make it reference counted:\n"
@@ -1046,7 +1064,7 @@ static void find_captures(CaptureCtx *ctx, Iron_LambdaExpr *le) {
             const struct Iron_Type *nc = capture_nocopy_part(&arr[ci]);
             if (!nc) continue;
             if (ctx->lambda_use == LUSE_ARG_BORROW) arr[ci].is_borrowed = true;
-            else report_nocopy_capture(ctx, &arr[ci], nc, false, le->span);
+            else report_nocopy_capture(ctx, &arr[ci], nc, NOCOPY_CAPTURE_CLOSURE, le->span);
         }
 
         /* Phase 22 OQ-04: if this lambda inherits readonly context, reject
@@ -1136,7 +1154,7 @@ static void find_spawn_captures(CaptureCtx *ctx, Iron_SpawnStmt *ss) {
             const struct Iron_Type *nc = capture_nocopy_part(&arr[ci]);
             if (!nc) continue;
             if (ctx->spawn_strict_await) arr[ci].is_borrowed = true;
-            else report_nocopy_capture(ctx, &arr[ci], nc, true, ss->span);
+            else report_nocopy_capture(ctx, &arr[ci], nc, NOCOPY_CAPTURE_SPAWN, ss->span);
         }
     } else {
         ss->captures      = NULL;
@@ -1181,6 +1199,17 @@ static void find_pfor_captures(CaptureCtx *ctx, Iron_ForStmt *fs) {
         }
         fs->pfor_captures      = arr;
         fs->pfor_capture_count = count;
+
+        /* The nocopy borrow rule deliberately has only two forms: a lambda
+         * argument whose callee only calls it, and a surely awaited spawn.
+         * A parallel for has several workers, so sharing requires rc plus a
+         * lock rather than copying the single-owner value (#703). */
+        for (int ci = 0; ci < count; ci++) {
+            const struct Iron_Type *nc = capture_nocopy_part(&arr[ci]);
+            if (nc)
+                report_nocopy_capture(ctx, &arr[ci], nc,
+                                      NOCOPY_CAPTURE_PARALLEL_FOR, fs->span);
+        }
     } else {
         fs->pfor_captures      = NULL;
         fs->pfor_capture_count = 0;

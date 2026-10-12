@@ -89,8 +89,9 @@ lambda passed directly as an argument, and a `spawn` only when the task is
 awaited later in the same block. Any other capture is `E0286`. To keep one
 in a stored or returned closure, or hand it to a task that is not awaited,
 create it with `rc` (`val h = rc FileHandle.open(path)`); guard it with a
-`Mutex(rc ...)` when several threads use it. A captured `var` is shared, not
-copied, so it is not affected.
+`Mutex(rc ...)` when several threads use it. A parallel `for` cannot capture
+a `nocopy` value; use that `Mutex(rc ...)` form. A captured `var` is shared,
+not copied, so it is not affected.
 
 ```iron
 func make_counter() -> func() -> Int {
