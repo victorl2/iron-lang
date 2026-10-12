@@ -16,7 +16,8 @@ if(NOT WIN32)
     # decouples this aggregate from the gate the per-fixture ctest rows use.
     set_tests_properties(test_v4_acceptance PROPERTIES
         LABELS "v4-acceptance"
-        ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}")
+        ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}"
+        RUN_SERIAL TRUE)
 endif()
 
 # Optimizer parity oracle: every runnable v4 / algorithms fixture must behave
@@ -37,7 +38,8 @@ if(NOT WIN32)
     # retain a finite two-hour cap.
     set_tests_properties(test_opt_parity PROPERTIES
         LABELS "oracle"
-        TIMEOUT 7200)
+        TIMEOUT 7200
+        RUN_SERIAL TRUE)
 
     add_test(
         NAME test_opt_parity_timeout_marker
@@ -86,7 +88,8 @@ if(NOT WIN32)
         PROCESSORS 2
         # The expanded corpus can exceed an hour when this runs beside other
         # aggregate tests in the documented parallel full-suite invocation.
-        TIMEOUT 7200)
+        TIMEOUT 7200
+        RUN_SERIAL TRUE)
 endif()
 
 # Crypto cross-check: the crypto and encoding modules against Python's
@@ -95,6 +98,16 @@ endif()
 if(NOT WIN32)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_FOUND)
+        add_test(
+            NAME test_aggregate_run_serial
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/oracles/test_aggregate_scheduling.py
+                    ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
+        )
+        set_tests_properties(test_aggregate_run_serial PROPERTIES
+            LABELS "oracle;unit"
+            TIMEOUT 15)
+
         add_test(
             NAME test_crypto_crosscheck
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/oracles/crypto_crosscheck.py
@@ -120,5 +133,6 @@ if(NOT WIN32)
     )
     set_tests_properties(test_freestanding PROPERTIES
         LABELS "oracle"
-        TIMEOUT 1800)
+        TIMEOUT 1800
+        RUN_SERIAL TRUE)
 endif()
