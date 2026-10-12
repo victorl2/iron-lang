@@ -171,6 +171,17 @@ static void merge_patch_conformance(Iron_Program *program, Iron_Arena *arena) {
     }
 }
 
+static Iron_AnalyzeResult analyze_late_passes(Iron_Program *program,
+                                              IronAnalysisMode mode,
+                                              Iron_Arena *arena,
+                                              Iron_DiagList *diags,
+                                              const char *source_file_dir,
+                                              const char *source_text, size_t source_len,
+                                              bool force_comptime,
+                                              IronBuildTarget target,
+                                              const _Atomic bool *cancel_flag,
+                                              Iron_AnalyzeResult result);
+
 Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
                                            IronAnalysisMode mode,
                                            Iron_Arena *arena,
@@ -226,9 +237,49 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
         iron_diaglist_truncate(diags, diag_mark);
     }
     /* Later passes and lowering see only instances. The LSP keeps the
-     * templates for navigation and hover. */
-    if (mode != IRON_ANALYSIS_MODE_LSP) iron_generics_drop_templates(program);
+     * templates for navigation and hover, but runs the later passes on the
+     * instances alone too: on a template body they report what ironc check
+     * does not (a `var` set used through a mutating method is "never
+     * reassigned" when the method was never resolved on the template). */
+    if (mode != IRON_ANALYSIS_MODE_LSP) {
+        iron_generics_drop_templates(program);
+        return analyze_late_passes(program, mode, arena, diags, source_file_dir,
+                                   source_text, source_len, force_comptime,
+                                   target, cancel_flag, result);
+    }
+    int all_n = program->decl_count;
+    Iron_Node **all = NULL;
+    if (all_n > 0) {
+        all = (Iron_Node **)iron_arena_alloc(arena, sizeof(Iron_Node *) * (size_t)all_n,
+                                             _Alignof(Iron_Node *));
+        if (all) memcpy(all, program->decls, sizeof(Iron_Node *) * (size_t)all_n);
+    }
+    if (all) iron_generics_drop_templates(program);
+    result = analyze_late_passes(program, mode, arena, diags, source_file_dir,
+                                 source_text, source_len, force_comptime, target,
+                                 cancel_flag, result);
+    if (all) {
+        /* The later passes add and remove no declarations: put the
+         * templates back where they were. */
+        arrsetlen(program->decls, all_n);
+        memcpy(program->decls, all, sizeof(Iron_Node *) * (size_t)all_n);
+        program->decl_count = all_n;
+    }
+    return result;
+}
 
+/* Steps 3a to 6: the passes after type checking, on the program's
+ * instances (no generic templates). */
+static Iron_AnalyzeResult analyze_late_passes(Iron_Program *program,
+                                              IronAnalysisMode mode,
+                                              Iron_Arena *arena,
+                                              Iron_DiagList *diags,
+                                              const char *source_file_dir,
+                                              const char *source_text, size_t source_len,
+                                              bool force_comptime,
+                                              IronBuildTarget target,
+                                              const _Atomic bool *cancel_flag,
+                                              Iron_AnalyzeResult result) {
     if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
 
     /* Step 3a: Phase 20 PTR-10 (Plan 20-02a) — mark every function/method

@@ -80,6 +80,24 @@ void ilsp_worker_handle_abort_strike(IronLsp_Server   *server,
     }
 }
 
+/* Answer a pull diagnostic request from a copy of the text (see the
+ * compile path), inside the same SIGABRT boundary so a crash during pull
+ * also counts a strike. */
+static void worker_pull(IronLsp_Server *server, IronLsp_Document *doc,
+                        const char *request_id) {
+    IronLsp_Document snap;
+    if (!ilsp_document_snapshot(doc, &snap)) return;
+    ilsp_current_doc_tls = doc;
+    if (ILSP_SETJMP(doc->abort_jmp) == 0) {
+        ilsp_facade_pull_diagnostic(server, &snap, request_id);
+    } else {
+        doc->abort_count++;
+        ilsp_worker_handle_abort_strike(server, doc, doc->abort_count);
+    }
+    ilsp_current_doc_tls = NULL;
+    ilsp_document_snapshot_free(&snap);
+}
+
 /* Main thread function. arg is a heap IronLsp_AstWorkerCtx* owned by
  * this function; freed before return. */
 static void *ilsp_ast_worker_main(void *arg) {
@@ -92,9 +110,13 @@ static void *ilsp_ast_worker_main(void *arg) {
 
         if (msg.kind == ILSP_MSG_SHUTDOWN) break;
 
-        /* Quarantined doc: drain any message without doing real work. */
+        /* Quarantined doc: drain any message without doing real work; a
+         * pull request still gets its (empty) response. */
         if (atomic_load(&doc->quarantined)) {
-            if (msg.pull_request_id) free(msg.pull_request_id);
+            if (msg.pull_request_id) {
+                ilsp_facade_pull_diagnostic_empty(server, msg.pull_request_id);
+                free(msg.pull_request_id);
+            }
             continue;
         }
 
@@ -119,38 +141,36 @@ static void *ilsp_ast_worker_main(void *arg) {
                     /* Handle pull inline: run a facade-pull then continue
                      * debouncing the COMPILE. The pull sees the current
                      * buffer. */
-                    ilsp_facade_pull_diagnostic(server, doc,
-                                                 next.pull_request_id);
+                    worker_pull(server, doc, next.pull_request_id);
                     if (next.pull_request_id) free(next.pull_request_id);
                 }
             }
 
-            /* Debounce expired. Run compile inside the SIGABRT boundary. */
+            /* Debounce expired. Run compile inside the SIGABRT boundary,
+             * on a copy of the text: the main thread keeps applying edits
+             * meanwhile, and the diagnostics must carry the version they
+             * were computed from. */
+            IronLsp_Document snap;
+            if (!ilsp_document_snapshot(doc, &snap)) continue;
             ilsp_current_doc_tls = doc;
             if (ILSP_SETJMP(doc->abort_jmp) == 0) {
                 IronLsp_CompileRequest req = {
                     .version     = msg.version,
                     .cancel_flag = msg.cancel_flag,
                 };
-                ilsp_facade_compile(server, doc, &req);
+                ilsp_facade_compile(server, &snap, &req);
             } else {
                 /* SIGABRT recovery branch. */
                 doc->abort_count++;
                 ilsp_worker_handle_abort_strike(server, doc, doc->abort_count);
             }
             ilsp_current_doc_tls = NULL;
+            ilsp_document_snapshot_free(&snap);
 
         } else if (msg.kind == ILSP_MSG_PULL_DIAGNOSTIC) {
             /* Synchronous pull: run the facade pull path inside the same
              * sigsetjmp boundary so a crash during pull also quarantines. */
-            ilsp_current_doc_tls = doc;
-            if (ILSP_SETJMP(doc->abort_jmp) == 0) {
-                ilsp_facade_pull_diagnostic(server, doc, msg.pull_request_id);
-            } else {
-                doc->abort_count++;
-                ilsp_worker_handle_abort_strike(server, doc, doc->abort_count);
-            }
-            ilsp_current_doc_tls = NULL;
+            worker_pull(server, doc, msg.pull_request_id);
             if (msg.pull_request_id) free(msg.pull_request_id);
         }
     }

@@ -17,6 +17,9 @@ if(NOT WIN32)
     set_tests_properties(test_v4_acceptance PROPERTIES
         LABELS "v4-acceptance"
         ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}"
+        PROCESSORS 4
+        RESOURCE_LOCK iron_exhaustive_corpus
+        TIMEOUT 7200
         RUN_SERIAL TRUE)
 endif()
 
@@ -39,6 +42,8 @@ if(NOT WIN32)
     # keep a two-hour safety cap for slow hosts.
     set_tests_properties(test_opt_parity PROPERTIES
         LABELS "oracle"
+        PROCESSORS 4
+        RESOURCE_LOCK iron_exhaustive_corpus
         TIMEOUT 7200
         RUN_SERIAL TRUE)
 
@@ -81,9 +86,10 @@ if(NOT WIN32)
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(test_leak_check PROPERTIES
-        LABELS "oracle;v4-acceptance"
-        PROCESSORS 2
-        TIMEOUT 3600
+        LABELS "oracle"
+        PROCESSORS 4
+        RESOURCE_LOCK iron_exhaustive_corpus
+        TIMEOUT 7200
         RUN_SERIAL TRUE)
 endif()
 
