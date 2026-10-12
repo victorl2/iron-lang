@@ -1,0 +1,64 @@
+import time
+
+interface ReflectedHash {
+    readonly func field_hash() -> Int {
+        var hash = 17
+        comptime for f in fields(Self) {
+            comptime match f.type {
+                Int -> { hash = hash * 31 + self.(f) }
+                else -> comptime error("reflection hash benchmark expects Int fields")
+            }
+        }
+        return hash
+    }
+}
+
+object DerivedHash impl ReflectedHash {
+    val a: Int
+    val b: Int
+    val c: Int
+    val d: Int
+}
+
+object ManualHash {
+    val a: Int
+    val b: Int
+    val c: Int
+    val d: Int
+
+    readonly func field_hash() -> Int {
+        var hash = 17
+        hash = hash * 31 + self.a
+        hash = hash * 31 + self.b
+        hash = hash * 31 + self.c
+        hash = hash * 31 + self.d
+        return hash
+    }
+}
+
+func main() {
+    val derived = DerivedHash(3, 5, 7, 11)
+    val manual = ManualHash(3, 5, 7, 11)
+    val iterations = 5000000
+
+    var derived_sum = 0
+    val derived_start = Time.now_ns()
+    for i in range(iterations) {
+        derived_sum = derived_sum + derived.field_hash() + i % 2
+    }
+    val derived_ns = Time.now_ns() - derived_start
+
+    var manual_sum = 0
+    val manual_start = Time.now_ns()
+    for i in range(iterations) {
+        manual_sum = manual_sum + manual.field_hash() + i % 2
+    }
+    val manual_ns = Time.now_ns() - manual_start
+
+    println("derived_hash={derived.field_hash()}")
+    println("manual_hash={manual.field_hash()}")
+    println("derived_sum={derived_sum}")
+    println("manual_sum={manual_sum}")
+    println("derived_ns={derived_ns}")
+    println("manual_ns={manual_ns}")
+}

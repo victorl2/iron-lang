@@ -503,6 +503,25 @@ add_subdirectory(tests/lsp)                 # Phase 1 Plan 05: parity harness
 add_subdirectory(tests/integration)
 add_subdirectory(tests/integration/v4)
 add_subdirectory(tests/integration/v4-fail)
+
+if(NOT WIN32)
+    add_test(
+        NAME reflection_codegen_is_static
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/oracles/reflection_codegen.sh
+                $<TARGET_FILE:ironc>
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/regressions/reflection_fields.iron)
+    set_tests_properties(reflection_codegen_is_static PROPERTIES
+        LABELS "integration;oracle;reflection"
+        TIMEOUT 60)
+
+    add_test(
+        NAME reflection_hash_benchmark
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/benchmark/run_reflection_hash_bench.sh
+                $<TARGET_FILE:ironc>)
+    set_tests_properties(reflection_hash_benchmark PROPERTIES
+        LABELS "benchmark;reflection"
+        TIMEOUT 60)
+endif()
 add_subdirectory(tests/compile_fail)
 add_subdirectory(tests/algorithms)
 add_subdirectory(tests/composite)
