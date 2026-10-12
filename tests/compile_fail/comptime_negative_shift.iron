@@ -1,0 +1,11 @@
+-- A shift by a negative count is a panic at run time, so at compile time
+-- it is an evaluation error (E0232).
+func sh(a: Int, b: Int) -> Int {
+    return a << b
+}
+
+val X = comptime sh(1, -1)
+
+func main() {
+    println("{X}")
+}

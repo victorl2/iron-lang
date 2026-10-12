@@ -1,5 +1,3 @@
-error[E0231]: comptime: this operator is not available at compile time
-error[E0231]: comptime: conversions are not available at compile time
 error[E0231]: comptime: only parameters and local bindings can be read at compile time
 error[E0231]: comptime: string operators are not available at compile time
 error[E0231]: comptime: only an object without an init can be built at compile time
