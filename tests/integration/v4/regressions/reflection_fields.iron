@@ -31,6 +31,32 @@ interface ClearVars {
     }
 }
 
+interface FromText {
+    static func from_text(id: Int, name: String) -> Self {
+        var b = Fields[Self]()
+        comptime for f in fields(Self) {
+            comptime match f.type {
+                Int -> { b.(f) = id }
+                String -> { b.(f) = name }
+                [E] -> { b.(f) = [] }
+                else -> comptime error("unsupported builder field")
+            }
+        }
+        return b.build()
+    }
+
+    static func first_missing(id: Int) -> String? {
+        var b = Fields[Self]()
+        comptime for f in fields(Self) {
+            comptime if f.name == "id" {
+                b.(f) = id
+            }
+        }
+        val missing = b.missing()
+        return missing
+    }
+}
+
 object User impl Describe, ClearVars {
     val id: Int
     pub var name: String
@@ -41,6 +67,23 @@ object User impl Describe, ClearVars {
         self.name = name
         self.count = count
         self.note = note
+    }
+}
+
+object Built impl FromText {
+    val id: Int
+    val name: String
+    val tags: [String]
+}
+
+object WithDefaults impl FromText {
+    val id: Int
+    val name: String
+    val tags: [String]
+    init() {
+        self.id = 99
+        self.name = "default"
+        self.tags = ["kept until overwritten"]
     }
 }
 
@@ -67,4 +110,14 @@ func main() {
     println(concrete_names())
     u.clear_vars()
     println(u.describe())
+    val built = Built.from_text(4, "Bee")
+    println("{built.id}:{built.name}:{built.tags.len()}")
+    val defaults = WithDefaults.from_text(5, "Dee")
+    println("{defaults.id}:{defaults.name}:{defaults.tags.len()}")
+    val missing = Built.first_missing(1)
+    if missing != null {
+        println(missing)
+    }
+    val no_missing = WithDefaults.first_missing(1)
+    println("{no_missing == null}")
 }

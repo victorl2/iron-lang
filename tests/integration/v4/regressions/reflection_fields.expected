@@ -2,3 +2,7 @@
 idnamecountnote
 id:false;name:false;count:false;note:true;
 0:id:private:7;1:name:public:;2:count:private:0;3:note:private:nullable;
+4:Bee:0
+5:Dee:0
+name
+true

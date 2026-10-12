@@ -16,6 +16,13 @@ typedef struct {
 } TypeBinding;
 
 typedef struct {
+    const char      *name;
+    Iron_ObjectDecl *object;
+    const char     **flags;
+    bool             starts_initialized;
+} BuilderState;
+
+typedef struct {
     Iron_Program    *program;
     Iron_Arena      *arena;
     Iron_DiagList   *diags;
@@ -25,6 +32,7 @@ typedef struct {
     int              field_index;
     TypeBinding     *bindings;
     int              binding_count;
+    BuilderState   **builders;
     int              changed;
 } ExpandCtx;
 
@@ -125,6 +133,28 @@ static Iron_Node *make_string(ExpandCtx *ctx, Iron_Span span,
     return (Iron_Node *)n;
 }
 
+static Iron_Node *make_ident(ExpandCtx *ctx, Iron_Span span,
+                             const char *name) {
+    Iron_Ident *n = ARENA_ALLOC(ctx->arena, Iron_Ident);
+    if (!n) return NULL;
+    memset(n, 0, sizeof(*n));
+    n->kind = IRON_NODE_IDENT;
+    n->span = span;
+    n->name = name;
+    return (Iron_Node *)n;
+}
+
+static Iron_Node *make_not(ExpandCtx *ctx, Iron_Span span, Iron_Node *value) {
+    Iron_UnaryExpr *n = ARENA_ALLOC(ctx->arena, Iron_UnaryExpr);
+    if (!n) return NULL;
+    memset(n, 0, sizeof(*n));
+    n->kind = IRON_NODE_UNARY;
+    n->span = span;
+    n->op = IRON_TOK_NOT;
+    n->operand = value;
+    return (Iron_Node *)n;
+}
+
 static bool ann_nullable(Iron_Node *n) {
     return n && n->kind == IRON_NODE_TYPE_ANNOTATION &&
            ((Iron_TypeAnnotation *)n)->is_nullable;
@@ -168,6 +198,245 @@ static Iron_Node *subst_type(ExpandCtx *ctx, Iron_Node *node) {
 static bool ident_named(Iron_Node *n, const char *name) {
     return n && n->kind == IRON_NODE_IDENT && ((Iron_Ident *)n)->name &&
            strcmp(((Iron_Ident *)n)->name, name) == 0;
+}
+
+static bool has_zero_init(ExpandCtx *ctx, const char *type_name) {
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+        if (m->is_init && !m->init_name && m->type_name &&
+            strcmp(m->type_name, type_name) == 0 &&
+            m->param_count == iron_method_recv_count(m))
+            return true;
+    }
+    return false;
+}
+
+static Iron_Node *default_value(ExpandCtx *ctx, Iron_Node *ann, int depth);
+
+static Iron_Node *make_construct(ExpandCtx *ctx, Iron_Span span,
+                                 const char *name, Iron_Node **generic_args,
+                                 int generic_arg_count) {
+    Iron_ConstructExpr *c = ARENA_ALLOC(ctx->arena, Iron_ConstructExpr);
+    if (!c) return NULL;
+    memset(c, 0, sizeof(*c));
+    c->kind = IRON_NODE_CONSTRUCT;
+    c->span = span;
+    c->type_name = name;
+    c->generic_args = generic_args;
+    c->generic_arg_count = generic_arg_count;
+    return (Iron_Node *)c;
+}
+
+static Iron_Node *make_type_call(ExpandCtx *ctx, Iron_Span span,
+                                 const char *name) {
+    Iron_CallExpr *c = ARENA_ALLOC(ctx->arena, Iron_CallExpr);
+    if (!c) return NULL;
+    memset(c, 0, sizeof(*c));
+    c->kind = IRON_NODE_CALL;
+    c->span = span;
+    c->callee = make_ident(ctx, span, name);
+    return (Iron_Node *)c;
+}
+
+static Iron_Node *memberwise_default(ExpandCtx *ctx, Iron_ObjectDecl *od,
+                                     Iron_Span span, int depth) {
+    if (!od || depth > 32) return NULL;
+    Iron_MethodCallExpr *mc = ARENA_ALLOC(ctx->arena, Iron_MethodCallExpr);
+    if (!mc) return NULL;
+    memset(mc, 0, sizeof(*mc));
+    mc->kind = IRON_NODE_METHOD_CALL;
+    mc->span = span;
+    mc->object = make_ident(ctx, span, od->name);
+    mc->method = "__fields";
+    mc->is_generated = true;
+    if (od->field_count > 0) {
+        mc->args = (Iron_Node **)iron_arena_arr_new(
+            ctx->arena, (size_t)od->field_count, sizeof(Iron_Node *));
+        if (!mc->args) return NULL;
+        for (int i = 0; i < od->field_count; i++) {
+            Iron_Field *f = (Iron_Field *)od->fields[i];
+            mc->args[i] = default_value(ctx, f ? f->type_ann : NULL, depth + 1);
+            if (!mc->args[i]) return NULL;
+        }
+    }
+    mc->arg_count = od->field_count;
+    return (Iron_Node *)mc;
+}
+
+static Iron_Node *default_value(ExpandCtx *ctx, Iron_Node *ann, int depth) {
+    if (!ann || ann->kind != IRON_NODE_TYPE_ANNOTATION) return NULL;
+    Iron_TypeAnnotation *a = (Iron_TypeAnnotation *)ann;
+    Iron_Span span = ann->span;
+    if (a->is_nullable) return make_null(ctx, span);
+    if (a->is_array) {
+        Iron_ArrayLit *list = ARENA_ALLOC(ctx->arena, Iron_ArrayLit);
+        if (!list) return NULL;
+        memset(list, 0, sizeof(*list));
+        list->kind = IRON_NODE_ARRAY_LIT;
+        list->span = span;
+        return (Iron_Node *)list;
+    }
+    if (a->is_pointer || a->is_rc || a->is_weak_rc || a->is_func || a->is_tuple)
+        return NULL;
+    if (a->name && strcmp(a->name, "String") == 0) return make_string(ctx, span, "");
+    if (a->name && strcmp(a->name, "Bool") == 0) return make_bool(ctx, span, false);
+    if (a->name && (strcmp(a->name, "Float") == 0 ||
+                    strcmp(a->name, "Float32") == 0)) {
+        Iron_FloatLit *f = ARENA_ALLOC(ctx->arena, Iron_FloatLit);
+        if (!f) return NULL;
+        memset(f, 0, sizeof(*f));
+        f->kind = IRON_NODE_FLOAT_LIT;
+        f->span = span;
+        f->value = "0.0";
+        return (Iron_Node *)f;
+    }
+    if (a->name && (strncmp(a->name, "Int", 3) == 0 ||
+                    strncmp(a->name, "UInt", 4) == 0 ||
+                    strcmp(a->name, "Byte") == 0))
+        return make_int(ctx, span, 0);
+    if (a->generic_arg_count > 0)
+        return make_construct(ctx, span, a->name, a->generic_args,
+                              a->generic_arg_count);
+    const char *name = a->name;
+    if (name && strcmp(name, "Self") == 0) name = ctx->current_type;
+    Iron_ObjectDecl *od = find_object(ctx->program, name);
+    if (!od) return NULL;
+    if (has_zero_init(ctx, name)) return make_type_call(ctx, span, name);
+    return memberwise_default(ctx, od, span, depth);
+}
+
+static Iron_ObjectDecl *fields_builder_target(ExpandCtx *ctx,
+                                               Iron_CallExpr *call) {
+    if (!call || call->arg_count != 0 || !call->callee ||
+        call->callee->kind != IRON_NODE_INDEX) return NULL;
+    Iron_IndexExpr *ix = (Iron_IndexExpr *)call->callee;
+    if (!ident_named(ix->object, "Fields")) return NULL;
+    Iron_Node *ann = ix->type_arg_count > 0 ? ix->type_args[0] : ix->index;
+    ann = subst_type(ctx, ann);
+    const char *name = NULL;
+    if (ann && ann->kind == IRON_NODE_TYPE_ANNOTATION)
+        name = ((Iron_TypeAnnotation *)ann)->name;
+    else if (ann && ann->kind == IRON_NODE_IDENT)
+        name = ((Iron_Ident *)ann)->name;
+    if (name && strcmp(name, "Self") == 0) name = ctx->current_type;
+    return find_object(ctx->program, name);
+}
+
+static BuilderState *find_builder(ExpandCtx *ctx, const char *name) {
+    if (!ctx->builders || !*ctx->builders || !name) return NULL;
+    for (ptrdiff_t i = arrlen(*ctx->builders) - 1; i >= 0; i--)
+        if ((*ctx->builders)[i].name &&
+            strcmp((*ctx->builders)[i].name, name) == 0)
+            return &(*ctx->builders)[i];
+    return NULL;
+}
+
+static bool missing_call(Iron_Node *node, const char **builder_name) {
+    if (!node || node->kind != IRON_NODE_METHOD_CALL) return false;
+    Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+    if (!mc->method || strcmp(mc->method, "missing") != 0 ||
+        mc->arg_count != 0 || !mc->object ||
+        mc->object->kind != IRON_NODE_IDENT) return false;
+    *builder_name = ((Iron_Ident *)mc->object)->name;
+    return true;
+}
+
+static Iron_Node *make_flag_decl(ExpandCtx *ctx, Iron_Span span,
+                                 const char *name, bool value) {
+    Iron_VarDecl *v = ARENA_ALLOC(ctx->arena, Iron_VarDecl);
+    if (!v) return NULL;
+    memset(v, 0, sizeof(*v));
+    v->kind = IRON_NODE_VAR_DECL;
+    v->span = span;
+    v->name = name;
+    v->init = make_bool(ctx, span, value);
+    return (Iron_Node *)v;
+}
+
+static Iron_Node *make_assign(ExpandCtx *ctx, Iron_Span span,
+                              Iron_Node *target, Iron_Node *value) {
+    Iron_AssignStmt *a = ARENA_ALLOC(ctx->arena, Iron_AssignStmt);
+    if (!a) return NULL;
+    memset(a, 0, sizeof(*a));
+    a->kind = IRON_NODE_ASSIGN;
+    a->span = span;
+    a->target = target;
+    a->value = value;
+    a->op = IRON_TOK_ASSIGN;
+    return (Iron_Node *)a;
+}
+
+static Iron_Node *single_stmt_block(ExpandCtx *ctx, Iron_Node *stmt) {
+    Iron_Block *b = ARENA_ALLOC(ctx->arena, Iron_Block);
+    if (!b) return NULL;
+    memset(b, 0, sizeof(*b));
+    b->kind = IRON_NODE_BLOCK;
+    b->span = stmt->span;
+    b->stmts = (Iron_Node **)iron_arena_arr_new(ctx->arena, 1,
+                                                sizeof(Iron_Node *));
+    if (!b->stmts) return NULL;
+    b->stmts[0] = stmt;
+    b->stmt_count = 1;
+    return (Iron_Node *)b;
+}
+
+static void append_missing_check(ExpandCtx *ctx, Iron_Node ***out,
+                                 Iron_Node *decl, BuilderState *builder) {
+    const char *result_name = NULL;
+    bool was_var = decl->kind == IRON_NODE_VAR_DECL;
+    if (was_var) result_name = ((Iron_VarDecl *)decl)->name;
+    else result_name = ((Iron_ValDecl *)decl)->name;
+
+    Iron_TypeAnnotation *string = ARENA_ALLOC(ctx->arena, Iron_TypeAnnotation);
+    if (!string) return;
+    memset(string, 0, sizeof(*string));
+    string->kind = IRON_NODE_TYPE_ANNOTATION;
+    string->span = decl->span;
+    string->name = "String";
+    string->is_nullable = true;
+    Iron_VarDecl *result = ARENA_ALLOC(ctx->arena, Iron_VarDecl);
+    if (!result) return;
+    memset(result, 0, sizeof(*result));
+    result->kind = IRON_NODE_VAR_DECL;
+    result->span = decl->span;
+    result->name = result_name;
+    result->type_ann = (Iron_Node *)string;
+    result->init = make_null(ctx, decl->span);
+    arrput(*out, (Iron_Node *)result);
+
+    Iron_IfStmt *chain = NULL;
+    for (int i = 0; i < builder->object->field_count; i++) {
+        Iron_Field *field = (Iron_Field *)builder->object->fields[i];
+        if (!field || ann_nullable(field->type_ann)) continue;
+        Iron_Node *cond = make_not(ctx, field->span,
+                                   make_ident(ctx, field->span,
+                                              builder->flags[i]));
+        Iron_Node *assign = make_assign(ctx, field->span,
+                                        make_ident(ctx, field->span,
+                                                   result_name),
+                                        make_string(ctx, field->span,
+                                                    field->name));
+        Iron_Node *body = single_stmt_block(ctx, assign);
+        if (!chain) {
+            chain = ARENA_ALLOC(ctx->arena, Iron_IfStmt);
+            if (!chain) return;
+            memset(chain, 0, sizeof(*chain));
+            chain->kind = IRON_NODE_IF;
+            chain->span = decl->span;
+            chain->condition = cond;
+            chain->body = body;
+        } else {
+            IRON_ARENA_ARR_PUSH(ctx->arena, chain->elif_conds,
+                                chain->elif_count, cond);
+            IRON_ARENA_ARR_PUSH(ctx->arena, chain->elif_bodies,
+                                chain->elif_count, body);
+            chain->elif_count++;
+        }
+    }
+    if (chain) arrput(*out, (Iron_Node *)chain);
+    ctx->changed++;
 }
 
 static Iron_ObjectDecl *fields_target(ExpandCtx *ctx, Iron_Node *iterable,
@@ -335,6 +604,30 @@ static Iron_Node *expand_expr(ExpandCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_CALL: {
             Iron_CallExpr *c = (Iron_CallExpr *)node;
+            Iron_ObjectDecl *builder = fields_builder_target(ctx, c);
+            if (builder) {
+                if (!ctx->current_type || !builder->name ||
+                    strcmp(ctx->current_type, builder->name) != 0 ||
+                    builder->implements_count == 0) {
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_REFLECTION_CONTEXT, c->span,
+                                   "Fields[T] is only available in generated code for an opted-in T",
+                                   "use it in an interface default body inherited through impl");
+                    return node;
+                }
+                Iron_Node *value = has_zero_init(ctx, builder->name)
+                    ? make_type_call(ctx, c->span, builder->name)
+                    : memberwise_default(ctx, builder, c->span, 0);
+                if (!value) {
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_FIELDS_DEFAULT, c->span,
+                                   "Fields[T] cannot initialize every field before reflected writes",
+                                   "add a zero-argument init or make recursive fields nullable");
+                    return node;
+                }
+                ctx->changed++;
+                return value;
+            }
             c->callee = expand_expr(ctx, c->callee);
             for (int i = 0; i < c->arg_count; i++)
                 c->args[i] = expand_expr(ctx, c->args[i]);
@@ -624,6 +917,70 @@ static void expand_stmt(ExpandCtx *ctx, Iron_Node *stmt, Iron_Node ***out) {
     }
     if (comptime_error(ctx, stmt)) return;
 
+    if (stmt->kind == IRON_NODE_VAL_DECL || stmt->kind == IRON_NODE_VAR_DECL) {
+        Iron_Node *init = stmt->kind == IRON_NODE_VAL_DECL
+            ? ((Iron_ValDecl *)stmt)->init : ((Iron_VarDecl *)stmt)->init;
+        const char *decl_name = stmt->kind == IRON_NODE_VAL_DECL
+            ? ((Iron_ValDecl *)stmt)->name : ((Iron_VarDecl *)stmt)->name;
+        const char *missing_name = NULL;
+        if (missing_call(init, &missing_name)) {
+            BuilderState *builder = find_builder(ctx, missing_name);
+            if (builder) {
+                append_missing_check(ctx, out, stmt, builder);
+                return;
+            }
+        }
+        if (init && init->kind == IRON_NODE_CALL) {
+            Iron_ObjectDecl *od = fields_builder_target(ctx, (Iron_CallExpr *)init);
+            if (od) {
+                init = expand_expr(ctx, init);
+                if (stmt->kind == IRON_NODE_VAL_DECL)
+                    ((Iron_ValDecl *)stmt)->init = init;
+                else {
+                    ((Iron_VarDecl *)stmt)->init = init;
+                    ((Iron_VarDecl *)stmt)->requires_mutable = true;
+                    ((Iron_VarDecl *)stmt)->is_reflection_builder = true;
+                }
+                arrput(*out, stmt);
+                BuilderState state;
+                memset(&state, 0, sizeof(state));
+                state.name = decl_name;
+                state.object = od;
+                state.starts_initialized = has_zero_init(ctx, od->name);
+                if (od->field_count > 0) {
+                    state.flags = (const char **)iron_arena_arr_new(
+                        ctx->arena, (size_t)od->field_count, sizeof(const char *));
+                }
+                for (int i = 0; i < od->field_count; i++) {
+                    char buf[256];
+                    snprintf(buf, sizeof(buf), "__iron_fields_%s_%d", decl_name, i);
+                    state.flags[i] = iron_arena_strdup(ctx->arena, buf, strlen(buf));
+                    Iron_Field *field = (Iron_Field *)od->fields[i];
+                    bool set = state.starts_initialized ||
+                               (field && ann_nullable(field->type_ann));
+                    arrput(*out, make_flag_decl(ctx, stmt->span,
+                                                state.flags[i], set));
+                }
+                if (ctx->builders) arrput(*ctx->builders, state);
+                return;
+            }
+        }
+    }
+
+    const char *assigned_builder = NULL;
+    int assigned_field = -1;
+    if (stmt->kind == IRON_NODE_ASSIGN) {
+        Iron_Node *target = ((Iron_AssignStmt *)stmt)->target;
+        if (target && target->kind == IRON_NODE_FIELD_ACCESS) {
+            Iron_FieldAccess *fa = (Iron_FieldAccess *)target;
+            if (fa->reflected_field && ctx->field && ctx->field_var &&
+                strcmp(fa->reflected_field, ctx->field_var) == 0 &&
+                fa->object && fa->object->kind == IRON_NODE_IDENT) {
+                assigned_builder = ((Iron_Ident *)fa->object)->name;
+                assigned_field = ctx->field_index;
+            }
+        }
+    }
     switch ((int)stmt->kind) {
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *n = (Iron_ValDecl *)stmt;
@@ -689,11 +1046,22 @@ static void expand_stmt(ExpandCtx *ctx, Iron_Node *stmt, Iron_Node ***out) {
             break;
     }
     arrput(*out, stmt);
+    if (assigned_builder && assigned_field >= 0) {
+        BuilderState *builder = find_builder(ctx, assigned_builder);
+        if (builder && assigned_field < builder->object->field_count) {
+            arrput(*out, make_assign(ctx, stmt->span,
+                                     make_ident(ctx, stmt->span,
+                                                builder->flags[assigned_field]),
+                                     make_bool(ctx, stmt->span, true)));
+        }
+    }
 }
 
 static void expand_block(ExpandCtx *ctx, Iron_Node *node) {
     if (!node || node->kind != IRON_NODE_BLOCK) return;
     Iron_Block *block = (Iron_Block *)node;
+    ptrdiff_t builder_mark = ctx->builders && *ctx->builders
+        ? arrlen(*ctx->builders) : 0;
     Iron_Node **out = NULL;
     for (int i = 0; i < block->stmt_count; i++)
         expand_stmt(ctx, block->stmts[i], &out);
@@ -704,6 +1072,8 @@ static void expand_block(ExpandCtx *ctx, Iron_Node *node) {
     block->stmts = copy;
     block->stmt_count = copy ? n : 0;
     arrfree(out);
+    if (ctx->builders && *ctx->builders)
+        arrsetlen(*ctx->builders, builder_mark);
 }
 
 int iron_expand_reflection(Iron_Program *program, Iron_Arena *arena,
@@ -730,7 +1100,10 @@ int iron_expand_reflection(Iron_Program *program, Iron_Arena *arena,
         ctx.arena = arena;
         ctx.diags = diags;
         ctx.current_type = current_type;
+        BuilderState *builders = NULL;
+        ctx.builders = &builders;
         expand_block(&ctx, body);
+        arrfree(builders);
         changed += ctx.changed;
     }
     return changed;

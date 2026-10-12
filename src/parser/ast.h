@@ -619,6 +619,10 @@ typedef struct {
      * argument, `&` producing `*var T`). The W0613 unused-var pass skips
      * such bindings instead of suggesting `val`. */
     bool               requires_mutable;
+    /* Set by compile-time reflection when this local is a Fields[T]
+     * construction target. Such a binding must stay mutable even if a
+     * particular expansion writes no field. */
+    bool               is_reflection_builder;
     /* Set by capture analysis: a closure captures this var, so it lives in
      * a counted cell the closure env shares (#210). */
     bool               is_boxed;

@@ -3671,6 +3671,16 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
     return (Iron_Node *)n;
 }
 
+static bool iron_is_fields_builder_expr(Iron_Node *n) {
+    if (!n) return false;
+    if (n->kind == IRON_NODE_CALL)
+        return iron_is_fields_builder_expr(((Iron_CallExpr *)n)->callee);
+    if (n->kind == IRON_NODE_INDEX)
+        return iron_is_fields_builder_expr(((Iron_IndexExpr *)n)->object);
+    return n->kind == IRON_NODE_IDENT && ((Iron_Ident *)n)->name &&
+           strcmp(((Iron_Ident *)n)->name, "Fields") == 0;
+}
+
 static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'var' */
@@ -3717,6 +3727,7 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
     n->type_ann      = type_ann;
     n->init          = init;
     n->declared_type = NULL;  /* set by type checker */
+    n->is_reflection_builder = iron_is_fields_builder_expr(init);
     return (Iron_Node *)n;
 }
 
