@@ -89,4 +89,26 @@ proxy2.note_no_scripting({"type": "event", "event": "output",
                           "body": {"category": "console", "output": "Running initCommands:\n"}})
 expect("no warning for ordinary output", not sent, sent)
 
+# A transient lldb-dap evaluation failure must not expose a raw SIGTRAP
+# instead of the Iron panic (#741).
+proxy3 = dap.Proxy("iron", None)
+responses = iter([
+    {"success": False},
+    {"success": True, "body": {"result": '"read_file: cannot open x"'}},
+])
+requests = []
+
+
+def transient_request(command, args):
+    requests.append((command, args))
+    return next(responses)
+
+
+proxy3.request = transient_request
+message = proxy3.trap_message({"id": 41})
+expect("panic message evaluation retries once", message == "read_file: cannot open x", message)
+expect("panic message retry keeps the stopped frame",
+       len(requests) == 2 and all(r[0] == "evaluate" and r[1].get("frameId") == 41
+                                  for r in requests), requests)
+
 sys.exit(1 if failed else 0)

@@ -1133,12 +1133,19 @@ class Proxy:
         message in iron_debug_panic_message and runs a breakpoint
         instruction in the Iron function, so the stop is already on the
         Iron line; the panic itself (and its abort) runs on continue."""
-        r = self.request("evaluate", {"expression": "(const char *)iron_debug_panic_message",
-                                      "frameId": frame.get("id"), "context": "watch"})
-        if not r.get("success"):
-            return None
-        m = re.search(r'"((?:[^"\\]|\\.)*)"', str((r.get("body") or {}).get("result", "")))
-        return m.group(1) if m and m.group(1) else None
+        args = {"expression": "(const char *)iron_debug_panic_message",
+                "frameId": frame.get("id"), "context": "watch"}
+        # lldb-dap can transiently reject the first evaluation at a trap
+        # (#741). Give it one more request before exposing the raw SIGTRAP.
+        for _ in range(2):
+            r = self.request("evaluate", args)
+            if not r.get("success"):
+                continue
+            m = re.search(r'"((?:[^"\\]|\\.)*)"',
+                          str((r.get("body") or {}).get("result", "")))
+            if m and m.group(1):
+                return m.group(1)
+        return None
 
     # ── Iron expressions in evaluate and breakpoints ───────────────────────
 
