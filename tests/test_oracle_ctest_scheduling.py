@@ -80,6 +80,14 @@ def main() -> int:
         "test_compile_fail",
         "test_v4_acceptance_fail",
         "test_v4_migrated_from_v3",
+        "debug_stepping_smoke",
+        "debug_info_smoke",
+        "debug_values_smoke",
+        "debug_temporaries_smoke",
+        "debug_dap_smoke",
+        "debug_dap_eval_smoke",
+        "debug_dap_temporaries",
+        "debug_panic_smoke",
     )
     for name in two_worker_tests:
         if properties(tests[name]).get("PROCESSORS", 0) < 2:
