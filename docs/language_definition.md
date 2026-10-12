@@ -1647,12 +1647,14 @@ program (and by all threads, without synchronization). Globals cannot be
 `pub`. A `pure` method may not read a global `var` (`E0241`).
 
 Like every declaration, a global is visible in the whole file, also above
-its declaration. The globals are initialized in an order where each
-initializer runs after the initializers of the globals it reads, directly
-or through the functions it calls (declaration order among the others), so
-no initializer sees a global that is not set yet. Initializers that read
-each other, such as `val a = b + 1` and `val b = a`, or `val a = f()` with
-`f` reading `a`, are an error (`E0315`).
+its declaration. Globals are initialized before `main`, every one of them
+whether or not anything reads it, and each after the globals its
+initializer reads: directly, or through the functions, methods and
+initializers it calls. Globals that do not depend on each other are
+initialized in declaration order; in a package that is the order `iron`
+compiles its files (section 10.2). A global whose initializer depends on
+the global itself, such as `val a = b + 1` and `val b = a`, or `val a = f()`
+with `f` reading `a`, is an initialization cycle (`E0345`).
 
 ```iron
 val AREA = WIDTH * HEIGHT
@@ -1746,7 +1748,9 @@ Every top-level declaration is private to its file unless marked `pub`.
 global binding). Using a private declaration from another file of the
 package is an error (`E0320`). Object members are private to the declaring
 file unless marked `pub` (section 5.3). The word `private` is not accepted
-(`E0101`).
+(`E0101`). Visibility does not make names local: all files of a package
+share one namespace, so two files may not declare the same top-level name,
+whether or not either is `pub` (`E0201`).
 
 ---
 
@@ -2944,10 +2948,20 @@ every `.iron` file under `src/` and `vendor/` into `target/`, `iron run`
 builds and runs it, `iron check` type-checks the same sources, `iron test`
 runs the package's `test "name" { ... }` blocks (section 10.2.1) and every
 `tests/test_*.iron` program, and `iron fmt file.iron` reformats a file
-(`--check` only reports). All files of a package share one namespace: a
+(`--check` only reports, and exits with 0 when the file is formatted, 1
+when it would change, 2 when it does not parse and 3 when it cannot be
+read). In a package, `iron build`, `iron run` and `iron
+check` take no file argument (program arguments follow `--` in `iron
+run`), and `iron test` takes one, a name filter (`iron test -- -name` for
+a filter that starts with `-`); any other argument is an error, as is a
+second file given to `ironc`. Builds and checks of the same package may run
+at the same time. All files of a package share one namespace: a
 `pub` declaration in one file is visible in every other file, and a
 private one only in its own (`E0320`). `import` of a package file is
-optional and documents the dependency.
+optional and documents the dependency. The files are compiled in this
+order, which is the order of their globals' initialization where those do
+not depend on each other (section 5.7): the vendored files, `src/lib.iron`,
+the other files under `src/` sorted by path, `src/main.iron`.
 
 ```toml
 [package]
@@ -2957,6 +2971,13 @@ type = "bin"            # or "lib"
 description = "optional"
 iron = ">= 4.4.0"       # optional compiler version constraint
 ```
+
+Values are TOML basic strings (the escapes `\"`, `\\`, `\t`, `\n` and
+`\r`); a malformed string stops the build with its line. The `name` is the
+name of the output file (`target/<name>`, `target/lib<name>.a`), so it may
+not be empty, `.` or `..`, or contain `/ \ : " < > | ? *` or control
+characters; `iron init` without a name derives it from the directory, with
+such characters replaced by `_`. `type` is `"bin"` or `"lib"`.
 
 The `iron` constraint uses full `X.Y.Z` versions with the operators `>=`,
 `>`, `<=`, `<`, `=` (or no operator for an exact version), `^` (same
@@ -2974,7 +2995,13 @@ file.iron`) and left out of every other build. `test` is a keyword only in
 this position. The tests of a package are compiled with its sources, so a
 test in `src/` can call that file's private functions; each runs in its own
 process, and a failed `assert`, `assert_eq`, `assert_ne` or a panic fails
-it.
+it. The name is a string literal without interpolation (escapes allowed).
+Each selected test prints `test <name> ... ok` or `test <name> ... FAILED`
+followed by its output, indented; a failed `assert(cond)` reports its
+`file:line` (the path as the build names the file, `src/a/b.iron` in a
+package), `assert_eq` also the expected and actual values. The run ends
+with `P passed, F failed` (and `, K filtered out` when a filter, a
+substring of the names, left tests out) and fails when a test failed.
 
 <!-- doctest-test -->
 ```iron
@@ -3167,13 +3194,13 @@ codes cited in this manual:
 | E0299, E0301 | dereferencing a `weak rc`; `rc` inside an arena block |
 | E0310, E0311, E0312 | invalid cast; constant does not fit; constant index out of range |
 | E0314 | possibly uninitialized `var` |
-| E0315 | global initializers that read each other |
 | E0320, E0321 | private declaration used from another file; standalone `func Type.method` form |
 | E0322, E0323, E0324, E0325, E0326 | unsupported `is`; unsupported match subject; lambda parameter type; awaited twice; thread pools |
 | E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element |
 | E0335 | `break` / `continue` outside a loop, in a lambda, `defer` or `spawn` body inside one, or in a `parallel` loop |
 | E0336 | `return` inside a `defer` body |
 | E0331, E0332, E0333, E0334 | list extension with a body; refutable nested pattern; `Channel.new(4)` and the other `.new` constructor spellings; interpolating a value with no text form |
+| E0345 | initialization cycle between globals |
 | E0501 | `await` on the web target |
 | E0700 to E0703 | web main loop rules |
 | W0601, W0604, W0605, W0606 | narrowing cast; spawn data race; arena skips `drop`; heap value never freed |

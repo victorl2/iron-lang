@@ -1,4 +1,4 @@
--- Global initializers that read each other through a function (E0315).
+-- Global initializers that read each other through a function (E0345).
 val A = f()
 val B = A + 1
 

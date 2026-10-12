@@ -9,6 +9,7 @@
  */
 
 #include "hir/stdlib_origin.h"
+#include "comptime/comptime.h"
 #include "analyzer/generics.h"
 #include "analyzer/resolve.h"
 #include "analyzer/typo_candidate.h"
@@ -1412,7 +1413,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
  * calls. They are initialized before main in an order where each one's
  * initializer runs after those of the globals it reads; declaration order
  * among the rest. Initializers that depend on each other are an error
- * (E0315): no order initializes them all before they are read.
+ * (E0345, reported by global_order.c): no order initializes them all before
+ * they are read.
  *
  * The dependencies come from the resolved identifiers of the initializer
  * and, transitively, of the functions it names (hard edges, also used to
@@ -1500,11 +1502,6 @@ static Iron_Node *global_init_of(Iron_Node *d) {
                                          : ((Iron_VarDecl *)d)->init;
 }
 
-static const char *global_name_of(Iron_Node *d) {
-    return d->kind == IRON_NODE_VAL_DECL ? ((Iron_ValDecl *)d)->name
-                                         : ((Iron_VarDecl *)d)->name;
-}
-
 /* Kahn's algorithm over `use_soft` ? hard+soft : hard edges, taking the
  * earliest declared ready global each step. Returns how many were placed
  * (into order[]). */
@@ -1531,7 +1528,7 @@ static int gdep_sort(int n, int **hard, int **soft, bool use_soft, int *order) {
     return placed;
 }
 
-static void order_global_inits(ResolveCtx *ctx, Iron_Program *program) {
+static void order_global_inits(Iron_Program *program) {
     int *slots = NULL;   /* decl indices of the globals, in declaration order */
     GlobalDepCtx g = { .program = program };
     for (int i = 0; i < program->decl_count; i++) {
@@ -1562,25 +1559,9 @@ static void order_global_inits(ResolveCtx *ctx, Iron_Program *program) {
     if (gdep_sort(n, g.hard_deps, g.soft_deps, true, order) < n) {
         int placed = gdep_sort(n, g.hard_deps, g.soft_deps, false, order);
         if (placed < n) {
-            /* the first declared global left on a cycle */
-            bool *in = (bool *)calloc((size_t)n, sizeof(bool));
-            for (int k = 0; in && k < placed; k++) in[order[k]] = true;
-            int first = 0;
-            while (in && first < n && in[first]) first++;
-            Iron_Node *d = program->decls[slots[first]];
-            char msg[512];
-            snprintf(msg, sizeof(msg),
-                     "the initializer of global '%s' reads globals whose "
-                     "initializers read '%s' in turn (directly or through the "
-                     "functions they call)",
-                     global_name_of(d), global_name_of(d));
-            const char *mc = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-            iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
-                           IRON_ERR_GLOBAL_INIT_CYCLE, d->span,
-                           mc ? mc : "circular global initializers",
-                           "break the cycle: initialize one of them with a "
-                           "value that does not read the others");
-            free(in);
+            /* Initializers that depend on each other: the declaration
+             * order stays, and the analyzer reports the cycle (E0345,
+             * global_order.c) once the program type-checks. */
             goto out;
         }
     }
@@ -1824,6 +1805,14 @@ static const char *const k_stdlib_modules[] = {
  * src/lib.iron, `greeter` matches vendor/greeter/src/lib.iron, `a.b.c`
  * matches src/a/b/c.iron. */
 static bool file_matches_module(const char *filename, const char *mod) {
+    /* In a package only the path below the package directory counts: a
+     * single-file package is compiled from its absolute path, whose
+     * directories above the package matched (#603). */
+    const char *root = iron_comptime_package_root();
+    size_t rl = root ? strlen(root) : 0;
+    if (rl && strncmp(filename, root, rl) == 0 &&
+        (filename[rl] == '/' || filename[rl] == '\\'))
+        filename += rl + 1;
     char comps[64][128];
     int n = 0;
     const char *p = filename;
@@ -1883,6 +1872,13 @@ static void validate_imports(ResolveCtx *ctx, Iron_Program *program) {
                            strcmp(o->span.filename + fl - 10, ".iron-stub") == 0;
             if (!is_stub && iron_stdlib_origin_classify(o->span.filename) != 0) continue;
             found = file_matches_module(o->span.filename, imp->path);
+        }
+        /* A package file without declarations (empty, or only imports and
+         * comments) still exists: its `-- @file:` marker named it. */
+        for (int j = 0; !found && iron_source_marker_get(j); j++) {
+            const char *mf = iron_source_marker_get(j);
+            if (iron_stdlib_origin_classify(mf) != 0) continue;
+            found = file_matches_module(mf, imp->path);
         }
         if (found) continue;
         char msg[512];
@@ -2166,7 +2162,7 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
         }
     }
 
-    order_global_inits(&ctx, program);
+    order_global_inits(program);
 
     /* Phase 4 Plan 04-01 (EDIT-07): post-pass — flag any aliased imports
      * that never resolved a reference. Runs after Pass 2 so every

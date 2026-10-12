@@ -366,18 +366,63 @@ static bool comptime_object_has_init(Iron_ComptimeCtx *ctx, const char *type_nam
     return false;
 }
 
+/* `iron` compiles a package as one file, target/combined.iron, whose
+ * `-- @file:` markers name each part relative to the package directory;
+ * it passes that directory with --package-root. */
+static const char *g_package_root = NULL;
+
+void iron_comptime_set_package_root(const char *dir) {
+    g_package_root = (dir && dir[0]) ? dir : NULL;
+}
+
+const char *iron_comptime_package_root(void) {
+    return g_package_root;
+}
+
+/* The directory of the file `node` comes from, into buf ("" for the
+ * current directory). */
+static void comptime_file_dir(Iron_ComptimeCtx *ctx, Iron_Node *node, char *buf, size_t size) {
+    const char *f = node ? node->span.filename : NULL;
+    buf[0] = '\0';
+    if (!f || !f[0] || f[0] == '<') {
+        if (ctx->source_file_dir) snprintf(buf, size, "%s", ctx->source_file_dir);
+        return;
+    }
+    const char *slash = strrchr(f, '/');
+    const char *bs = strrchr(f, '\\');
+    if (bs > slash) slash = bs;
+    int dlen = slash ? (int)(slash - f) : 0;
+    bool absolute = f[0] == '/' || f[0] == '\\' ||
+                    (f[0] && f[1] == ':' && (f[2] == '/' || f[2] == '\\'));
+    if (absolute) {
+        snprintf(buf, size, "%.*s", slash == f ? 1 : dlen, f);
+    } else if (g_package_root) {
+        if (dlen) snprintf(buf, size, "%s/%.*s", g_package_root, dlen, f);
+        else snprintf(buf, size, "%s", g_package_root);
+    } else if (ctx->source_file_dir && ctx->source_file_dir[0]) {
+        /* a single compiled file: its directory, as the driver gives it */
+        snprintf(buf, size, "%s", ctx->source_file_dir);
+    } else {
+        snprintf(buf, size, "%.*s", dlen, f);
+    }
+}
+
 /* The file read of `read_file(path)`, out of line: its path buffer used to
  * sit in the frame of the recursive evaluator, once per nested call. */
 static IRON_COMPTIME_NOINLINE Iron_ComptimeVal *comptime_read_file(Iron_ComptimeCtx *ctx,
                                                                    Iron_Node *node,
                                                                    const char *rel) {
-    /* Build full path: source_file_dir + "/" + arg */
+    /* The path is relative to the source file that calls read_file (manual
+     * 8): the directory of the call's own file, which in a package build is
+     * a file of src/ or vendor/ concatenated into target/combined.iron, not
+     * the directory of the compiled unit. */
     char full_path[4096];
-    if (ctx->source_file_dir && ctx->source_file_dir[0] != '\0') {
-        snprintf(full_path, sizeof(full_path), "%s/%s",
-                 ctx->source_file_dir, rel);
-    } else {
+    char base[4096];
+    comptime_file_dir(ctx, node, base, sizeof(base));
+    if (rel[0] == '/' || base[0] == '\0') {
         snprintf(full_path, sizeof(full_path), "%s", rel);
+    } else {
+        snprintf(full_path, sizeof(full_path), "%s/%s", base, rel);
     }
 
     FILE *rf = fopen(full_path, "rb");

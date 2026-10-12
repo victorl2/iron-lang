@@ -542,11 +542,11 @@ parser/typecheck sites land in Plan 27-02.
 | E0335 | `IRON_ERR_LOOP_JUMP_OUTSIDE` | 'break' outside a loop / 'continue' in a parallel for | `break` or `continue` outside a `while` or `for` of the same function body (including inside a lambda, `defer` or `spawn` body within a loop), or in a `parallel` loop. |
 | E0336 | `IRON_ERR_RETURN_IN_DEFER` | 'return' inside a defer body | `return` in a `defer` statement or block, which runs while its scope exits (a lambda inside the defer body may return from itself). |
 
-## Global initialization order (§5.7)
+## Global initialization (§5.7)
 
 | Code | Symbol | Message | Notes |
-|---|---|---|---|
-| E0315 | `IRON_ERR_GLOBAL_INIT_CYCLE` | the initializer of global 'a' reads globals whose initializers read 'a' in turn | Globals are initialized in dependency order (resolve.c order_global_inits); initializers that read each other, directly or through the functions they call, have no such order. |
+|------|--------|---------|-------|
+| E0345 | `IRON_ERR_GLOBAL_INIT_CYCLE` | initialization cycle: global 'A' depends on 'B', which depends on 'A' | A global's initializer reads the global itself, directly or through the functions, methods and initializers it calls. Globals are otherwise initialized after the globals they read, whatever file declares them and whether they are declared above or below. |
 
 ## Adding new codes
 
