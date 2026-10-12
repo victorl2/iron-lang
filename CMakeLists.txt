@@ -1688,6 +1688,10 @@ if(Python3_EXECUTABLE)
             prog_fuzz_sync prog_fuzz_stdlib prog_fuzz_edges_num
             prog_fuzz_edges_types prog_fuzz_edges_mem
             PROPERTIES PROCESSORS 4)
+        # Keep the standalone 120-second hang detector, but allow a generated
+        # program more time in the internally parallel sanitizer campaign.
+        set_tests_properties(prog_fuzz_edges_mem PROPERTIES
+            ENVIRONMENT "PF_TIMEOUT=300")
         set_tests_properties(json_fuzz PROPERTIES PROCESSORS 2)
         if(NOT WIN32)
             set_tests_properties(
