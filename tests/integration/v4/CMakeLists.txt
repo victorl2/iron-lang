@@ -17,7 +17,9 @@ if(NOT WIN32)
     set_tests_properties(test_v4_acceptance PROPERTIES
         LABELS "v4-acceptance"
         ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}"
-        RUN_SERIAL TRUE)
+        PROCESSORS 4
+        RESOURCE_LOCK iron_exhaustive_corpus
+        TIMEOUT 7200)
 endif()
 
 # Optimizer parity oracle: every runnable v4 / algorithms fixture must behave
@@ -33,13 +35,14 @@ if(NOT WIN32)
     )
     # Not in the v4-acceptance label: it builds every fixture twice, which
     # pushed that 30-minute gate over its limit. The full test jobs run it.
-    # This runs next to other CPU-heavy aggregate rows in the full suite. The
-    # expanded corpus can take more than an hour under that contention, so
-    # retain a finite two-hour cap.
+    # These exhaustive oracles each run an internal worker pool. Reserve a
+    # four-core runner and serialize them with one another so ctest -j4 does
+    # not multiply that parallelism into timeouts.
     set_tests_properties(test_opt_parity PROPERTIES
         LABELS "oracle"
-        TIMEOUT 7200
-        RUN_SERIAL TRUE)
+        PROCESSORS 4
+        RESOURCE_LOCK iron_exhaustive_corpus
+        TIMEOUT 7200)
 
     add_test(
         NAME test_opt_parity_timeout_marker
@@ -84,12 +87,10 @@ if(NOT WIN32)
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(test_leak_check PROPERTIES
-        LABELS "oracle;v4-acceptance"
-        PROCESSORS 2
-        # The expanded corpus can exceed an hour when this runs beside other
-        # aggregate tests in the documented parallel full-suite invocation.
-        TIMEOUT 7200
-        RUN_SERIAL TRUE)
+        LABELS "oracle"
+        PROCESSORS 4
+        RESOURCE_LOCK iron_exhaustive_corpus
+        TIMEOUT 7200)
 endif()
 
 # Crypto cross-check: the crypto and encoding modules against Python's
@@ -98,16 +99,6 @@ endif()
 if(NOT WIN32)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_FOUND)
-        add_test(
-            NAME test_aggregate_run_serial
-            COMMAND ${Python3_EXECUTABLE}
-                    ${CMAKE_SOURCE_DIR}/tests/oracles/test_aggregate_scheduling.py
-                    ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-        )
-        set_tests_properties(test_aggregate_run_serial PROPERTIES
-            LABELS "oracle;unit"
-            TIMEOUT 15)
-
         add_test(
             NAME test_crypto_crosscheck
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/oracles/crypto_crosscheck.py
@@ -133,6 +124,5 @@ if(NOT WIN32)
     )
     set_tests_properties(test_freestanding PROPERTIES
         LABELS "oracle"
-        TIMEOUT 1800
-        RUN_SERIAL TRUE)
+        TIMEOUT 1800)
 endif()

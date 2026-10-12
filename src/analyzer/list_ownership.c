@@ -319,6 +319,12 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
         case IRON_NODE_METHOD_CALL: {
             /* push / insert / set store their last argument in the list. */
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)n;
+            /* Generated `T.__fields(...)` stores its arguments in the new
+             * value, as positional construction does. */
+            if (mc->is_memberwise && mc->object && mc->object->kind == IRON_NODE_IDENT) {
+                for (int i = 0; i < mc->arg_count; i++) require_fresh(c, mc->args[i]);
+                break;
+            }
             Iron_Type *rt = mc->object ? node_type(mc->object) : NULL;
             if (!rt && mc->object)
                 rt = ((Iron_ExprNode *)mc->object)->resolved_type;
