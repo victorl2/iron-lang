@@ -1,0 +1,15 @@
+-- Self in an interface signature stands for the implementing type (#455).
+interface Same {
+    readonly func same(o: Self) -> Bool
+}
+
+object A impl Same {
+    val n: Int
+    readonly func same(o: Int) -> Bool {
+        return o == self.n
+    }
+}
+
+func main() {
+    println("{A(2).same(2)}")
+}

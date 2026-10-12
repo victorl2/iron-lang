@@ -1,0 +1,20 @@
+-- What a service needs from the process: unbuffered output that stays in
+-- order with println, the wall clock in milliseconds, the CPU count and the
+-- process id. (Signals and the exit status are exercised by the
+-- apps/inventory suite: SIGTERM shutdown and configuration errors.)
+import io
+import os
+import time
+
+func main() {
+    println("first, through println's buffer")
+    val n = IO.write_stdout("second, written at once\n")
+    println("third: wrote {n} bytes")
+    val now = Time.unix_ms()
+    println("unix_ms after 2024: {now > 1704067200000}")
+    println("monotonic and wall clock differ: {Time.now_ms() != now}")
+    println("cpus: {OS.cpu_count() >= 1}, pid: {OS.pid() > 0}")
+    OS.trap_shutdown_signals()
+    println("no signal yet: {OS.shutdown_signal()}")
+    IO.write_stderr("")
+}

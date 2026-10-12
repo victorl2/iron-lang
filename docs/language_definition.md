@@ -91,8 +91,8 @@ elif      else      enum      extends   extern    false     for       free
 func      heap      if        impl      import    in        init      interface
 is        leak      match     mut       nocopy    not       null      object
 or        parallel  patch     pool      private   pub       pure      rc
-readonly  return    self      spawn     super     true      unchecked val
-var       weak      while
+readonly  return    self      spawn     static    super     true      unchecked
+val       var       weak      while
 ```
 
 `extends`, `super`, `mut`, `private` and `pool` are reserved but have no
@@ -545,7 +545,9 @@ Functions, objects and enums may take type parameters in square brackets:
 arguments are inferred from the arguments of a call or construction
 (`Pair(1, "one")`) or written on the type (`Stack[Int]()`,
 `val r: Result[Int, String]`). Generic code is instantiated per set of type
-arguments at compile time.
+arguments at compile time. A type parameter's constraint also provides its
+static functions, called on the parameter itself: `T.parse(text)` in
+`func read[T: Parse](text: String) -> T?` (section 5.5).
 
 ```iron
 func largest[T](xs: [T], less: func(T, T) -> Bool) -> T {
@@ -718,7 +720,8 @@ Iron: 3 0.75 abc true true
 `f(a, b)` calls a function or a function value; arguments are positional
 (`E0101` names named arguments as unsupported) and a trailing comma is
 allowed. `x.field` reads a field, `x.method(args)` calls a method,
-`Type.method(args)` calls a named init or a standard library function, and
+`Type.method(args)` calls a named init, a static function (section 5.3) or
+a standard library function, and
 `Type(args)` constructs an object (section 5.3). `xs[i]` indexes a list,
 array or string (a string index yields a one-character string), and
 `xs[a..b]` takes the characters `a` (inclusive) to `b` (exclusive) of a
@@ -1364,9 +1367,21 @@ its parameters (`E0243`) or read a global `var` (`E0241`). The modifiers
 are only valid inside object, patch and interface bodies (`E0245`), and
 `init` takes none.
 
+**Static functions.** `static func name(params) -> R { body }` declares a
+function of the type rather than of a value: it has no receiver (`self` in
+its body is `E0210`), takes no tier modifier (`E0245`), and is called on the
+type, `Name.name(args)`. Calling it on a value is `E0350`; calling a method
+through the type name, `Name.method(args)`, is `E0351`, because there is no
+value for `self`. A static function may be `pub`, may take type parameters,
+and may be added by a `patch object`. A generic object cannot declare one
+(`E0245`): no value fixes its type arguments. Two members of one name,
+methods or static functions, are `E0201`.
+
 **`self` and `Self`.** Inside a method `self` is the receiver;
 outside a method it is an error (`E0210`). The identifier `Self` names the
-enclosing object type and may be used as a result type.
+enclosing object type: it may be used as a type anywhere in a method or
+static function (`Self`, `Self?`, `[Self]`), and `Self(args)` and
+`Self.f(args)` construct and call through the enclosing type.
 
 **Visibility.** Fields and methods are private to the file that declares
 the object by default. `pub` on a field synthesizes a getter named after the
@@ -1394,6 +1409,10 @@ object Vec2 {
     init zero() {
         self.x = 0.0
         self.y = 0.0
+    }
+
+    static func unit_x() -> Self {
+        return Vec2(1.0, 0.0)
     }
 
     readonly func length() -> Float {
@@ -1435,7 +1454,7 @@ func main() {
     val v = Vec2(3.0, 4.0)
     val origin = Vec2.zero()
     val p = Point(1, 2)
-    println("{v.length()} {v.scaled(2.0).x} {origin.y} {p.x},{p.y}")
+    println("{v.length()} {v.scaled(2.0).x} {origin.y} {Vec2.unit_x().x} {p.x},{p.y}")
     var acc = Account(7)
     acc.deposit(50)
     acc.balance = 60
@@ -1448,7 +1467,7 @@ func main() {
 ```
 
 ```output
-5 6 0 1,2
+5 6 0 1 1,2
 7 65 2
 65 66
 ```
@@ -1504,6 +1523,8 @@ interface Name {
     readonly func required() -> R
     pure func also_required(x: T) -> R
     func with_default() -> R { body }
+    static func make(x: T) -> Self?
+    static func with_default_too() -> R { body }
 }
 ```
 
@@ -1519,6 +1540,78 @@ can be built from any of them and dispatches calls at run time. Interfaces
 may be the element type of lists and the type of fields and parameters,
 and are the subjects of `is` (section 3.9) and type `match` (section 4.7).
 A `var` binding of interface type mutates the object it holds in place.
+
+The implementing function must have the signature's shape: the same
+parameters (types and `var`) and result (`E0353`), and `static` exactly
+where the interface says `static` (`E0352`). In a signature `Self` stands
+for the implementing type, anywhere a type can be written:
+`readonly func same(o: Self) -> Bool` is implemented as
+`readonly func same(o: Point) -> Bool` (or with `Self` again). A default
+body may use `Self` the same way (`Self(args)`, `Self.make(args)`,
+`var out: [Self] = []`); it is copied into each implementor with `Self`
+meaning that implementor.
+
+**Static functions** in an interface belong to the implementing types:
+`static func parse(text: String) -> Self?` is implemented by a
+`static func parse` in each implementor (or by the default body). A static
+function is called on a type: on an implementor (`Point.parse(t)`), or in a
+generic function on a type parameter constrained by the interface,
+`T.parse(t)`, which each instance turns into a direct call. Calling a name
+on a type parameter that its constraint does not declare as a static
+function is `E0355`.
+
+A value of interface type dispatches at run time on the object it holds, so
+only methods it can dispatch are callable through it: a static function, a
+method with a parameter of type `Self` (the value may hold a different
+implementor than the argument) and a method whose result is built from
+`Self` other than a plain `-> Self` are `E0354` there. They are callable on
+the concrete type or through a constrained type parameter, which is how
+such interfaces are meant to be used:
+
+```iron
+interface Parse {
+    static func parse(text: String) -> Self?
+    readonly func same(o: Self) -> Bool
+    static func label() -> String {
+        return "parsed"
+    }
+}
+
+object Pt impl Parse {
+    val x: Int
+    val y: Int
+    static func parse(text: String) -> Self? {
+        val parts = text.split(",")
+        if parts.len() != 2 {
+            return null
+        }
+        return Pt(parts[0].len(), parts[1].len())
+    }
+    readonly func same(o: Pt) -> Bool {
+        return o.x == self.x and o.y == self.y
+    }
+}
+
+func parse_all[T: Parse](texts: [String]) -> [T] {
+    var out: [T] = []
+    for t in texts {
+        val v = T.parse(t)
+        if v != null {
+            out.push(v)
+        }
+    }
+    return out
+}
+
+func main() {
+    val pts = parse_all[Pt](["a,bb", "nope", "ccc,d"])
+    println("{pts.len()} {pts[0].same(Pt(1, 2))} {Pt.label()}")
+}
+```
+
+```output
+2 true parsed
+```
 
 ```iron
 interface Shape {
@@ -1635,8 +1728,10 @@ number 4 word hi end
 `val` and `var` declarations may appear at the top level. A global `val`
 is a constant initialized before `main` runs (its initializer may call
 functions); a global `var` is a mutable variable shared by the whole
-program (and by all threads, without synchronization). Globals cannot be
-`pub`. A `pure` method may not read a global `var` (`E0241`).
+program (and by all threads, without synchronization). Like every other
+top-level declaration a global is private to its file; `pub val` and
+`pub var` share it with the package's other files (`E0320` otherwise). A
+`pure` method may not read a global `var` (`E0241`).
 
 Globals are initialized before `main`, every one of them whether or not
 anything reads it, and each after the globals its initializer reads:
@@ -1711,7 +1806,7 @@ an unknown module is an error (`E0209`); an unused import warns (`W0611`).
 declarations are used by their own names.
 
 The modules that require an import are `math`, `io`, `time`, `log`,
-`hint`, `os`, `net`, `http`, `websocket`, `url`, `json`, `crypto`,
+`hint`, `os`, `atomic`, `net`, `http`, `websocket`, `url`, `json`, `crypto`,
 `encoding`, `mysql` and `raylib`; their functions are
 called on the capitalized module object (`import math`, then
 `Math.sqrt(x)`). Everything else in section 9 (strings, lists, `Box`,
@@ -1721,8 +1816,8 @@ is available without an import.
 ### 5.10 Visibility
 
 Every top-level declaration is private to its file unless marked `pub`.
-`pub` may prefix a function, object, patch, interface or enum (not a
-global binding). Using a private declaration from another file of the
+`pub` may prefix a function, object, patch, interface, enum or global
+binding (`pub val`, `pub var`). Using a private declaration from another file of the
 package is an error (`E0320`). Object members are private to the declaring
 file unless marked `pub` (section 5.3). The word `private` is not accepted
 (`E0101`). Visibility does not make names local: all files of a package
@@ -2173,12 +2268,19 @@ func main() {
 
 ### 7.1 `spawn` and `await`
 
-`spawn("name") { body }` runs the body on a new operating system thread and
-evaluates to a handle. The body is a block that must `return` a value, and
+`spawn("name") { body }` runs the body concurrently and evaluates to a
+handle. The body is a block that must `return` a value, and
 `await handle` blocks until the thread finishes and yields that value. A
 handle can be awaited once (`E0325`). A spawn expression may only appear as
 the initializer of a `val` or `var`, or as a statement (its result is then
-discarded and the thread is never awaited). The body may read `val` bindings of the enclosing
+discarded and the task is never awaited). A bound spawn (`val h = spawn`)
+runs on a new operating system thread. A spawn statement is a task for the
+runtime's worker pool, a fixed set of one thread per CPU core but one (the
+environment variable `IRON_WORKERS` sets another size): a
+task that blocks (on a socket, a sleep or a database call) holds a worker
+until it returns, and tasks beyond the pool's size wait their turn. Run
+long-lived loops as bound spawns, and see `Http.poller` (networking guide)
+for servers that keep many idle connections. The body may read `val` bindings of the enclosing
 function and use `Mutex`, `Channel` and `rc` values; a list captured by a
 spawn must be awaited in the same block (`E0328`). Writing a captured
 `var` from a thread is a data race and warns (`W0604`). A thread keeps what
@@ -2559,6 +2661,7 @@ Simple functions on `IO`:
 | `read_file(path) -> String`, `write_file(path, content)`, `append_file(path, content)` | whole-file text I/O (an unreadable file reads as `""`) |
 | `read_lines(path) -> [String]` | the lines of a file |
 | `read_line() -> String` | one line from standard input |
+| `write_stdout(s) -> Int`, `write_stderr(s) -> Int` | write all of `s` at once without buffering (lines from several threads do not interleave; println's buffer is flushed first); the bytes written, or -1 |
 | `file_exists(path) -> Bool`, `is_dir(path) -> Bool` | tests |
 | `create_dir(path)`, `delete_file(path)` | directories and deletion |
 | `list_files(dir) -> String` | the entries of a directory, one per line |
@@ -2603,8 +2706,10 @@ false
 
 ### 9.6 `time` (import)
 
-`Time.now() -> Float` (seconds since the Unix epoch), `Time.now_ms() -> Int`
-and `Time.now_ns() -> Int` (milliseconds and nanoseconds), `Time.sleep(ms:
+`Time.now() -> Float` (seconds since the Unix epoch), `Time.unix_ms() -> Int`
+(milliseconds since the Unix epoch), `Time.now_ms() -> Int`
+and `Time.now_ns() -> Int` (milliseconds and nanoseconds of a monotonic clock
+with an arbitrary origin, for measuring durations), `Time.sleep(ms:
 Int)`, `Time.since(start: Float) -> Float` (seconds elapsed since a
 `Time.now()` value), and `Time.Timer(seconds: Float) -> Timer` with the
 fields `elapsed_ms` and `duration_ms` and the methods `done() -> Bool`,
@@ -2634,6 +2739,16 @@ not set), `OS.env_or(name, fallback) -> String` returns `fallback` instead,
 and `OS.has_env(name) -> Bool` tests for it (an empty value counts as set).
 Names and values are UTF-8 on every platform.
 
+For long-running programs: `OS.trap_shutdown_signals()` makes SIGINT and
+SIGTERM (Ctrl+C, Ctrl+Break and closing the console on Windows) set a flag
+instead of ending the process, and `OS.shutdown_signal() -> Int` returns
+the first such signal received (2 or 15), or 0, for the program to poll and
+shut down cleanly; a second signal ends the process at once.
+`OS.exit(code)` ends the process with an exit status (after flushing
+standard output; drops, defers and other tasks do not run),
+`OS.pid() -> Int` is the process id and `OS.cpu_count() -> Int` the
+number of CPUs the process may run on (its affinity mask on Linux).
+
 ```iron
 import os
 
@@ -2649,6 +2764,39 @@ func main(args: [String]) {
 ```output
 unset
 default 0
+```
+
+### 9.6.2 `atomic` (import)
+
+`AtomicInt.new(v)` and `AtomicBool.new(b)` make a value that tasks share
+without a lock. Copies of the handle (a spawn's capture, a field, an
+argument) refer to the same value, freed with the last copy. `get()`,
+`set(v)`, `swap(v)` (returns the previous value) and
+`compare_and_set(expected, desired)` (whether it stored) work on both;
+`AtomicInt.add(d)` adds and returns the new value. Every operation is
+sequentially consistent.
+
+```iron
+import atomic
+
+func main() {
+    val hits = AtomicInt.new(0)
+    val t = spawn("worker") {
+        for i in range(1000) {
+            hits.add(1)
+        }
+        return 0
+    }
+    for i in range(1000) {
+        hits.add(1)
+    }
+    await t
+    println("{hits.get()} {hits.compare_and_set(2000, 1)} {hits.get()}")
+}
+```
+
+```output
+2000 true 1
 ```
 
 ### 9.7 `log` (import)
@@ -3019,7 +3167,11 @@ before the C compiler), `--dump-ir-passes`, `--report-compression`,
 compilation, section 10.6). `--no-strict-v3` accepts a few removed syntax forms for
 debugging old code. `--verbose` prints the generated C and the link line
 and `--version` prints the compiler version and the toolchain it compiles
-with.
+with. On Linux and macOS the environment variable `IRON_CFLAGS` adds C
+compiler flags (separated by spaces, at most 16) to the compilation of the
+program and of the runtime built into it, for example
+`IRON_CFLAGS="-g -fsanitize=address,undefined" iron build` for a sanitizer
+build.
 
 ### 10.5 The web target
 
@@ -3161,7 +3313,7 @@ codes cited in this manual:
 | E0246 to E0252 | `init` rules (read before assign, unassigned field, double assign, method on partial `self`, early return, delegation, return value) |
 | E0253, E0254, E0255 | patch adds a field; patch target not found; patch redefines a method |
 | E0256, E0257 | `init` in an interface; tier mismatch with the interface |
-| E0262, E0264 | inline field default; `var` fields without an `init` |
+| E0262, E0264, E0265 | inline field default; `var` fields without an `init`; assigning a `val` field after its init |
 | E0268, E0270, E0271, E0294, E0295, E0296 | pointer arithmetic; address of a temporary; escaping stack reference; regime errors; `&` on an `rc` |
 | E0273, E0274, E0297, E0298 | `heap`/`rc`/`pool` in an invalid position |
 | E0278 | I/O in a `readonly` method |
@@ -3176,6 +3328,11 @@ codes cited in this manual:
 | E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element |
 | E0335 | `break` / `continue` outside a loop, in a lambda, `defer` or `spawn` body inside one, or in a `parallel` loop |
 | E0336 | `return` inside a `defer` body |
+| E0350, E0351 | static function called on a value; method called through the type name |
+| E0352, E0353 | implementor's function static where the interface's is not (or the reverse); implementor's parameters or result differ from the interface signature |
+| E0354 | static function, or method built from `Self`, called through an interface value |
+| E0355 | `T.f()` on a type parameter whose constraint declares no static function `f` |
+| E0356 | `__fields`, reserved for code the compiler generates |
 | E0331, E0332, E0333, E0334 | list extension with a body; refutable nested pattern; `Channel.new(4)` and the other `.new` constructor spellings; interpolating a value with no text form |
 | E0345 | initialization cycle between globals |
 | E0501 | `await` on the web target |
@@ -3239,15 +3396,17 @@ param          ::= [ 'val' | 'var' ] NAME [ ':' type ]
 object_decl    ::= 'object' IDENT [ generic_params ] [ impl_clause ] '{' { member } '}'
 impl_clause    ::= 'impl' IDENT { ',' IDENT }
 member         ::= [ 'pub' ] [ 'readonly' | 'pure' ] ( field | method | init_decl | 'copy' block | 'drop' block )
+                 | [ 'pub' ] 'static' method
 field          ::= ( 'val' | 'var' ) IDENT ':' type
 method         ::= 'func' NAME [ generic_params ] param_list [ '->' type ] block
 init_decl      ::= 'init' [ IDENT ] param_list block
 
 patch_decl     ::= 'patch' 'object' IDENT [ impl_clause ] '{' { patch_member } '}'
 patch_member   ::= [ 'pub' ] [ 'readonly' | 'pure' ] ( method | init_decl | 'copy' block | 'drop' block )
+                 | [ 'pub' ] 'static' method
 
 interface_decl ::= 'interface' IDENT '{' { iface_method } '}'
-iface_method   ::= [ 'readonly' | 'pure' ] 'func' IDENT param_list [ '->' type ] [ block ]
+iface_method   ::= [ 'static' | 'readonly' | 'pure' ] 'func' IDENT param_list [ '->' type ] [ block ]
 
 enum_decl      ::= 'enum' IDENT [ generic_params ] '{' [ variant { ',' variant } [ ',' ] ] '}'
 variant        ::= IDENT [ '(' type { ',' type } [ ',' ] ')' | '=' INT ]

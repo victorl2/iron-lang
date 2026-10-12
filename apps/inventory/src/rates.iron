@@ -1,0 +1,327 @@
+-- Exchange rates from an external HTTP API, cached in memory and in MySQL.
+--
+-- The upstream is a Frankfurter-style API: GET {rates_url}/latest?from=USD
+-- answers {"base": "USD", "date": "...", "rates": {"EUR": 0.92, ...}}.
+--
+-- * The whole table is cached for rates_ttl_ms. A background task refreshes
+--   it at half the TTL, so requests normally find a fresh table.
+-- * A request that finds the table stale is answered from it at once
+--   (marked stale) while a single refresh runs; only a request with no
+--   table at all waits for that refresh, up to the upstream budget.
+-- * Each refresh tries 1 + rates_retries times with exponential backoff and
+--   jitter, each attempt bounded by rates_timeout_ms.
+-- * After breaker_threshold consecutive failed refreshes the circuit opens
+--   for breaker_cooldown_ms: no upstream calls, stale answers only.
+-- * Every successful refresh is written to MySQL (fx_rates) and the last
+--   snapshot is loaded at startup, so a restart during an upstream outage
+--   still has (stale) rates.
+import http
+import json
+import math
+import mysql
+import time
+
+val RATES_RW = RWLock(0)
+
+pub object RateService {
+    val base: String
+    val path: String
+    val ttl_ms: Int
+    val timeout_ms: Int
+    val retries: Int
+    val backoff_ms: Int
+    val breaker_threshold: Int
+    val breaker_cooldown_ms: Int
+    pub val client: HttpClient
+    pub val client_ok: Bool
+    pub val client_error: String
+
+    -- Guarded by RATES_RW (read lock to look up, write lock to change).
+    var rates: Map[String, Float]
+    var as_of: String
+    var fetched_at: Int        -- Time.unix_ms of the table, 0 when none
+    var fetched_mono: Int      -- Time.now_ms of the table, 0 when none
+    var refreshing: Bool
+    var failures: Int          -- consecutive failed refreshes
+    var open_until: Int        -- Time.now_ms until which the breaker is open
+    var last_error: String
+    var refreshes: Int
+
+    pub init(origin: String, base: String, ttl_ms: Int, timeout_ms: Int, retries: Int, backoff_ms: Int, threshold: Int, cooldown_ms: Int) {
+        self.base = base
+        self.path = "/latest?from=" + base
+        self.ttl_ms = ttl_ms
+        self.timeout_ms = timeout_ms
+        self.retries = retries
+        self.backoff_ms = backoff_ms
+        self.breaker_threshold = threshold
+        self.breaker_cooldown_ms = cooldown_ms
+        val opened = HttpClient.open(origin, "", false, 8, 30000)
+        self.client = opened.client
+        self.client_ok = opened.error == 0
+        self.client_error = opened.error_message
+        self.rates = Map[String, Float]()
+        self.as_of = ""
+        self.fetched_at = 0
+        self.fetched_mono = 0
+        self.refreshing = false
+        self.failures = 0
+        self.open_until = 0
+        self.last_error = ""
+        self.refreshes = 0
+    }
+}
+
+-- What a lookup found. `status` is 0 on success, otherwise the HTTP status
+-- to answer with (400 unknown currency, 503 no rates available).
+pub object RateLookup {
+    pub val rate: Float
+    pub val stale: Bool
+    pub val as_of: String
+    pub val age_ms: Int
+    pub val status: Int
+    pub val message: String
+}
+
+pub object RateSnapshot {
+    pub val count: Int
+    pub val age_ms: Int
+    pub val breaker_open: Bool
+    pub val failures: Int
+    pub val last_error: String
+    pub val has_table: Bool
+}
+
+object Fetched {
+    val ok: Bool
+    val rates: Map[String, Float]
+    val as_of: String
+    val outcome: Int           -- metrics outcome code of the last attempt
+    val error: String
+}
+
+pub func rates_snapshot(svc: rc RateService) -> RateSnapshot {
+    val g = RATES_RW.read()
+    val now = Time.now_ms()
+    var age = -1
+    if svc.fetched_mono > 0 {
+        age = now - svc.fetched_mono
+    }
+    return RateSnapshot(svc.rates.len(), age, now < svc.open_until, svc.failures, svc.last_error, svc.fetched_mono > 0)
+}
+
+-- Seed the table from the stored snapshot (startup, before serving). The
+-- age is taken from the stored fetch time, so an old snapshot is stale.
+pub func seed_rates(svc: rc RateService, stored: [StoredRate]) -> Int {
+    if stored.len() == 0 {
+        return 0
+    }
+    val g = RATES_RW.write()
+    if svc.fetched_mono > 0 {
+        return 0
+    }
+    var newest = 0
+    for r in stored {
+        svc.rates.put(r.currency, r.rate)
+        svc.as_of = r.as_of
+        if r.fetched_at > newest {
+            newest = r.fetched_at
+        }
+    }
+    svc.fetched_at = newest
+    val age = Time.unix_ms() - newest
+    svc.fetched_mono = Time.now_ms() - max(age, 0)
+    if svc.fetched_mono <= 0 {
+        svc.fetched_mono = 1
+    }
+    return stored.len()
+}
+
+-- Parse an upstream body. Every rate must be a positive number.
+func parse_rates(body: String, base: String) -> Fetched {
+    var rates = Map[String, Float]()
+    val parsed = Json.parse_with(body, JsonLimits(8, 1048576))
+    if parsed.error != 0 {
+        return Fetched(false, rates.take(), "", 3, "malformed JSON: {parsed.error_message}")
+    }
+    val doc = parsed.value
+    val table = doc.get("rates")
+    if not table.is_object() or table.len() == 0 {
+        return Fetched(false, rates.take(), "", 3, "response has no rates object")
+    }
+    val got_base = doc.get("base").string_or(base)
+    if got_base.upper() != base {
+        return Fetched(false, rates.take(), "", 3, "response base {got_base} is not {base}")
+    }
+    var i = 0
+    while i < table.len() {
+        val code = table.key_at(i)
+        val v = table.value_at(i).as_float()
+        if v == null or v <= 0.0 or code.len() != 3 {
+            return Fetched(false, rates.take(), "", 3, "bad rate for {code}")
+        }
+        rates.put(code.upper(), v)
+        i += 1
+    }
+    return Fetched(true, rates.take(), doc.get("date").string_or(""), 0, "")
+}
+
+-- One refresh: up to 1 + retries attempts with exponential backoff and
+-- jitter. Runs without the lock.
+func fetch_with_retries(svc: rc RateService, metrics: rc Metrics) -> Fetched {
+    var attempt = 0
+    var last_outcome = 2
+    var last_error = "no attempt"
+    while attempt <= svc.retries {
+        if attempt > 0 {
+            val base_delay = svc.backoff_ms * (1 << (attempt - 1))
+            Time.sleep(base_delay + Math.random_int(0, max(base_delay / 2, 1)))
+        }
+        val started = Time.now_ns()
+        val response = HttpClient.request(svc.client, "GET", svc.path, "Accept: application/json", "", 1048576, svc.timeout_ms)
+        val us = (Time.now_ns() - started) / 1000
+        if response.error != 0 {
+            metrics.upstream_call(2, us)
+            last_outcome = 2
+            last_error = "transport: {response.error_message}"
+        } elif response.status != 200 {
+            metrics.upstream_call(1, us)
+            last_outcome = 1
+            last_error = "upstream answered {response.status}"
+            -- A client error will not get better by retrying.
+            if response.status >= 400 and response.status < 500 and response.status != 429 and response.status != 408 {
+                return Fetched(false, Map[String, Float](), "", last_outcome, last_error)
+            }
+        } else {
+            val parsed = parse_rates(response.body, svc.base)
+            metrics.upstream_call(parsed.outcome, us)
+            if parsed.ok {
+                return parsed
+            }
+            last_outcome = parsed.outcome
+            last_error = parsed.error
+        }
+        attempt += 1
+    }
+    return Fetched(false, Map[String, Float](), "", last_outcome, last_error)
+}
+
+-- Refresh the table if this caller wins the single-flight slot. Returns
+-- whether a refresh ran (successfully or not).
+pub func refresh_rates(svc: rc RateService, metrics: rc Metrics, db: rc MysqlPool) -> Bool {
+    if true {
+        val g = RATES_RW.write()
+        if svc.refreshing {
+            return false
+        }
+        if Time.now_ms() < svc.open_until {
+            metrics.upstream_call(4, 0)
+            return false
+        }
+        svc.refreshing = true
+    }
+    val fetched = fetch_with_retries(svc, metrics)
+    var to_store: [StoredRate] = []
+    if true {
+        val g = RATES_RW.write()
+        svc.refreshing = false
+        svc.refreshes += 1
+        if fetched.ok {
+            svc.rates = fetched.rates.copy()
+            svc.as_of = fetched.as_of
+            svc.fetched_at = Time.unix_ms()
+            svc.fetched_mono = Time.now_ms()
+            svc.failures = 0
+            svc.open_until = 0
+            svc.last_error = ""
+            for (code, rate) in fetched.rates {
+                to_store.push(StoredRate(code, rate, fetched.as_of, svc.fetched_at))
+            }
+        } else {
+            svc.failures += 1
+            svc.last_error = fetched.error
+            if svc.failures >= svc.breaker_threshold {
+                svc.open_until = Time.now_ms() + svc.breaker_cooldown_ms
+            }
+        }
+    }
+    if fetched.ok {
+        val saved = save_rates(db, svc.base, to_store)
+        if saved.failed() {
+            logger_warn("could not store exchange rates").int("code", saved.code).str("error", saved.message).emit()
+        }
+        logger_debug("exchange rates refreshed").int("currencies", to_store.len()).emit()
+    } else {
+        logger_warn("exchange rate refresh failed").str("error", fetched.error).int("consecutive_failures", svc.failures).emit()
+    }
+    return true
+}
+
+-- Read the rate of `currency` (units of currency per unit of base).
+pub func lookup_rate(svc: rc RateService, metrics: rc Metrics, db: rc MysqlPool, currency: String) -> RateLookup {
+    val code = currency.upper()
+    if code.len() != 3 {
+        return RateLookup(0.0, false, "", 0, 400, "currency must be a three letter code")
+    }
+    if code == svc.base {
+        metrics.cache_lookup(0)
+        return RateLookup(1.0, false, "", 0, 0, "")
+    }
+    var tried = false
+    var waited = 0
+    val budget = svc.timeout_ms * (svc.retries + 1) + svc.backoff_ms * 4
+    while true {
+        var refresh_now = false
+        if true {
+            val g = RATES_RW.read()
+            val now = Time.now_ms()
+            if svc.fetched_mono > 0 {
+                val age = now - svc.fetched_mono
+                val stale = age >= svc.ttl_ms
+                if svc.rates.has(code) {
+                    if stale {
+                        metrics.cache_lookup(1)
+                    } elif not tried and waited == 0 {
+                        metrics.cache_lookup(0)
+                    }
+                    return RateLookup(svc.rates.get(code), stale, svc.as_of, age, 0, "")
+                }
+                if not stale or tried {
+                    return RateLookup(0.0, false, svc.as_of, age, 400, "unknown currency {code}")
+                }
+            }
+            if tried {
+                return RateLookup(0.0, false, "", 0, 503, "exchange rates unavailable: {svc.last_error}")
+            }
+            if now < svc.open_until {
+                metrics.cache_lookup(2)
+                return RateLookup(0.0, false, "", 0, 503, "exchange rates unavailable: {svc.last_error}")
+            }
+            if waited == 0 {
+                metrics.cache_lookup(2)
+            }
+            refresh_now = not svc.refreshing
+        }
+        if refresh_now {
+            refresh_rates(svc, metrics, db)
+            tried = true
+        } else {
+            if waited >= budget {
+                return RateLookup(0.0, false, "", 0, 503, "exchange rates unavailable")
+            }
+            Time.sleep(10)
+            waited += 10
+        }
+    }
+    return RateLookup(0.0, false, "", 0, 503, "unreachable")
+}
+
+-- Background refresh: keep the table younger than half the TTL. Returns
+-- when `stop` says so.
+pub func refresh_due(svc: rc RateService) -> Bool {
+    val g = RATES_RW.read()
+    if svc.refreshing or Time.now_ms() < svc.open_until {
+        return false
+    }
+    return svc.fetched_mono == 0 or Time.now_ms() - svc.fetched_mono >= svc.ttl_ms / 2
+}

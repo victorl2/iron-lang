@@ -100,7 +100,10 @@ static int str_ends_with(const char *s, const char *suf) {
 /* Exclude directories we never want to walk into. */
 static int is_excluded_dir(const char *name) {
     if (!name || name[0] == '.') return 1;            /* .git, .hidden, etc */
-    if (strcmp(name, "build")        == 0) return 1;
+    /* build, build-release, build_asan...: build trees hold generated and
+     * copied sources, thousands of them in a compiler checkout. */
+    if (strncmp(name, "build", 5) == 0 &&
+        (name[5] == '\0' || name[5] == '-' || name[5] == '_')) return 1;
     if (strcmp(name, "node_modules") == 0) return 1;
     if (strcmp(name, "target")       == 0) return 1;
     return 0;

@@ -8,8 +8,9 @@ with lambdas, `res_text`), instantiated with Int, String, Bool, an object
 key (`Pt impl Hashable`), other instances (`Cell[Pair[Int, String]]`,
 `Opt[Cell[Int]]`), lists, `rc Pt` and `rc Cell[Int]`; type arguments
 inferred from arguments and written out (`Cell[Int](3)`, `Stack[Pt]()`);
-Map and Set with generic keys and values. Mixed with the control flow of
-pf_stmt.
+Map and Set with generic keys and values. A `Seeded` constraint supplies a
+static function returning `Self`, called as `T.seed(n)` from generic code.
+Mixed with the control flow of pf_stmt.
 
 The model follows manual 2.6 / 6.1 (objects are values: binding, passing,
 storing and returning copy them; rc handles share one object) and 3.3
@@ -168,9 +169,16 @@ def ro_ok(t):
     return False
 
 
-PROLOGUE = '''object Pt impl Hashable {
+PROLOGUE = '''interface Seeded {
+    static func seed(n: Int) -> Self
+}
+
+object Pt impl Hashable, Seeded {
     val x: Int
     val y: Int
+    static func seed(n: Int) -> Self {
+        return Pt(n, n + 1)
+    }
     pure func hash() -> Int {
         return self.x * 31 + self.y
     }
@@ -259,6 +267,10 @@ enum Res[T, E] {
 
 func ident[T](x: T) -> T {
     return x
+}
+
+func seeded[T: Seeded](n: Int) -> T {
+    return T.seed(n)
 }
 
 func pick[T](c: Bool, a: T, b: T) -> T {
@@ -537,7 +549,11 @@ class GenGen(Gen):
         if k == 'Bool':
             return self.bexpr(d)
         if k == 'Pt':
-            a, b = self.iexpr(min(d, 1)), self.iexpr(min(d, 1))
+            a = self.iexpr(min(d, 1))
+            if r.random() < 0.3:
+                return Ev(f'seeded[Pt]({a.src()})',
+                          lambda m, f: (lambda x: PtV(x, wrap(x + 1)))(a.ev(m, f)))
+            b = self.iexpr(min(d, 1))
             return Ev(f'Pt({a.src()}, {b.src()})', lambda m, f: PtV(a.ev(m, f), b.ev(m, f)))
         if k == 'Cell':
             e = self.gexpr(t[1], d - 1)

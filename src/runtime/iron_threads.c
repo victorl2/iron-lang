@@ -1082,6 +1082,15 @@ void iron_threads_init(void) {
     int cpu_count = (int)sysconf(_SC_NPROCESSORS_ONLN);
 #endif
     int thread_count = (cpu_count > 1) ? (cpu_count - 1) : 1;
+    /* IRON_WORKERS sizes the pool that runs spawn statements and parallel
+     * loops (#547): a program whose tasks block (sockets, databases) wants
+     * more workers than cores, a container wants fewer than the host has. */
+    const char *env_workers = getenv("IRON_WORKERS");
+    if (env_workers && *env_workers) {
+        char *end = NULL;
+        long n = strtol(env_workers, &end, 10);
+        if (end && *end == '\0' && n >= 1 && n <= 4096) thread_count = (int)n;
+    }
 #ifdef __EMSCRIPTEN__
     /* WEB-RUNTIME-03: Cap worker count on web builds. See
      * IRON_WEB_MAX_WORKERS define near top of this file for rationale. */
@@ -1150,4 +1159,42 @@ void iron_threads_shutdown(void) {
         Iron_global_pool = NULL;
     }
 #endif
+}
+
+/* ── atomic.iron: AtomicInt / AtomicBool cells ─────────────────────────── */
+
+int64_t Iron_atomicnative_new(int64_t v) {
+    int64_t *cell = (int64_t *)malloc(sizeof(int64_t));
+    if (!cell) iron_oom_abort("iron_threads.c:Iron_atomicnative_new");
+    __atomic_store_n(cell, v, __ATOMIC_SEQ_CST);
+    return (int64_t)(intptr_t)cell;
+}
+
+void Iron_atomicnative_free(int64_t h) {
+    free((void *)(intptr_t)h);
+}
+
+int64_t Iron_atomicnative_load(int64_t h) {
+    if (!h) return 0;
+    return __atomic_load_n((int64_t *)(intptr_t)h, __ATOMIC_SEQ_CST);
+}
+
+void Iron_atomicnative_store(int64_t h, int64_t v) {
+    if (h) __atomic_store_n((int64_t *)(intptr_t)h, v, __ATOMIC_SEQ_CST);
+}
+
+int64_t Iron_atomicnative_add(int64_t h, int64_t d) {
+    if (!h) return 0;
+    return __atomic_add_fetch((int64_t *)(intptr_t)h, d, __ATOMIC_SEQ_CST);
+}
+
+int64_t Iron_atomicnative_swap(int64_t h, int64_t v) {
+    if (!h) return 0;
+    return __atomic_exchange_n((int64_t *)(intptr_t)h, v, __ATOMIC_SEQ_CST);
+}
+
+bool Iron_atomicnative_cas(int64_t h, int64_t expected, int64_t desired) {
+    if (!h) return false;
+    return __atomic_compare_exchange_n((int64_t *)(intptr_t)h, &expected, desired, false,
+                                       __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
 }

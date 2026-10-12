@@ -1,0 +1,11 @@
+-- A static function has no receiver: self in its body is E0210 (#455).
+object P {
+    val x: Int
+    static func make() -> P {
+        return P(self.x)
+    }
+}
+
+func main() {
+    println("{P.make().x}")
+}
