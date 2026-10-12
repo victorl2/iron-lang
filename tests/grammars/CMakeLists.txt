@@ -152,6 +152,13 @@ if(IRON_BUILD_GRAMMARS AND IRON_NPM_EXECUTABLE AND IRON_NODE_EXECUTABLE AND BASH
     # programs and mutants (tests/fuzz/ts_diff.py, fixed seed).
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_EXECUTABLE)
+        add_test(NAME test_tree_sitter_query_cache_versioning
+            COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_SOURCE_DIR}/tests/grammars/tree_sitter/test_query_cache_versioning.py")
+        set_tests_properties(test_tree_sitter_query_cache_versioning PROPERTIES
+            LABELS "phase-m5-invariant;unit"
+            TIMEOUT 60)
+
         add_test(NAME test_tree_sitter_differential
             COMMAND ${BASH_EXECUTABLE}
                     "${CMAKE_SOURCE_DIR}/tests/grammars/tree_sitter/ts_differential.sh"
