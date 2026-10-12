@@ -4015,6 +4015,46 @@ done:
     return err_to_iron(&e);
 }
 
+int64_t iron_mysql_test_statement_exchange(const uint8_t *wire, size_t wire_len,
+                                           size_t read_size, const char *sql,
+                                           size_t sql_len,
+                                           const Iron_MysqlValueList *params,
+                                           Iron_MysqlTestBytes *written) {
+    if (written) memset(written, 0, sizeof(*written));
+    MyResult *res = result_new();
+    MyConn *c = conn_new();
+    if (!res || !c) {
+        if (res) result_destroy(res);
+        if (c) conn_unref(c);
+        return closed_result(IRON_ERR_MYSQL_NO_MEMORY);
+    }
+    test_transport_init(c, wire, wire_len, read_size);
+    c->open = 1;
+    c->caps = CLIENT_PROTOCOL_41 | CLIENT_DEPRECATE_EOF;
+    MyPrep prep;
+    MyErr e;
+    err_clear(&e);
+    int rc = prepare_stmt(c, sql, sql_len, &prep, &e);
+    if (!rc) rc = execute_stmt(c, &prep, params, res);
+    if (!rc) {
+        queue_stmt_close(c, prep.id);
+        MyErr ping_error;
+        err_clear(&ping_error);
+        rc = simple_command(c, COM_PING, "", 0, &ping_error);
+        if (rc) res->err = ping_error;
+    } else if (!res->err.code) {
+        res->err = e;
+    }
+    prep_free(&prep);
+    if (written) {
+        written->data = c->test_out.p;
+        written->len = c->test_out.len;
+        memset(&c->test_out, 0, sizeof(c->test_out));
+    }
+    conn_unref(c);
+    return HANDLE(res);
+}
+
 void iron_mysql_test_bytes_free(Iron_MysqlTestBytes *bytes) {
     if (!bytes) return;
     free(bytes->data);

@@ -245,6 +245,11 @@ Iron_MysqlError iron_mysql_test_handshake(const uint8_t *wire, size_t wire_len,
                                           Iron_MysqlTestBytes *written);
 Iron_MysqlError iron_mysql_test_encode_params(const Iron_MysqlValueList *params,
                                               Iron_MysqlTestBytes *encoded);
+int64_t iron_mysql_test_statement_exchange(const uint8_t *wire, size_t wire_len,
+                                           size_t read_size, const char *sql,
+                                           size_t sql_len,
+                                           const Iron_MysqlValueList *params,
+                                           Iron_MysqlTestBytes *written);
 void iron_mysql_test_bytes_free(Iron_MysqlTestBytes *bytes);
 
 #endif /* IRON_MYSQL_H */
