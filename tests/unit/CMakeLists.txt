@@ -1244,6 +1244,7 @@ add_test(NAME test_runtime_panic_stale_release COMMAND test_runtime_panic_stale_
 set_tests_properties(test_runtime_panic_stale_release PROPERTIES
     LABELS "unit;phase19-invariant"
     TIMEOUT 30
+    RUN_SERIAL TRUE
 )
 
 # ── Phase 19 plan-03: thread-safety stress test SAFE-01/05 ───────────────────
@@ -1265,6 +1266,7 @@ add_test(NAME test_runtime_heap_concurrent COMMAND test_runtime_heap_concurrent)
 set_tests_properties(test_runtime_heap_concurrent PROPERTIES
     LABELS "unit;phase19-invariant;tsan"
     TIMEOUT 60
+    RUN_SERIAL TRUE
     FAIL_REGULAR_EXPRESSION "WARNING: ThreadSanitizer"
 )
 
