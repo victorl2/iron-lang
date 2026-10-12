@@ -669,6 +669,7 @@ def proto_session(rng, iron, adapter, work):
     with open(src, "w") as f:
         f.write(text)
     problems = []
+    sent = []
     s = Session(iron, adapter, None)
     try:
         s.init()
@@ -685,10 +686,15 @@ def proto_session(rng, iron, adapter, work):
                                   "continue", "next", "stepIn", "stepOut", "goto", "pause"):
                 continue
             body = _json.dumps(msg).encode()
+            sent.append(body[:300])
             s.c.p.stdin.write(frame_bytes(body))
             s.c.p.stdin.flush()
             try:
-                s.c.response(msg["seq"], msg["command"], 130)
+                rr = s.c.response(msg["seq"], msg["command"], 130)
+                if "did not answer" in str(rr.get("message")) or \
+                        "debugger has exited" in str(rr.get("message")):
+                    problems.append("%s: the debugger died on %s" % (kind, body[:400]))
+                    return problems
             except Exception as e:
                 problems.append("%s: no answer to %s while stopped: %s" % (kind, body[:200], e))
                 return problems
@@ -713,7 +719,7 @@ def proto_session(rng, iron, adapter, work):
     except Skip:
         raise
     except Exception as e:
-        problems.append("%s session: %s: %s" % (kind, type(e).__name__, e))
+        problems.append("%s session: %s: %s (sent: %s)" % (kind, type(e).__name__, e, sent[-3:]))
     finally:
         s.close()
     return problems

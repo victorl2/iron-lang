@@ -996,7 +996,9 @@ static Iron_Type *emit_value_c_type(IronLIR_Func *fn, IronLIR_Instr *instr);
 static const char *emit_hoisted_decl_type(IronLIR_Func *fn, IronLIR_Instr *in,
                                           EmitCtx *ctx) {
     if (in->kind == IRON_LIR_HEAP_ALLOC || in->kind == IRON_LIR_ARENA_ALLOC)
-        return "Iron_FatPtr";
+        return emit_debug_fatptr(ctx, emit_type_to_c(in->type, ctx));
+    if (in->kind == IRON_LIR_ADDR_OF)
+        return emit_debug_fatptr(ctx, emit_fat_ptr_pointee_type_c(fn, in->id, ctx));
     return emit_local_decl_type(fn, in, emit_value_c_type(fn, in), ctx);
 }
 
@@ -2783,7 +2785,15 @@ static const char *emit_local_decl_type(IronLIR_Func *fn,
                                         EmitCtx *ctx) {
     const char *narrowed = iron_vr_get_local_narrowed_type(
         &ctx->value_range, fn, instr->id);
-    return narrowed ? narrowed : emit_type_to_c(declared_type, ctx);
+    if (narrowed) return narrowed;
+    if (declared_type && declared_type->kind == IRON_TYPE_PTR && !declared_type->ptr.is_unchecked &&
+        declared_type->ptr.pointee)
+        return emit_debug_fatptr(ctx, emit_type_to_c(declared_type->ptr.pointee, ctx));
+    if (fn && instr && emit_val_is_any_fat_ptr(fn, instr->id)) {
+        const char *pc = emit_fat_ptr_pointee_type_c(fn, instr->id, ctx);
+        if (pc) return emit_debug_fatptr(ctx, pc);
+    }
+    return emit_type_to_c(declared_type, ctx);
 }
 
 /* Is `instr` a call of a list method whose runtime body bounds-checks
@@ -3013,6 +3023,8 @@ static unsigned emit_jump_line(IronLIR_Func *fn, EmitCtx *ctx, IronLIR_Instr *in
     for (int i = b ? b->instr_count - 1 : -1; i >= 0; i--) {
         IronLIR_Instr *n = b->instrs[i];
         if (n == instr || n->kind == IRON_LIR_JUMP || n->kind == IRON_LIR_ALLOCA) continue;
+        /* (a constant may have been placed here from a later statement) */
+        if (n->kind >= IRON_LIR_CONST_INT && n->kind <= IRON_LIR_CONST_NULL) continue;
         if (n->span.line > 0) return (unsigned)n->span.line;
     }
     return emit_target_line(fn, instr->jump.target);
@@ -6861,7 +6873,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * do NOT emit iron_heap_free here. */
         const char *val_type = emit_type_to_c(instr->type, ctx);
         emit_indent(sb, ind);
-        if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_FatPtr ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_debug_fatptr(ctx, val_type));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb,
             " = iron_heap_alloc(IRON_SITE, sizeof(%s));\n",
@@ -6950,7 +6962,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * (ARENA-05/11 TLS-default resolution). */
         const char *val_type = emit_type_to_c(instr->type, ctx);
         emit_indent(sb, ind);
-        if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_FatPtr ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_debug_fatptr(ctx, val_type));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = iron_arena_rt_alloc(");
         if (instr->arena_alloc.arena_val != IRON_LIR_VALUE_INVALID) {
@@ -8850,7 +8862,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
      * literal: gen comes from the source tag; addr is `&_vT`. */
     case IRON_LIR_ADDR_OF: {
         emit_indent(sb, ind);
-        if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_FatPtr ");
+        if (!is_hoisted)
+            iron_strbuf_appendf(sb, "%s ", emit_debug_fatptr(ctx,
+                emit_fat_ptr_pointee_type_c(fn, instr->id, ctx)));
         emit_val(sb, instr->id);
         /* 2026-07 remediation (4.2 boundary_field_pointer): `&container.field`
          * arrives as ADDR_OF targeting a GET_FIELD result. Emitting `&_vT`
@@ -9274,6 +9288,10 @@ void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
             if (fn->is_mut_receiver_method && i == 0) {
                 iron_strbuf_appendf(sb, "%s *%s",
                                     emit_type_to_c(pt, ctx), emit_vname(param_val_id));
+            } else if (pt->kind == IRON_TYPE_PTR && !pt->ptr.is_unchecked && pt->ptr.pointee) {
+                iron_strbuf_appendf(sb, "%s %s",
+                                    emit_debug_fatptr(ctx, emit_type_to_c(pt->ptr.pointee, ctx)),
+                                    emit_vname(param_val_id));
             } else {
                 iron_strbuf_appendf(sb, "%s %s",
                                     emit_type_to_c(pt, ctx), emit_vname(param_val_id));
@@ -11076,6 +11094,38 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
     if (fn->takes_local_addr) {
         emit_indent(sb, 1);
         iron_strbuf_appendf(sb, "uint64_t _iron_stack_saved = iron_stack_enter();\n");
+    }
+    /* --debug: where a task was spawned, for the debugger to show under
+     * the task's stack: "<file>|<line>|<function>|<name>". */
+    if (g_emit_line_directives && fn->spawn_span.filename && fn->spawn_span.line > 0) {
+        iron_strbuf_appendf(&ctx->forward_decls,
+                            "__attribute__((used)) static const char iron_dbg_spawn_%s[] = \"",
+                            fn->name);
+        char site[1200];
+        snprintf(site, sizeof(site), "%s|%u|%s|%s", fn->spawn_span.filename,
+                 (unsigned)fn->spawn_span.line, fn->spawn_parent ? fn->spawn_parent : "",
+                 fn->task_name ? fn->task_name : "");
+        for (const char *c = site; *c; c++) {
+            unsigned char ch = (unsigned char)*c;
+            if (ch == '\\' || ch == '"') iron_strbuf_appendf(&ctx->forward_decls, "\\%c", ch);
+            else if (ch < 0x20 || ch == 0x7f)
+                iron_strbuf_appendf(&ctx->forward_decls, "\\%03o", ch);
+            else iron_strbuf_appendf(&ctx->forward_decls, "%c", ch);
+        }
+        iron_strbuf_appendf(&ctx->forward_decls, "\";\n");
+    }
+    /* A spawned task names its thread after `spawn("name")` (the debugger's
+     * threads view, crash reports). */
+    if (fn->task_name && *fn->task_name) {
+        emit_indent(sb, 1);
+        iron_strbuf_appendf(sb, "iron_thread_set_name(\"");
+        for (const char *c = fn->task_name; *c; c++) {
+            unsigned char ch = (unsigned char)*c;
+            if (ch == '\\' || ch == '"') iron_strbuf_appendf(sb, "\\%c", ch);
+            else if (ch < 0x20 || ch == 0x7f) iron_strbuf_appendf(sb, "\\%03o", ch);
+            else iron_strbuf_appendf(sb, "%c", ch);
+        }
+        iron_strbuf_appendf(sb, "\");\n");
     }
 
     /* ── Capture alias setup for lifted lambda functions ─────────────────────

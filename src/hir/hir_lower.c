@@ -3604,6 +3604,11 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
                                                           final_params, total_params,
                                                           spawn_ret_ty);
             lifted->body = iron_hir_block_create(mod);
+            if (lp->ast_node && lp->ast_node->kind == IRON_NODE_SPAWN) {
+                lifted->task_name = ((Iron_SpawnStmt *)lp->ast_node)->name;
+                lifted->spawn_span = lp->ast_node->span;
+                lifted->spawn_parent = lp->enclosing_func;
+            }
 
             /* Store capture metadata on the lifted function (same as for lambdas) */
             lifted->captures      = cap_meta;

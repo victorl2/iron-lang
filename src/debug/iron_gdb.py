@@ -381,13 +381,87 @@ def _is_object(t, name):
     return not _is_tagged(t) and len(_fields(t)) > 0
 
 
+MYSQL_HANDLES = {"MysqlResult": 0, "MysqlConn": 1, "MysqlPool": 2}
+
+
+def _json_text(v, budget):
+    """A Json value as JSON text (at most about budget[0] characters)."""
+    if budget[0] <= 0:
+        return "..."
+    node = v["node"]
+    tag = str(node["tag"])
+    i = tag.find("_TAG_")
+    variant = tag[i + 5:] if i >= 0 else tag
+    data = node["data"]
+    names = [f.name for f in _fields(data.type.strip_typedefs())]
+    inner = data[variant]["_0"] if variant in names and \
+        [f.name for f in _fields(data[variant].type.strip_typedefs())][:1] == ["_0"] else None
+    if variant == "Null" or inner is None:
+        out = "null"
+    elif variant in ("Bool", "Int", "Float", "Str"):
+        out = _text(inner)
+    elif variant == "Arr":
+        items = inner.dereference()["items"]
+        n = _list_count(items) or 0
+        parts = []
+        for k in range(min(n, 50)):
+            if budget[0] <= 0:
+                parts.append("...")
+                break
+            parts.append(_json_text(items["items"][k], budget))
+        out = "[%s]" % ", ".join(parts)
+    elif variant == "Obj":
+        obj = inner.dereference()
+        keys, vals = obj["keys"], obj["values"]
+        n = _list_count(keys) or 0
+        parts = []
+        for k in range(min(n, 50)):
+            if budget[0] <= 0:
+                parts.append("...")
+                break
+            parts.append("%s: %s" % (_text(keys["items"][k]), _json_text(vals["items"][k], budget)))
+        out = "{%s}" % ", ".join(parts)
+    else:
+        out = variant
+    budget[0] -= len(out)
+    return out
+
+
 class ObjectPrinter:
-    """An object: Point {x = 3, y = 4}, as LLDB and rc values show it."""
+    """An object: Point {x = 3, y = 4}, as LLDB and rc values show it. A
+    Json value shows as its JSON text, a MySQL result, connection or pool
+    as what its handle holds."""
 
     def __init__(self, val, name):
         self.val, self.name = val, _short(name)
 
     def to_string(self):
+        if self.name == "Json":
+            return "Json " + _json_text(self.val, [400])
+        if self.name in MYSQL_HANDLES:
+            try:
+                text = gdb.parse_and_eval("(const char *)iron_mysql_debug_text(%d, %d)" % (
+                    int(self.val["handle"]), MYSQL_HANDLES[self.name])).string()
+                return "%s %s" % (self.name, text)
+            except (gdb.error, UnicodeDecodeError):
+                pass
+        if self.name in ("JsonBuffer", "JsonWriter"):
+            # What a JsonWriter wrote so far: its native buffer (iron_json.c).
+            try:
+                buf = self.val if self.name == "JsonBuffer" else self.val["buf"].dereference()
+                w = gdb.Value(int(buf["handle"])).cast(
+                    gdb.lookup_type("JsonWriter").pointer()).dereference()
+                n = int(w["n"])
+                if 0 <= n < (1 << 30):
+                    raw = bytes(gdb.selected_inferior().read_memory(int(w["d"]), min(n, 300))) \
+                        if n else b""
+                    return "%s %s%s" % (self.name, iron_quote(raw.decode("utf-8", "replace")),
+                                                " ..." if n > 300 else "")
+            except (gdb.error, gdb.MemoryError):
+                pass
+        return self.fields_text()
+
+    def fields_text(self):
         f = [x for x in _fields(self.val.type.strip_typedefs()) if x.name]
         parts = ["%s = %s" % (x.name, _text(self.val[x.name])) for x in f[:8]]
         return "%s {%s%s}" % (self.name, ", ".join(parts), ", ..." if len(f) > 8 else "")
@@ -529,7 +603,7 @@ class RcPrinter:
                 else:
                     body = _text(obj)
                     name = _short(t.tag or t.name or str(obj.type))
-                    if not body.startswith(name + " {"):
+                    if not body.startswith(name + " "):
                         body = "%s %s" % (name, body)
             finally:
                 _rc_depth[0] -= 1
@@ -647,6 +721,82 @@ class SafePrinter:
         return out
 
 
+class MutexPrinter:
+    """A Mutex[T] of a --debug build (Iron_Mutex__T *): the value it holds
+    and which thread holds the lock."""
+
+    def __init__(self, val, vtype):
+        self.val, self.vtype = val, vtype
+
+    def value(self):
+        m = self.val.dereference()
+        p = int(m["value"])
+        return gdb.Value(p).cast(self.vtype.pointer()).dereference() if p else None
+
+    def to_string(self):
+        if not int(self.val):
+            return "null"
+        v = self.value()
+        holder = int(self.val.dereference()["holder"])
+        return "Mutex(%s)%s" % (_text(v) if v is not None else "?",
+                                " locked by thread %d (0x%x)" % (holder, holder) if holder
+                                else " unlocked")
+
+    def children(self):
+        if not _dap() or not int(self.val):
+            return
+        v = self.value()
+        if v is not None:
+            yield "value", v
+
+
+class FatPtrPrinter:
+    """A checked pointer or heap value of a --debug build (a typedef of
+    Iron_FatPtr named after the pointee, Iron_FatPtr__Iron_Worker): the
+    value it points at."""
+
+    def __init__(self, val, pointee):
+        self.val, self.pointee = val, pointee
+        self.obj, self.state = None, ""
+        addr, gen = int(val["addr"]), int(val["gen"])
+        if not addr:
+            self.state = "null"
+            return
+        try:
+            hdr = gdb.lookup_type("IronAllocHdr")
+            u64 = gdb.lookup_type("unsigned long long").pointer()
+            base = addr - hdr.sizeof
+            hgen = int(gdb.Value(base).cast(u64).dereference())
+            size = int(gdb.Value(base + 8).cast(u64).dereference())
+            if size == pointee.sizeof and hgen != gen:
+                self.state = "freed"
+                return
+        except gdb.error:
+            pass
+        self.obj = gdb.Value(addr).cast(pointee.pointer()).dereference()
+
+    def to_string(self):
+        if self.state == "null":
+            return "null"
+        if self.state == "freed":
+            return "freed (a stale pointer)"
+        return _text(self.obj)
+
+    def children(self):
+        if not _dap() or self.obj is None:
+            return
+        p = gdb.default_visualizer(self.obj)
+        if p is not None and hasattr(p, "children"):
+            for c in p.children():
+                yield c
+            return
+        t = self.obj.type.strip_typedefs()
+        if t.code == gdb.TYPE_CODE_STRUCT:
+            for x in _fields(t):
+                if x.name:
+                    yield x.name, self.obj[x.name]
+
+
 def _lookup(val):
     try:
         p = _lookup_printer(val)
@@ -662,6 +812,20 @@ def _lookup_printer(val):
     name = t.tag or t.name or val.type.name or str(val.type)
     if t.code == gdb.TYPE_CODE_FLT:
         return FloatPrinter(val)
+    if t.code == gdb.TYPE_CODE_PTR and (val.type.strip_typedefs().target().name or
+                                        str(val.type.target())).startswith("Iron_Mutex__"):
+        tn = str(val.type.target())
+        try:
+            return MutexPrinter(val, gdb.lookup_type(tn[len("Iron_Mutex__"):]))
+        except gdb.error:
+            pass
+    if (val.type.name or "").startswith("Iron_FatPtr__"):
+        try:
+            pointee = gdb.lookup_type(val.type.name[len("Iron_FatPtr__"):])
+        except gdb.error:
+            pointee = None
+        if pointee is not None:
+            return FatPtrPrinter(val, pointee)
     if val.type.name in ("int8_t", "uint8_t"):
         return SmallIntPrinter(val)
     if _is_object(t, name):

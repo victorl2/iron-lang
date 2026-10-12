@@ -3113,6 +3113,24 @@ if(Python3_Interpreter_FOUND)
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/temporaries.iron
                    $<TARGET_FILE:iron> dap)
   set_tests_properties(debug_dap_temporaries PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+  # Regressions the debugger fuzzer found: values, the evaluator, stepping,
+  # spawned tasks, malformed requests.
+  add_test(NAME debug_dap_regress
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/dap_regress_client.py
+                   ${CMAKE_SOURCE_DIR}/tests/integration/debug/regress.iron
+                   $<TARGET_FILE:iron> dap)
+  set_tests_properties(debug_dap_regress PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+  # The debugger fuzzer (tests/fuzz/dbg_fuzz.py) on fixed seeds (POSIX
+  # hosts: it runs process groups and fork programs).
+  if(NOT WIN32)
+  foreach(_dbg_area values eval step panic proto)
+    add_test(NAME dbg_fuzz_${_dbg_area}
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/dbg_fuzz.py
+                     --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/dbg_fuzz_${_dbg_area} ${_dbg_area})
+    set_tests_properties(dbg_fuzz_${_dbg_area} PROPERTIES TIMEOUT 600 SKIP_RETURN_CODE 77
+                         LABELS "debugger")
+  endforeach()
+  endif()
 endif()
 if(NOT WIN32 AND Python3_Interpreter_FOUND)
   # What iron dap, iron debug and iron debug --check say when Python,

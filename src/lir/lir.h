@@ -717,6 +717,9 @@ struct IronLIR_Func {
      * shared return, on it. */
     const char        *end_file;
     uint32_t           end_line;
+    const char        *task_name;  /* IronHIR_Func.task_name */
+    Iron_Span          spawn_span;  /* IronHIR_Func.spawn_span */
+    const char        *spawn_parent;
 };
 
 /* ── Module-level global binding (2026-07 remediation) ────────────────────

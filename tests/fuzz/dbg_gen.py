@@ -1078,6 +1078,20 @@ class ValueProgram(Gen):
                 if weak:
                     env.vars[nw] = VRc(T("weak", t.args[0]), box)
             return lines, ap, (name, VRc(T("rc", t), RcBox(obj)), False)
+        if c < 0.83:
+            # a heap value, or a checked pointer to a local object
+            t = self.obj_type()
+            v = self.value_of(t)
+            if r.random() < 0.5:
+                return (["val %s = heap %s" % (name, v.src()), "leak %s" % name],
+                        lambda env, ctx, v=v: env.vars.__setitem__(name, v), (name, v, False))
+            o = self.fresh("o")
+
+            def ap(env, ctx, v=v, o=o):
+                env.vars[o] = v
+                env.vars[name] = v
+            return (["var %s = %s" % (o, v.src()), "val %s: *%s = &%s" % (name, t.name, o)],
+                    ap, (name, v, False))
         if c < 0.86:
             # an interface value
             t, impl = self.iface_type()

@@ -422,10 +422,59 @@ def is_rc_pointer(sbtype, _dict):
     if not sbtype.IsPointerType():
         return False
     p = sbtype.GetPointeeType().GetCanonicalType()
-    name = p.GetName() or ""
+    name = (p.GetName() or "").replace("struct ", "")
     return (p.GetTypeClass() == lldb.eTypeClassStruct and name.startswith("Iron_") and
-            name not in ("Iron_String", "Iron_RcHeader", "Iron_Closure") and
+            name not in RUNTIME_TYPES and name != "Iron_Handle" and
+            not (sbtype.GetPointeeType().GetName() or "").startswith("Iron_Mutex__") and
             not name.startswith(("Iron_List_", "Iron_Map_", "Iron_Set_", "Iron_Optional_")))
+
+
+def is_mutex_pointer(sbtype, _dict):
+    return sbtype.IsPointerType() and \
+        (sbtype.GetPointeeType().GetName() or "").startswith("Iron_Mutex__")
+
+
+def _mutex_value(valobj):
+    """(the value a Mutex[T] holds, the holder's thread id) of a --debug
+    build's Iron_Mutex__T pointer."""
+    v = valobj.GetNonSyntheticValue()
+    addr = v.GetValueAsUnsigned(0)
+    if not addr:
+        return None, 0
+    m = v.Dereference()
+    t = v.GetTarget().FindFirstType((v.GetType().GetPointeeType().GetName() or "")[len("Iron_Mutex__"):])
+    holder = m.GetChildMemberWithName("holder").GetValueAsUnsigned(0)
+    p = m.GetChildMemberWithName("value").GetValueAsUnsigned(0)
+    if not t.IsValid() or not p:
+        return None, holder
+    return valobj.CreateValueFromAddress("value", p, t), holder
+
+
+def mutex_summary(valobj, _dict):
+    if not valobj.GetNonSyntheticValue().GetValueAsUnsigned(0):
+        return "null"
+    value, holder = _mutex_value(valobj)
+    text = "Mutex(%s)" % (_text(value) if value is not None else "?")
+    return text + (" locked by thread %d (0x%x)" % (holder, holder) if holder else " unlocked")
+
+
+class MutexProvider:
+    def __init__(self, valobj, _dict):
+        self.valobj = valobj
+        self.value = None
+
+    def update(self):
+        self.value = _mutex_value(self.valobj)[0]
+        return False
+
+    def num_children(self):
+        return 1 if self.value is not None else 0
+
+    def get_child_index(self, name):
+        return 0 if name == "value" else -1
+
+    def get_child_at_index(self, i):
+        return self.value if i == 0 else None
 
 
 _rc_depth = [0]
@@ -439,7 +488,10 @@ def rc_summary(valobj, _dict):
         return "null"
     counts = _rc_counts(v)
     if counts is None:
-        return None
+        # A plain pointer (a method's self, a value kept by reference):
+        # what it points at.
+        obj = v.Dereference()
+        return _text(obj) if obj.IsValid() else ""
     strong, weak = counts
     if strong == 0:
         return "dropped (a weak rc whose object was freed)"
@@ -456,7 +508,7 @@ def rc_summary(valobj, _dict):
             else:
                 # The object summary already starts with the type's name.
                 name, text = _short(obj.GetTypeName() or ""), _text(obj)
-                body = text if text.startswith(name + " {") else "%s %s" % (name, text)
+                body = text if text.startswith(name + " ") else "%s %s" % (name, text)
         finally:
             _rc_depth[0] -= 1
     # weak counts one extra reference shared by the strong ones.
@@ -523,6 +575,71 @@ class ClosureProvider:
         return c
 
 
+# ── Checked pointers and heap values (*T, heap T) ──────────────────────────
+#
+# A --debug build declares them with a typedef of Iron_FatPtr named after
+# the pointee, Iron_FatPtr__Iron_Worker: shown as the value pointed at.
+
+
+def is_fatptr(sbtype, _dict):
+    return (sbtype.GetName() or "").startswith("Iron_FatPtr__")
+
+
+def _fatptr_target(valobj):
+    """(pointee SBValue or None, state): state is "null", "freed" or ""."""
+    v = valobj.GetNonSyntheticValue()
+    name = v.GetTypeName() or ""
+    addr = v.GetChildMemberWithName("addr").GetValueAsUnsigned(0)
+    gen = v.GetChildMemberWithName("gen").GetValueAsUnsigned(0)
+    if not addr:
+        return None, "null"
+    t = v.GetTarget().FindFirstType(name[len("Iron_FatPtr__"):])
+    if not t.IsValid():
+        return None, ""
+    hdr = v.GetTarget().FindFirstType("IronAllocHdr")
+    if hdr.IsValid():
+        err = lldb.SBError()
+        proc = v.GetProcess()
+        base = addr - hdr.GetByteSize()
+        hgen = proc.ReadUnsignedFromMemory(base, 8, err)
+        size = proc.ReadUnsignedFromMemory(base + 8, 8, err) if err.Success() else 0
+        # A heap block of this type whose generation moved on was freed (a
+        # pointer to a stack value has no such header).
+        if err.Success() and size == t.GetByteSize() and hgen != gen:
+            return None, "freed"
+    return valobj.CreateValueFromAddress("*", addr, t), ""
+
+
+def fatptr_summary(valobj, _dict):
+    obj, state = _fatptr_target(valobj)
+    if state == "null":
+        return "null"
+    if state == "freed":
+        return "freed (a stale pointer)"
+    if obj is None:
+        return None
+    return _text(obj)
+
+
+class FatPtrProvider:
+    def __init__(self, valobj, _dict):
+        self.valobj = valobj
+        self.obj = None
+
+    def update(self):
+        self.obj = _fatptr_target(self.valobj)[0]
+        return False
+
+    def num_children(self):
+        return self.obj.GetNumChildren() if self.obj is not None else 0
+
+    def get_child_index(self, name):
+        return self.obj.GetIndexOfChildWithName(name) if self.obj is not None else -1
+
+    def get_child_at_index(self, i):
+        return self.obj.GetChildAtIndex(i) if self.obj is not None else None
+
+
 def _register_values(debugger):
     m = __name__
     ci = debugger.GetCommandInterpreter()
@@ -540,7 +657,11 @@ def _register_values(debugger):
                           ("synthetic", "-l %s.TaggedProvider", "is_tagged"),
                           ("summary", "-F %s.rc_summary", "is_rc_pointer"),
                           ("summary", "-F %s.object_summary", "is_object"),
-                          ("summary", "-v -F %s.enum_summary", "is_plain_enum")):
+                          ("summary", "-v -F %s.enum_summary", "is_plain_enum"),
+                          ("summary", "-F %s.fatptr_summary", "is_fatptr"),
+                          ("summary", "-F %s.mutex_summary", "is_mutex_pointer"),
+                          ("synthetic", "-l %s.MutexProvider", "is_mutex_pointer"),
+                          ("synthetic", "-l %s.FatPtrProvider", "is_fatptr")):
         run('type %s add %s --recognizer-function %s.%s' % (kind, fn % m, m, rec))
 
 
@@ -576,10 +697,94 @@ def is_object(sbtype, _dict):
     return not is_tagged(sbtype, _dict) and t.GetNumberOfFields() > 0
 
 
+MYSQL_HANDLES = {"MysqlResult": 0, "MysqlConn": 1, "MysqlPool": 2}
+
+
+def _json_text(v, budget):
+    """A Json value as JSON text (at most about budget[0] characters)."""
+    if budget[0] <= 0:
+        return "..."
+    variant, payload = _variant(v.GetNonSyntheticValue().GetChildMemberWithName("node"))
+    inner = payload.GetChildMemberWithName("_0") if payload is not None else None
+    if variant == "Null" or inner is None:
+        out = "null"
+    elif variant in ("Bool", "Int", "Float", "Str"):
+        out = _text(inner)
+    elif variant == "Arr":
+        items = inner.Dereference().GetChildMemberWithName("items")
+        n = _list_count(items.GetNonSyntheticValue()) or 0
+        parts = []
+        for i in range(min(n, 50)):
+            if budget[0] <= 0:
+                parts.append("...")
+                break
+            parts.append(_json_text(items.GetChildAtIndex(i), budget))
+        out = "[%s]" % ", ".join(parts)
+    elif variant == "Obj":
+        obj = inner.Dereference()
+        keys, vals = obj.GetChildMemberWithName("keys"), obj.GetChildMemberWithName("values")
+        n = _list_count(keys.GetNonSyntheticValue()) or 0
+        parts = []
+        for i in range(min(n, 50)):
+            if budget[0] <= 0:
+                parts.append("...")
+                break
+            parts.append("%s: %s" % (_text(keys.GetChildAtIndex(i)),
+                                     _json_text(vals.GetChildAtIndex(i), budget)))
+        out = "{%s}" % ", ".join(parts)
+    else:
+        out = variant
+    budget[0] -= len(out)
+    return out
+
+
+def _json_buffer_text(v):
+    """What a JsonWriter wrote so far: its native buffer (iron_json.c)."""
+    handle = v.GetChildMemberWithName("handle").GetValueAsUnsigned(0)
+    t = v.GetTarget().FindFirstType("JsonWriter")
+    if not handle or not t.IsValid():
+        return None
+    w = v.CreateValueFromAddress("w", handle, t)
+    data = w.GetChildMemberWithName("d").GetValueAsUnsigned(0)
+    n = w.GetChildMemberWithName("n").GetValueAsUnsigned(0)
+    if n > (1 << 30):
+        return None
+    err = lldb.SBError()
+    raw = v.GetProcess().ReadMemory(data, min(n, 300), err) if data and n else b""
+    if not err.Success():
+        return None
+    return iron_quote(raw.decode("utf-8", "replace")) + (" ..." if n > 300 else "")
+
+
+def _mysql_text(v, kind):
+    handle = v.GetChildMemberWithName("handle").GetValueAsSigned(0)
+    r = v.GetTarget().EvaluateExpression(
+        "(const char *)iron_mysql_debug_text(%d, %d)" % (handle, kind))
+    s = r.GetSummary() if r and r.IsValid() and r.GetError().Success() else None
+    return s[1:-1] if s and len(s) >= 2 and s.startswith('"') else None
+
+
 def object_summary(valobj, _dict):
-    """An object: Point {x = 3, y = 4}, as rc values show it."""
+    """An object: Point {x = 3, y = 4}, as rc values show it. A Json value
+    shows as its JSON text, a MySQL result, connection or pool as what its
+    handle holds (rows and columns, the server, the pool's counts)."""
     v = valobj.GetNonSyntheticValue()
     name = _short((v.GetType().GetCanonicalType().GetName() or "").replace("struct ", ""))
+    if name == "Json":
+        return "Json " + _json_text(v, [400])
+    if name.startswith("MutexGuard") and v.GetChildMemberWithName("valptr").IsValid():
+        p = v.GetChildMemberWithName("valptr")
+        return "MutexGuard(%s)" % (_text(p.Dereference()) if p.GetValueAsUnsigned(0) else "null")
+    if name in MYSQL_HANDLES:
+        text = _mysql_text(v, MYSQL_HANDLES[name])
+        if text is not None:
+            return "%s %s" % (name, text)
+    if name in ("JsonBuffer", "JsonWriter"):
+        buf = v if name == "JsonBuffer" else \
+            v.GetChildMemberWithName("buf").GetNonSyntheticValue().Dereference()
+        text = _json_buffer_text(buf)
+        if text is not None:
+            return "%s %s" % (name, text)
     n = v.GetNumChildren()
     parts = ["%s = %s" % (c.GetName(), _text(c))
              for c in (v.GetChildAtIndex(i) for i in range(min(n, 8)))]
@@ -653,7 +858,7 @@ def __lldb_init_module(debugger, _dict):
     run('type summary add -x "^Iron_Optional_" -F %s.optional_summary' % m)
     # Int8 and UInt8 are numbers, not characters; floats print as Iron's
     # text (0.1, not 0.10000000000000001).
-    run('type format add -f decimal int8_t')
-    run('type format add -f unsigned uint8_t')
-    run('type summary add -v -F %s.float_summary double float' % m)
+    run('type format add -p -r -f decimal int8_t')
+    run('type format add -p -r -f unsigned uint8_t')
+    run('type summary add -p -r -v -F %s.float_summary double float' % m)
     _register_values(debugger)

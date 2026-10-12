@@ -908,6 +908,12 @@ typedef struct { atomic_int state; } iron_once_t;
 void iron_once(iron_once_t *once, void (*fn)(void));
 
 int  iron_thread_create(iron_thread_t *t, void *(*fn)(void *), void *arg);
+/* Names the calling thread (a spawned task's `spawn("name")`), as the
+ * debugger's threads view and crash reports show it. */
+void iron_thread_set_name(const char *name);
+/* The OS id of the calling thread, as debuggers show it (Linux tid,
+ * macOS thread id, Windows thread id). */
+uint64_t iron_thread_os_id(void);
 int  iron_thread_join(iron_thread_t t);
 int  iron_thread_detach(iron_thread_t t);
 iron_thread_t iron_thread_self(void);
@@ -1361,6 +1367,9 @@ typedef struct {
     void           *value;
     size_t          value_size;
     iron_atomic_u64 refs;       /* the owner's and each spawned task's */
+    /* The OS id of the thread holding the lock, 0 when free: written by its
+     * holder while it holds it, read by debuggers (src/debug). */
+    volatile uint64_t holder;
 } Iron_Mutex;
 
 /* Mutex API */

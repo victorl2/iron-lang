@@ -5650,6 +5650,9 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
 
     lir_func->end_file = hir_func->end_file;
     lir_func->end_line = hir_func->end_line;
+    lir_func->task_name = hir_func->task_name;
+    lir_func->spawn_span = hir_func->spawn_span;
+    lir_func->spawn_parent = hir_func->spawn_parent;
 
     /* Propagate capture metadata from HIR func to LIR func (for lifted lambdas) */
     lir_func->capture_metadata = hir_func->captures;

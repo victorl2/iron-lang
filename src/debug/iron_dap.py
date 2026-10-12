@@ -121,6 +121,8 @@ def frame(msg):
     return b"Content-Length: %d\r\n\r\n" % len(body) + body
 
 
+IRON_KEYWORDS = ["and", "or", "not", "true", "false", "null", "len"]
+
 # The requests of the Debug Adapter Protocol: anything else is answered
 # with an error here (lldb-dap leaves an unknown request unanswered).
 DAP_REQUESTS = {
@@ -136,6 +138,42 @@ DAP_REQUESTS = {
 INT_ARGS = ("threadId", "frameId", "variablesReference", "startFrame", "levels", "line",
             "column", "start", "count", "targetId", "offset", "instructionCount",
             "instructionOffset", "sourceReference")
+
+
+# Requests a debugger answers only when its initialize response says so;
+# lldb-dap 18 stops answering (or crashes on) the others.
+CAPABILITY_OF = {
+    "loadedSources": "supportsLoadedSourcesRequest", "modules": "supportsModulesRequest",
+    "readMemory": "supportsReadMemoryRequest", "writeMemory": "supportsWriteMemoryRequest",
+    "disassemble": "supportsDisassembleRequest", "setVariable": "supportsSetVariable",
+    "goto": "supportsGotoTargetsRequest", "gotoTargets": "supportsGotoTargetsRequest",
+    "stepBack": "supportsStepBack", "reverseContinue": "supportsStepBack",
+    "restartFrame": "supportsRestartFrame", "setExpression": "supportsSetExpression",
+    "stepInTargets": "supportsStepInTargetsRequest",
+    "terminateThreads": "supportsTerminateThreadsRequest",
+    "dataBreakpointInfo": "supportsDataBreakpoints", "setDataBreakpoints": "supportsDataBreakpoints",
+    "setInstructionBreakpoints": "supportsInstructionBreakpoints",
+    "breakpointLocations": "supportsBreakpointLocationsRequest",
+    "cancel": "supportsCancelRequest", "setFunctionBreakpoints": "supportsFunctionBreakpoints",
+    "restart": "supportsRestartRequest", "terminate": "supportsTerminateRequest",
+    "locations": "supportsLocationsRequest", "runInTerminal": "-", "startDebugging": "-",
+}
+# Arguments a request cannot do without (the protocol's required ones).
+REQUIRED = {
+    "stackTrace": ("threadId",), "continue": ("threadId",), "next": ("threadId",),
+    "stepIn": ("threadId",), "stepOut": ("threadId",), "pause": ("threadId",),
+    "stepBack": ("threadId",), "reverseContinue": ("threadId",), "goto": ("threadId", "targetId"),
+    "exceptionInfo": ("threadId",), "scopes": ("frameId",), "variables": ("variablesReference",),
+    "setBreakpoints": ("source",), "readMemory": ("memoryReference", "count"),
+    "writeMemory": ("memoryReference", "data"), "disassemble": ("memoryReference", "instructionCount"),
+    "setVariable": ("variablesReference", "name", "value"), "evaluate": ("expression",),
+    "source": ("sourceReference",), "setExpression": ("expression", "value"),
+    "restartFrame": ("frameId",), "gotoTargets": ("source", "line"),
+    "stepInTargets": ("frameId",), "breakpointLocations": ("source", "line"),
+    "dataBreakpointInfo": ("name",), "setDataBreakpoints": ("breakpoints",),
+    "setInstructionBreakpoints": ("breakpoints",), "setFunctionBreakpoints": ("breakpoints",),
+    "completions": ("text", "column"),
+}
 
 
 def bad_arguments(a):
@@ -648,7 +686,8 @@ def clean_value(text, type_name=None):
     t = str(text if text is not None else "")
     ty = c_type_of(type_name)
     m = RAW_THEN_SUMMARY.match(t)
-    if m and ((ty.endswith("*") and re.match(r"(rc |null$|dropped |func )", m.group(2))) or
+    if m and ((ty.endswith("*") and not ty.startswith(("char", "const char", "unsigned char",
+                                                       "uint8_t", "signed char"))) or
               ty in ("double", "float") or m.group(1).startswith("Iron_")):
         t = m.group(2)
     if ty in ("double", "float"):
@@ -967,6 +1006,8 @@ class IronEval:
                 return IFloat(float(t), ty == "float")
             except ValueError:
                 pass
+        if ty.endswith("*"):
+            return Ref(path, t, ref, type_name)     # a pointer, however it is written
         if re.fullmatch(r"-?\d+", t):
             return IInt(int(t), INT_C_TYPES.get(ty, INT64))
         if re.fullmatch(r"-?\d+\.\d*(e[-+]?\d+)?|-?inf|NaN", t, re.I):
@@ -1223,6 +1264,11 @@ class IronEval:
         if isinstance(v, Ref) and name in ("has", "get", "get_or", "contains") and args:
             kids = self.children(v)
             is_list = v.text.startswith("[")
+            # A set's items are named [0], [1]... like a map's integer keys:
+            # its type tells them apart.
+            is_set = "Iron_Set_" in str(v.type or "") or v.text.startswith("Set[")
+            if is_set:
+                is_list = True
             if is_list and name == "get" and len(args) == 1 and isinstance(args[0], int):
                 return self.element(v, args[0])
             key = fmt(args[0])
@@ -1343,6 +1389,8 @@ class Proxy:
         self.warned_no_scripting = False
         self.build_dir = None    # this session's --debug builds (see build_plan)
         self.launched = False    # a launch or attach went to the debugger
+        self.label_frames = set()  # frame ids the adapter made up (spawn sites)
+        self.capabilities = {}     # the debugger's initialize response
         self.pending_since = {}  # client request seq -> when it went to the debugger
         threading.Thread(target=self.watchdog, daemon=True).start()
 
@@ -1473,6 +1521,26 @@ class Proxy:
         if bad:
             self.respond_error(msg, "%s: %s" % (cmd, bad))
             return
+        missing = [k for k in REQUIRED.get(cmd, ()) if (msg.get("arguments") or {}).get(k) is None]
+        if missing:
+            self.respond_error(msg, "%s: the arguments need %s" % (cmd, ", ".join(missing)))
+            return
+        cap = CAPABILITY_OF.get(cmd)
+        if cap and self.child is not None and not self.capabilities.get(cap):
+            self.respond_error(msg, "%s: %s does not support it" % (cmd, self.kind or "the debugger"))
+            return
+        if cmd == "setExceptionBreakpoints":
+            a = dict(msg.get("arguments") or {})
+            if not isinstance(a.get("filters"), list):
+                a["filters"] = []
+            msg = dict(msg, arguments=a)
+        fid = (msg.get("arguments") or {}).get("frameId")
+        if fid in self.label_frames:
+            if cmd == "scopes":
+                self.respond(msg, {"scopes": []})
+            else:
+                self.respond_error(msg, "%s: this frame only shows where a task was spawned" % cmd)
+            return
         if cmd == "configurationDone" and self.configured:
             # lldb-dap resumes the program on a second one.
             self.respond(msg, {})
@@ -1533,6 +1601,10 @@ class Proxy:
                 return
         if cmd == "evaluate":
             threading.Thread(target=self.guarded, args=(self.handle_evaluate, msg),
+                             daemon=True).start()
+            return
+        if cmd == "completions":
+            threading.Thread(target=self.guarded, args=(self.handle_completions, msg),
                              daemon=True).start()
             return
         if cmd == "exceptionInfo":
@@ -1698,12 +1770,14 @@ class Proxy:
         cmd = req.get("command")
         body = msg.get("body") or {}
         if cmd == "initialize":
+            self.capabilities = dict(body)
             # The debugger's exception filters (C++ throw, Ada, Objective-C)
             # do not apply to Iron programs.
             body["exceptionBreakpointFilters"] = []
             body.update(supportsConditionalBreakpoints=True,
                         supportsHitConditionalBreakpoints=True,
-                        supportsLogPoints=True, supportsEvaluateForHovers=True)
+                        supportsLogPoints=True, supportsEvaluateForHovers=True,
+                        supportsCompletionsRequest=True)
             msg["body"] = body
             self.send(msg)
         elif cmd == "setBreakpoints":
@@ -1758,19 +1832,71 @@ class Proxy:
                 body["stackFrames"] = frames
                 if isinstance(body.get("totalFrames"), int):
                     body["totalFrames"] = max(len(frames), body["totalFrames"] - skip)
+            spawned = [f for f in body.get("stackFrames", [])
+                       if re.match(r"^__spawn_\d+", str(f.get("name", "")))]
             for f in body.get("stackFrames", []):
                 name = f.get("name")
                 src = f.get("source") or {}
                 if isinstance(name, str):
                     path = src.get("path") if is_iron_source(src.get("path")) else None
+                    f["raw_name"] = name
                     f["name"] = iron_function_name(name, self.test, path)
                 if not is_iron_source(src.get("path") or src.get("name")):
                     f["presentationHint"] = "subtle"
                     if src:
                         src["presentationHint"] = "deemphasize"
+            if spawned:
+                # Reading where the tasks were spawned takes requests of
+                # our own, whose answers arrive on this thread.
+                threading.Thread(target=self.guarded_stack, args=(msg,), daemon=True).start()
+                return
+            for f in body.get("stackFrames", []):
+                f.pop("raw_name", None)
             self.send(msg)
         else:
             self.send(msg)
+
+    def guarded_stack(self, msg):
+        try:
+            self.finish_stack(msg)
+        except Exception as e:
+            sys.stderr.write("iron dap: stackTrace: %r\n" % e)
+            self.send(msg)
+
+    def finish_stack(self, msg):
+        """A spawned task's stack: its body is `spawn "name"`, and under it
+        a label frame says where the task was spawned (a --debug build
+        records it in iron_dbg_spawn_<body>), the async part of its stack."""
+        out = []
+        for f in msg["body"].get("stackFrames", []):
+            raw = f.pop("raw_name", "")
+            out.append(f)
+            m = re.match(r"^(__spawn_\d+)", str(raw))
+            src = f.get("source") or {}
+            if not m or not is_iron_source(src.get("path") or src.get("name")):
+                continue
+            r = self.request("evaluate", {"expression": "(const char *)iron_dbg_spawn_%s" % m.group(1),
+                                          "frameId": f.get("id"), "context": "watch"})
+            text = str((r.get("body") or {}).get("result", "")) if r.get("success") else ""
+            q = re.search(r'"((?:[^"\\]|\\.)*)"', text)
+            if not q:
+                continue
+            site = q.group(1).encode("latin-1", "backslashreplace").decode("unicode_escape")
+            parts = site.split("|", 3)
+            if len(parts) != 4 or not parts[1].isdigit():
+                continue
+            path, line, parent, name = parts
+            if name:
+                f["name"] = 'spawn "%s"' % name
+            self.synth_seq += 1
+            out.append({"id": self.synth_seq, "name": "spawned in %s" %
+                        iron_function_name("Iron_" + parent if parent and not parent.startswith("_")
+                                           else parent, self.test, path),
+                        "source": {"name": os.path.basename(path), "path": path},
+                        "line": int(line), "column": 1, "presentationHint": "label"})
+            self.label_frames.add(self.synth_seq)
+        msg["body"]["stackFrames"] = out
+        self.send(msg)
 
     def note_output(self, msg):
         """Remember the debuggee's last panic message."""
@@ -1910,6 +2036,36 @@ class Proxy:
         if isinstance(v, Ref) and v.type:
             body["type"] = v.type
         self.respond(req, body)
+
+    def handle_completions(self, req):
+        """Debug console completions: the Iron names in scope (the frame's
+        locals under their Iron names) and Iron's keywords, for the word
+        before the cursor. Answered here: the debugger's completions are C
+        names and debugger commands (and lldb-dap 18 crashes on a request
+        without a frame)."""
+        a = req.get("arguments") or {}
+        text = a.get("text") if isinstance(a.get("text"), str) else ""
+        col = a.get("column") if isinstance(a.get("column"), int) else len(text) + 1
+        col = max(0, min(col - 1, len(text)))     # columnsStartAt1
+        m = re.search(r"[A-Za-z_]\w*$", text[:col])
+        prefix = m.group(0) if m else ""
+        names = []
+        fid = a.get("frameId")
+        if isinstance(fid, int) and not isinstance(fid, bool) and fid not in self.label_frames:
+            r = self.request("scopes", {"frameId": fid})
+            for sc in ((r.get("body") or {}).get("scopes", []) if r.get("success") else []):
+                if not re.match(r"^(locals|arguments)$", str(sc.get("name", "")), re.I):
+                    continue
+                vr = self.request("variables", {"variablesReference": sc.get("variablesReference")})
+                for v in ((vr.get("body") or {}).get("variables", []) if vr.get("success") else []):
+                    n = iron_name(str(v.get("name", "")))
+                    if n:
+                        names.append(n[0])
+        words = sorted(set(names)) + [k for k in IRON_KEYWORDS if k not in names]
+        targets = [{"label": w, "text": w, "start": col - len(prefix), "length": len(prefix),
+                    "type": "variable" if w in names else "keyword"}
+                   for w in words if w.startswith(prefix) and w != prefix]
+        self.respond(req, {"targets": targets[:200]})
 
     def keep_breakpoint_rules(self, req):
         """Iron conditions, hit counts and log messages stay here; the
@@ -2167,11 +2323,17 @@ class Proxy:
                 break
             self.from_client(msg)
         if self.child:
+            # The client is gone: end the debugger (and with it the
+            # program), by force when it does not stop on its own.
             try:
                 self.child.terminate()
-                self.child.wait(timeout=10)
+                self.child.wait(timeout=3)
             except (OSError, subprocess.TimeoutExpired):
-                pass
+                try:
+                    self.child.kill()
+                    self.child.wait(timeout=3)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
         if self.build_dir:
             shutil.rmtree(self.build_dir, ignore_errors=True)
 

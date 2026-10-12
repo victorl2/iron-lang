@@ -577,6 +577,12 @@ struct IronHIR_Func {
      * implicit return at the end of the function this line. */
     const char        *end_file;
     uint32_t           end_line;
+    /* A spawned task's body: the `spawn("name")` name, given to its thread. */
+    const char        *task_name;
+    /* ...and where it was spawned: the spawn statement and the function
+     * around it (the debugger shows them under the task's stack). */
+    Iron_Span          spawn_span;
+    const char        *spawn_parent;
     Iron_Type         *return_type;
     IronHIR_Param     *params;         /* stb_ds array */
     int                param_count;
