@@ -170,6 +170,29 @@ void test_formatting_is_idempotent(void) {
     free(copy);
 }
 
+void test_static_interface_formatting_is_idempotent(void) {
+    const char *once = fmt_ok(
+        "interface Factory {\n"
+        "  static func make(n: Int) -> Self\n"
+        "  static func twice(n: Int) -> (Self, Self) {\n"
+        "    return (Self.make(n), Self.make(n))\n"
+        "  }\n"
+        "}\n"
+        "object Item {\n"
+        "  val n: Int\n"
+        "  static func zero() -> Item { return Item(0) }\n"
+        "}\n"
+        "patch object Item {\n"
+        "  static func one() -> Item { return Item(1) }\n"
+        "}\n");
+    char *copy = strdup(once);
+    TEST_ASSERT_NOT_NULL(strstr(copy, "static func make(n: Int) -> Self"));
+    TEST_ASSERT_NOT_NULL(strstr(copy, "static func zero() -> Item"));
+    TEST_ASSERT_NOT_NULL(strstr(copy, "static func one() -> Item"));
+    TEST_ASSERT_EQUAL_STRING(copy, fmt_ok(copy));
+    free(copy);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_empty_source_returns_ok_with_zero_length);
@@ -182,5 +205,6 @@ int main(void) {
     RUN_TEST(test_reindents_and_collapses_blank_lines);
     RUN_TEST(test_multiline_string_is_verbatim);
     RUN_TEST(test_formatting_is_idempotent);
+    RUN_TEST(test_static_interface_formatting_is_idempotent);
     return UNITY_END();
 }
