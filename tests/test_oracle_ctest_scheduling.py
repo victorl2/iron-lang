@@ -23,6 +23,13 @@ def main() -> int:
     )
     tests = {test["name"]: test for test in json.loads(result.stdout)["tests"]}
     failed = False
+    acceptance = properties(tests["test_v4_acceptance"])
+    if acceptance.get("PROCESSORS", 0) < 4:
+        print("test_v4_acceptance: PROCESSORS must be at least 4", file=sys.stderr)
+        failed = True
+    if acceptance.get("TIMEOUT", 0) < 7200:
+        print("test_v4_acceptance: TIMEOUT must be at least 7200 seconds", file=sys.stderr)
+        failed = True
     for name in ("test_opt_parity", "test_leak_check"):
         props = properties(tests[name])
         if props.get("RUN_SERIAL") is not True:
