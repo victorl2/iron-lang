@@ -20,6 +20,8 @@
 
 #ifdef _WIN32
   #include <io.h>
+  #include <fcntl.h>
+  #include <sys/stat.h>
   #ifndef WIN32_LEAN_AND_MEAN
     #define WIN32_LEAN_AND_MEAN
   #endif
@@ -120,19 +122,21 @@ bool iron_debug_panic_stop(const char *site_file, int site_line, const char *fmt
     return true;
 }
 
-/* ── FileHandle (write mode) ─────────────────────────────────────────────── */
-
-int iron_filehandle_open(const char *path) {
-    FILE *f = fopen(path ? path : "", "w");
-    if (!f) return -1;
+/* ── FileHandle ─────────────────────────────────────────────────────────────
+ * Opens the file for reading and writing, creating it when it does not
+ * exist; an existing file keeps its contents (it used to be opened with
+ * fopen "w", which truncated it, and the FILE was never freed). A path
+ * that is empty or holds a zero byte opens nothing (-1). */
+int iron_filehandle_open(const char *path, size_t len) {
+    if (!path || len == 0 || memchr(path, '\0', len) != NULL) return -1;
 #ifdef _WIN32
-    return _fileno(f);
+    return _open(path, _O_RDWR | _O_CREAT | _O_BINARY, _S_IREAD | _S_IWRITE);
 #else
-    return fileno(f);
+    return open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0666);
 #endif
 }
 void iron_filehandle_close(int fd) {
-    printf("closed fd\n");   /* the FileHandle fixtures observe the close */
+    if (fd < 0) return;
 #ifdef _WIN32
     _close(fd);
 #else
@@ -383,7 +387,16 @@ static char *os_getenv(const Iron_String *name, int *out_len) {
 
 /* os.iron: OS.has_env(name) and OS.env_or(name, fallback); OS.env(name)
  * is written in Iron on top of them. */
+/* A name that is empty or holds '=' or a zero byte names no variable
+ * (getenv would look up a prefix of it, or a different variable). */
+static bool os_env_name_ok(const Iron_String *name) {
+    size_t n = iron_string_byte_len(name);
+    const char *p = iron_string_cstr(name);
+    return n > 0 && memchr(p, '\0', n) == NULL && memchr(p, '=', n) == NULL;
+}
+
 bool Iron_os_has_env(Iron_String name) {
+    if (!os_env_name_ok(&name)) return false;
     char *v = os_getenv(&name, NULL);
     bool set = v != NULL;
     free(v);
@@ -392,7 +405,7 @@ bool Iron_os_has_env(Iron_String name) {
 
 Iron_String Iron_os_env_or(Iron_String name, Iron_String fallback) {
     int len = 0;
-    char *v = os_getenv(&name, &len);
+    char *v = os_env_name_ok(&name) ? os_getenv(&name, &len) : NULL;
     if (!v) return iron_string_from_cstr(iron_string_cstr(&fallback),
                                          iron_string_byte_len(&fallback));
     Iron_String s = iron_string_from_cstr(v, (size_t)len);

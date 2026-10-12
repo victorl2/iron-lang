@@ -6235,7 +6235,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 fn->value_table[fptr_chk] != NULL &&
                 fn->value_table[fptr_chk]->kind == IRON_LIR_FUNC_REF) {
                 const char *rn_chk = fn->value_table[fptr_chk]->func_ref.func_name;
-                if (rn_chk && strcmp(rn_chk, "iron_string_concat") == 0) {
+                if (rn_chk && (strcmp(rn_chk, "iron_string_concat") == 0 ||
+                               strcmp(rn_chk, "iron_string_concat_append") == 0)) {
                     runtime_args_by_addr = true;
                 }
                 /* The frame's share of a mutable capture cell (#210): the

@@ -2531,7 +2531,19 @@ panic: `substring(start, end)` clamps both ends to the string
 `char_at(i)` out of range is `""` and `byte_at(i)` out of range is `-1`.
 `to_int()` and `to_float()` accept whitespace around the number
 (`" 42\n".to_int()` is `42`) and give `0` for anything else that is not
-entirely a number (`"4 2"`, `"3x"`, `""`).
+entirely a number (`"4 2"`, `"3x"`, `""`). `to_int` reads an optional sign
+and decimal digits, and gives `0` for a value outside `Int`; `to_float`
+reads an optional sign, digits with an optional fraction or a fraction
+alone (`".5"`, `"5."`) and an optional exponent (`"1e3"`), and nothing
+else (no hexadecimal, `inf` or `nan`); a value past the `Float` range is
+an infinity. `upper()` and `lower()` apply the simple Unicode case mapping
+(one character to one character); a character whose case form is several
+characters (`ß`) keeps its case. With an empty pattern, `split("")` gives
+the characters, `replace("", x)` returns the string unchanged and
+`count("")` is `0`. `pad_left` and `pad_right` pad with the first
+character of `ch`, or with spaces when `ch` is empty.
+`String.from_byte(b)` is the one-byte string for `b` in `0..255` and `""`
+for any other value.
 
 | Method | Description |
 |---|---|
@@ -2584,7 +2596,7 @@ Methods on `[T]` (and, where noted, on fixed arrays, bounded vectors and
 | `insert(i: Int, v: T)`, `remove(i: Int) -> T` | insert before / remove at index |
 | `get(i: Int) -> T`, `set(i: Int, v: T)` | checked element access (same as `xs[i]`) |
 | `get_unchecked(i: Int) -> T`, `set_unchecked(i: Int, v: T)` | access without the bounds check |
-| `clear()`, `reverse()`, `sort()` | in place; `sort` orders `Int`, `Float` and `String` ascending |
+| `clear()`, `reverse()`, `sort()` | in place; `sort` orders `Int`, `Float` and `String` ascending (NaN after every number, strings in code point order) |
 | `contains(v: T) -> Bool` | membership |
 | `copy() -> [T]`, `take() -> [T]` | independent copy; move the contents out |
 | `map(f: func(T) -> U) -> [U]` | transform |
@@ -2592,6 +2604,10 @@ Methods on `[T]` (and, where noted, on fixed arrays, bounded vectors and
 | `reduce(init: U, f: func(U, T) -> U) -> U` | fold |
 | `forEach(f: func(T))` | call `f` on each element |
 | `sum() -> T` | sum of an `[Int]` or `[Float]` |
+
+A slice `xs[a..b]` must lie within the list with `a <= b`; anything else
+is an index out of bounds panic, like `xs[i]`. `contains` compares with
+`==`, so a list never contains NaN.
 
 The lambdas passed to `map`, `filter`, `reduce` and `forEach` must write
 their parameter types. Chains of `map`/`filter`/`reduce` calls are fused
@@ -2634,7 +2650,11 @@ functions `sin`, `cos`, `tan`, `asin`, `acos`, `sqrt`, `floor`, `ceil`,
 `pow(base, exp)`, `hypot(a, b)`, `lerp(a, b, t)` (`Float` arguments and
 results), `sign(x: Float) -> Int`, `random() -> Float` in `[0, 1)`,
 `random_float(min, max) -> Float`, `random_int(min: Int, max: Int) -> Int`
-(inclusive) and `seed(n: Int)`.
+(inclusive at both ends, over any range including all of `Int`; `min` when
+`max < min`) and `seed(n: Int)`. The functions are the platform C
+library's: `round` rounds halfway cases away from zero, a result outside a
+function's domain is NaN (`sqrt(-1.0)`), and `sign(NaN)` is `0`. After
+`seed(n)` the sequence is the same on every run.
 
 ```iron
 import math
@@ -2677,9 +2697,34 @@ failing silently:
 | `copy_file(src, dst, overwrite: Bool)`, `move_file(src, dst, overwrite: Bool)` | `FileWriteResult` |
 | `file_info(path)` | `FileInfo { exists, is_file, is_dir: Bool, size, modified_unix, error: Int, error_message: String }` |
 
-`error` is 0 on success. `FileHandle.open(path) -> FileHandle` and
-`h.close()` give a `nocopy` handle to an open file descriptor (`h.fd`)
-that closes itself when dropped.
+`error` is 0 on success; otherwise it is one of the codes of
+`src/runtime/iron_errors.h` and `error_message` says which:
+
+| Code | Meaning |
+|---|---|
+| 8000 | not found (the file or a directory on its path does not exist) |
+| 8001 | permission denied |
+| 8002 | invalid argument: an empty path, a path holding a zero byte, a name too long, a negative limit, or copy / move onto the source itself |
+| 8003 | the file is larger than `max_bytes` |
+| 8004, 8005 | read failed, write failed |
+| 8007 | the destination exists (copy / move without `overwrite`) |
+| 8008 | a component of the path is a file, not a directory |
+| 8009 | the path is a directory (reading or writing it as a file) |
+
+A missing file is not an error for `file_info` (`exists` is false). A path
+that is empty or holds a zero byte names no file for every function: the
+simple ones read `""`, write nothing and report `false` (the prefix before
+the zero byte is never used). The path helpers work on the bytes of the
+path with `/` as the separator; `join_path("", b)` is `b`. Files whose
+size the system does not report (`/proc` files, pipes) are read to their
+end, still within `max_bytes`.
+
+`FileHandle.open(path) -> FileHandle` opens the file for reading and
+writing, creating it when it does not exist (an existing file keeps its
+contents); `h.fd` is the descriptor, `-1` when the file could not be opened
+(an empty path, a directory, a missing directory). The handle is `nocopy`
+and closes itself when dropped; `h.close()` closes it at once and sets
+`fd` to `-1`, and a second close does nothing.
 
 ```iron
 import io
@@ -2714,6 +2759,12 @@ Int)`, `Time.since(start: Float) -> Float` (seconds elapsed since a
 `Time.now()` value), and `Time.Timer(seconds: Float) -> Timer` with the
 fields `elapsed_ms` and `duration_ms` and the methods `done() -> Bool`,
 `update(dt: Float)` and `reset()` (the last two need a `var` timer).
+A timer counts whole milliseconds: `Time.Timer(seconds)` and
+`update(dt)` convert like a `Float` to `Int` conversion (truncating,
+saturating at the `Int` limits, NaN to 0, section 2.9) and the elapsed time
+saturates instead of wrapping. `Time.now_ms()` and `Time.now_ns()` are
+monotonic; `Time.now()` is the wall clock. `Time.sleep` of zero or a
+negative time returns at once.
 `Duration` is a millisecond value type built with `Duration.millis(n)`,
 `Duration.seconds(n)`, `Duration.minutes(n)` or `Duration.from_ms(n)`,
 read with `d.ms` or `d.to_ms()`.
@@ -2737,7 +2788,8 @@ true 2000 false
 `OS.env(name) -> String?` reads an environment variable (`null` when it is
 not set), `OS.env_or(name, fallback) -> String` returns `fallback` instead,
 and `OS.has_env(name) -> Bool` tests for it (an empty value counts as set).
-Names and values are UTF-8 on every platform.
+Names and values are UTF-8 on every platform. A name that is empty or
+holds `=` or a zero byte is never set.
 
 For long-running programs: `OS.trap_shutdown_signals()` makes SIGINT and
 SIGTERM (Ctrl+C, Ctrl+Break and closing the console on Windows) set a flag
@@ -2802,9 +2854,13 @@ func main() {
 ### 9.7 `log` (import)
 
 `Log.debug(msg)`, `Log.info(msg)`, `Log.warn(msg)` and `Log.error(msg)`
-write a timestamped line to standard error; `Log.set_level(level)` with
-`Log.DEBUG`, `Log.INFO`, `Log.WARN` or `Log.ERROR` hides messages below
-the level.
+write a line `[YYYY-MM-DD HH:MM:SS] [LEVEL] msg` (local time; colored
+when standard error is a terminal) to standard error; `Log.set_level(level)`
+with `Log.DEBUG` (0), `Log.INFO` (1, the default), `Log.WARN` (2) or
+`Log.ERROR` (3) hides messages below the level. Any `Int` is a level: one
+below `Log.DEBUG` shows everything, one above `Log.ERROR` hides everything.
+The message is written as given, every byte of it (a newline in it starts
+a new line); a line from one task is never mixed with another's.
 
 ### 9.8 `hint` (import)
 
@@ -2944,6 +3000,30 @@ fields. `websocket` provides `WebSocket.connect` (and the `_with_ca`,
 (Url, UrlError)`, `Url.build(u)`, `Url.resolve(base, ref)`,
 `Url.percent_encode`, `Url.percent_decode` and a `Url.builder()`.
 All timeouts are integer milliseconds.
+
+`Url.parse` splits RFC 3986 references without decoding or case folding:
+the text before the first `:` is the scheme when it is a letter followed
+by letters, digits, `+`, `-` or `.` and no `/`, `?` or `#` comes first
+(otherwise the input is a relative reference); the user info runs to the
+last `@` of the authority; a host in brackets ends at the first `]`, which
+must be followed by nothing or `:` and a port (2004); a host without
+brackets cannot hold `:`, `[` or `]` (2003); the port is decimal digits up
+to 65535 (2005), and an empty port is the scheme default (`port` is -1).
+Errors: 2000 for an empty input, 2009 past 8192 bytes, 2007 for a `%`
+without two hex digits in `percent_decode`. `Url.build` writes the
+reference back so that `Url.parse` of the result gives the same fields.
+`Url.resolve` follows RFC 3986 section 5.2; an empty query or authority
+counts as absent (a `Url` cannot tell them apart).
+
+A port outside 0..65535 given to `net` is an invalid argument (1024).
+`TcpSocket.write` writes the whole buffer within its deadline and returns
+the byte count (on an error, what was written before it); `TcpSocket.read`
+returns what one receive gives, at most `max_bytes`. A `WebSocket` value
+names its connection: after `close` or `abort` every copy of it is stale
+(`is_open` is false, the other calls return 6005); after a receive fails
+(6002 framing, 6003 too large, 6004 invalid UTF-8, or the stream ending
+inside a frame) the connection is failed and later receives and sends
+return 6005; `is_open` is false once a close frame was received.
 
 ### 9.11.1 `json` (import)
 

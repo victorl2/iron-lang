@@ -1193,8 +1193,10 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 IronHIR_Expr **cargs = NULL;
                 arrput(cargs, target_read);
                 arrput(cargs, value);
+                /* (the appending form grows the buffer geometrically:
+                 * repeated += is linear, not quadratic, #597) */
                 binop = iron_hir_expr_call(
-                    mod, iron_hir_expr_func_ref(mod, "iron_string_concat", ty, span),
+                    mod, iron_hir_expr_func_ref(mod, "iron_string_concat_append", ty, span),
                     cargs, 2, ty, span);
             } else {
                 binop = iron_hir_expr_binop(mod, hop, target_read, value, ty, span);
@@ -2470,6 +2472,19 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
          * full DEREF semantics by-value). The flag-read here documents
          * that the HIR layer is aware of the analyzer's tag. */
         (void)mc->is_auto_deref;  /* read flag — explicit handling tracked in 20-03 */
+        /* A String / Int / Int32 / Float method through a pointer (#575):
+         * the method takes the value, so read it through the pointer (a
+         * generation checked load for a checked pointer). Object methods
+         * take the pointer itself and are left as they were. */
+        if (mc->is_auto_deref && obj && obj->type && obj->type->kind == IRON_TYPE_PTR &&
+            obj->type->ptr.pointee &&
+            (obj->type->ptr.pointee->kind == IRON_TYPE_STRING ||
+             obj->type->ptr.pointee->kind == IRON_TYPE_INT ||
+             obj->type->ptr.pointee->kind == IRON_TYPE_INT32 ||
+             obj->type->ptr.pointee->kind == IRON_TYPE_FLOAT)) {
+            obj = iron_hir_expr_deref(mod, obj, ptr_gen_source(mc->object),
+                                      obj->type->ptr.pointee, span);
+        }
         /* NOTE: args stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
         return iron_hir_expr_method_call(mod, obj, mc->method,
                                           args, arg_count,

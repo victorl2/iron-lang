@@ -1696,10 +1696,25 @@ if(Python3_EXECUTABLE)
                 --out ${CMAKE_BINARY_DIR}/fmt_fuzz --tmp ${CMAKE_BINARY_DIR}/fmt_fuzz/tmp)
         set_tests_properties(fmt_fuzz_short PROPERTIES LABELS "fmt;fuzz" TIMEOUT 600)
     endif()
+    # The io / os / FileHandle / url, math / time / String, and net /
+    # websocket modules against Python models (the websocket peer is a
+    # scripted Python server), and log (tests/fuzz/stdlib_fuzz_suite.py,
+    # log_fuzz.py). Fixed seeds. (POSIX: the io programs work under /tmp.)
+    if(NOT WIN32)
+        foreach(_sf_group io num net)
+            add_test(NAME stdlib_fuzz_${_sf_group}
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/stdlib_fuzz_suite.py
+                    $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/stdlib_fuzz_${_sf_group} ${_sf_group})
+            set_tests_properties(stdlib_fuzz_${_sf_group} PROPERTIES LABELS "stdlib" TIMEOUT 900)
+        endforeach()
+        add_test(NAME log_fuzz
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/log_fuzz.py
+                --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/log_fuzz)
+        set_tests_properties(log_fuzz PROPERTIES LABELS "stdlib" TIMEOUT 900)
+
     # Packages, the module system and the iron project tool
     # (tests/fuzz/mod_fuzz.py), and the iron / ironc command lines
     # (tests/fuzz/cli_fuzz.py). Fixed seeds.
-    if(NOT WIN32)
         add_test(NAME mod_fuzz_pkg
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/mod_fuzz.py
                 --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/mod_fuzz_pkg pkg)
