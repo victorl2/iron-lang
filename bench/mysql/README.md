@@ -18,4 +18,4 @@ Fixtures:
 | `binary_integer` | 20,000 binary-protocol rows with four 64-bit columns |
 | `prepared_params` | NULL, signed integer, floating point and string parameters |
 
-MariaDB Connector/C is an external LGPL reference and is not vendored. Its public API exposes result and statement codecs only behind a live server connection; it has no supported API that decodes recorded packets or encodes a parameter block from memory. The table therefore marks these memory-only cases N/A rather than comparing codec work with network work. Live client behavior is compared separately by `tests/mysql/differential.sh`.
+MariaDB Connector/C is an external LGPL reference and is not vendored. Its public API exposes result and statement codecs only behind a live server connection; it has no supported API that decodes recorded packets or encodes a parameter block from memory. The table therefore marks these memory-only cases N/A rather than comparing codec work with network work. Live client behavior is compared separately by `tests/mysql/differential.py`.
