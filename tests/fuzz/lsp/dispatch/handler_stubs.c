@@ -15,6 +15,8 @@
  * linker will fail here and the maintainer must add a matching stub.
  */
 
+#include <stdatomic.h>
+#include <stdbool.h>
 #include <stddef.h>
 
 #include "util/arena.h"
@@ -123,5 +125,19 @@ IronLsp_EnqueueResult ilsp_writer_enqueue(struct IronLsp_Writer *w,
                                           IronLsp_Priority prio,
                                           char *body, size_t len) {
     (void)w; (void)prio; (void)body; (void)len;
+    __builtin_trap();
+}
+
+/* From src/lsp/server/cancel.h. The dispatcher registers and releases a
+ * request's cancel flag around the handler; harness never routes. */
+struct IronLsp_CancelRegistry;
+_Atomic bool *ilsp_cancel_register(struct IronLsp_CancelRegistry *r, const char *id_key);
+void ilsp_cancel_unregister(struct IronLsp_CancelRegistry *r, const char *id_key);
+_Atomic bool *ilsp_cancel_register(struct IronLsp_CancelRegistry *r, const char *id_key) {
+    (void)r; (void)id_key;
+    __builtin_trap();
+}
+void ilsp_cancel_unregister(struct IronLsp_CancelRegistry *r, const char *id_key) {
+    (void)r; (void)id_key;
     __builtin_trap();
 }

@@ -273,8 +273,12 @@ static void iron_skip_whitespace(Iron_Lexer *l) {
                    (unsigned char)l->src[l->pos + 2] == 0xBF) {
             /* A UTF-8 byte-order mark, which Notepad and PowerShell's
              * `Set-Content -Encoding UTF8` write at the start of a file
-             * (in a build, after the prepended standard library). */
+             * (in a build, after the prepended standard library). Columns
+             * count bytes: the mark is three of them (it counted none, so
+             * every span after it on the line pointed three bytes early,
+             * into the middle of characters). */
             l->pos += 3;
+            l->col += 3;
         } else {
             break;
         }
@@ -1339,7 +1343,24 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
         default: {
             /* Unrecognized character — emit E0002 and return ERROR token. */
             char msg[64];
-            if (c >= 32 && c < 127) {
+            /* A whole UTF-8 sequence is one character: one diagnostic for
+             * it, not one per byte (three for an `é` typed in code, which an
+             * editor then shows stacked on the same character). */
+            unsigned char lead = (unsigned char)c;
+            size_t need = lead >= 0xF0 && lead <= 0xF4 ? 3
+                        : lead >= 0xE0 && lead <= 0xEF ? 2
+                        : lead >= 0xC2 && lead <= 0xDF ? 1 : 0;
+            bool whole = need > 0 && l->pos + need <= l->src_len;
+            for (size_t k = 0; whole && k < need; k++)
+                if (((unsigned char)l->src[l->pos + k] & 0xC0) != 0x80) whole = false;
+            if (whole) {
+                uint32_t cp = lead & (need == 1 ? 0x1F : need == 2 ? 0x0F : 0x07);
+                for (size_t k = 0; k < need; k++)
+                    cp = (cp << 6) | ((unsigned char)l->src[l->pos + k] & 0x3F);
+                snprintf(msg, sizeof(msg), "invalid character '%.*s' (U+%04X)",
+                         (int)(need + 1), l->src + start_pos, (unsigned)cp);
+                for (size_t k = 0; k < need; k++) iron_advance_char(l);
+            } else if (c >= 32 && c < 127) {
                 snprintf(msg, sizeof(msg), "invalid character '%c'", c);
             } else {
                 snprintf(msg, sizeof(msg), "invalid character (0x%02x)", (unsigned char)c);
@@ -1348,8 +1369,10 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
             /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_punctuation invalid char msg):
              * fall back to a static message on OOM so lexing stays fallible. */
             if (!arena_msg) arena_msg = "invalid character";
+            /* end_col is inclusive: the last byte of the character */
             Iron_Span span = iron_span_make(l->filename, start_line, start_col,
-                                             start_line, start_col + 1);
+                                             start_line,
+                                             start_col + (uint32_t)(l->pos - start_pos) - 1);
             iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
                            IRON_ERR_INVALID_CHAR, span, arena_msg, NULL);
             return iron_make_token(l, IRON_TOK_ERROR, NULL,
@@ -1488,5 +1511,25 @@ const char *iron_token_spelling(Iron_TokenKind kind) {
         if (kw_table[i].kind == kind) return kw_table[i].name;
     for (size_t i = 0; i < sizeof(punct) / sizeof(punct[0]); i++)
         if (punct[i].kind == kind) return punct[i].text;
+    /* Diagnostics quote these ("unexpected token '...'"): say what the
+     * token is, not its enumerator name. */
+    switch ((int)kind) {
+    case IRON_TOK_INTEGER:       return "integer literal";
+    case IRON_TOK_FLOAT:         return "float literal";
+    case IRON_TOK_STRING:
+    case IRON_TOK_INTERP_STRING: return "string literal";
+    case IRON_TOK_EOF:           return "end of file";
+    case IRON_TOK_ERROR:         return "invalid token";
+    case IRON_TOK_IDENTIFIER:    return "identifier";
+    case IRON_TOK_WILDCARD:      return "_";
+    case IRON_TOK_DOC_COMMENT:   return "doc comment";
+    default:                     break;
+    }
     return iron_token_kind_str(kind);
+}
+
+bool iron_token_is_keyword(Iron_TokenKind kind) {
+    for (int i = 0; i < KW_TABLE_SIZE; i++)
+        if (kw_table[i].kind == kind) return true;
+    return false;
 }

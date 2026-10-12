@@ -1,0 +1,5 @@
+-- A closing brace with no declaration open was skipped without a word.
+func main() {
+    println("a")
+}
+}

@@ -156,30 +156,28 @@ cleanup:
     return result;
 }
 
-int main(int argc, char **argv) {
-    if (argc != 3) {
-        fprintf(stderr, "usage: iron_seed_blobs <integration-dir> <corpus-dir>\n");
-        return 2;
-    }
-    const char *integ_dir  = argv[1];
-    const char *corpus_dir = argv[2];
+static int parser_copied, typecheck_copied, hir_copied;
 
-    char parser_dir[4096];
-    snprintf(parser_dir, sizeof parser_dir, "%s/parser", corpus_dir);
-
-    DIR *d = opendir(integ_dir);
-    if (!d) {
-        fprintf(stderr, "seed_blobs: cannot open %s\n", integ_dir);
-        return 1;
-    }
-
-    int parser_copied    = 0;
-    int typecheck_copied = 0;
-    int hir_copied       = 0;
-
+/* Seed from every .iron file under `dir`, subdirectories included (the
+ * corpus moved into section directories, and seeding only the top level
+ * found nothing). The corpus name flattens the relative path. */
+static void seed_dir(const char *dir, const char *rel, const char *corpus_dir) {
+    DIR *d = opendir(dir);
+    if (!d) return;
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL) {
         const char *name = ent->d_name;
+        if (name[0] == '.') continue;
+        char src[4096], flat[1024];
+        snprintf(src, sizeof src, "%s/%s", dir, name);
+        if (rel[0]) snprintf(flat, sizeof flat, "%s_%s", rel, name);
+        else snprintf(flat, sizeof flat, "%s", name);
+        struct stat st;
+        if (stat(src, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) {
+            seed_dir(src, flat, corpus_dir);
+            continue;
+        }
         size_t len = strlen(name);
         if (len < 5) continue;
         if (strcmp(name + len - 5, ".iron") != 0) continue;
@@ -187,22 +185,29 @@ int main(int argc, char **argv) {
          * they're already-minimized crash inputs, not seed material. */
         if (strncmp(name, "fuzz_crash_", 11) == 0) continue;
 
-        char src[4096], dst[4096];
-        snprintf(src, sizeof src, "%s/%s", integ_dir, name);
-        snprintf(dst, sizeof dst, "%s/%s", parser_dir, name);
-
-        /* Part 1: byte-copy into corpus/parser/. */
+        char dst[4096];
+        /* Part 1: byte-copy into corpus/parser/ and corpus/check/. */
+        snprintf(dst, sizeof dst, "%s/parser/%s", corpus_dir, flat);
         if (copy_file(src, dst) == 0) parser_copied++;
+        snprintf(dst, sizeof dst, "%s/check/%s", corpus_dir, flat);
+        (void)copy_file(src, dst);
 
         /* Part 2: pre-flight + serialize into corpus/typecheck/ and
          * corpus/hir_to_lir/ (parser-success filter). */
-        if (try_seed_blob(src, name, corpus_dir)) {
+        if (try_seed_blob(src, flat, corpus_dir)) {
             typecheck_copied++;
             hir_copied++;
         }
     }
     closedir(d);
+}
 
+int main(int argc, char **argv) {
+    if (argc != 3) {
+        fprintf(stderr, "usage: iron_seed_blobs <integration-dir> <corpus-dir>\n");
+        return 2;
+    }
+    seed_dir(argv[1], "", argv[2]);
     fprintf(stderr,
             "seed_blobs: parser=%d typecheck=%d hir_to_lir=%d\n",
             parser_copied, typecheck_copied, hir_copied);
