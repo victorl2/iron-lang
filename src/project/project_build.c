@@ -36,6 +36,7 @@ extern char **environ;
 #include "project/color.h"
 #include "project/iron_project.h"
 #include "project/project_build.h"
+#include "diagnostics/diagnostics.h"   /* IRON_FILE_MARKER_OPEN */
 #include "cli/target.h"
 
 /* ── Platform timing ────────────────────────────────────────────────────── */
@@ -314,7 +315,7 @@ static int append_marked_file(FILE *out, const char *rel_path, const char *path)
     for (size_t i = 0; i < text_len; i++) {
         if (text[i] == '\n') lines++;
     }
-    fprintf(out, "-- @file: \"%s\" @line: 1 @lines: %lu\n", rel_path, lines);
+    fprintf(out, IRON_FILE_MARKER_OPEN "%s\" @line: 1 @lines: %lu\n", rel_path, lines);
     fwrite(text, 1, text_len, out);
     fprintf(out, "\n");
     free(text);

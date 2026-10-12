@@ -429,7 +429,7 @@ static int materialize_one(Iron_Program *program, GenInst *gi, Iron_Arena *arena
      * classification treat them as that file's code. */
     const char *file = gi->decl->span.filename ? gi->decl->span.filename : "<generic>";
     Iron_StrBuf sb = iron_strbuf_create(strlen(body) + 128);
-    iron_strbuf_appendf(&sb, "-- @file: \"%s\" @line: %u\n%s\n", file,
+    iron_strbuf_appendf(&sb, IRON_FILE_MARKER_OPEN "%s\" @line: %u\n%s\n", file,
                         gi->decl->span.line > 0 ? gi->decl->span.line : 1, body);
     char *snippet = iron_arena_strdup(arena, iron_strbuf_get(&sb), sb.len);
     iron_strbuf_free(&sb);

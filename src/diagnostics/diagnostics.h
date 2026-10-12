@@ -112,6 +112,11 @@ void iron_diaglist_free(Iron_DiagList *list);
  * introduced: iron_comment_intro_len is the one place that knows the
  * comment forms. */
 
+/* How the compiler writes the start of a marker for a quoted name; the
+ * name, a closing quote and the attributes follow. The one place that spells
+ * the comment the compiler's own markers are written in. */
+#define IRON_FILE_MARKER_OPEN "-- @file: \""
+
 typedef struct {
     const char *name;       /* not NUL terminated; points into the text */
     size_t      name_len;

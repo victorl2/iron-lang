@@ -431,10 +431,10 @@ static int prepend_user_line_marker(char **source_io, const char *source_path,
     if (!source_io || !*source_io || !iron_path_marker_safe(source_path)) return 0;
     /* `@packed`: the user's source is itself several files under markers. */
     const char *tail = packed ? "\" @line: 1 @packed\n" : "\" @line: 1\n";
-    size_t mlen = strlen("-- @file: \"") + strlen(source_path) + strlen(tail);
+    size_t mlen = strlen(IRON_FILE_MARKER_OPEN) + strlen(source_path) + strlen(tail);
     char *combined = (char *)malloc(mlen + strlen(*source_io) + 1);
     if (!combined) return 0;
-    int n = snprintf(combined, mlen + 1, "-- @file: \"%s%s", source_path, tail);
+    int n = snprintf(combined, mlen + 1, IRON_FILE_MARKER_OPEN "%s%s", source_path, tail);
     if (n < 0 || (size_t)n != mlen) { free(combined); return 0; }
     strcpy(combined + mlen, *source_io);
     free(*source_io);
@@ -458,7 +458,7 @@ static int prepend_marked_file(char **source_io, const char *base_dir,
     char marker[4224];
     size_t mlen = 0;
     if (markers && iron_path_marker_safe(path)) {
-        int n = snprintf(marker, sizeof(marker), "-- @file: \"%s\" @line: 1\n", path);
+        int n = snprintf(marker, sizeof(marker), IRON_FILE_MARKER_OPEN "%s\" @line: 1\n", path);
         if (n > 0 && (size_t)n < sizeof(marker)) mlen = (size_t)n;
     }
     /* Declarations from this file carry the marker path as their span
