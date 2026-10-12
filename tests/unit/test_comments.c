@@ -147,6 +147,21 @@ static void test_doc_pub_decl_and_field(void) {
     TEST_ASSERT_EQUAL_STRING("the y", ((Iron_Field *)o->fields[1])->doc_comment);
 }
 
+/* #689: top-level bindings are declarations too; their collected run used
+ * to be discarded because the AST had no documentation slots for them. */
+static void test_doc_and_directives_on_top_level_bindings(void) {
+    Iron_Program *p = parse("// The port.\n//config:env\nval port = 8080 //json:port\n"
+                            "// Mutable state.\nvar state = 0\n");
+    Iron_ValDecl *v = (Iron_ValDecl *)p->decls[0];
+    TEST_ASSERT_EQUAL_STRING("The port.", v->doc_comment);
+    TEST_ASSERT_EQUAL_INT(1, v->directive_count);
+    TEST_ASSERT_EQUAL_STRING("config", v->directives[0].key);
+    TEST_ASSERT_EQUAL_STRING("env", v->directives[0].value);
+    TEST_ASSERT_FALSE(v->directives[0].trailing);
+    Iron_VarDecl *w = (Iron_VarDecl *)p->decls[1];
+    TEST_ASSERT_EQUAL_STRING("Mutable state.", w->doc_comment);
+}
+
 /* ── Directives ──────────────────────────────────────────────────────────── */
 
 static void test_directives_above_and_trailing(void) {
@@ -174,22 +189,29 @@ static void test_directives_above_and_trailing(void) {
     const char *doc; const Iron_Directive *d; int nd;
     TEST_ASSERT_TRUE(iron_node_doc((Iron_Node *)f, &doc, &d, &nd));
     TEST_ASSERT_EQUAL_INT(2, nd);
+
+    Iron_Program *inline_p = parse("object Inline { val x: Int //json:x\n}\n");
+    Iron_ObjectDecl *inline_o = (Iron_ObjectDecl *)inline_p->decls[0];
+    Iron_Field *inline_f = (Iron_Field *)inline_o->fields[0];
+    TEST_ASSERT_EQUAL_INT(1, inline_f->directive_count);
+    TEST_ASSERT_TRUE(inline_f->directives[0].trailing);
 }
 
 static void test_directives_on_variants_sigs_and_decls(void) {
     Iron_Program *p = parse("//rpc:service\ninterface S {\n    //rpc:name\n    func m() -> Int\n}\n"
-                            "enum E {\n    A, //tag:a\n    B\n}\n"
-                            "func f() { //inline:never\n}\n");
+                            "enum E {\n    //tag:a\n    A,\n    B //tag:not_attached\n}\n"
+                            "//inline:never\nfunc f() {} //inline:not_attached\n");
     Iron_InterfaceDecl *s = (Iron_InterfaceDecl *)p->decls[0];
     TEST_ASSERT_EQUAL_INT(1, s->directive_count);
     TEST_ASSERT_EQUAL_INT(1, ((Iron_FuncDecl *)s->method_sigs[0])->directive_count);
     Iron_EnumDecl *e = (Iron_EnumDecl *)p->decls[1];
     TEST_ASSERT_EQUAL_INT(1, ((Iron_EnumVariant *)e->variants[0])->directive_count);
-    TEST_ASSERT_TRUE(((Iron_EnumVariant *)e->variants[0])->directives[0].trailing);
+    TEST_ASSERT_FALSE(((Iron_EnumVariant *)e->variants[0])->directives[0].trailing);
     TEST_ASSERT_EQUAL_INT(0, ((Iron_EnumVariant *)e->variants[1])->directive_count);
     Iron_FuncDecl *f = (Iron_FuncDecl *)p->decls[2];
     TEST_ASSERT_EQUAL_INT(1, f->directive_count);
     TEST_ASSERT_EQUAL_STRING("never", f->directives[0].value);
+    TEST_ASSERT_FALSE(f->directives[0].trailing);
 }
 
 /* ── Compiler hints ──────────────────────────────────────────────────────── */
@@ -203,29 +225,40 @@ static void test_iron_fusible_hint(void) {
 }
 
 static void test_unknown_or_misplaced_hint_warns(void) {
-    (void)parse("//iron:fusable\nfunc f() {}\n//iron:fusible\nobject O {}\n//iron:fusible\nval x = 1\n");
-    TEST_ASSERT_EQUAL_INT(3, count_code(IRON_WARN_UNKNOWN_IRON_HINT));
+    Iron_Program *p = parse("//iron:fusable\nfunc f() {}\n"
+                            "//iron:fusible\nobject O {}\n"
+                            "//iron:fusible\nval x = 1\n"
+                            "func trailing() {} //iron:fusible\n");
+    TEST_ASSERT_EQUAL_INT(4, count_code(IRON_WARN_UNKNOWN_IRON_HINT));
+    Iron_FuncDecl *trailing = NULL;
+    for (int i = 0; i < p->decl_count; i++) {
+        if (p->decls[i]->kind != IRON_NODE_FUNC_DECL) continue;
+        Iron_FuncDecl *f = (Iron_FuncDecl *)p->decls[i];
+        if (f->name && strcmp(f->name, "trailing") == 0) trailing = f;
+    }
+    TEST_ASSERT_NOT_NULL(trailing);
+    TEST_ASSERT_FALSE(trailing->is_fusible);
     TEST_ASSERT_EQUAL_INT(0, diags.error_count);
 }
 
 /* ── Printer ─────────────────────────────────────────────────────────────── */
 
 static void test_printer_round_trips_docs_and_directives(void) {
-    const char *src = "// doc\n//k:v\nfunc f() { //t:x\n}\n"
+    const char *src = "// doc\n//k:v\nfunc f() {} //t:not_attached\n"
                       "object O {\n    // field doc\n    val a: Int  //json:a\n}\n";
     Iron_Program *p = parse(src);
     char *out = iron_print_ast((Iron_Node *)p, NULL, &arena);
-    TEST_ASSERT_NOT_NULL(strstr(out, "// doc\n//k:v\nfunc f() {  //t:x\n"));
+    TEST_ASSERT_NOT_NULL(strstr(out, "// doc\n//k:v\nfunc f() {\n"));
     TEST_ASSERT_NOT_NULL(strstr(out, "  // field doc\n  val a: Int  //json:a\n"));
     Iron_Program *q = parse(out);
     Iron_FuncDecl *f = (Iron_FuncDecl *)q->decls[0];
     TEST_ASSERT_EQUAL_STRING("doc", f->doc_comment);
-    TEST_ASSERT_EQUAL_INT(2, f->directive_count);
-    TEST_ASSERT_TRUE(f->directives[1].trailing);
+    TEST_ASSERT_EQUAL_INT(1, f->directive_count);
+    TEST_ASSERT_FALSE(f->directives[0].trailing);
 }
 
 static void test_stubs_carry_docs_and_directives(void) {
-    Iron_Program *p = parse("// Adds.\npub func add(a: Int) -> Int { return a } //k:v\n"
+    Iron_Program *p = parse("// Adds.\n//k:v\npub func add(a: Int) -> Int { return a }\n"
                             "pub object P {\n    // x doc\n    //json:x\n    pub val x: Int\n}\n");
     FILE *f = tmpfile();
     TEST_ASSERT_NOT_NULL(f);
@@ -235,7 +268,7 @@ static void test_stubs_carry_docs_and_directives(void) {
     size_t n = fread(buf, 1, sizeof buf - 1, f);
     buf[n] = '\0';
     fclose(f);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "// Adds.\npub func add(a: Int) -> Int {  //k:v\n"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "// Adds.\n//k:v\npub func add(a: Int) -> Int {\n"));
     TEST_ASSERT_NOT_NULL(strstr(buf, "    // x doc\n    //json:x\n    val x: Int\n"));
 }
 
@@ -311,6 +344,7 @@ int main(void) {
     RUN_TEST(test_doc_trailing_comment_is_not_doc);
     RUN_TEST(test_doc_mixed_spellings);
     RUN_TEST(test_doc_pub_decl_and_field);
+    RUN_TEST(test_doc_and_directives_on_top_level_bindings);
     RUN_TEST(test_directives_above_and_trailing);
     RUN_TEST(test_directives_on_variants_sigs_and_decls);
     RUN_TEST(test_iron_fusible_hint);

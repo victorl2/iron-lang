@@ -138,6 +138,10 @@ static bool same_node_docs(Iron_Node *a, Iron_Node *b) {
             Iron_MethodDecl *x = (Iron_MethodDecl *)a, *y = (Iron_MethodDecl *)b;
             return SAME_DOC(x, y) && x->is_fusible == y->is_fusible;
         }
+        case IRON_NODE_VAL_DECL:
+            return SAME_DOC((Iron_ValDecl *)a, (Iron_ValDecl *)b);
+        case IRON_NODE_VAR_DECL:
+            return SAME_DOC((Iron_VarDecl *)a, (Iron_VarDecl *)b);
         case IRON_NODE_OBJECT_DECL: {
             Iron_ObjectDecl *x = (Iron_ObjectDecl *)a, *y = (Iron_ObjectDecl *)b;
             if (!SAME_DOC(x, y) || x->field_count != y->field_count) return false;

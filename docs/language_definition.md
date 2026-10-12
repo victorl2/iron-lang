@@ -79,10 +79,10 @@ func main() {
 **Directives.** A comment written `//key:value`, with no space after `//`,
 a key of lowercase letters, digits and `_` starting with a letter, and a
 `:` right after the key, is a directive. A directive belongs to the
-declaration or field it sits directly above, as part of its comment run, or
-to the one whose line it ends. Directive lines are not part of the
-documentation. The value is the rest of the line. `// json:id`, with a
-space, is an ordinary comment.
+declaration or field it sits directly above, as part of its comment run. It
+may instead trail an object field on that field's line. Directive lines are
+not part of the documentation. The value is the rest of the line.
+`// json:id`, with a space, is an ordinary comment.
 
 ```iron
 object Item {
@@ -102,10 +102,14 @@ func main() {
 7 lamp
 ```
 
-The compiler keeps directives on the declarations they belong to and gives
-them no meaning of their own, except the `iron` key: `//iron:<hint>` is a
-compiler hint. A hint changes only how the compiler represents or optimizes
-a declaration (a function, object or field), never what the program does;
+The compiler keeps this metadata on each relevant AST node as its
+`doc_comment` text and a source-ordered `directives` list. Each directive is
+`(key, value, line, trailing)`; `line` is one-based and `trailing` can be true
+only for an object field. This is the representation available to the later
+compile-time reflection work in issue #455. Directives have no meaning of
+their own, except the `iron` key: `//iron:<hint>` is a compiler hint. A hint
+changes only how the compiler represents or optimizes a declaration (a
+function, object or field), never what the program does;
 anything that is part of a type or changes what type checks, such as
 `[T, layout: soa]` or `[I, unordered]`, is language syntax instead. The
 hints are:

@@ -16,6 +16,8 @@ func fine(x: Int) -> Int {
     return x * 2
 }
 
+func trailing(x: Int) -> Int { return x } //iron:fusible
+
 func main() {
-    println("{misspelled(1)} {fine(2)} {NotAFunction(3).x}")
+    println("{misspelled(1)} {fine(2)} {trailing(3)} {NotAFunction(4).x}")
 }
