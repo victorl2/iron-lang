@@ -3,6 +3,8 @@
 # arena scenario. Phase 15 baseline = 0% PASS (every fixture XFAIL because
 # no v4 implementation exists yet). Each subsequent phase increases the pass
 # count by >= N (N set per phase based on the corpus subset that phase enables).
+find_package(Python3 COMPONENTS Interpreter QUIET)
+
 if(NOT WIN32)
     add_test(
         NAME test_v4_acceptance
@@ -32,11 +34,13 @@ if(NOT WIN32)
     )
     # Not in the v4-acceptance label: it builds every fixture twice, which
     # pushed that 30-minute gate over its limit. The full test jobs run it.
-    # Under ASan on a 4-core CI runner it takes about 25 minutes next to the
-    # other rows, so its own cap is an hour.
+    # This oracle starts its own parallel worker pool. Running it beside the
+    # other exhaustive aggregates oversubscribes 4-core CI runners and can
+    # push otherwise healthy runs past the timeout (#719).
     set_tests_properties(test_opt_parity PROPERTIES
         LABELS "oracle"
-        TIMEOUT 3600)
+        RUN_SERIAL TRUE
+        TIMEOUT 7200)
 endif()
 
 # Phase 35 MIG-09: migrated-from-v3/ subdir hosts the hand-migrated v3 corpus.
@@ -60,14 +64,26 @@ if(NOT WIN32)
     set_tests_properties(test_leak_check PROPERTIES
         LABELS "oracle;v4-acceptance"
         PROCESSORS 2
-        TIMEOUT 3600)
+        RUN_SERIAL TRUE
+        TIMEOUT 7200)
+
+    if(Python3_EXECUTABLE)
+        add_test(
+            NAME test_oracle_ctest_scheduling
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/test_oracle_ctest_scheduling.py
+                    ${CMAKE_BINARY_DIR}
+        )
+        set_tests_properties(test_oracle_ctest_scheduling PROPERTIES
+            LABELS "oracle;invariant"
+            TIMEOUT 30)
+    endif()
 endif()
 
 # Crypto cross-check: the crypto and encoding modules against Python's
 # hashlib, hmac, base64 and (when installed) cryptography on a few thousand
 # random inputs with a fresh seed each run (printed on failure).
 if(NOT WIN32)
-    find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_FOUND)
         add_test(
             NAME test_crypto_crosscheck
