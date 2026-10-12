@@ -203,6 +203,17 @@ static bool ident_named(Iron_Node *n, const char *name) {
            strcmp(((Iron_Ident *)n)->name, name) == 0;
 }
 
+static bool has_top_level_function(Iron_Program *program, const char *name) {
+    if (!program || !name) return false;
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_FUNC_DECL) continue;
+        Iron_FuncDecl *f = (Iron_FuncDecl *)d;
+        if (f->name && strcmp(f->name, name) == 0) return true;
+    }
+    return false;
+}
+
 static bool has_zero_init(ExpandCtx *ctx, const char *type_name) {
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *d = ctx->program->decls[i];
@@ -673,8 +684,11 @@ static Iron_Node *expand_expr(ExpandCtx *ctx, Iron_Node *node) {
                 ctx->changed++;
                 return value;
             }
-            if (ident_named(c->callee, "fields") ||
-                ident_named(c->callee, "typeinfo")) {
+            const char *intrinsic = ident_named(c->callee, "fields")
+                ? "fields" : ident_named(c->callee, "typeinfo")
+                ? "typeinfo" : NULL;
+            if (intrinsic &&
+                !has_top_level_function(ctx->program, intrinsic)) {
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_REFLECTION_CONTEXT, c->span,
                                "reflection query is only valid in a compile-time reflection form",

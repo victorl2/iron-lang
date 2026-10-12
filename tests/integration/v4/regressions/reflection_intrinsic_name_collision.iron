@@ -1,0 +1,12 @@
+func fields() {
+    println("fields")
+}
+
+func typeinfo(value: Int) -> Int {
+    return value + 1
+}
+
+func main() {
+    fields()
+    println("{typeinfo(41)}")
+}
