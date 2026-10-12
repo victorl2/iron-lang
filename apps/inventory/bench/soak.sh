@@ -44,11 +44,16 @@ taskset -c "${WRK_CPUS:-4-7}" wrk -t4 -c"$c" -d"${secs}s" --latency -s "$here/lu
 wrk_pid=$!
 echo "seconds,rss_mb,threads,requests_total"
 samples=()
-for t in $(seq 10 10 "$secs"); do
+# Sample while the load runs, by the clock: a sample takes a moment of its
+# own, and counting samples instead ran past the end of the load.
+started=$(date +%s)
+while kill -0 "$wrk_pid" 2>/dev/null; do
     sleep 10
+    kill -0 "$wrk_pid" 2>/dev/null || break
+    t=$(( $(date +%s) - started ))
     rss=$(awk '/^VmRSS/{printf "%.1f", $2/1024}' "/proc/$svc_pid/status")
     thr=$(awk '/^Threads/{print $2}' "/proc/$svc_pid/status")
-    total=$(curl -s http://127.0.0.1:18080/metrics | awk '/^inventory_http_requests_total/{s+=$2} END{print s+0}')
+    total=$(curl -s -m 8 http://127.0.0.1:18080/metrics | awk '/^inventory_http_requests_total/{s+=$2} END{print s+0}')
     echo "$t,$rss,$thr,$total"
     samples+=("$rss")
 done
@@ -56,7 +61,8 @@ wait $wrk_pid
 grep -E "Requests/sec|Latency|requests in|Non-2xx" "$work/wrk.out"
 echo "requests by route and status:"
 curl -s http://127.0.0.1:18080/metrics | grep '^inventory_http_requests_total' | sed 's/inventory_http_requests_total//'
-grep -v '"level":"info"' "$work/svc.log" | cut -c1-200 | sort | uniq -c | sort -rn | head -5
+echo "warnings and errors logged:"
+grep -v '"level":"info"' "$work/svc.log" | sed 's/"ts":"[^"]*",//' | cut -c1-200 | sort | uniq -c | sort -rn | head -5
 if [ "${SOAK_SANITIZE:-0}" = 1 ]; then
     kill -TERM $svc_pid; wait $svc_pid
     grep -A30 "ERROR: LeakSanitizer\|ERROR: AddressSanitizer" "$work/svc.log" | head -150

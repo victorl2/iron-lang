@@ -160,6 +160,10 @@ pub func db_status(err: MysqlError) -> Int {
     if err.is_connection_error() or err.code == 7009 or err.code == 7010 or err.code == 7004 {
         return 503
     }
+    -- 3024: the server stopped a SELECT at max_execution_time.
+    if err.code == 3024 {
+        return 503
+    }
     return 500
 }
 

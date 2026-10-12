@@ -62,6 +62,25 @@ func main() {
     fresh.set_timeout(0)
     check(fresh.query("SELECT SLEEP(1)").ok(), "set_timeout(0) removes the limit")
 
+    -- The server stops a statement at its own limit (max_execution_time,
+    -- error 3024): an error value, whether it comes before any row or in
+    -- the middle of the rows, and the connection stays usable.
+    val digits = "(SELECT 0 d UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9)"
+    val billion = "{digits} a, {digits} b, {digits} c, {digits} e, {digits} f, {digits} g, {digits} h, {digits} i, {digits} j"
+    var limited = Mysql.connect(base)
+    check(limited.run("SET SESSION max_execution_time = 150").ok(), "set max_execution_time")
+    val q1 = limited.query("SELECT COUNT(*) FROM {billion}")
+    check(q1.error.code == 3024, "a SELECT over max_execution_time is 3024 (got {q1.error.code} {q1.error.message})")
+    val q2 = limited.exec("SELECT COUNT(*) FROM {billion} WHERE a.d >= ?", [MysqlValue.Int(0)])
+    check(q2.error.code == 3024, "the same through a prepared statement (got {q2.error.code} {q2.error.message})")
+    val q3 = limited.query("SELECT a.d FROM {billion}")
+    check(q3.error.code == 3024, "interrupted while sending rows (got {q3.error.code} {q3.error.message})")
+    val q4 = limited.exec("SELECT a.d FROM {billion} WHERE a.d >= ?", [MysqlValue.Int(0)])
+    check(q4.error.code == 3024, "interrupted while sending rows, prepared (got {q4.error.code} {q4.error.message})")
+    check(limited.is_open(), "the connection stays open after 3024")
+    val after = limited.query("SELECT 41 + 1")
+    check(after.ok() and after.int_or(0, 0, 0) == 42, "and answers the next query")
+
     -- The server ends an idle session (wait_timeout).
     var idle = Mysql.connect(base)
     idle.run("SET SESSION wait_timeout = 1")

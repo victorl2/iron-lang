@@ -320,7 +320,7 @@ class Service:
         self.port_event = threading.Event()
         self.port = None
         threading.Thread(target=self._read, daemon=True).start()
-        if not self.port_event.wait(60 if ARGS.wrap else 15):
+        if not self.port_event.wait(60 if ARGS.wrap else 30):
             self.stop(force=True)
             raise Fail(f"service did not report its port; output: {self.output()[-2000:]}")
         if self.port is None:
@@ -449,6 +449,20 @@ def t_health_and_ready():
     r = c.request("HEAD", "/healthz")
     eq(r.status, 200, "HEAD healthz")
     eq(r.raw, b"", "HEAD has no body")
+
+
+def t_database_sessions():
+    """Every pooled session is set up by the pool's init_command: UTC, and a
+    statement time limit equal to the client's timeout, so the server stops
+    a SELECT the client no longer waits for."""
+    c = E.svc.client
+    expect(c.get("/v1/items?limit=1"), 200, "a database request")
+    sql = ("SELECT CONCAT(MIN(v.VARIABLE_VALUE), ' ', MAX(v.VARIABLE_VALUE), ' ', COUNT(*) > 0) "
+           "FROM performance_schema.variables_by_thread v "
+           "JOIN performance_schema.threads t USING (THREAD_ID) "
+           "WHERE v.VARIABLE_NAME = '%s' AND t.PROCESSLIST_DB = '" + E.db_name + "'")
+    eq(dbtool("scalar", ARGS.mysql_url, sql % "max_execution_time"), "2000 2000 1", "max_execution_time of the sessions")
+    eq(dbtool("scalar", ARGS.mysql_url, sql % "time_zone"), "+00:00 +00:00 1", "time_zone of the sessions")
 
 
 def t_create_and_get():
@@ -1026,6 +1040,7 @@ def t_config():
 
 TESTS = [
     t_health_and_ready,
+    t_database_sessions,
     t_create_and_get,
     t_create_errors,
     t_routing,

@@ -84,7 +84,7 @@ settings are reported one per log line and the process exits with status 2;
 | `host`, `port` | `0.0.0.0`, `8080` | listen address (`port = 0` picks a free port, logged at startup) |
 | `mysql_url` | `mysql://root@127.0.0.1:3306/inventory` | see [docs/mysql.md](../../docs/mysql.md) for the URL options (TLS, timeouts) |
 | `db_pool_min`, `db_pool_max` | `0`, `32` | connection pool size |
-| `db_timeout_ms`, `db_acquire_timeout_ms` | `5000`, `2000` | per statement; waiting for a pooled connection |
+| `db_timeout_ms`, `db_acquire_timeout_ms` | `5000`, `2000` | per statement (also set as the sessions' `max_execution_time`, so MySQL stops a SELECT the service gave up on); waiting for a pooled connection |
 | `rates_url`, `rates_base` | `http://127.0.0.1:8090`, `USD` | the exchange rate API origin and base currency |
 | `rates_ttl_ms`, `rates_timeout_ms`, `rates_retries`, `rates_backoff_ms` | `60000`, `1000`, `2`, `50` | cache lifetime, per attempt timeout, retries, first backoff |
 | `breaker_threshold`, `breaker_cooldown_ms` | `5`, `10000` | consecutive failed refreshes that open the breaker, and for how long |
