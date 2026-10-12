@@ -23,6 +23,9 @@
 
 ; ── Field access ──────────────────────────────────────────────────────
 (member_expression property: (identifier) @variable.member)
+(reflected_member_expression field: (identifier) @variable.member)
+(reflected_field_type field: (identifier) @variable)
+(comptime_for_statement variable: (identifier) @variable)
 
 ; ── Function / method calls ───────────────────────────────────────────
 (call_expression

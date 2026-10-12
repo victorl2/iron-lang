@@ -399,6 +399,9 @@ module.exports = grammar({
       $.while_statement,
       $.for_statement,
       $.match_statement,
+      $.comptime_for_statement,
+      $.comptime_if_statement,
+      $.comptime_match_statement,
       $.return_statement,
       $.break_statement,
       $.continue_statement,
@@ -443,6 +446,36 @@ module.exports = grammar({
       // `parallel` modifier: `for i in n parallel { ... }` (Phase 49 pfor)
       optional(field('modifier', 'parallel')),
       field('body', $.block),
+    ),
+
+    comptime_for_statement: $ => seq(
+      'comptime', 'for',
+      field('variable', $.identifier),
+      'in',
+      field('iterable', $.call_expression),
+      field('body', $.block),
+    ),
+
+    comptime_if_statement: $ => seq(
+      'comptime', 'if',
+      field('condition', $._expression),
+      field('consequence', $.block),
+      repeat($.elif_clause),
+      optional($.else_clause),
+    ),
+
+    comptime_match_statement: $ => seq(
+      'comptime', 'match',
+      field('subject', $._type),
+      '{',
+      repeat($.comptime_match_arm),
+      optional($.match_else_arm),
+      '}',
+    ),
+    comptime_match_arm: $ => seq(
+      field('pattern', $._type),
+      '->',
+      field('body', $._match_arm_body),
     ),
 
     match_statement: $ => seq(
@@ -537,6 +570,7 @@ module.exports = grammar({
       $.is_expression,
       $.call_expression,
       $.member_expression,
+      $.reflected_member_expression,
       $.index_expression,
       $.slice_expression,
       $.generic_expression,
@@ -592,6 +626,11 @@ module.exports = grammar({
       field('object', $._expression),
       '.',
       field('property', $.identifier),
+    )),
+
+    reflected_member_expression: $ => prec.left(14, seq(
+      field('object', $._expression),
+      '.', '(', field('field', $.identifier), ')',
     )),
 
     index_expression: $ => prec.left(14, seq(
@@ -756,10 +795,15 @@ module.exports = grammar({
       $.weak_rc_type,
       $.nullable_type,
       $.generic_type,
+      $.reflected_field_type,
       $.type_identifier,
     ),
 
     type_identifier: $ => $.identifier,
+
+    reflected_field_type: $ => prec(5, seq(
+      field('field', $.identifier), '.', 'type',
+    )),
 
     nullable_type: $ => prec(1, seq(choice($.type_identifier, $.generic_type), '?')),
 
@@ -833,7 +877,7 @@ module.exports = grammar({
     copy_block: $ => seq('copy', field('body', $.block)),
 
     // func(T, U) -> R
-    function_type: $ => prec(4, seq(
+    function_type: $ => prec.right(4, seq(
       'func', '(',
       optional(seq($._type, repeat(seq(',', $._type)))),
       ')',
