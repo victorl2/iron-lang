@@ -138,6 +138,31 @@ static void ir_topo_visit(IrTopoState *state, int idx);
  * or an ADT enum (a generic enum instance is registered under its mangled
  * name, which the annotation-based walk below cannot see: `Pair[Opt[Bool],
  * Int]` was emitted before Iron_Opt_Bool, an incomplete type). */
+static void ir_topo_visit_type(IrTopoState *state, int idx, const Iron_Type *t);
+
+/* A key or value type of a Map or Set: the table's functions (copy, drop,
+ * the drop thunk of its cells) name every type inside it, also through a
+ * growable list (`Map[String, [Gb[Int]]]` called Iron_List_Iron_Gb__Int_free
+ * before the list was declared with its element's struct). */
+static void ir_topo_visit_in_table(IrTopoState *state, int idx, const Iron_Type *t, int depth) {
+    if (!t || depth > 12) return;
+    if (t->kind == IRON_TYPE_NULLABLE) {
+        ir_topo_visit_in_table(state, idx, t->nullable.inner, depth + 1);
+    } else if (t->kind == IRON_TYPE_ARRAY) {
+        ir_topo_visit_in_table(state, idx, t->array.elem, depth + 1);
+    } else if (t->kind == IRON_TYPE_TUPLE) {
+        for (int i = 0; i < t->tuple.elem_count; i++)
+            ir_topo_visit_in_table(state, idx, t->tuple.elem_types[i], depth + 1);
+    } else if (t->kind == IRON_TYPE_OBJECT && t->object.decl && t->object.decl->name &&
+               t->object.elem && (strcmp(t->object.decl->name, "Map") == 0 ||
+                                  strcmp(t->object.decl->name, "Set") == 0)) {
+        ir_topo_visit_in_table(state, idx, t->object.elem, depth + 1);
+        ir_topo_visit_in_table(state, idx, t->object.elem2, depth + 1);
+    } else {
+        ir_topo_visit_type(state, idx, t);
+    }
+}
+
 static void ir_topo_visit_type(IrTopoState *state, int idx, const Iron_Type *t) {
     for (int guard = 0; t && guard < 8; guard++) {
         if (t->kind == IRON_TYPE_NULLABLE) { t = t->nullable.inner; continue; }
@@ -163,8 +188,23 @@ static void ir_topo_visit_type(IrTopoState *state, int idx, const Iron_Type *t) 
     if (t->kind == IRON_TYPE_OBJECT && t->object.decl && t->object.decl->name &&
         t->object.elem && (strcmp(t->object.decl->name, "Map") == 0 ||
                            strcmp(t->object.decl->name, "Set") == 0)) {
-        ir_topo_visit_type(state, idx, t->object.elem);
-        if (t->object.elem2) ir_topo_visit_type(state, idx, t->object.elem2);
+        ir_topo_visit_in_table(state, idx, t->object.elem, 0);
+        if (t->object.elem2) ir_topo_visit_in_table(state, idx, t->object.elem2, 0);
+        return;
+    }
+    /* A list of Maps or Sets: the table instance is still emitted with the
+     * struct holding the list (`[Map[String, E]]` came before E). */
+    if (t->kind == IRON_TYPE_ARRAY && t->array.elem) {
+        const Iron_Type *e = t->array.elem;
+        for (int guard = 0; e && guard < 8; guard++) {
+            if (e->kind == IRON_TYPE_ARRAY) e = e->array.elem;
+            else if (e->kind == IRON_TYPE_NULLABLE) e = e->nullable.inner;
+            else break;
+        }
+        if (e && e->kind == IRON_TYPE_OBJECT && e->object.decl && e->object.decl->name &&
+            e->object.elem && (strcmp(e->object.decl->name, "Map") == 0 ||
+                               strcmp(e->object.decl->name, "Set") == 0))
+            ir_topo_visit_type(state, idx, e);
         return;
     }
     const char *name = NULL;
@@ -509,7 +549,11 @@ void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et) {
         "} Iron_List_%s;\n",
         mangled, mangled, mangled, mangled);
 
-    /* Emit IRON_LIST_DECL(T, suffix) — function prototypes. */
+    /* Emit IRON_LIST_DECL(T, suffix) — function prototypes (unless a
+     * table holding such a list declared them, early_nested_list_decls). */
+    char early_key[256];
+    snprintf(early_key, sizeof(early_key), "early:%s", mangled);
+    if (shgeti(ctx->emitted_mono_list_types, early_key) < 0)
     iron_strbuf_appendf(&ctx->struct_bodies,
         "IRON_LIST_DECL(%s, %s)\n",
         mangled, mangled);
@@ -619,6 +663,27 @@ static void early_nested_list_decls(EmitCtx *ctx, const Iron_Type *t, int depth)
         const Iron_Type *x = sub[s];
         if (!x) continue;
         if (depth > 0 || t->kind != IRON_TYPE_ARRAY) {
+            /* A list of objects too: `Map[String, [Gb[Int]]]` in a field
+             * wrote the table's cell drop before the list's prototypes. */
+            if (x->kind == IRON_TYPE_ARRAY && x->array.size < 0 && !x->array.is_bounded &&
+                x->array.elem && x->array.elem->kind == IRON_TYPE_OBJECT &&
+                x->array.elem->object.decl && x->array.elem->object.decl->name &&
+                !emit_type_is_container_elem(x->array.elem) &&
+                !ir_is_runtime_provided_type(x->array.elem->object.decl->name)) {
+                const char *em = emit_mangle_name(x->array.elem->object.decl->name, ctx->arena);
+                if (shgeti(ctx->emitted_mono_list_types, em) < 0 &&
+                    list_struct_predeclared(ctx, em)) {
+                    size_t kl = strlen(em) + 7;
+                    char *key = (char *)iron_arena_alloc(ctx->arena, kl, 1);
+                    if (!key) iron_oom_abort("emit_structs.c:early_nested_list_decls key");
+                    snprintf(key, kl, "early:%s", em);
+                    if (shgeti(ctx->emitted_mono_list_types, key) < 0) {
+                        shput(ctx->emitted_mono_list_types, key, true);
+                        iron_strbuf_appendf(&ctx->struct_bodies,
+                                            "IRON_LIST_DECL(%s, %s)\n", em, em);
+                    }
+                }
+            }
             if (x->kind == IRON_TYPE_ARRAY && x->array.size < 0 && !x->array.is_bounded &&
                 x->array.elem && x->array.elem->kind == IRON_TYPE_ENUM &&
                 x->array.elem->enu.decl && x->array.elem->enu.decl->has_payloads &&

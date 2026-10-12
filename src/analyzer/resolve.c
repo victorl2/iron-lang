@@ -269,6 +269,23 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
              * target_type_name, so no global symbol is needed here. */
             if (od->is_patch) break;
             check_runtime_type_name(ctx, od->name, od->span);
+            /* A field named twice (the C struct had a duplicate member). */
+            for (int i = 0; i < od->field_count; i++) {
+                Iron_Field *fi = (Iron_Field *)od->fields[i];
+                if (!fi || !fi->name) continue;
+                for (int j = 0; j < i; j++) {
+                    Iron_Field *fj = (Iron_Field *)od->fields[j];
+                    if (!fj || !fj->name || strcmp(fi->name, fj->name) != 0) continue;
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "object '%s' declares field '%s' twice",
+                             od->name ? od->name : "?", fi->name);
+                    const char *mc = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_DUPLICATE_DECL, fi->span,
+                                   mc ? mc : "duplicate field", NULL);
+                    break;
+                }
+            }
             /* Create an object type and attach to symbol */
             Iron_Type *ty = iron_type_make_object(ctx->arena, od);
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, od->name,
@@ -320,6 +337,25 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
         case IRON_NODE_INTERFACE_DECL: {
             Iron_InterfaceDecl *id = (Iron_InterfaceDecl *)node;
             check_runtime_type_name(ctx, id->name, id->span);
+            /* A method declared twice (the C defined its dispatcher twice). */
+            for (int i = 0; i < id->method_count; i++) {
+                Iron_Node *mi = id->method_sigs[i];
+                if (!mi || mi->kind != IRON_NODE_FUNC_DECL || !((Iron_FuncDecl *)mi)->name) continue;
+                for (int j = 0; j < i; j++) {
+                    Iron_Node *mj = id->method_sigs[j];
+                    if (!mj || mj->kind != IRON_NODE_FUNC_DECL || !((Iron_FuncDecl *)mj)->name ||
+                        strcmp(((Iron_FuncDecl *)mi)->name, ((Iron_FuncDecl *)mj)->name) != 0)
+                        continue;
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "interface '%s' declares method '%s' twice",
+                             id->name ? id->name : "?", ((Iron_FuncDecl *)mi)->name);
+                    const char *mc = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_DUPLICATE_DECL, mi->span,
+                                   mc ? mc : "duplicate interface method", NULL);
+                    break;
+                }
+            }
             Iron_Type *ty = iron_type_make_interface(ctx->arena, id);
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, id->name,
                                                    IRON_SYM_INTERFACE,
