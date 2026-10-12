@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -47,6 +48,7 @@ def main() -> int:
         "prog_fuzz_conc",
         "prog_fuzz_arena",
         "prog_fuzz_sync",
+        "prog_fuzz_nocopy",
         "prog_fuzz_stdlib",
         "prog_fuzz_edges_num",
         "prog_fuzz_edges_types",
@@ -105,6 +107,22 @@ def main() -> int:
             print(f"{name}: v4 integration TIMEOUT must be at least 180 seconds",
                   file=sys.stderr)
             failed = True
+
+    repo = Path(__file__).resolve().parents[1]
+    parity = (repo / "tests/oracles/opt_parity.sh").read_text(encoding="utf-8")
+    parity_timeout = re.search(r"TIMEOUT=\$\{PARITY_TIMEOUT:-(\d+)\}", parity)
+    if not parity_timeout or int(parity_timeout.group(1)) < 30:
+        print("opt_parity.sh: default child timeout must be at least 30 seconds",
+              file=sys.stderr)
+        failed = True
+
+    workflow = (repo / ".github/workflows/v4-acceptance.yml").read_text(encoding="utf-8")
+    workflow_timeout = re.search(r"^\s*timeout-minutes:\s*(\d+)\s*$", workflow,
+                                 re.MULTILINE)
+    if not workflow_timeout or int(workflow_timeout.group(1)) < 60:
+        print("v4-acceptance workflow: timeout must be at least 60 minutes",
+              file=sys.stderr)
+        failed = True
 
     runner = Path(__file__).with_name("run_tests.sh")
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as cpu_max:
