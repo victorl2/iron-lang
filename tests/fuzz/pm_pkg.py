@@ -354,6 +354,23 @@ def f_patch(pk):
     pk.out.append(f'{oid} {x * k}')
 
 
+def f_pub_global(pk):
+    """A pub val and a pub var of one file, read and written from main.iron
+    (the last file: a global is visible from its declaration on, #577)."""
+    rng = pk.rng
+    a = pk.pick()
+    gid = pk.nid('Gl')
+    k = rng.randint(1, 50)
+    pk.add(a, f'pub val {gid}_K = {k}')
+    pk.add(a, f'pub var {gid}_n = 0')
+    pk.add(a, f'pub func {gid}_bump() -> Int {{\n    {gid}_n = {gid}_n + {gid}_K\n'
+              f'    return {gid}_n\n}}')
+    pk.main.append(f'val {gid}_first = {gid}_bump()')
+    pk.main.append(f'{gid}_n = {gid}_n + {gid}_K')
+    pk.main.append(f'println("{gid} {{{gid}_first}} {{{gid}_bump()}} {{{gid}_n}} {{{gid}_K}}")')
+    pk.out.append(f'{gid} {k} {3 * k} {3 * k} {k}')
+
+
 def f_comptime(pk):
     """A function of one file evaluated with comptime in another."""
     rng = pk.rng
@@ -532,7 +549,7 @@ def f_closure_global(pk):
     pk.out.append(f'{cid} {sum(i * k for i in range(n))}')
 
 
-FEATURES = [f_generic_drop, f_rc_shared, f_copy_block, f_generic_enum, f_global_object,
+FEATURES = [f_pub_global, f_generic_drop, f_rc_shared, f_copy_block, f_generic_enum, f_global_object,
             f_iface_generic_fn, f_closure_global, f_func_chain, f_globals, f_init_side_effect, f_object_drop, f_generic,
             f_iface, f_enum, f_patch, f_comptime, f_closure, f_stdlib, f_string_const]
 
@@ -668,10 +685,13 @@ def neg_import_as(pk):
     return {'E0101', 'E0209'}
 
 
-def neg_pub_global(pk):
+def neg_private_global(pk):
+    """A global without pub is private to its file."""
     a = pk.pick()
-    pk.add(a, f'pub val {pk.nid("PG")} = 3')
-    return {'E0101'}
+    gid = pk.nid('PG')
+    pk.add(a, f'{pk.rng.choice(("val", "var"))} {gid} = 3')
+    pk.main.append(f'println("{{{gid}}}")')
+    return {'E0320'}
 
 
 def neg_global_cycle(pk):
@@ -693,7 +713,7 @@ def neg_private_keyword(pk):
 
 
 NEGATIVES = [neg_private_func, neg_private_object, neg_private_field, neg_private_method,
-             neg_dup_pub, neg_dup_private, neg_bad_import, neg_import_as, neg_pub_global,
+             neg_dup_pub, neg_dup_private, neg_bad_import, neg_import_as, neg_private_global,
              neg_global_cycle, neg_private_keyword]
 
 
