@@ -2135,9 +2135,18 @@ if(NOT WIN32)
     iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/panic_box_unwrap_null.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_panic_box_unwrap_null PROPERTIES
         LABELS "integration;phase25-invariant"
-        TIMEOUT 30
+        TIMEOUT 180
         WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
+    # This row compiles the full runtime and can outlive a short cap when its
+    # compiler child is descheduled on a loaded runner (#764).
+    add_test(NAME test_v4_unchecked_ptr_panic_timeout
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
+            ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
+            v4_4.3-unchecked-ptr_panic_box_unwrap_null 180)
+    set_tests_properties(test_v4_unchecked_ptr_panic_timeout PROPERTIES
+        LABELS "integration;phase25-invariant;unit")
 
     add_executable(test_ptr_types tests/unit/test_ptr_types.c)
     target_link_libraries(test_ptr_types PRIVATE iron_compiler iron_runtime unity m pthread)
