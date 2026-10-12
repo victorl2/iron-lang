@@ -8768,7 +8768,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             /* hoisted (used across blocks): declared at function entry */
             if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
             emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = (%s)iron_future_await(",
+            /* back through intptr_t, as the wrapper published it: a direct
+             * cast of void * to an enum or a narrow integer warned
+             * (-Wvoid-pointer-to-enum-cast) */
+            iron_strbuf_appendf(sb, " = (%s)(intptr_t)iron_future_await(",
                                 emit_type_to_c(instr->type, ctx));
         } else {
             iron_strbuf_appendf(sb, "iron_future_await(");

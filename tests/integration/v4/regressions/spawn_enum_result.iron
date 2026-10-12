@@ -1,0 +1,19 @@
+-- await of a spawn returning a plain enum or a narrow integer: warning free
+-- C (#684).
+enum Color {
+    Red,
+    Green,
+}
+
+func main() {
+    val h = spawn("c") {
+        return Color.Green
+    }
+    val c = await h
+    val h2 = spawn("n") {
+        val b: UInt8 = 200
+        return b
+    }
+    val n = await h2
+    println("{c} {n}")
+}
