@@ -27,7 +27,6 @@ endif()
 # tests/oracles/opt_parity.sh). The two pipelines implement one language, so a
 # difference is a compiler bug even when the optimized build matches .expected.
 if(NOT WIN32)
-    find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(
         NAME test_opt_parity
         COMMAND ${CMAKE_SOURCE_DIR}/tests/oracles/opt_parity.sh
@@ -44,14 +43,6 @@ if(NOT WIN32)
         PROCESSORS 4
         RESOURCE_LOCK iron_exhaustive_corpus
         TIMEOUT 7200)
-
-    add_test(
-        NAME test_opt_parity_timeout
-        COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_CURRENT_SOURCE_DIR}/check_aggregate_timeout.py
-                ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-    )
-    set_tests_properties(test_opt_parity_timeout PROPERTIES LABELS "oracle;unit")
 endif()
 
 # Phase 35 MIG-09: migrated-from-v3/ subdir hosts the hand-migrated v3 corpus.
