@@ -749,6 +749,7 @@ class Proxy:
         self.held_launch = None  # gdb: launch waits for configurationDone
         self.panic_frames = {}   # threadId -> index of the Iron frame that panicked
         self.panic_text = ""     # the debuggee's last panic message
+        self.panic_text_changed = threading.Condition()
         self.trapped = set()     # threads stopped on a debug trap (their abort follows)
         self.trap_texts = {}       # threadId -> message of the debug trap it stopped on
         self.bp_rules = {}       # (path, line) -> condition / hit count / log message
@@ -1075,7 +1076,9 @@ class Proxy:
             return
         for line in str(body.get("output", "")).splitlines():
             if PANIC_LINE.search(line):
-                self.panic_text = line.strip()
+                with self.panic_text_changed:
+                    self.panic_text = line.strip()
+                    self.panic_text_changed.notify_all()
 
     def note_no_scripting(self, msg):
         """An lldb-dap whose LLDB has no Python cannot load iron_lldb.py:
@@ -1114,6 +1117,13 @@ class Proxy:
                     src = f.get("source") or {}
                     if is_iron_source(src.get("path") or src.get("name")):
                         self.panic_frames[tid] = i
+                        # GDB may forward the abort stop before the stderr
+                        # output event even though the runtime flushed the
+                        # message before aborting. Give its reader thread a
+                        # bounded chance to deliver that already-written line.
+                        with self.panic_text_changed:
+                            if not self.panic_text:
+                                self.panic_text_changed.wait(timeout=1.0)
                         msg = dict(msg, body=dict(body, reason="exception", description="Panic",
                                                   text=self.panic_text or "Iron panic"))
                         break
