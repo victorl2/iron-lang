@@ -1,0 +1,9 @@
+-- Consumer file: calls the pub static functions of lib.iron directly and
+-- through a constrained type parameter.
+
+func main() {
+    val a = Num.zero()
+    val b = parse_or_zero("abc", Num.zero())
+    val c = parse_or_zero("", Num(9))
+    println("{a.n} {b.n} {c.n} {Num.kind()}")
+}
