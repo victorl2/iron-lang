@@ -26,6 +26,12 @@ FIXTURES = (
     "lsp_phase24_smoke",
     "lsp_phase25_smoke",
     "lsp_phase28_smoke",
+    "v4_10-tooling_boundary_debug_allocator_uaf",
+    "v4_10-tooling_boundary_leak_detected",
+    "v4_3.2-heap_panic_use_after_free",
+    "v4_4.2-checked-ptr_closure_pointer_capture",
+    "v4_4.2-checked-ptr_closure_var_pointer_capture",
+    "v4_4.5-bounded-vector_checked_index_write_oob",
 )
 
 

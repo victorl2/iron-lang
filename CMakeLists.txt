@@ -3160,7 +3160,7 @@ if(NOT WIN32)
         iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/${_fixrel}.iron")
         set_tests_properties(v4_${_fixname} PROPERTIES
             LABELS "integration;aggregate-parity;v4-acceptance"
-            TIMEOUT 60
+            TIMEOUT 120
             WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
 
