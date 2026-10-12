@@ -1,0 +1,20 @@
+-- Every primitive integer list specialization can grow and lend a view.
+
+func main() {
+    var i8: [Int8] = []
+    var i16: [Int16] = []
+    var u16: [UInt16] = []
+    var u32: [UInt32] = []
+    var u64: [UInt64] = []
+    i8.push(Int8(-8))
+    i16.push(Int16(-16))
+    u16.push(UInt16(16))
+    u32.push(UInt32(32))
+    u64.push(UInt64(64))
+    assert(i8.view()[0] == Int8(-8), "Int8 list")
+    assert(i16.view()[0] == Int16(-16), "Int16 list")
+    assert(u16.view()[0] == UInt16(16), "UInt16 list")
+    assert(u32.view()[0] == UInt32(32), "UInt32 list")
+    assert(u64.view()[0] == UInt64(64), "UInt64 list")
+    println("primitive lists ok")
+}

@@ -2097,7 +2097,12 @@ IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_key_missing(const char *f, int l
 #ifndef IRON_CODEGEN_PROVIDES_STRUCTS
 
 typedef struct Iron_List_int64_t    { int64_t     *items; int64_t count; int64_t capacity; } Iron_List_int64_t;
+typedef struct Iron_List_int8_t     { int8_t      *items; int64_t count; int64_t capacity; } Iron_List_int8_t;
+typedef struct Iron_List_int16_t    { int16_t     *items; int64_t count; int64_t capacity; } Iron_List_int16_t;
 typedef struct Iron_List_int32_t    { int32_t     *items; int64_t count; int64_t capacity; } Iron_List_int32_t;
+typedef struct Iron_List_uint16_t   { uint16_t    *items; int64_t count; int64_t capacity; } Iron_List_uint16_t;
+typedef struct Iron_List_uint32_t   { uint32_t    *items; int64_t count; int64_t capacity; } Iron_List_uint32_t;
+typedef struct Iron_List_uint64_t   { uint64_t    *items; int64_t count; int64_t capacity; } Iron_List_uint64_t;
 typedef struct Iron_List_double     { double      *items; int64_t count; int64_t capacity; } Iron_List_double;
 typedef struct Iron_List_bool       { bool        *items; int64_t count; int64_t capacity; } Iron_List_bool;
 typedef struct Iron_List_Iron_String { Iron_String *items; int64_t count; int64_t capacity; } Iron_List_Iron_String;
@@ -2122,7 +2127,12 @@ typedef struct Iron_List_uint8_t { uint8_t *items; int64_t count; int64_t capaci
 
 /* Declarations for the pre-instantiated types in iron_collections.c */
 IRON_LIST_DECL(int64_t,     int64_t)
+IRON_LIST_DECL(int8_t,      int8_t)
+IRON_LIST_DECL(int16_t,     int16_t)
 IRON_LIST_DECL(int32_t,     int32_t)
+IRON_LIST_DECL(uint16_t,    uint16_t)
+IRON_LIST_DECL(uint32_t,    uint32_t)
+IRON_LIST_DECL(uint64_t,    uint64_t)
 IRON_LIST_DECL(double,      double)
 IRON_LIST_DECL(bool,        bool)
 IRON_LIST_DECL(Iron_String, Iron_String)
