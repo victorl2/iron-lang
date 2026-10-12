@@ -6879,23 +6879,22 @@ static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_
         iron_parser_sync_toplevel(p);
         return iron_make_error(p);
     }
+    /* `pub val` / `pub var` share a global with the package's other files
+     * (#547); other globals are private to their file, like every other
+     * top-level declaration. */
     if (is_pub && (iron_check(p, IRON_TOK_VAL) || iron_check(p, IRON_TOK_VAR))) {
-        Iron_Token *tok = iron_current(p);
-        const char *which = iron_check(p, IRON_TOK_VAL) ? "val" : "var";
-        char msg[200];
-        snprintf(msg, sizeof(msg),
-                 "top-level `pub %s` is not supported in v3.2; "
-                 "use `pub func` returning a constant, or wrap in a `pub object`",
-                 which);
-        const char *msg_copy = iron_arena_strdup(p->arena, msg, strlen(msg));
-        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                       IRON_ERR_UNEXPECTED_TOKEN,
-                       iron_token_span(p, tok),
-                       msg_copy ? msg_copy : "top-level pub val/var rejected",
-                       NULL);
-        iron_advance(p);
-        iron_parser_sync_toplevel(p);
-        return iron_make_error(p);
+        bool is_val = iron_check(p, IRON_TOK_VAL);
+        Iron_Node *n = is_val ? iron_parse_val_decl(p) : iron_parse_var_decl(p);
+        if (n && n->kind == IRON_NODE_VAL_DECL) {
+            ((Iron_ValDecl *)n)->is_global = true;
+            ((Iron_ValDecl *)n)->is_pub = true;
+        } else if (n && n->kind == IRON_NODE_VAR_DECL) {
+            ((Iron_VarDecl *)n)->is_global = true;
+            ((Iron_VarDecl *)n)->is_pub = true;
+        }
+        p->in_error_recovery = false;
+        p->stmt_errored = false;
+        return n;
     }
 
     /* `test "name" { ... }`: `test` is a keyword only here, before a string. */
@@ -7001,12 +7000,14 @@ static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_
         }
         case IRON_TOK_VAL:       {
             Iron_Node *n = iron_parse_val_decl(p);
+            if (n && n->kind == IRON_NODE_VAL_DECL) ((Iron_ValDecl *)n)->is_global = true;
             p->in_error_recovery = false;
             p->stmt_errored = false;
             return n;
         }
         case IRON_TOK_VAR:       {
             Iron_Node *n = iron_parse_var_decl(p);
+            if (n && n->kind == IRON_NODE_VAR_DECL) ((Iron_VarDecl *)n)->is_global = true;
             p->in_error_recovery = false;
             p->stmt_errored = false;
             return n;

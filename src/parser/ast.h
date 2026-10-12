@@ -605,6 +605,10 @@ typedef struct {
      * NULL entries in binding_names[] mean wildcard (`_`). */
     const char       **binding_names;
     int                binding_count;
+    /* A top-level binding (a global), and whether it was declared `pub`:
+     * globals are private to their file unless pub (#547). */
+    bool               is_global;
+    bool               is_pub;
 } Iron_ValDecl;
 
 typedef struct {
@@ -626,6 +630,9 @@ typedef struct {
     /* Set by capture analysis: a closure captures this var, so it lives in
      * a counted cell the closure env shares (#210). */
     bool               is_boxed;
+    /* A top-level binding (a global), and whether it was declared `pub`. */
+    bool               is_global;
+    bool               is_pub;
 } Iron_VarDecl;
 
 typedef struct {

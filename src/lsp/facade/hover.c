@@ -225,8 +225,27 @@ static const char *render_type_ann(Iron_Node *n, Iron_Arena *arena) {
         Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)n;
         /* Minimal Path-style rendering: name + optional ? and array brackets. */
         SB tmp; sb_init(&tmp, arena);
+        /* Wrappers hold their type in an inner annotation and have no
+         * name of their own: `rc T`, `weak rc T`, `*T`, `[rc T]`. */
+        if (ta->is_pointer && ta->pointer_pointee) {
+            if (ta->is_nullable) sb_append(&tmp, "?");
+            sb_append(&tmp, ta->is_var_pointer ? "*var " : "*");
+            if (ta->is_unchecked) sb_append(&tmp, "unchecked ");
+            sb_append(&tmp, render_type_ann(ta->pointer_pointee, arena));
+            return tmp.buf ? tmp.buf : "Unknown";
+        }
         if (ta->is_array) sb_append(&tmp, "[");
-        sb_append(&tmp, ta->name ? ta->name : "Unknown");
+        if (ta->is_weak_rc && ta->weak_rc_inner) {
+            sb_append(&tmp, "weak rc ");
+            sb_append(&tmp, render_type_ann(ta->weak_rc_inner, arena));
+        } else if (ta->is_rc && ta->rc_inner) {
+            sb_append(&tmp, "rc ");
+            sb_append(&tmp, render_type_ann(ta->rc_inner, arena));
+        } else if (ta->is_array && !ta->name && ta->array_elem_ann) {
+            sb_append(&tmp, render_type_ann(ta->array_elem_ann, arena));
+        } else {
+            sb_append(&tmp, ta->name ? ta->name : "Unknown");
+        }
         if (ta->is_array) sb_append(&tmp, "]");
         if (ta->is_nullable) sb_append(&tmp, "?");
         return tmp.buf ? tmp.buf : "Unknown";

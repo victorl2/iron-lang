@@ -76,6 +76,8 @@ Iron_String            Iron_io_join_path(Iron_String a, Iron_String b);
 Iron_String            Iron_io_extension(Iron_String path);
 bool                   Iron_io_is_dir(Iron_String path);
 Iron_List_Iron_String  Iron_io_read_lines(Iron_String path);
+int64_t                Iron_io_write_stdout(Iron_String s);
+int64_t                Iron_io_write_stderr(Iron_String s);
 
 /* Binary-safe, bounded, error-reporting file surface. */
 Iron_FileReadResult  Iron_io_read_text(Iron_String path, int64_t max_bytes);

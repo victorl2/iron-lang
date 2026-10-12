@@ -1238,6 +1238,13 @@ if(NOT WIN32)
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
   set_tests_properties(debug_stepping_smoke PROPERTIES TIMEOUT 120)
 endif()
+# #595: a breakpoint stops when the program reaches its line, not earlier.
+if(NOT WIN32)
+  add_test(NAME debug_line_order_smoke
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_line_order_smoke.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_line_order_smoke PROPERTIES TIMEOUT 120)
+endif()
 # #312: `ironc build --debug` maps debug info to the .iron source.
 if(NOT WIN32)
   add_test(NAME debug_info_smoke

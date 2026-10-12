@@ -1,0 +1,230 @@
+-- Service configuration: defaults, then an optional config file, then
+-- environment variables (INVENTORY_<KEY>), each layer overriding the last.
+--
+-- The config file holds `key = value` lines; `#` and `--` start comments.
+-- Keys are the environment names without the INVENTORY_ prefix, in lower
+-- case: `port = 8080`, `mysql_url = mysql://...`.
+import io
+import os
+
+pub object Config {
+    pub var host: String
+    pub var port: Int
+    pub var mysql_url: String
+    pub var db_pool_min: Int
+    pub var db_pool_max: Int
+    pub var db_timeout_ms: Int
+    pub var db_acquire_timeout_ms: Int
+    pub var rates_url: String
+    pub var rates_base: String
+    pub var rates_ttl_ms: Int
+    pub var rates_timeout_ms: Int
+    pub var rates_retries: Int
+    pub var rates_backoff_ms: Int
+    pub var breaker_threshold: Int
+    pub var breaker_cooldown_ms: Int
+    pub var request_timeout_ms: Int
+    pub var idle_timeout_ms: Int
+    pub var max_header_bytes: Int
+    pub var max_body_bytes: Int
+    pub var workers: Int
+    pub var report_cache_ms: Int
+    pub var log_level: String
+    pub var log_requests: Bool
+    pub var shutdown_grace_ms: Int
+    pub var source: String
+
+    pub init() {
+        self.host = "0.0.0.0"
+        self.port = 8080
+        self.mysql_url = "mysql://root@127.0.0.1:3306/inventory"
+        self.db_pool_min = 0
+        self.db_pool_max = 32
+        self.db_timeout_ms = 5000
+        self.db_acquire_timeout_ms = 2000
+        self.rates_url = "http://127.0.0.1:8090"
+        self.rates_base = "USD"
+        self.rates_ttl_ms = 60000
+        self.rates_timeout_ms = 1000
+        self.rates_retries = 2
+        self.rates_backoff_ms = 50
+        self.breaker_threshold = 5
+        self.breaker_cooldown_ms = 10000
+        self.request_timeout_ms = 5000
+        self.idle_timeout_ms = 30000
+        self.max_header_bytes = 16384
+        self.max_body_bytes = 65536
+        self.workers = 0
+        self.report_cache_ms = 2000
+        self.log_level = "info"
+        self.log_requests = false
+        self.shutdown_grace_ms = 10000
+        self.source = "defaults"
+    }
+}
+
+-- Result of loading: the config plus every problem found (empty when valid).
+pub object ConfigResult {
+    pub val config: Config
+    pub val errors: [String]
+}
+
+-- Parse `key = value` lines into a map. Malformed lines become errors.
+func parse_config_text(text: String, var errors: [String]) -> Map[String, String] {
+    var values = Map[String, String]()
+    var line_no = 0
+    for raw in text.split("\n") {
+        line_no += 1
+        val line = raw.trim()
+        if line.len() == 0 or line.starts_with("#") or line.starts_with("--") {
+            continue
+        }
+        val eq = line.index_of("=")
+        if eq <= 0 {
+            errors.push("config line {line_no}: expected key = value")
+            continue
+        }
+        val key = line.substring(0, eq).trim().lower()
+        var value = line.substring(eq + 1, line.len()).trim()
+        if value.len() >= 2 and value.starts_with("\"") and value.ends_with("\"") {
+            value = value.substring(1, value.len() - 1)
+        }
+        values.put(key, value)
+    }
+    return values
+}
+
+-- Strict decimal integer parse: optional minus sign, digits only.
+pub func parse_int_strict(s: String) -> Int? {
+    if s.len() == 0 or s.len() > 18 {
+        return null
+    }
+    var i = 0
+    var neg = false
+    if s.byte_at(0) == 45 {
+        neg = true
+        i = 1
+        if s.len() == 1 {
+            return null
+        }
+    }
+    var n = 0
+    while i < s.byte_len() {
+        val b = s.byte_at(i)
+        if b < 48 or b > 57 {
+            return null
+        }
+        n = n * 10 + (b - 48)
+        i += 1
+    }
+    if neg {
+        return 0 - n
+    }
+    return n
+}
+
+-- Look a key up: environment first, then the file, else null.
+func lookup(file: Map[String, String], key: String) -> String? {
+    val env = OS.env("INVENTORY_" + key.upper())
+    if env != null {
+        return env
+    }
+    if file.has(key) {
+        return file.get(key)
+    }
+    return null
+}
+
+func int_setting(file: Map[String, String], key: String, current: Int, lo: Int, hi: Int, var errors: [String]) -> Int {
+    val raw = lookup(file, key)
+    if raw == null {
+        return current
+    }
+    val v = parse_int_strict(raw.trim())
+    if v == null {
+        errors.push("{key}: not an integer: {raw}")
+        return current
+    }
+    if v < lo or v > hi {
+        errors.push("{key}: {v} is outside {lo}..{hi}")
+        return current
+    }
+    return v
+}
+
+func str_setting(file: Map[String, String], key: String, current: String) -> String {
+    val raw = lookup(file, key)
+    if raw == null {
+        return current
+    }
+    return raw
+}
+
+func bool_setting(file: Map[String, String], key: String, current: Bool, var errors: [String]) -> Bool {
+    val raw = lookup(file, key)
+    if raw == null {
+        return current
+    }
+    val v = raw.trim().lower()
+    if v == "1" or v == "true" or v == "yes" or v == "on" {
+        return true
+    }
+    if v == "0" or v == "false" or v == "no" or v == "off" {
+        return false
+    }
+    errors.push("{key}: not a boolean: {raw}")
+    return current
+}
+
+-- Load the configuration. `path` is the config file ("" for none).
+pub func load_config(path: String) -> ConfigResult {
+    var errors: [String] = []
+    var c = Config()
+    var file = Map[String, String]()
+    if path.len() > 0 {
+        val read = IO.read_text(path, 1048576)
+        if read.error != 0 {
+            errors.push("config file {path}: {read.error_message}")
+        } else {
+            file = parse_config_text(read.data, errors)
+            c.source = path
+        }
+    }
+    c.host = str_setting(file, "host", c.host)
+    c.port = int_setting(file, "port", c.port, 0, 65535, errors)
+    c.mysql_url = str_setting(file, "mysql_url", c.mysql_url)
+    c.db_pool_min = int_setting(file, "db_pool_min", c.db_pool_min, 0, 1024, errors)
+    c.db_pool_max = int_setting(file, "db_pool_max", c.db_pool_max, 1, 1024, errors)
+    c.db_timeout_ms = int_setting(file, "db_timeout_ms", c.db_timeout_ms, 0, 600000, errors)
+    c.db_acquire_timeout_ms = int_setting(file, "db_acquire_timeout_ms", c.db_acquire_timeout_ms, 1, 600000, errors)
+    c.rates_url = str_setting(file, "rates_url", c.rates_url)
+    c.rates_base = str_setting(file, "rates_base", c.rates_base).upper()
+    c.rates_ttl_ms = int_setting(file, "rates_ttl_ms", c.rates_ttl_ms, 100, 86400000, errors)
+    c.rates_timeout_ms = int_setting(file, "rates_timeout_ms", c.rates_timeout_ms, 10, 600000, errors)
+    c.rates_retries = int_setting(file, "rates_retries", c.rates_retries, 0, 10, errors)
+    c.rates_backoff_ms = int_setting(file, "rates_backoff_ms", c.rates_backoff_ms, 0, 60000, errors)
+    c.breaker_threshold = int_setting(file, "breaker_threshold", c.breaker_threshold, 1, 1000, errors)
+    c.breaker_cooldown_ms = int_setting(file, "breaker_cooldown_ms", c.breaker_cooldown_ms, 0, 3600000, errors)
+    c.request_timeout_ms = int_setting(file, "request_timeout_ms", c.request_timeout_ms, 10, 600000, errors)
+    c.idle_timeout_ms = int_setting(file, "idle_timeout_ms", c.idle_timeout_ms, 10, 3600000, errors)
+    c.max_header_bytes = int_setting(file, "max_header_bytes", c.max_header_bytes, 1024, 1048576, errors)
+    c.max_body_bytes = int_setting(file, "max_body_bytes", c.max_body_bytes, 0, 67108864, errors)
+    c.workers = int_setting(file, "workers", c.workers, 0, 4096, errors)
+    c.report_cache_ms = int_setting(file, "report_cache_ms", c.report_cache_ms, 0, 3600000, errors)
+    c.log_level = str_setting(file, "log_level", c.log_level).lower()
+    c.log_requests = bool_setting(file, "log_requests", c.log_requests, errors)
+    c.shutdown_grace_ms = int_setting(file, "shutdown_grace_ms", c.shutdown_grace_ms, 0, 600000, errors)
+    if c.db_pool_min > c.db_pool_max {
+        errors.push("db_pool_min ({c.db_pool_min}) is larger than db_pool_max ({c.db_pool_max})")
+    }
+    if not (c.log_level == "debug" or c.log_level == "info" or c.log_level == "warn" or c.log_level == "error") {
+        errors.push("log_level: expected debug, info, warn or error, got {c.log_level}")
+    }
+    if c.rates_base.len() != 3 {
+        errors.push("rates_base: expected a three letter currency code")
+    }
+    if not (c.rates_url.starts_with("http://") or c.rates_url.starts_with("https://")) {
+        errors.push("rates_url: expected an http:// or https:// origin")
+    }
+    return ConfigResult(c, errors.take())
+}

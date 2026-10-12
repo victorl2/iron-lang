@@ -56,4 +56,25 @@ Iron_Node *ilsp_nav_decl_at(const struct IronLsp_Document *doc,
 }
 #endif
 
+/* iron_ast_walk stops at a type annotation's generic arguments: the type
+ * a wrapper holds (`rc T`, `weak rc T`, `*T`, `[rc T]`, the parameter and
+ * return types of a function type, a tuple's elements) is not visited. A
+ * visitor that wants the names inside calls this from its visit of a type
+ * annotation node; each inner annotation is walked with the same visitor. */
+static inline void ilsp_nav_walk_type_inner(Iron_Node *type_annotation, Iron_Visitor *v) {
+    if (!type_annotation || type_annotation->kind != IRON_NODE_TYPE_ANNOTATION || !v) return;
+    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)type_annotation;
+    Iron_Node *single[] = { ta->pointer_pointee, ta->rc_inner, ta->weak_rc_inner,
+                            ta->array_elem_ann, ta->func_return };
+    for (size_t i = 0; i < sizeof(single) / sizeof(single[0]); i++) {
+        if (single[i]) iron_ast_walk(single[i], v);
+    }
+    for (int i = 0; ta->func_params && i < ta->func_param_count; i++) {
+        if (ta->func_params[i]) iron_ast_walk(ta->func_params[i], v);
+    }
+    for (int i = 0; ta->tuple_elems && i < ta->tuple_elem_count; i++) {
+        if (ta->tuple_elems[i]) iron_ast_walk(ta->tuple_elems[i], v);
+    }
+}
+
 #endif /* IRON_LSP_FACADE_NAV_NODE_AT_H */
