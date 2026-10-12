@@ -36,5 +36,10 @@ bool iron_stdlib_origin_is_stub_file(const char *filename);
  * its declarations carry the user file's name). The resolver's visibility
  * carve-out falls back to its line threshold on -1. */
 int iron_stdlib_origin_classify(const char *filename);
+/* The files `-- @file:` markers named while lexing (iron's combined
+ * package source names each package file so, empty files included):
+ * import validation matches them. Cleared by iron_stdlib_origin_reset. */
+void iron_source_marker_add(const char *path);
+const char *iron_source_marker_get(int i);   /* NULL past the last */
 
 #endif
