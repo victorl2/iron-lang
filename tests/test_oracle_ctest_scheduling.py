@@ -68,6 +68,11 @@ def main() -> int:
         "mod_fuzz_incr",
         "mod_fuzz_tests",
         "cli_fuzz",
+        "test_http_iron_concurrency",
+        "test_websocket_iron_roundtrip",
+        "test_file_operations_iron_roundtrip",
+        "test_udp_iron_payload_roundtrip",
+        "lsp_phase22_smoke",
     )
     for name in four_worker_tests:
         if properties(tests[name]).get("PROCESSORS", 0) < 4:

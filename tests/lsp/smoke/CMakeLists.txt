@@ -216,6 +216,7 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
         set_tests_properties(lsp_phase22_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase22-invariant"
             TIMEOUT 60
+            PROCESSORS 4
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
 
         # Phase 23 Plan 03 closeout: VEC-04 (E0282) + VEC-283 (E0283) publishDiagnostics
@@ -476,7 +477,8 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
         set_tests_properties(lsp_phase22_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase22-invariant"
             SKIP_RETURN_CODE 77
-            TIMEOUT 30)
+            TIMEOUT 30
+            PROCESSORS 4)
 
         # Phase 23 Plan 03 closeout: SKIP shim for lsp_phase23_smoke when
         # pytest-lsp is absent. ctest -L phase23-invariant stays green.
