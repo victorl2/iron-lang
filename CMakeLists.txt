@@ -3234,6 +3234,14 @@ if(NOT WIN32)
   set_tests_properties(debug_tuple_names PROPERTIES TIMEOUT 120
     ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:detect_stack_use_after_return=1")
 endif()
+# A generic instance's statements keep their own lines in a --debug build
+# (#722).
+if(NOT WIN32)
+  add_test(NAME debug_generic_lines
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_generic_lines.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_generic_lines PROPERTIES TIMEOUT 120)
+endif()
 # #312: a panic stops the debugger on the Iron line (iron debug, iron dap).
 if(NOT WIN32)
   add_test(NAME debug_panic_smoke

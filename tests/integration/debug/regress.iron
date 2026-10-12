@@ -39,7 +39,7 @@ object Counter {
 }
 
 func gid[T](v: T) -> T {
-    return v
+    return v -- @gid_body
 }
 
 func rec(n: Int) -> Int {

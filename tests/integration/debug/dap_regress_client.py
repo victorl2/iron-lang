@@ -168,6 +168,9 @@ def main():
             step("next")
         got = step("stepIn")
         check(got[0] == name, "step into the %s call: %s" % (mark, got))
+        if mark == "generic":
+            # the instance's statement, not the declaration's line (#722)
+            check(got[1] == lines["gid_body"], "the generic instance's line: %s" % (got,))
         step("stepOut")
     for _ in range(6):
         if at()[1] == lines["call_lambda"]:
