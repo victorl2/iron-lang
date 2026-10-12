@@ -430,7 +430,7 @@ class Gen:
         if r.random() < 0.3:
             v = round(r.uniform(-1000, 1000), r.randint(0, 6))
         if r.random() < 0.3:
-            v = -v
+            v = -v + 0.0   # not -0.0: its literal is written 0.0
         if tname == "Float32":
             v = f32(v)
         return VFloat(T("float", name=tname), v)

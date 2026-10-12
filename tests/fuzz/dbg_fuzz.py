@@ -890,6 +890,8 @@ def main(argv):
         i = args.index("-j")
         jobs = int(args[i + 1])
         del args[i:i + 2]
+    if adapter is None and os.path.basename(os.environ.get("IRON_DAP_ADAPTER", "")).startswith("gdb"):
+        adapter = "gdb"
     if args and args[0] == "--gen":
         area, seed = args[1], args[2]
         rng = random.Random("%s-%s" % (area, seed))

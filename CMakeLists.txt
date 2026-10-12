@@ -3161,6 +3161,12 @@ install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib COMPONENT iron FILES_MATCHI
 find_package(Python3 COMPONENTS Interpreter QUIET)
 # Also on Windows, with LLVM's lldb-dap (#388).
 if(Python3_Interpreter_FOUND)
+  # A source line longer than a diagnostic's snippet is not cut inside a
+  # UTF-8 sequence (#721).
+  add_test(NAME diag_long_utf8_line
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_utf8.py
+                   $<TARGET_FILE:ironc>
+                   ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/long_utf8_line.iron W0601)
   add_test(NAME debug_dap_smoke
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/dap_client.py
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/stepping.iron
