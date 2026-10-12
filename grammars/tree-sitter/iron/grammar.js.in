@@ -194,6 +194,7 @@ module.exports = grammar({
     // skip list. Mirrors the modifier-prefix discipline applied to
     // func_declaration (D-13) and block_method_declaration (D-11).
     method_signature: $ => seq(
+      optional($.static_modifier),
       repeat($.mutation_tier_modifier),
       'func',
       field('name', $.identifier),
@@ -323,6 +324,9 @@ module.exports = grammar({
     // `pure`; multi-tier stacking via repeat(...) at the call site.
     visibility_modifier:    $ => 'pub',
     mutation_tier_modifier: $ => choice('readonly', 'pure'),
+    // `static func` in an object, patch or interface body: a function of
+    // the type, called as `Type.f()`, with no receiver.
+    static_modifier:        $ => 'static',
     param_mut_modifier:     $ => choice('mut', 'var', 'val'),
 
     // ── v3 init declaration (D-05) ─────────────────────────────────────
@@ -373,6 +377,7 @@ module.exports = grammar({
     block_method_declaration: $ => seq(
       optional(seq('@', 'fusible')),
       optional($.visibility_modifier),
+      optional($.static_modifier),
       repeat($.mutation_tier_modifier),
       'func',
       field('name', $.identifier),

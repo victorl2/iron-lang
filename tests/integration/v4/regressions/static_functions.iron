@@ -1,0 +1,56 @@
+-- static func in object and patch bodies (#455): called on the type, no
+-- receiver, may be pub, generic, and use Self; Self.f() in a method body
+-- (#647).
+object Vec {
+    val x: Int
+    val y: Int
+    init(x: Int, y: Int) {
+        self.x = x
+        self.y = y
+    }
+    static func zero() -> Self {
+        return Vec(0, 0)
+    }
+    static func of_list(xs: [Int]) -> Vec? {
+        if xs.len() != 2 {
+            return null
+        }
+        return Self(xs[0], xs[1])
+    }
+    static func many(n: Int) -> [Self] {
+        var out: [Self] = []
+        for i in range(n) {
+            out.push(Self(i, i * i))
+        }
+        return out
+    }
+    readonly func plus_unit() -> Vec {
+        val u = Self.unit()
+        return Vec(self.x + u.x, self.y + u.y)
+    }
+}
+
+patch object Vec {
+    static func unit() -> Vec {
+        return Vec(1, 1)
+    }
+    static func tagged[T](tag: T) -> (Vec, T) {
+        return (Vec.zero(), tag)
+    }
+}
+
+func main() {
+    val z = Vec.zero()
+    println("{z.x} {z.y}")
+    val v = Vec.of_list([3, 4])
+    if v != null {
+        println("{v.x} {v.y} {v.plus_unit().x}")
+    }
+    println("{Vec.of_list([1]) == null}")
+    val ms = Vec.many(4)
+    println("{ms.len()} {ms[3].y}")
+    val (t, s) = Vec.tagged("label")
+    println("{t.x} {s}")
+    val (t2, n) = Vec.tagged(42)
+    println("{t2.y} {n}")
+}

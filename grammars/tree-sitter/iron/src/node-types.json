@@ -623,6 +623,10 @@
           "named": true
         },
         {
+          "type": "static_modifier",
+          "named": true
+        },
+        {
           "type": "visibility_modifier",
           "named": true
         }
@@ -1912,6 +1916,10 @@
         {
           "type": "mutation_tier_modifier",
           "named": true
+        },
+        {
+          "type": "static_modifier",
+          "named": true
         }
       ]
     }
@@ -3083,6 +3091,10 @@
   {
     "type": "spawn",
     "named": false
+  },
+  {
+    "type": "static_modifier",
+    "named": true
   },
   {
     "type": "test",
