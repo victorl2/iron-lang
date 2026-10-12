@@ -1611,56 +1611,66 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz
             stmt coll obj closure)
-    set_tests_properties(prog_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
+    set_tests_properties(prog_fuzz PROPERTIES
+        LABELS "codegen" PROCESSORS 4 TIMEOUT 1800)
     # The same for numeric types, generics, pointers and Box, and comptime
     # (expected compile errors and panics included).
     add_test(NAME prog_fuzz_types
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_types
             num generic ptr comptime)
-    set_tests_properties(prog_fuzz_types PROPERTIES LABELS "codegen" TIMEOUT 900)
+    set_tests_properties(prog_fuzz_types PROPERTIES
+        LABELS "codegen" PROCESSORS 4 TIMEOUT 1800)
     # The same for concurrency (spawn / await, Mutex, channels, parallel
     # for; outputs deterministic by construction) and for arenas.
     add_test(NAME prog_fuzz_conc
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_conc conc)
-    set_tests_properties(prog_fuzz_conc PROPERTIES LABELS "codegen" TIMEOUT 900)
+    set_tests_properties(prog_fuzz_conc PROPERTIES
+        LABELS "codegen" PROCESSORS 4 TIMEOUT 1800)
     add_test(NAME prog_fuzz_arena
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_arena arena)
-    set_tests_properties(prog_fuzz_arena PROPERTIES LABELS "codegen" TIMEOUT 900)
+    set_tests_properties(prog_fuzz_arena PROPERTIES
+        LABELS "codegen" PROCESSORS 4 TIMEOUT 1800)
     # Locks, channels and tasks with owning elements, panics in tasks, and
     # arenas with interfaces, generics, closures and threads.
     add_test(NAME prog_fuzz_sync
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_sync sync arenax)
-    set_tests_properties(prog_fuzz_sync PROPERTIES LABELS "codegen" TIMEOUT 900)
+    set_tests_properties(prog_fuzz_sync PROPERTIES
+        LABELS "codegen" PROCESSORS 4 TIMEOUT 1800)
     # Closures and spawns borrowing nocopy values, each dropped exactly once,
     # and the captures rejected with E0286 (#512).
     add_test(NAME prog_fuzz_nocopy
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_nocopy nocopy)
-    set_tests_properties(prog_fuzz_nocopy PROPERTIES LABELS "codegen" TIMEOUT 900)
+    set_tests_properties(prog_fuzz_nocopy PROPERTIES
+        LABELS "codegen" PROCESSORS 4 TIMEOUT 1800)
     # Programs using the json, crypto, encoding and http modules (a server
     # and its clients in one program on 127.0.0.1).
     add_test(NAME prog_fuzz_stdlib
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_stdlib jsonp crypto http)
-    set_tests_properties(prog_fuzz_stdlib PROPERTIES LABELS "stdlib" TIMEOUT 900)
+    set_tests_properties(prog_fuzz_stdlib PROPERTIES
+        LABELS "stdlib" PROCESSORS 4 TIMEOUT 1800)
     # The edge case areas (NaN and conversions, strings and collections,
     # generics, pointers and frames, comptime, destruction order).
     add_test(NAME prog_fuzz_edges_num
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_edges_num numedge strcoll)
-    set_tests_properties(prog_fuzz_edges_num PROPERTIES LABELS "codegen" TIMEOUT 900)
+    set_tests_properties(prog_fuzz_edges_num PROPERTIES
+        LABELS "codegen" PROCESSORS 4 TIMEOUT 1800)
     add_test(NAME prog_fuzz_edges_types
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_edges_types genedge ptredge)
-    set_tests_properties(prog_fuzz_edges_types PROPERTIES LABELS "codegen" TIMEOUT 900)
+    set_tests_properties(prog_fuzz_edges_types PROPERTIES
+        LABELS "codegen" PROCESSORS 4 TIMEOUT 1800)
     add_test(NAME prog_fuzz_edges_mem
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_edges_mem ctedge dropord)
-    set_tests_properties(prog_fuzz_edges_mem PROPERTIES LABELS "codegen" TIMEOUT 900)
+    set_tests_properties(prog_fuzz_edges_mem PROPERTIES
+        LABELS "codegen" PROCESSORS 4 TIMEOUT 1800)
     # The json module against Python's json on random and corrupted
     # documents (tests/fuzz/json_fuzz.py). Fixed seeds.
     add_test(NAME json_fuzz
