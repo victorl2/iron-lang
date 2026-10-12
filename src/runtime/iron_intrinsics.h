@@ -373,15 +373,18 @@ void        iron_sb_push_uint(void *sb, uint64_t n);          /* iron_string.c *
 
 IRON_INTR_FN void iron_sb_reserve(void *p, int64_t extra) {
     Iron_SBRT *sb = (Iron_SBRT *)p;
+    if (sb->capacity < 0) sb->capacity = sb->length;
     if (extra > sb->capacity - sb->length) iron_sb_grow(sb, extra);
 }
 IRON_INTR_FN void iron_sb_push_byte(void *p, uint8_t b) {
     Iron_SBRT *sb = (Iron_SBRT *)p;
+    if (sb->capacity < 0) sb->capacity = sb->length;
     if (sb->length == sb->capacity) iron_sb_grow(sb, 1);
     ((uint8_t *)(uintptr_t)sb->data)[sb->length++] = b;
 }
 IRON_INTR_FN void iron_sb_push_bytes(void *p, Iron_View_uint8_t b) {
     Iron_SBRT *sb = (Iron_SBRT *)p;
+    if (sb->capacity < 0) sb->capacity = sb->length;
     if (b.len > sb->capacity - sb->length) iron_sb_grow(sb, b.len);
     if (b.len > 0)
         __builtin_memcpy((uint8_t *)(uintptr_t)sb->data + sb->length, b.ptr, (size_t)b.len);
@@ -395,21 +398,31 @@ IRON_INTR_FN void iron_sb_push_str(void *p, Iron_String s) {
 IRON_INTR_FN Iron_View_uint8_t iron_sb_spare(void *p, int64_t n, const char *site_file, int site_line) {
     Iron_SBRT *sb = (Iron_SBRT *)p;
     if (n < 0) iron_panic_view_range(site_file, site_line, 0, n, 0);
+    if (sb->capacity < 0) sb->capacity = sb->length;
     if (n > sb->capacity - sb->length) iron_sb_grow(sb, n);
     Iron_View_uint8_t v;
     v.ptr = (uint8_t *)(uintptr_t)sb->data + sb->length;
     v.len = n;
     if (n > 0) __builtin_memset(v.ptr, 0, (size_t)n);
+    /* A negative capacity marks one active reservation and encodes its
+     * exclusive end. Normal mutators cancel it before using capacity. */
+    sb->capacity = -(sb->length + n) - 1;
     return v;
 }
 IRON_INTR_FN void iron_sb_commit(void *p, int64_t n, const char *site_file, int site_line) {
     Iron_SBRT *sb = (Iron_SBRT *)p;
-    if ((uint64_t)n > (uint64_t)(sb->capacity - sb->length))
-        iron_panic_view_range(site_file, site_line, 0, n, sb->capacity - sb->length);
+    int64_t reserved = sb->capacity < 0 ? -(sb->capacity + 1) - sb->length : 0;
+    if (sb->capacity >= 0 || (uint64_t)n > (uint64_t)reserved)
+        iron_panic_view_range(site_file, site_line, 0, n, reserved);
     sb->length += n;
+    sb->capacity = sb->length;  /* consume the reservation */
 }
 IRON_INTR_FN int64_t iron_sb_len(const void *p) { return ((const Iron_SBRT *)p)->length; }
-IRON_INTR_FN void iron_sb_clear(void *p) { ((Iron_SBRT *)p)->length = 0; }
+IRON_INTR_FN void iron_sb_clear(void *p) {
+    Iron_SBRT *sb = (Iron_SBRT *)p;
+    if (sb->capacity < 0) sb->capacity = sb->length;
+    sb->length = 0;
+}
 IRON_INTR_FN Iron_View_uint8_t iron_sb_bytes(const void *p) {
     const Iron_SBRT *sb = (const Iron_SBRT *)p;
     Iron_View_uint8_t v;
@@ -444,6 +457,8 @@ void Iron_stringbuilder__release(int64_t data);
 #define iron_t_list_spare(VT, lp, n)                                            \
     ({ __typeof__(lp) _l = (lp); int64_t _n = (n);                              \
        if (_n < 0) iron_panic_view_range(IRON_SITE, 0, _n, 0);                  \
+       if (_l->capacity < 0) _l->capacity = _l->count;                          \
+       if (_n > INT64_MAX - _l->count) iron_oom_abort("spare");                \
        if (_n > _l->capacity - _l->count) {                                     \
            int64_t _cap = _l->capacity ? _l->capacity * 2 : 8;                  \
            if (_cap < _l->count + _n) _cap = _l->count + _n;                    \
@@ -453,12 +468,14 @@ void Iron_stringbuilder__release(int64_t data);
            _l->items = (__typeof__(_l->items))_ni; _l->capacity = _cap;         \
        }                                                                        \
        if (_n > 0) iron_mem_set(_l->items + _l->count, 0, (size_t)_n * sizeof(*_l->items)); \
+       _l->capacity = -(_l->count + _n) - 1;                                    \
        ((VT){ _l->items + _l->count, _n }); })
 #define iron_list_commit(lp, n)                                                 \
     do { __typeof__(lp) _l = (lp); int64_t _n = (n);                            \
-         if ((uint64_t)_n > (uint64_t)(_l->capacity - _l->count))               \
-             iron_panic_view_range(IRON_SITE, 0, _n, _l->capacity - _l->count); \
-         _l->count += _n; } while (0)
+         int64_t _r = _l->capacity < 0 ? -(_l->capacity + 1) - _l->count : 0;   \
+         if (_l->capacity >= 0 || (uint64_t)_n > (uint64_t)_r)                  \
+             iron_panic_view_range(IRON_SITE, 0, _n, _r);                       \
+         _l->count += _n; _l->capacity = _l->count; } while (0)
 /* Element equality: bit equality for integers and Bool, == for floats
  * (so -0.0 equals 0.0 and NaN equals nothing, as with ==). */
 #define IRON_VIEW_IS_FLOAT(v) _Generic((v).ptr, float *: 1, double *: 1, default: 0)

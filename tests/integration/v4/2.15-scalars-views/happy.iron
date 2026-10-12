@@ -1,0 +1,117 @@
+-- Scalar parser building blocks, borrowed views, StringBuilder and alignment.
+
+//iron:inline
+func add_one(x: Int) -> Int {
+    return x + 1
+}
+
+//iron:noinline
+func identity(x: Int) -> Int {
+    return x
+}
+
+//iron:cold
+func cold_value() -> Int {
+    return 9
+}
+
+func inner(b: Bytes) -> Bytes {
+    return b.slice(1, b.len() - 1)
+}
+
+//iron:align=64
+object CacheLine {
+    //iron:align=32
+    val words: [UInt64; 4]
+}
+
+func main() {
+    assert(UInt8(0).leading_zeros() == 8, "leading zero width")
+    assert(UInt8(0).trailing_zeros() == 8, "trailing zero width")
+    assert(UInt16(0x00f0).leading_zeros() == 8, "leading zeros")
+    assert(UInt16(0x00f0).trailing_zeros() == 4, "trailing zeros")
+    assert(UInt32(0xf0f0).count_ones() == 8, "count ones")
+    assert(UInt8(0b10110000).clear_lowest_bit() == UInt8(0b10100000), "clear bit")
+    assert(UInt8(0b10110000).lowest_bit() == UInt8(0b00010000), "lowest bit")
+    assert(UInt8(0x81).rotate_left(1) == UInt8(0x03), "rotate left")
+    assert(UInt8(0x81).rotate_right(1) == UInt8(0xc0), "rotate right")
+    assert(UInt32(0x11223344).byte_swap() == UInt32(0x44332211), "byte swap")
+    assert(UInt8(0b00000101).prefix_xor() == UInt8(0b00000011), "prefix xor")
+
+    val u64_max = UInt64(0) - UInt64(1)
+    val (wide_hi, wide_lo) = u64_max.mul_wide(UInt64(2))
+    assert(wide_hi == UInt64(1) and wide_lo == u64_max - UInt64(1), "wide multiply")
+    assert(u64_max.mul_high(UInt64(2)) == UInt64(1), "multiply high")
+
+    val (add_v, add_o) = UInt8(255).add_overflow(UInt8(1))
+    val (sub_v, sub_o) = UInt8(0).sub_overflow(UInt8(1))
+    val (mul_v, mul_o) = Int8(100).mul_overflow(Int8(2))
+    val (carry_v, carry_o) = UInt8(255).add_carry(UInt8(0), true)
+    assert(add_v == UInt8(0) and add_o, "add overflow")
+    assert(sub_v == UInt8(255) and sub_o, "sub overflow")
+    assert(Int(mul_v) == -56 and mul_o, "mul overflow")
+    assert(carry_v == UInt8(0) and carry_o, "add carry")
+
+    assert(Float.from_bits(UInt64(0x3ff0000000000000)) == 1.0, "Float.from_bits")
+    assert(1.0.to_bits() == UInt64(0x3ff0000000000000), "Float.to_bits")
+    assert(Float32.from_bits(UInt32(0x3f800000)) == Float32(1.0), "Float32.from_bits")
+    assert(Float32(1.0).to_bits() == UInt32(0x3f800000), "Float32.to_bits")
+    assert(Int64.from_bits(u64_max) == -1, "Int64.from_bits")
+    assert(Int64(-1).to_bits() == u64_max, "Int64.to_bits")
+    assert(Hint.likely(true) and not Hint.unlikely(false), "branch hints")
+
+    val b = "hello".bytes()
+    assert(b.len() == 5 and b[1] == UInt8(101), "string bytes")
+    val mid = inner(b)
+    assert(mid.to_string() == "ell", "slice and return")
+    assert(b.index_of(UInt8(108)) == 2, "index_of")
+    assert(b.starts_with("he") and b.ends_with("lo") and b.equals("hello"), "view compare")
+    assert(b.load_u64_le_or(3, UInt8(0x2e)) == UInt64(0x2e2e2e2e2e2e6f6c), "tail load")
+    val exact = String.from_utf8(b)
+    assert(exact != null and exact == "hello", "valid utf8")
+
+    var xs: [UInt8] = [UInt8(1), UInt8(2), UInt8(3)]
+    val xw = xs.view_mut()
+    xw[1] = UInt8(9)
+    xw.fill(UInt8(7))
+    assert(xs[0] == UInt8(7) and xs[2] == UInt8(7), "mutable view")
+    val spare = xs.spare(2)
+    spare[0] = UInt8(8)
+    spare[1] = UInt8(9)
+    xs.commit(2)
+    assert(xs.len() == 5 and xs[3] == UInt8(8) and xs[4] == UInt8(9), "list spare")
+    var partial: [UInt8] = []
+    val partial_room = partial.spare(2)
+    partial_room[0] = UInt8(5)
+    partial_room[1] = UInt8(6)
+    partial.commit(1)
+    assert(partial.len() == 1 and partial[0] == UInt8(5), "partial list commit")
+
+    var sb = StringBuilder.with_capacity(8)
+    sb.push_str("ab")
+    sb.push_byte(UInt8(99))
+    sb.push_bytes("de")
+    sb.push_int(-12)
+    sb.push_uint(UInt64(34))
+    val room = sb.spare(2)
+    room[0] = UInt8(33)
+    room[1] = UInt8(63)
+    sb.commit(2)
+    assert(sb.len() == 12 and sb.bytes().ends_with("!?"), "builder view")
+    val built = sb.finish()
+    assert(built == "abcde-1234!?", "builder finish")
+    var partial_sb = StringBuilder.new()
+    val partial_bytes = partial_sb.spare(2)
+    partial_bytes[0] = UInt8(120)
+    partial_bytes[1] = UInt8(121)
+    partial_sb.commit(1)
+    assert(partial_sb.finish() == "x", "partial builder commit")
+
+    //iron:align=64
+    val line = CacheLine([UInt64(1), UInt64(2), UInt64(3), UInt64(4)])
+    var lines: [CacheLine] = [line]
+    lines.push(line)
+    assert(lines[1].words[3] == UInt64(4), "aligned list storage")
+    assert(add_one(identity(cold_value())) == 10, "function hints")
+    println("scalar views ok")
+}

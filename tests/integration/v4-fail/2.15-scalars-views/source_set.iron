@@ -1,0 +1,6 @@
+func main() {
+    var xs = [1, 2, 3]
+    val view = xs.view()
+    xs.set(0, 9)
+    println("{view[0]}")
+}

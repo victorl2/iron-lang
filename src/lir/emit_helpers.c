@@ -206,6 +206,7 @@ const char *emit_ensure_nested_list(EmitCtx *ctx, const Iron_Type *elem) {
         "}\n"
         "void %s_clear(%s *self) {\n"
         "    for (int64_t _i = 0; _i < self->count; _i++) %s_free(&self->items[_i]);\n"
+        "    IRON_LIST_CANCEL_SPARE(self);\n"
         "    self->count = 0;\n"
         "}\n\n",
         result, result, result,
@@ -269,6 +270,7 @@ const char *emit_ensure_rc_list(EmitCtx *ctx, const Iron_Type *elem) {
         "}\n"
         "void %s_clear(%s *self) {\n"
         "    for (int64_t _i = 0; _i < self->count; _i++) %s((void *)self->items[_i]);\n"
+        "    IRON_LIST_CANCEL_SPARE(self);\n"
         "    self->count = 0;\n"
         "}\n\n",
         result, result, result,
@@ -330,6 +332,7 @@ const char *emit_ensure_nullable_list(EmitCtx *ctx, const Iron_Type *elem) {
         "    for (int64_t _i = 0; _i < self->count; _i++) {\n"
         "%s"
         "    }\n"
+        "    IRON_LIST_CANCEL_SPARE(self);\n"
         "    self->count = 0;\n"
         "}\n"
         "void %s_free(%s *self) {\n"
@@ -425,6 +428,7 @@ const char *emit_ensure_container_list(EmitCtx *ctx, const Iron_Type *elem) {
         "    for (int64_t _i = 0; _i < self->count; _i++) {\n"
         "%s"
         "    }\n"
+        "    IRON_LIST_CANCEL_SPARE(self);\n"
         "    self->count = 0;\n"
         "}\n"
         "void %s_free(%s *self) {\n"

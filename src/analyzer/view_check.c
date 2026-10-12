@@ -325,8 +325,14 @@ static bool mut_visit(Iron_Visitor *v, Iron_Node *n) {
         case IRON_NODE_ASSIGN: {
             Iron_AssignStmt *as = (Iron_AssignStmt *)n;
             Iron_Type *tt = expr_type(as->target);
-            if (as->target && as->target->kind != IRON_NODE_INDEX &&
-                !(tt && (iron_type_is_numeric(tt) || tt->kind == IRON_TYPE_BOOL))) {
+            bool through_view_mut = false;
+            if (as->target && as->target->kind == IRON_NODE_INDEX) {
+                Iron_Type *ot = expr_type(((Iron_IndexExpr *)as->target)->object);
+                through_view_mut = ot && ot->kind == IRON_TYPE_VIEW && ot->view.is_mut;
+            }
+            if (as->target && !through_view_mut &&
+                (as->target->kind == IRON_NODE_INDEX ||
+                 !(tt && (iron_type_is_numeric(tt) || tt->kind == IRON_TYPE_BOOL)))) {
                 Root r = place_root(f, as->target);
                 if (r.kind == ROOT_SYM) conflict(f, n, r.sym, "assign to");
             }
@@ -339,7 +345,8 @@ static bool mut_visit(Iron_Visitor *v, Iron_Node *n) {
             bool mutates = false;
             if (mc->intrinsic) {
                 switch (mc->intrinsic) {
-                    case IRON_INTR_LIST_SPARE: case IRON_INTR_SB_PUSH_BYTE:
+                    case IRON_INTR_LIST_SPARE: case IRON_INTR_LIST_COMMIT:
+                    case IRON_INTR_SB_PUSH_BYTE:
                     case IRON_INTR_SB_PUSH_BYTES: case IRON_INTR_SB_PUSH_STR:
                     case IRON_INTR_SB_PUSH_INT: case IRON_INTR_SB_PUSH_UINT:
                     case IRON_INTR_SB_SPARE: case IRON_INTR_SB_RESERVE:
@@ -351,6 +358,8 @@ static bool mut_visit(Iron_Visitor *v, Iron_Node *n) {
                 }
             } else if (rt && rt->kind == IRON_TYPE_ARRAY) {
                 mutates = strcmp(m, "push") == 0 || strcmp(m, "pop") == 0 ||
+                          strcmp(m, "set") == 0 || strcmp(m, "reverse") == 0 ||
+                          strcmp(m, "sort") == 0 ||
                           strcmp(m, "insert") == 0 || strcmp(m, "remove") == 0 ||
                           strcmp(m, "clear") == 0 || strcmp(m, "take") == 0 ||
                           strcmp(m, "append") == 0 || strcmp(m, "extend") == 0 ||
@@ -421,7 +430,10 @@ static void borrow_binding(FnCtx *f, Iron_Node *decl, const char *name, Iron_Nod
     if (vs) hmput(f->roots, vs, r);
     if (r.kind != ROOT_SYM) return;
     uint64_t end = vs ? f->last_use[hmgeti(f->last_use, vs)].value : pos_of(decl->span);
-    add_borrow(f, r.sym, pos_of(decl->span), end, decl->span);
+    /* The borrow starts after the initializer has finished. In particular,
+     * spare() changes the source in order to create its returned view; that
+     * operation must not conflict with the borrow it is creating. */
+    add_borrow(f, r.sym, end_of(init->span), end, decl->span);
 }
 
 static bool borrow_visit(Iron_Visitor *v, Iron_Node *n) {
@@ -445,7 +457,7 @@ static bool borrow_visit(Iron_Visitor *v, Iron_Node *n) {
                 if (r.kind == ROOT_TEMP || r.kind == ROOT_HANDLE) { check_borrowable(f, as->value, r); break; }
                 if (vs && r.kind == ROOT_SYM) {
                     ptrdiff_t li = hmgeti(f->last_use, vs);
-                    add_borrow(f, r.sym, pos_of(n->span),
+                    add_borrow(f, r.sym, end_of(as->value->span),
                                li >= 0 ? f->last_use[li].value : pos_of(n->span), n->span);
                 }
             }
@@ -457,7 +469,8 @@ static bool borrow_visit(Iron_Visitor *v, Iron_Node *n) {
                 Root r = root_of_view(f, fs->iterable);
                 if (r.kind == ROOT_TEMP || r.kind == ROOT_HANDLE) { check_borrowable(f, fs->iterable, r); break; }
                 if (r.kind == ROOT_SYM)
-                    add_borrow(f, r.sym, pos_of(n->span), subtree_end(n), fs->iterable->span);
+                    add_borrow(f, r.sym, end_of(fs->iterable->span), subtree_end(n),
+                               fs->iterable->span);
             }
             break;
         }

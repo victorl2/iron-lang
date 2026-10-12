@@ -46,6 +46,7 @@ Iron_List_Iron_String Iron_List_Iron_String_clone(const Iron_List_Iron_String *s
     return dst;
 }
 void Iron_List_Iron_String_clear(Iron_List_Iron_String *self) {
+    IRON_LIST_CANCEL_SPARE(self);
     for (int64_t i = 0; i < self->count; i++) iron_string_release(&self->items[i]);
     self->count = 0;
 }
@@ -182,6 +183,7 @@ Iron_List_Iron_Closure Iron_List_Iron_Closure_clone(const Iron_List_Iron_Closure
     return dst;
 }
 void Iron_List_Iron_Closure_clear(Iron_List_Iron_Closure *self) {
+    IRON_LIST_CANCEL_SPARE(self);
     for (int64_t i = 0; i < self->count; i++) iron_closure_release(self->items[i]);
     self->count = 0;
 }

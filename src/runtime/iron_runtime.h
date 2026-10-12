@@ -1514,6 +1514,9 @@ void  iron_closure_release(Iron_Closure c);
  */
 /* qsort comparators for list.sort() on numeric and String elements.
  * Floats order NaN after every number so the order is total. */
+#define IRON_LIST_CANCEL_SPARE(self) \
+    do { if ((self)->capacity < 0) (self)->capacity = (self)->count; } while (0)
+
 #define IRON_SORT_CMP_NUM(name, T) \
     static inline int name(const void *pa, const void *pb) { \
         T a = *(const T *)pa, b = *(const T *)pb; \
@@ -1568,6 +1571,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
  * gated on od_has_drop_lir / the FileHandle nocopy surface. */
 #define IRON_LIST_IMPL_CORE(T, suffix) \
     Iron_List_##suffix Iron_List_##suffix##_take(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         Iron_List_##suffix out = *self; \
         self->items = NULL; self->count = 0; self->capacity = 0; \
         return out; \
@@ -1589,6 +1593,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return l; \
     } \
     void Iron_List_##suffix##_push(Iron_List_##suffix *self, T item) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         if (self->count >= self->capacity) { \
             int64_t new_cap = self->capacity ? self->capacity * 2 : 8; \
             /* FIX-01/FIX-02: capacity doubling must not wrap int64_t (audit row 18) */ \
@@ -1609,17 +1614,20 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return self->items[index]; \
     } \
     void Iron_List_##suffix##_set(Iron_List_##suffix *self, int64_t index, T item) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         if ((uint64_t)index >= (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_set", 0, index, self->count); \
         self->items[index] = item; \
     } \
     T Iron_List_##suffix##_pop(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         /* LIST-01: pop on empty read items[-1] and corrupted count to -1 */ \
         if (self->count <= 0) \
             iron_panic_index_oob("Iron_List_" #suffix "_pop", 0, -1, self->count); \
         return self->items[--self->count]; \
     } \
     T Iron_List_##suffix##_remove(Iron_List_##suffix *self, int64_t index) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         /* Removes and returns items[index], shifting the tail down. */ \
         if ((uint64_t)index >= (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_remove", 0, index, self->count); \
@@ -1639,6 +1647,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         self->items[index] = item; \
     } \
     void Iron_List_##suffix##_reverse(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         for (int64_t i = 0, j = self->count - 1; i < j; i++, j--) { \
             T tmp = self->items[i]; \
             self->items[i] = self->items[j]; \
@@ -1666,6 +1675,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return dst; \
     } \
     void Iron_List_##suffix##_clear(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
@@ -1680,6 +1690,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
  * already-mangled (non-keyword) names. */
 #define IRON_LIST_IMPL(T, suffix) \
     Iron_List_##suffix Iron_List_##suffix##_take(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         Iron_List_##suffix out = *self; \
         self->items = NULL; self->count = 0; self->capacity = 0; \
         return out; \
@@ -1714,6 +1725,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return dst; \
     } \
     void Iron_List_##suffix##_push(Iron_List_##suffix *self, T item) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         if (self->count >= self->capacity) { \
             int64_t new_cap = self->capacity ? self->capacity * 2 : 8; \
             if (new_cap < self->capacity) { \
@@ -1733,17 +1745,20 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return self->items[index]; \
     } \
     void Iron_List_##suffix##_set(Iron_List_##suffix *self, int64_t index, T item) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         if ((uint64_t)index >= (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_set", 0, index, self->count); \
         self->items[index] = item; \
     } \
     T Iron_List_##suffix##_pop(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         /* LIST-01: pop on empty read items[-1] and corrupted count to -1 */ \
         if (self->count <= 0) \
             iron_panic_index_oob("Iron_List_" #suffix "_pop", 0, -1, self->count); \
         return self->items[--self->count]; \
     } \
     T Iron_List_##suffix##_remove(Iron_List_##suffix *self, int64_t index) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         /* Removes and returns items[index], shifting the tail down. */ \
         if ((uint64_t)index >= (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_remove", 0, index, self->count); \
@@ -1763,6 +1778,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         self->items[index] = item; \
     } \
     void Iron_List_##suffix##_reverse(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         for (int64_t i = 0, j = self->count - 1; i < j; i++, j--) { \
             T tmp = self->items[i]; \
             self->items[i] = self->items[j]; \
@@ -1773,6 +1789,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return self->count; \
     } \
     void Iron_List_##suffix##_clear(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \

@@ -1080,6 +1080,7 @@ Iron_String iron_bytes_to_string(Iron_View_uint8_t b) {
 /* StringBuilder storage is a heap string block (IronStrHdr, bytes, one
  * spare byte for the NUL) so finish() can hand it to a String as is. */
 void iron_sb_grow(Iron_SBRT *sb, int64_t extra) {
+    if (sb->capacity < 0) sb->capacity = sb->length;
     if (extra < 0) extra = 0;
     int64_t need = sb->length + extra;
     if (need < sb->length || need > (int64_t)UINT32_MAX - 1)
@@ -1096,6 +1097,7 @@ void iron_sb_grow(Iron_SBRT *sb, int64_t extra) {
 }
 
 Iron_String iron_sb_finish(Iron_SBRT *sb) {
+    if (sb->capacity < 0) sb->capacity = sb->length;
     Iron_String s;
     memset(&s, 0, sizeof s);
     char *data = (char *)(uintptr_t)sb->data;
