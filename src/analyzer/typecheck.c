@@ -4407,7 +4407,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node);
  * reports E0229. */
 /* A construction or call of a generic whose type arguments are not written
  * (`Map()`, `Channel(4)`, `Stack()`, `empty()`): as a method argument it
- * waits for the parameter type, which may supply them (#626). */
+ * waits for the parameter type when its own arguments leave a type parameter
+ * open (#626, #688). */
 static bool is_open_generic_construct(TypeCtx *ctx, Iron_Node *n) {
     const char *name = NULL;
     if (n && n->kind == IRON_NODE_CALL) {
@@ -4418,18 +4419,45 @@ static bool is_open_generic_construct(TypeCtx *ctx, Iron_Node *n) {
         name = ((Iron_ConstructExpr *)n)->type_name;
     }
     if (!name) return false;
-    /* Only what its own arguments cannot type: a Map, a Set or a Channel,
-     * and a generic called with no arguments (Mutex(v), f(x) infer from
-     * theirs and are checked as usual). */
+    /* These containers never carry their omitted type arguments in their
+     * constructor arguments. */
     if (strcmp(name, "Map") == 0 || strcmp(name, "Set") == 0 ||
         strcmp(name, "Channel") == 0)
         return true;
-    int argc = n->kind == IRON_NODE_CALL ? ((Iron_CallExpr *)n)->arg_count
-                                         : ((Iron_ConstructExpr *)n)->arg_count;
-    if (argc != 0) return false;
     Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, name);
-    return sym && sym->decl_node && ctx->program &&
-           iron_generics_is_template(ctx->program, sym->decl_node);
+    if (!sym || !sym->decl_node || !ctx->program ||
+        !iron_generics_is_template(ctx->program, sym->decl_node))
+        return false;
+
+    Iron_Node *tmpl = sym->decl_node;
+    if (tmpl->kind != IRON_NODE_FUNC_DECL && tmpl->kind != IRON_NODE_OBJECT_DECL)
+        return false;
+    Iron_Node **gps = tmpl->kind == IRON_NODE_FUNC_DECL
+        ? ((Iron_FuncDecl *)tmpl)->generic_params
+        : ((Iron_ObjectDecl *)tmpl)->generic_params;
+    int ngp = tmpl->kind == IRON_NODE_FUNC_DECL
+        ? ((Iron_FuncDecl *)tmpl)->generic_param_count
+        : ((Iron_ObjectDecl *)tmpl)->generic_param_count;
+    if (ngp <= 0 || ngp > 16) return false;
+
+    Iron_Node **args = n->kind == IRON_NODE_CALL
+        ? ((Iron_CallExpr *)n)->args : ((Iron_ConstructExpr *)n)->args;
+    int argc = n->kind == IRON_NODE_CALL
+        ? ((Iron_CallExpr *)n)->arg_count : ((Iron_ConstructExpr *)n)->arg_count;
+    Iron_Type *bind[16] = {0};
+    if (tmpl->kind == IRON_NODE_FUNC_DECL) {
+        Iron_FuncDecl *fd = (Iron_FuncDecl *)tmpl;
+        for (int i = 0; i < argc && i < fd->param_count; i++) {
+            Iron_Type *at = check_expr(ctx, args[i]);
+            Iron_Param *p = (Iron_Param *)fd->params[i];
+            if (p) unify_generic(p->type_ann, at, gps, ngp, bind);
+        }
+    } else {
+        infer_object_generic_args(ctx, (Iron_ObjectDecl *)tmpl, args, argc, bind);
+    }
+    for (int i = 0; i < ngp; i++)
+        if (!bind[i]) return true;
+    return false;
 }
 
 static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
