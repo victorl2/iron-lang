@@ -1914,7 +1914,9 @@ if(NOT WIN32)
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_drop_chain\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_drop_chain.iron && actual=\$(\"\$d/boundary_drop_chain\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_drop_chain.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_7_boundary_drop_chain PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    # ASan compilation can exceed 30 seconds when this runs beside the
+    # compiler-heavy fuzz targets in the documented parallel suite.
+    set_tests_properties(v4_7_boundary_drop_chain PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 60)
 
     add_test(
         NAME v4_7_boundary_copy_hook
