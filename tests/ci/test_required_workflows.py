@@ -95,6 +95,17 @@ class RequiredWorkflowTests(unittest.TestCase):
         self.assertEqual({"ubuntu-latest", "macos-latest"},
                          set(build_time["strategy"]["matrix"]["os"]))
 
+    def test_coverage_has_manual_dependencies_and_runtime_budget(self):
+        coverage = read_workflow("coverage.yml")["jobs"]["coverage"]
+        self.assertGreaterEqual(int(coverage["timeout-minutes"]), 120)
+        install = next(step["run"] for step in coverage["steps"]
+                       if step.get("name") == "Install dependencies")
+        for package in ("libgl1-mesa-dev", "libx11-dev", "libxrandr-dev",
+                        "libxinerama-dev", "libxcursor-dev", "libxi-dev",
+                        "libasound2-dev"):
+            with self.subTest(package=package):
+                self.assertIn(package, install)
+
     def test_contract_tests_run_before_path_filtering(self):
         steps = read_workflow("ci.yml")["jobs"]["changes"]["steps"]
         index = next(i for i, step in enumerate(steps)
