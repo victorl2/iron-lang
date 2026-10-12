@@ -11,11 +11,13 @@ from pf_probe import Probe, ProbeGen
 PROLOGUE = '''interface FuzzReflect {
     readonly func reflected_hash() -> Int {
         var hash = 17
-        comptime for f in fields(Self) {
-            comptime if f.tag("fuzz") == null and f.doc == null {
-                comptime match f.type {
-                    Int -> { hash = hash * 31 + self.(f) }
-                    else -> comptime error("fuzz reflection expects Int")
+        comptime if typeinfo(Self).tag("fuzz") == null and typeinfo(Self).doc == null {
+            comptime for f in fields(Self) {
+                comptime if f.tag("fuzz") == null and f.doc == null {
+                    comptime match f.type {
+                        Int -> { hash = hash * 31 + self.(f) }
+                        else -> comptime error("fuzz reflection expects Int")
+                    }
                 }
             }
         }
@@ -57,6 +59,17 @@ func reflected_public_count[T]() -> Int {
         }
     }
     return count
+}
+
+func reflected_kind[T]() -> String {
+    comptime match T {
+        Int -> { return "int" }
+        [E] -> { return "list:" + reflected_kind[E]() }
+        Map[K, V] -> { return "map:" + reflected_kind[K]() + ":" + reflected_kind[V]() }
+        E? -> { return "nullable:" + reflected_kind[E]() }
+        FuzzReflect -> { return "reflected" }
+        else -> { return "other" }
+    }
 }'''
 
 
@@ -80,6 +93,13 @@ class ReflectGen(ProbeGen):
         public = [r.choice((False, True)) for _ in names]
         values = [r.randint(-20, 20) for _ in names]
         seed = r.randint(-10, 10)
+        kind_spelling, kind_result = r.choice((
+            ('Int', 'int'),
+            ('[Int]', 'list:int'),
+            ('Map[String, Int]', 'map:other:int'),
+            ('Int?', 'nullable:int'),
+            (ident, 'reflected'),
+        ))
 
         fields = '\n'.join(
             f'    {"pub " if is_pub else ""}val {name}: Int'
@@ -93,13 +113,15 @@ class ReflectGen(ProbeGen):
         names_text = ''.join(name + ';' for name in names)
         public_count = sum(public)
         args = ', '.join(str(v) for v in values)
-        out = f'{original_hash}|{names_text}|{public_count}|{seeded_hash}|{names[0]}'
+        out = (f'{original_hash}|{names_text}|{public_count}|{seeded_hash}|'
+               f'{names[0]}|{kind_result}')
         code = [
             f'val value = {ident}({args})',
             f'val built = {ident}.seeded({seed})',
             f'val missing = {ident}.first_missing({seed})',
             f'println("{{value.reflected_hash()}}|{{reflected_names[{ident}]()}}|'
-            f'{{reflected_public_count[{ident}]()}}|{{built.reflected_hash()}}|{{missing}}")',
+            f'{{reflected_public_count[{ident}]()}}|{{built.reflected_hash()}}|{{missing}}|'
+            f'{{reflected_kind[{kind_spelling}]()}}")',
         ]
         return Probe(code, out=[out])
 
