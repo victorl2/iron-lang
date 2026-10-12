@@ -1,9 +1,11 @@
 -- Builtin nocopy types borrowed by a lambda passed directly and by an
 -- awaited spawn (#512): a Hasher's native state and a FileHandle's
--- descriptor are released once, by their bindings (it was a double free
--- and a double close). rc Mutex / rc Channel / rc RWLock destroy the lock
--- and its value with the last reference (#636), and a match arm reads a
--- nocopy payload without copying it (#642).
+-- descriptor and a Box allocation are released once, by their bindings (it
+-- was a double free and a double close). The builtin reference-counted
+-- handles remain valid stored captures, including their nocopy guard types.
+-- rc Mutex / rc Channel / rc RWLock destroy the handle and its value with
+-- the last reference (#636), and a match arm reads a nocopy payload without
+-- copying it (#642).
 import crypto
 import encoding
 import io
@@ -53,6 +55,36 @@ func main() {
         return fh.fd * 0
     }
     println("{await ft}")
+
+    val b = Box(Tag(3))
+    println("{twice(func() -> Int { return b.unwrap().id })}")
+    val bt = spawn("bt") {
+        return b.unwrap().id
+    }
+    println("{await bt}")
+
+    val plain_m = Mutex(5)
+    val read_m = func() -> Int {
+        val g = plain_m.lock()
+        return g.get()
+    }
+    val plain_c = Channel[Int](1)
+    val send_c = func() -> Int {
+        plain_c.send(6)
+        return 0
+    }
+    val plain_l = RWLock(7)
+    val read_l = func() -> Int {
+        val g = plain_l.read()
+        return g.get()
+    }
+    val write_l = func() -> Int {
+        val g = plain_l.write()
+        g.set(8)
+        return g.get()
+    }
+    send_c()
+    println("{read_m()} {plain_c.recv()} {read_l()} {write_l()}")
 
     val m = rc Mutex(Tag(1))
     val c = rc Channel[Tag](2)
