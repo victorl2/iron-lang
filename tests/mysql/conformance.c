@@ -793,6 +793,61 @@ static void test_prepared_statement_prepare_execute_close_exchange(void) {
     free(p.p); free(wire.p);
 }
 
+static void test_binary_temporal_lengths_are_validated_while_decoding(void) {
+    const uint8_t types[] = { T_DATE, T_DATETIME, T_TIMESTAMP, T_TIME };
+    const uint8_t bad_lengths[] = { 5, 8, 12, 7 };
+    for (size_t k = 0; k < sizeof(types); k++) {
+        Buf wire = { 0 }, p = { 0 }; uint8_t seq = 1;
+        u8(&p, 1); packet(&wire, seq++, p.p, p.n);
+        p.n = 0; column(&p, "temporal", types[k], 0); packet(&wire, seq++, p.p, p.n);
+        p.n = 0; u8(&p, 0); u8(&p, 0); u8(&p, bad_lengths[k]);
+        for (uint8_t i = 0; i < bad_lengths[k]; i++) u8(&p, 0);
+        packet(&wire, seq, p.p, p.n);
+        int64_t r = iron_mysql_test_decode_result(
+            wire.p, wire.n, 2, CLIENT_PROTOCOL_41 | CLIENT_DEPRECATE_EOF, 1, true);
+        Iron_MysqlError e = Iron_mysqlnative_res_error(r);
+        TEST_ASSERT_EQUAL_INT64(IRON_ERR_MYSQL_PROTOCOL, e.code);
+        err_free(&e); Iron_mysqlnative_res_free(r); free(wire.p); free(p.p);
+    }
+}
+
+static void test_forbidden_null_lenenc_and_header_suffixes_are_rejected(void) {
+    Buf wire = { 0 };
+    const uint8_t null_ok[] = { 0, 0xfb, 0, 2, 0, 0, 0 };
+    packet(&wire, 1, null_ok, sizeof(null_ok));
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_MYSQL_PROTOCOL,
+                            result_error(&wire, CLIENT_PROTOCOL_41 | CLIENT_DEPRECATE_EOF));
+    free(wire.p);
+
+    wire = (Buf){ 0 }; Buf p = { 0 };
+    const uint8_t count_suffix[] = { 1, 0 };
+    packet(&wire, 1, count_suffix, sizeof(count_suffix));
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_MYSQL_PROTOCOL,
+                            result_error(&wire, CLIENT_PROTOCOL_41 | CLIENT_DEPRECATE_EOF));
+    free(wire.p);
+
+    wire = (Buf){ 0 }; u8(&p, 1); packet(&wire, 1, p.p, p.n);
+    p.n = 0; column(&p, "v", T_VAR_STRING, 0); p.p[0] = 0xfb;
+    packet(&wire, 2, p.p, p.n);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_MYSQL_PROTOCOL,
+                            result_error(&wire, CLIENT_PROTOCOL_41 | CLIENT_DEPRECATE_EOF));
+    free(wire.p); free(p.p);
+}
+
+static void test_prepare_ok_rejects_trailing_bytes(void) {
+    Buf wire = { 0 }, p = { 0 };
+    u8(&p, 0); u32(&p, 1); u16(&p, 0); u16(&p, 0); u8(&p, 0); u16(&p, 0); u8(&p, 0xaa);
+    packet(&wire, 1, p.p, p.n);
+    Iron_MysqlValueList params = { NULL, 0, 0 };
+    Iron_MysqlTestBytes written;
+    int64_t r = iron_mysql_test_statement_exchange(
+        wire.p, wire.n, 1, "SELECT 1", 8, &params, &written);
+    Iron_MysqlError e = Iron_mysqlnative_res_error(r);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_MYSQL_PROTOCOL, e.code);
+    err_free(&e); Iron_mysqlnative_res_free(r); iron_mysql_test_bytes_free(&written);
+    free(wire.p); free(p.p);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_packet_header_and_every_read_split);
@@ -812,5 +867,8 @@ int main(void) {
     RUN_TEST(test_ok_packets_and_multi_result_sets);
     RUN_TEST(test_prepared_parameter_encoding_all_variants);
     RUN_TEST(test_prepared_statement_prepare_execute_close_exchange);
+    RUN_TEST(test_binary_temporal_lengths_are_validated_while_decoding);
+    RUN_TEST(test_forbidden_null_lenenc_and_header_suffixes_are_rejected);
+    RUN_TEST(test_prepare_ok_rejects_trailing_bytes);
     return UNITY_END();
 }

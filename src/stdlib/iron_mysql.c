@@ -250,9 +250,10 @@ static uint64_t rd_lenenc(Rd *r, int *is_null) {
 
 /* Length-encoded string: returns a pointer into the packet. */
 static const uint8_t *rd_lenstr(Rd *r, size_t *len) {
-    uint64_t n = rd_lenenc(r, NULL);
+    int is_null = 0;
+    uint64_t n = rd_lenenc(r, &is_null);
     *len = 0;
-    if (r->bad || n > r->n - r->i) { r->bad = 1; return NULL; }
+    if (r->bad || is_null || n > r->n - r->i) { r->bad = 1; return NULL; }
     const uint8_t *s = r->p + r->i;
     r->i += (size_t)n;
     *len = (size_t)n;
@@ -1123,14 +1124,15 @@ static int cmd_begin(MyConn *c, MyErr *e, size_t *at) {
  * connection status. */
 static int parse_ok(MyConn *c, const uint8_t *p, size_t n, MySet *s) {
     Rd r = { p, n, 1, 0 };
-    uint64_t affected = rd_lenenc(&r, NULL);
-    uint64_t insert_id = rd_lenenc(&r, NULL);
+    int affected_null = 0, insert_null = 0;
+    uint64_t affected = rd_lenenc(&r, &affected_null);
+    uint64_t insert_id = rd_lenenc(&r, &insert_null);
     uint16_t status = 0, warnings = 0;
     if (c->caps & CLIENT_PROTOCOL_41) {
         status = rd_u16(&r);
         warnings = rd_u16(&r);
     }
-    if (r.bad) return 0;
+    if (r.bad || affected_null || insert_null) return 0;
     c->status = status;
     if (s) {
         s->affected = affected;
@@ -1816,7 +1818,9 @@ static int64_t binary_value_len(uint8_t type, const uint8_t *p, size_t n, size_t
         case T_NEWDATE: case T_DATETIME2: case T_TIMESTAMP2: case T_TIME2:
             if (n < 1) return -1;
             *skip = 1;
-            return p[0];
+            if (type == T_TIME || type == T_TIME2)
+                return p[0] == 0 || p[0] == 8 || p[0] == 12 ? p[0] : -1;
+            return p[0] == 0 || p[0] == 4 || p[0] == 7 || p[0] == 11 ? p[0] : -1;
         default: {
             Rd r = { p, n, 0, 0 };
             uint64_t len = rd_lenenc(&r, NULL);
@@ -1915,7 +1919,8 @@ static int read_results(MyConn *c, MyResult *res, int binary, int discard,
         } else {
             Rd r = { p, n, 0, 0 };
             uint64_t ncols = rd_lenenc(&r, NULL);
-            if (r.bad || ncols == 0 || ncols > 4096) return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
+            if (r.bad || r.i != n || ncols == 0 || ncols > 4096)
+                return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
             MySet scratch;
             set_init(&scratch);
             MySet *s = discard ? &scratch : result_add_set(res);
@@ -2082,7 +2087,7 @@ static int prepare_stmt(MyConn *c, const char *sql, size_t len, MyPrep *out, MyE
             return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
         return (int)e->code;
     }
-    if (n < 12 || p[0] != 0x00) return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
+    if (n != 12 || p[0] != 0x00) return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
     out->id = rd32(p + 1);
     out->ncols = rd16(p + 5);
     out->nparams = rd16(p + 7);
