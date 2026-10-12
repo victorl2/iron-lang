@@ -1574,6 +1574,14 @@ else()
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 endif()
 if(UNIX)
+    add_test(NAME test_aggregate_scheduling
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_aggregate_scheduling.py
+            ${CMAKE_BINARY_DIR}
+            ${CMAKE_SOURCE_DIR}/.github/workflows/v4-acceptance.yml)
+    set_tests_properties(test_aggregate_scheduling PROPERTIES
+        LABELS "unit;oracle" TIMEOUT 30)
+
     add_test(NAME benchmark_process_regressions
         COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/benchmarks/test_benchmark_process.py)
