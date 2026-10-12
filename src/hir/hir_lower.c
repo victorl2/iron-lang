@@ -20,6 +20,7 @@
  */
 
 #include "hir/hir_lower.h"
+#include "analyzer/global_order.h"
 #include "hir/stdlib_origin.h"
 #include "lexer/lexer.h"
 #include "vendor/stb_ds.h"
@@ -2371,14 +2372,12 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             arrput(args, a);
         }
         if (is_builtin_assert_without_msg(ce)) {
-            /* assert(cond): the message defaults to the source location. */
+            /* assert(cond): the message defaults to the source location,
+             * the path as assert_eq and panics give it (the basename was
+             * ambiguous between files of a package). */
             const char *file = node->span.filename ? node->span.filename : "?";
-            const char *base = strrchr(file, '/');
-            const char *base_win = strrchr(file, '\\');
-            if (base_win && (!base || base_win > base)) base = base_win;
-            base = base ? base + 1 : file;
-            char loc[512];
-            snprintf(loc, sizeof(loc), "%s:%u", base, (unsigned)node->span.line);
+            char loc[4200];
+            snprintf(loc, sizeof(loc), "%s:%u", file, (unsigned)node->span.line);
             const char *loc_copy = iron_arena_strdup(mod->arena, loc, strlen(loc));
             if (!loc_copy) iron_oom_abort("hir_lower.c:assert location message");
             arrput(args, iron_hir_expr_string_lit(
@@ -3743,6 +3742,18 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
  * declaration-order position via hir_block_insert_stmt_at. Runs BEFORE
  * pass 3 so any lambda queued here is lifted normally. */
 static void synthesize_module_init_hir(IronHIR_LowerCtx *ctx) {
+    /* A global of the program is initialized before main even when nothing
+     * reads it: its initializer may print or call functions (manual 5.7).
+     * Unreferenced stdlib globals stay out. */
+    for (int di = 0; di < (int)arrlen(ctx->global_decl_order); di++) {
+        ptrdiff_t mi = shgeti(ctx->global_decls_map, ctx->global_decl_order[di]);
+        if (mi < 0) continue;
+        Iron_Node *decl = ctx->global_decls_map[mi].value;
+        if (!global_decl_init(decl)) continue;
+        if (!decl->span.filename || iron_stdlib_origin_classify(decl->span.filename) != 0)
+            continue;
+        activate_global(ctx, ctx->global_decl_order[di]);
+    }
     if (shlen(ctx->global_active_set) == 0) return;
     IronHIR_Module *mod = ctx->module;
 
@@ -3875,6 +3886,29 @@ IronHIR_Module *iron_hir_lower(Iron_Program *program, Iron_Scope *global_scope,
 
     /* Pass 2: lower function bodies */
     lower_func_bodies_hir(&ctx);
+
+    /* Globals are initialized after the globals their initializers read,
+     * through the functions they call too (manual 5.7); otherwise in
+     * declaration order. Reorder global_decl_order accordingly. */
+    {
+        Iron_Node **order = NULL;
+        iron_global_init_order(program, NULL, NULL, &order);
+        const char **names = NULL;
+        for (ptrdiff_t i = 0; i < arrlen(order); i++) {
+            const char *nm = order[i]->kind == IRON_NODE_VAR_DECL
+                                 ? ((Iron_VarDecl *)order[i])->name
+                                 : ((Iron_ValDecl *)order[i])->name;
+            ptrdiff_t mi = nm ? shgeti(ctx.global_decls_map, nm) : -1;
+            if (mi >= 0 && ctx.global_decls_map[mi].value == order[i]) arrput(names, nm);
+        }
+        if (arrlen(names) == arrlen(ctx.global_decl_order)) {
+            arrfree(ctx.global_decl_order);
+            ctx.global_decl_order = names;
+        } else {
+            arrfree(names);
+        }
+        arrfree(order);
+    }
 
     /* Pass 2.5: synthesize __iron_module_init for referenced module globals
      * (before pass 3 so lambdas inside global initializers get lifted). */

@@ -1,0 +1,11 @@
+import geom.shapes.square"""
+assert old in s; s=s.replace(old,new,1)
+old="""    println("{square(7)} {derived()} {GREETING}")"""
+new="""    var bag = Bag[String]()
+    bag.put(GREETING)
+    println("{square(7)} {derived()} {GREETING} {bag.size()}")"""
+assert old in s; s=s.replace(old,new,1)
+s=s.replace('[ "${out}" = "49 41 hello" ]','[ "${out}" = "49 41 hello 1" ]')
+s=s.replace("""#   5. A source file name the file marker cannot quote is refused.""","""#   5. A source file name the file marker cannot quote is refused.
+#   6. A generic object's pub init and methods are usable from other files.""")
+open(p,'w').write(s)

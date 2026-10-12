@@ -163,6 +163,16 @@ int cmd_init(int argc, char **argv) {
     }
 #endif
     pkg_name = (pkg_name != NULL) ? pkg_name + 1 : cwd;
+    /* The directory name becomes the manifest's name and the output file
+     * name: characters neither may hold become '_' (a double quote wrote
+     * a manifest that read as another name). */
+    char safe_name[4096];
+    snprintf(safe_name, sizeof(safe_name), "%s", pkg_name);
+    for (char *c = safe_name; *c; c++)
+        if ((unsigned char)*c < 0x20 || *c == 0x7f || strchr("/\\:\"<>|?*", *c)) *c = '_';
+    if (safe_name[0] == '\0' || strcmp(safe_name, ".") == 0 || strcmp(safe_name, "..") == 0)
+        snprintf(safe_name, sizeof(safe_name), "package");
+    pkg_name = safe_name;
 
     /* ── iron.toml ──────────────────────────────────────────────────────── */
     /* Phase 95 PIN-04: emit the [package].iron field with a major.minor.0
