@@ -107,6 +107,17 @@ static void packet(Buf *wire, uint8_t sequence, const void *payload, size_t n) {
     bytes(wire, payload, n);
 }
 
+static uint8_t logical_packet(Buf *wire, uint8_t sequence, const void *payload, size_t n) {
+    const uint8_t *p = (const uint8_t *)payload;
+    size_t off = 0;
+    for (;;) {
+        size_t chunk = n - off < MAX_PACKET_CHUNK ? n - off : MAX_PACKET_CHUNK;
+        packet(wire, sequence++, p ? p + off : NULL, chunk);
+        off += chunk;
+        if (chunk < MAX_PACKET_CHUNK) return sequence;
+    }
+}
+
 static Buf handshake_wire(const char *plugin) {
     const uint32_t caps = 0x00000001u | 0x00000004u | 0x00000008u | CLIENT_PROTOCOL_41 |
         0x00002000u | 0x00008000u | 0x00020000u | 0x00040000u | 0x00080000u |
@@ -220,9 +231,9 @@ static void test_packet_continuation_and_empty_trailer(void) {
     free(wire.p);
 
     wire = (Buf){ 0 };
-    packet(&wire, 250, payload, MAX_PACKET_CHUNK);
-    packet(&wire, 251, NULL, 0);
-    e = iron_mysql_test_read_packet(wire.p, wire.n, 4093, 250, MAX_PACKET_CHUNK, &got);
+    packet(&wire, 255, payload, MAX_PACKET_CHUNK);
+    packet(&wire, 0, NULL, 0);
+    e = iron_mysql_test_read_packet(wire.p, wire.n, 4093, 255, MAX_PACKET_CHUNK, &got);
     TEST_ASSERT_EQUAL_INT64(0, e.code);
     TEST_ASSERT_EQUAL_size_t(MAX_PACKET_CHUNK, got.len);
     TEST_ASSERT_EQUAL_MEMORY(payload, got.data, MAX_PACKET_CHUNK);
@@ -230,6 +241,32 @@ static void test_packet_continuation_and_empty_trailer(void) {
     iron_mysql_test_bytes_free(&got);
     free(payload);
     free(wire.p);
+}
+
+static void test_length_encoded_string_eight_byte_class(void) {
+    Buf wire = { 0 }, p = { 0 }; uint8_t seq = 1;
+    u8(&p, 1); packet(&wire, seq++, p.p, p.n);
+    p.n = 0; column(&p, "large", T_LONG_BLOB, 0); packet(&wire, seq++, p.p, p.n);
+    p.n = 0;
+    size_t size = MAX_PACKET_CHUNK + 1;
+    uint8_t *value = (uint8_t *)malloc(size); TEST_ASSERT_NOT_NULL(value);
+    for (size_t i = 0; i < size; i++) value[i] = (uint8_t)(i * 29u + 3u);
+    lenstr(&p, value, size);
+    TEST_ASSERT_EQUAL_UINT8(0xfe, p.p[0]);
+    seq = logical_packet(&wire, seq, p.p, p.n);
+    const uint8_t end[] = { 0xfe, 0, 0, 2, 0, 0, 0 };
+    packet(&wire, seq, end, sizeof(end));
+    int64_t r = iron_mysql_test_decode_result(
+        wire.p, wire.n, 65537, CLIENT_PROTOCOL_41 | CLIENT_DEPRECATE_EOF, 1, false);
+    Iron_MysqlError e = Iron_mysqlnative_res_error(r);
+    if (e.code) TEST_FAIL_MESSAGE(iron_string_cstr(&e.message));
+    err_free(&e);
+    Iron_MysqlStringResult got = Iron_mysqlnative_res_text(r, 0, 0);
+    TEST_ASSERT_EQUAL_size_t(size, iron_string_byte_len(&got.v0));
+    TEST_ASSERT_EQUAL_UINT8(value[0], (uint8_t)iron_string_cstr(&got.v0)[0]);
+    TEST_ASSERT_EQUAL_UINT8(value[size - 1], (uint8_t)iron_string_cstr(&got.v0)[size - 1]);
+    iron_string_release(&got.v0); err_free(&got.v1); Iron_mysqlnative_res_free(r);
+    free(value); free(p.p); free(wire.p);
 }
 
 static void test_packet_rejects_bad_sequence_truncation_and_limit(void) {
@@ -620,6 +657,18 @@ static void test_handshake_v10_and_caching_sha2_fast_path(void) {
     free(base.p); free(wire.p);
 }
 
+static void test_truncated_handshake_is_always_an_error(void) {
+    Buf wire = handshake_wire("caching_sha2_password");
+    Iron_MysqlConfig cfg = test_config();
+    for (size_t n = 0; n < wire.n; n++) {
+        Iron_MysqlTestBytes written;
+        Iron_MysqlError e = iron_mysql_test_handshake(wire.p, n, 1, cfg, &written);
+        TEST_ASSERT_NOT_EQUAL(0, e.code);
+        err_free(&e); iron_mysql_test_bytes_free(&written);
+    }
+    config_free(&cfg); free(wire.p);
+}
+
 static void test_auth_switch_to_mysql_native_password(void) {
     Buf base = handshake_wire("caching_sha2_password"), wire = { 0 }, sw = { 0 };
     bytes(&wire, base.p, base.n);
@@ -852,6 +901,7 @@ int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_packet_header_and_every_read_split);
     RUN_TEST(test_packet_continuation_and_empty_trailer);
+    RUN_TEST(test_length_encoded_string_eight_byte_class);
     RUN_TEST(test_packet_rejects_bad_sequence_truncation_and_limit);
     RUN_TEST(test_length_encoded_integer_size_classes);
     RUN_TEST(test_truncated_result_is_always_an_error);
@@ -861,6 +911,7 @@ int main(void) {
     RUN_TEST(test_binary_rows_cover_every_column_type_and_null_offsets);
     RUN_TEST(test_text_rows_cover_every_column_type);
     RUN_TEST(test_handshake_v10_and_caching_sha2_fast_path);
+    RUN_TEST(test_truncated_handshake_is_always_an_error);
     RUN_TEST(test_auth_switch_to_mysql_native_password);
     RUN_TEST(test_caching_sha2_full_path_with_public_key);
     RUN_TEST(test_caching_sha2_full_path_rejects_insecure_password);
