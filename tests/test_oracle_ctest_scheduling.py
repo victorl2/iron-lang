@@ -100,6 +100,11 @@ def main() -> int:
             print(f"{name}: aggregate-parity TIMEOUT must be at least 180 seconds",
                   file=sys.stderr)
             failed = True
+        if name.startswith("v4_") and "integration" in props.get("LABELS", []) and \
+                props.get("TIMEOUT", 0) < 180:
+            print(f"{name}: v4 integration TIMEOUT must be at least 180 seconds",
+                  file=sys.stderr)
+            failed = True
 
     runner = Path(__file__).with_name("run_tests.sh")
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as cpu_max:

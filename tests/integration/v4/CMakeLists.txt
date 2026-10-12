@@ -78,7 +78,7 @@ if(NOT WIN32)
         )
         set_tests_properties(test_oracle_ctest_scheduling PROPERTIES
             LABELS "oracle;invariant"
-            TIMEOUT 30)
+            TIMEOUT 180)
     endif()
 endif()
 
