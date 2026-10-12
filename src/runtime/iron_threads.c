@@ -1028,8 +1028,10 @@ void Iron_mutex_retain(Iron_Mutex *m) {
 
 /* Drop one reference; true when it was the last (the caller frees). */
 bool iron_shared_release(iron_atomic_u64 *refs) {
+    IRON_HB_BEFORE(refs);
     if (IRON_ATOMIC_U64_FETCH_SUB_RELEASE(*refs, 1) != 1) return false;
     IRON_ATOMIC_FENCE_ACQUIRE();
+    IRON_HB_AFTER(refs);
     (void)IRON_ATOMIC_U64_LOAD_ACQUIRE(*refs);   /* the fence, as TSan sees it */
     return true;
 }
@@ -1101,6 +1103,39 @@ void iron_threads_init(void) {
     Iron_io_pool = Iron_elastic_pool_create("io", 64, 30000);
 }
 
+/* At program end (manual 7.1) a thread that is still running is stopped
+ * with the program: a fire-and-forget spawn blocked on a channel nobody
+ * feeds (or merely still working) must not keep the process alive. When
+ * the global pool (where those spawns run) still has work queued or
+ * running, its queued items are dropped without running and the pool is
+ * left to the process exit (its workers keep pointers to it, so it is not
+ * freed); otherwise it is idle and is destroyed as usual. Returns whether
+ * the pool is idle. */
+static bool pool_shutdown_idle(Iron_Pool *pool) {
+    IRON_MUTEX_LOCK(pool->lock);
+    bool idle = pool->pending <= 0;
+    if (!idle) {
+        pool->shutdown = true;
+        pool->queue_count = 0;   /* never start what has not started */
+        IRON_COND_BROADCAST(pool->work_ready);
+        /* Nobody joins the workers now: detach them, so the idle ones that
+         * return are not left as zombie (leaked) threads. */
+        if (pool->is_elastic) {
+            for (int i = 0; i < pool->thread_slots_cap; i++) {
+                if (pool->threads[i].handle != 0) {
+                    iron_thread_detach(pool->threads[i]);
+                    pool->threads[i].handle = 0;
+                }
+            }
+        } else if (pool->started) {
+            for (int i = 0; i < pool->thread_count; i++) iron_thread_detach(pool->threads[i]);
+            pool->started = false;
+        }
+    }
+    IRON_MUTEX_UNLOCK(pool->lock);
+    return idle;
+}
+
 void iron_threads_shutdown(void) {
 #ifndef __EMSCRIPTEN__
     /* WEB-RUNTIME-02: Cannot join workers from the browser main thread.
@@ -1110,11 +1145,14 @@ void iron_threads_shutdown(void) {
      * ALLOW_BLOCKING_ON_MAIN_THREAD=0 setting. The browser reclaims
      * worker memory at page unload, so leaking here is acceptable on
      * web; the alternative is a guaranteed crash. */
+    /* The io pool runs the runtime's own blocking calls (DNS lookups), each
+     * bounded by the system's timeouts: it is joined as before, so a
+     * lookup the caller gave up on still frees its job. */
     if (Iron_io_pool) {
         Iron_pool_destroy(Iron_io_pool);
         Iron_io_pool = NULL;
     }
-    if (Iron_global_pool) {
+    if (Iron_global_pool && pool_shutdown_idle(Iron_global_pool)) {
         Iron_pool_destroy(Iron_global_pool);
         Iron_global_pool = NULL;
     }

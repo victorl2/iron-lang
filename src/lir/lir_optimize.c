@@ -1802,6 +1802,27 @@ static bool run_constant_folding(IronLIR_Module *module) {
     return changed;
 }
 
+/* An instruction that can stop the program: a checked list index, or an
+ * integer division or modulo by a value not known to be nonzero. It has no
+ * other effect, but an unused `val v = xs[i]` must still panic when i is
+ * out of bounds (and `val q = a / b` when b is 0), so DCE keeps it and the
+ * emitter does not fold it into a use it never has. */
+bool iron_lir_instr_may_trap(IronLIR_Func *fn, IronLIR_Instr *in) {
+    if (!in) return false;
+    if (in->kind == IRON_LIR_GET_INDEX)
+        return !in->index.bounds_elide && !in->index.bounds_unchecked;
+    if (in->kind == IRON_LIR_DIV || in->kind == IRON_LIR_MOD) {
+        if (!in->type || !iron_type_is_integer(in->type)) return false;
+        IronLIR_ValueId d = in->binop.right;
+        if (fn && d != IRON_LIR_VALUE_INVALID && d < (IronLIR_ValueId)arrlen(fn->value_table)) {
+            IronLIR_Instr *di = fn->value_table[d];
+            if (di && di->kind == IRON_LIR_CONST_INT && di->const_int.value != 0) return false;
+        }
+        return true;
+    }
+    return false;
+}
+
 /* DCE: remove pure instructions whose results are never referenced.
  * Algorithm: seed live set with all side-effecting instructions,
  * propagate liveness transitively through operands, remove non-live pure instrs. */
@@ -1822,6 +1843,7 @@ static bool run_dce(IronLIR_Module *module) {
                 /* Live if: side-effecting, or has no result (STORE, terminators),
                  * or is a capturing closure (must not be DCE-eliminated) */
                 if (!iron_lir_instr_is_pure(in->kind) ||
+                    iron_lir_instr_may_trap(fn, in) ||
                     (in->kind == IRON_LIR_MAKE_CLOSURE &&
                      in->make_closure.capture_count > 0) ||
                     in->id == IRON_LIR_VALUE_INVALID) {
@@ -1884,6 +1906,9 @@ static bool run_dce(IronLIR_Module *module) {
 
                 /* Always keep side-effecting instructions, terminators,
                  * and capturing closures (must not be DCE-eliminated) */
+                /* (an instruction that may trap is in the live set from
+                 * step 1: asking again here would look at operands this
+                 * loop has already removed) */
                 if (!iron_lir_instr_is_pure(in->kind) ||
                     (in->kind == IRON_LIR_MAKE_CLOSURE &&
                      in->make_closure.capture_count > 0) ||
@@ -3015,6 +3040,11 @@ void iron_lir_compute_inline_eligible(IronLIR_Func *fn,
 
             /* Skip explicitly excluded values */
             if (hmgeti(excluded, in->id) >= 0) continue;
+
+            /* An unused instruction that may trap is emitted where it is
+             * (it has no use to be folded into). */
+            if (hmgeti(use_site_block, in->id) < 0 && iron_lir_instr_may_trap(fn, in))
+                continue;
 
             /* Skip cross-block: use site must be same block as definition */
             {
