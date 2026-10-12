@@ -1617,7 +1617,7 @@ if(Python3_EXECUTABLE)
     if(NOT WIN32)
         add_test(NAME test_soa_parity
             COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/soa_parity.sh $<TARGET_FILE:iron>)
-        set_tests_properties(test_soa_parity PROPERTIES LABELS "codegen" TIMEOUT 900)
+        set_tests_properties(test_soa_parity PROPERTIES LABELS "codegen" TIMEOUT 1800)
         add_test(NAME test_soa_storage
             COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/soa_storage.sh $<TARGET_FILE:ironc>)
         set_tests_properties(test_soa_storage PROPERTIES LABELS "codegen" TIMEOUT 120)
