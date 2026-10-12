@@ -1700,7 +1700,7 @@ if(Python3_EXECUTABLE)
         add_test(NAME lsp_fuzz_short
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/lsp_fuzz.py
                 --ironls $<TARGET_FILE:ironls> --ironc $<TARGET_FILE:ironc>
-                --seed 1 --sessions 12 --steps 250 -j 3 --quiet
+                --seed 1 --sessions 12 --steps 250 -j 3 --deadline 60 --quiet
                 --out ${CMAKE_BINARY_DIR}/lsp_fuzz --tmp ${CMAKE_BINARY_DIR}/lsp_fuzz/tmp)
         set_tests_properties(lsp_fuzz_short PROPERTIES LABELS "lsp;fuzz" TIMEOUT 600)
         add_test(NAME fmt_fuzz_short

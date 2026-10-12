@@ -51,6 +51,20 @@ def main() -> int:
         timeout = properties.get("TIMEOUT")
         if not isinstance(timeout, (int, float)) or timeout < 120:
             failures.append(f"{name} TIMEOUT is {timeout!r}, expected at least 120")
+    lsp_fuzz = tests.get("lsp_fuzz_short")
+    if lsp_fuzz is None:
+        failures.append("lsp_fuzz_short is not registered")
+    else:
+        command = lsp_fuzz.get("command", [])
+        try:
+            deadline = float(command[command.index("--deadline") + 1])
+        except (ValueError, IndexError):
+            failures.append("lsp_fuzz_short has no valid --deadline argument")
+        else:
+            if deadline < 60:
+                failures.append(
+                    f"lsp_fuzz_short deadline is {deadline!r}, expected at least 60"
+                )
     if failures:
         print("\n".join(failures), file=sys.stderr)
         return 1
