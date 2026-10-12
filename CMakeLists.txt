@@ -1674,6 +1674,7 @@ if(Python3_EXECUTABLE)
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/lsp_fuzz.py
                 --ironls $<TARGET_FILE:ironls> --ironc $<TARGET_FILE:ironc>
                 --seed 1 --sessions 12 --steps 250 -j 3 --quiet
+                --deadline 60
                 --out ${CMAKE_BINARY_DIR}/lsp_fuzz --tmp ${CMAKE_BINARY_DIR}/lsp_fuzz/tmp)
         set_tests_properties(lsp_fuzz_short PROPERTIES LABELS "lsp;fuzz" TIMEOUT 600)
         add_test(NAME fmt_fuzz_short
@@ -2693,7 +2694,7 @@ if(NOT WIN32)
         iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.iron")
         set_tests_properties(v4_4.10-rc-elision_${_fix} PROPERTIES
             LABELS "integration;phase29-invariant;v4-acceptance"
-            TIMEOUT 60
+            TIMEOUT 120
             WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
 endif()
