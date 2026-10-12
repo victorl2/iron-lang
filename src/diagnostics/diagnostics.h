@@ -85,7 +85,7 @@ void iron_diaglist_free(Iron_DiagList *list);
  *
  * A file marker is a line comment whose text starts with `@file:`:
  *
- *     <comment> @file: <name> [@line: <n>] [@lines: <count>]
+ *     <comment> @file: <name> [@line: <n>] [@lines: <count>] [@packed]
  *
  * It tags the source after it with another file name (and, with `@line:`,
  * restarts line numbering there), which is how one buffer carries several
@@ -95,10 +95,13 @@ void iron_diaglist_free(Iron_DiagList *list);
  *   - in the prelude the compiler puts above the user's source (the
  *     standard library files, then the marker that names the user's file),
  *     that is on the physical lines before the user's first line;
- *   - in a package source packed by `iron` (target/combined.iron,
- *     target/tests.iron, compiled with --packed-source), on the lines
- *     between files: each of its markers gives the length of the file
- *     under it with `@lines:`, and nothing inside that file is a marker;
+ *   - in a source packed from several files (the target/combined.iron and
+ *     target/tests.iron that `iron` writes, compiled with --packed-source;
+ *     or a buffer whose prelude marker for the user's file says `@packed`),
+ *     on the lines between files: each of its markers gives the length of
+ *     the file under it with `@lines:`, and nothing inside that file is a
+ *     marker. A marker without `@lines:` is the last: its file runs to the
+ *     end of the buffer;
  *   - anywhere, in multi-file test mode (the test harness packs the files
  *     of a fixture into one source this way).
  *
@@ -115,6 +118,7 @@ typedef struct {
     uint32_t    line_reset; /* the `@line:` value; 0 when absent */
     bool        has_lines;  /* an `@lines:` length was given */
     uint32_t    lines;      /* physical lines of the file under the marker */
+    bool        packed;     /* `@packed`: what follows is a packed source */
 } Iron_FileMarker;
 
 /* Length of the line comment introducer at the start of `text` (`--`, or

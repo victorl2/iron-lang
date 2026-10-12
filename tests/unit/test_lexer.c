@@ -149,6 +149,39 @@ void test_file_marker_in_packed_source_honored_between_files(void) {
     arrfree(toks2);
 }
 
+/* The prelude's marker for the user's file can say the source under it is
+ * a packed one (the language server packs a package this way, with no
+ * process wide flag). */
+void test_file_marker_prelude_declares_packed_source(void) {
+    const char *src =
+        "-- @file: \"stdlib/x.iron\" @line: 1\n"          /* 1 */
+        "val a = 1\n"                                      /* 2 */
+        "-- @file: \"test.iron\" @line: 1 @packed\n"       /* 3 */
+        "-- @file: \"lib.iron\" @line: 1 @lines: 2\n"      /* 4 */
+        "-- @file: \"evil.iron\" @line: 1\n"               /* 5: in lib.iron */
+        "val b = 2\n"                                      /* 6 */
+        "-- @file: \"test.iron\" @line: 1\n"               /* 7 */
+        "val c = 3\n"                                      /* 8 */
+        "-- @file: \"evil.iron\" @line: 1\n"               /* 9: in test.iron */
+        "val d = 4\n";                                     /* 10 */
+    Iron_Lexer l = iron_lexer_create(src, "test.iron", &arena, &diags);
+    iron_lexer_set_user_start_line(&l, 4);
+    Iron_Token *toks = iron_lex_all(&l);
+    TEST_ASSERT_EQUAL_STRING("lib.iron", file_of(toks, "b"));
+    TEST_ASSERT_EQUAL_UINT32(2, line_of(toks, "b"));
+    TEST_ASSERT_EQUAL_STRING("test.iron", file_of(toks, "c"));
+    TEST_ASSERT_EQUAL_STRING("test.iron", file_of(toks, "d"));
+    TEST_ASSERT_EQUAL_UINT32(3, line_of(toks, "d"));
+    arrfree(toks);
+
+    /* Said in the user's source, `@packed` is part of a comment. */
+    Iron_Lexer l2 = iron_lexer_create(src, "test.iron", &arena, &diags);
+    iron_lexer_set_user_start_line(&l2, 3);
+    Iron_Token *toks2 = iron_lex_all(&l2);
+    TEST_ASSERT_EQUAL_STRING("stdlib/x.iron", file_of(toks2, "b"));
+    arrfree(toks2);
+}
+
 /* The marker is the comment's text, whatever introduces the comment. */
 void test_file_marker_parse_keys_on_comment_text(void) {
     Iron_FileMarker m;
@@ -164,6 +197,13 @@ void test_file_marker_parse_keys_on_comment_text(void) {
     TEST_ASSERT_EQUAL_UINT32(12, m.line_reset);
     TEST_ASSERT_TRUE(m.has_lines);
     TEST_ASSERT_EQUAL_UINT32(34, m.lines);
+    TEST_ASSERT_FALSE(m.packed);
+    t = "@file: a.iron @line: 1 @packed";
+    TEST_ASSERT_TRUE(iron_file_marker_parse(t, strlen(t), &m));
+    TEST_ASSERT_TRUE(m.packed);
+    t = "@file: a.iron @packedx";
+    TEST_ASSERT_TRUE(iron_file_marker_parse(t, strlen(t), &m));
+    TEST_ASSERT_FALSE(m.packed);
 
     t = "@file:lib.iron";
     TEST_ASSERT_TRUE(iron_file_marker_parse(t, strlen(t), &m));
@@ -829,6 +869,7 @@ int main(void) {
     RUN_TEST(test_file_marker_honored_in_multi_file_test_mode);
     RUN_TEST(test_file_marker_honored_only_in_the_prelude);
     RUN_TEST(test_file_marker_in_packed_source_honored_between_files);
+    RUN_TEST(test_file_marker_prelude_declares_packed_source);
     RUN_TEST(test_file_marker_parse_keys_on_comment_text);
 
     return UNITY_END();

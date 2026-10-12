@@ -181,6 +181,7 @@ bool iron_file_marker_parse(const char *text, size_t len, Iron_FileMarker *out) 
     out->line_reset = 0;
     out->has_lines  = false;
     out->lines      = 0;
+    out->packed     = false;
 
     uint32_t n = 0;
     i = marker_skip_blanks(text, i, len);
@@ -191,6 +192,14 @@ bool iron_file_marker_parse(const char *text, size_t len, Iron_FileMarker *out) 
     if (marker_number(text, &i, len, "@lines:", &n)) {
         out->has_lines = true;
         out->lines     = n;
+        i = marker_skip_blanks(text, i, len);
+    }
+    static const char k_packed[] = "@packed";
+    const size_t k_packed_len = sizeof(k_packed) - 1;
+    if (i + k_packed_len <= len && memcmp(text + i, k_packed, k_packed_len) == 0 &&
+        (i + k_packed_len == len || text[i + k_packed_len] == ' ' ||
+         text[i + k_packed_len] == '\t' || text[i + k_packed_len] == '\r')) {
+        out->packed = true;
     }
     return true;
 }
@@ -208,8 +217,12 @@ bool iron_file_marker_admit(Iron_FileMarkerGate *gate, uint32_t phys_line,
                             const Iron_FileMarker *m) {
     if (!gate || !m) return false;
     if (gate->test_mode) return true;
-    /* The prelude above the user's source is the compiler's own text. */
-    if (phys_line < gate->user_start) return true;
+    /* The prelude above the user's source is the compiler's own text. Its
+     * marker for the user's file says when that source is a packed one. */
+    if (phys_line < gate->user_start) {
+        if (m->packed) gate->packed = true;
+        return true;
+    }
     if (!gate->packed || phys_line < gate->trust_from) return false;
     /* Between the files of a packed source. The file under this marker is
      * `lines` long; without a length it runs to the end of the buffer. */
