@@ -1645,10 +1645,6 @@ if(Python3_EXECUTABLE)
     # The two type-edge campaigns can exceed 15 minutes under the documented
     # parallel ASan suite while other compiler-heavy fuzzers are running.
     set_tests_properties(prog_fuzz_edges_types PROPERTIES LABELS "codegen" TIMEOUT 1800)
-    if(IRON_ENABLE_SANITIZERS)
-        # The fuzzer already runs four compiler workers internally.
-        set_tests_properties(prog_fuzz_edges_types PROPERTIES PROCESSORS 4)
-    endif()
     add_test(NAME prog_fuzz_edges_mem
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_edges_mem ctedge dropord)
@@ -1682,9 +1678,21 @@ if(Python3_EXECUTABLE)
         # commands more time when this suite shares a parallel ASan run.
         set_tests_properties(cli_fuzz PROPERTIES
             LABELS "tooling" TIMEOUT 900 ENVIRONMENT "CF_TIMEOUT=300")
-        if(IRON_ENABLE_SANITIZERS)
-            # The suite already runs four CLI workers internally.
-            set_tests_properties(cli_fuzz PROPERTIES PROCESSORS 4)
+    endif()
+    if(IRON_ENABLE_SANITIZERS)
+        # These suites run compiler jobs concurrently themselves. Tell CTest
+        # their real CPU demand so a -j4 ASan run does not start up to sixteen
+        # instrumented compiler jobs and starve unrelated timeout-bound tests.
+        set_tests_properties(
+            prog_fuzz prog_fuzz_types prog_fuzz_conc prog_fuzz_arena
+            prog_fuzz_sync prog_fuzz_stdlib prog_fuzz_edges_num
+            prog_fuzz_edges_types prog_fuzz_edges_mem
+            PROPERTIES PROCESSORS 4)
+        set_tests_properties(json_fuzz PROPERTIES PROCESSORS 2)
+        if(NOT WIN32)
+            set_tests_properties(
+                mod_fuzz_pkg mod_fuzz_incr mod_fuzz_tests cli_fuzz
+                PROPERTIES PROCESSORS 4)
         endif()
     endif()
 endif()
