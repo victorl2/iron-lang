@@ -508,6 +508,7 @@ add_subdirectory(tests/composite)
 add_subdirectory(tests/manual)
 add_subdirectory(tests/json)
 add_subdirectory(tests/http)
+add_subdirectory(bench/http)
 
 # ── ironc compiler executable ────────────────────────────────────────────────
 add_executable(ironc

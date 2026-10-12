@@ -10,6 +10,7 @@
  */
 
 #include "iron_http.h"
+#include "iron_http_bench.h"
 #include "iron_net.h"
 #include "iron_tls.h"
 #include "runtime/iron_errors.h"
@@ -402,9 +403,20 @@ typedef struct HttpHead {
     int64_t error;
 } HttpHead;
 
+typedef struct HttpMemoryTransport {
+    const uint8_t *input;
+    size_t input_len;
+    size_t input_pos;
+    uint8_t *output;
+    size_t output_cap;
+    size_t output_len;
+    size_t write_calls;
+} HttpMemoryTransport;
+
 typedef struct HttpTransport {
     Iron_TcpSocket socket;
     Iron_TlsStream *tls;
+    HttpMemoryTransport *memory;
 } HttpTransport;
 
 typedef struct HttpPendingInput {
@@ -476,6 +488,20 @@ static void http_pending_clear(int64_t fd) {
 static Iron_Result_Int_Error transport_read(HttpTransport transport,
                                              uint8_t *buffer, int64_t capacity,
                                              Iron_Deadline deadline) {
+    if (transport.memory) {
+        Iron_Result_Int_Error out;
+        memset(&out, 0, sizeof(out));
+        size_t remaining = transport.memory->input_len -
+                           transport.memory->input_pos;
+        size_t take = remaining < (size_t)capacity ? remaining :
+                      (size_t)capacity;
+        if (take)
+            memcpy(buffer, transport.memory->input +
+                   transport.memory->input_pos, take);
+        transport.memory->input_pos += take;
+        out.v0 = (int64_t)take;
+        return out;
+    }
     if (transport.tls) {
         return iron_tls_read(transport.tls, buffer, capacity, deadline);
     }
@@ -487,6 +513,21 @@ static Iron_Result_Int_Error transport_write(HttpTransport transport,
                                               const uint8_t *buffer,
                                               int64_t length,
                                               Iron_Deadline deadline) {
+    if (transport.memory) {
+        Iron_Result_Int_Error out;
+        memset(&out, 0, sizeof(out));
+        if (length < 0 || (size_t)length > transport.memory->output_cap -
+                                         transport.memory->output_len) {
+            out.v1.code = IRON_ERR_HTTP_BODY_TOO_LARGE;
+            return out;
+        }
+        memcpy(transport.memory->output + transport.memory->output_len,
+               buffer, (size_t)length);
+        transport.memory->output_len += (size_t)length;
+        transport.memory->write_calls++;
+        out.v0 = length;
+        return out;
+    }
     if (transport.tls) {
         return iron_tls_write(transport.tls, buffer, length, deadline);
     }
@@ -495,6 +536,7 @@ static Iron_Result_Int_Error transport_write(HttpTransport transport,
 }
 
 static void transport_close(HttpTransport transport) {
+    if (transport.memory) return;
     http_pending_clear(transport.socket.fd);
     if (transport.tls) iron_tls_stream_close(transport.tls);
     Iron_tcpsocket_close(transport.socket);
@@ -1387,7 +1429,7 @@ Iron_HttpRequest Iron_httpconnection_read_request(Iron_HttpConnection connection
                                                    int64_t max_header_bytes,
                                                    int64_t max_body_bytes,
                                                    int64_t timeout) {
-    HttpTransport transport = { { connection.fd }, NULL };
+    HttpTransport transport = { { connection.fd }, NULL, NULL };
     return read_request_transport(transport, max_header_bytes, max_body_bytes,
                                   timeout);
 }
@@ -1397,7 +1439,7 @@ Iron_HttpRequest Iron_httpsconnection_read_request(Iron_HttpsConnection connecti
                                                     int64_t max_body_bytes,
                                                     int64_t timeout) {
     HttpTransport transport = {
-        { connection.fd }, (Iron_TlsStream *)(intptr_t)connection.tls
+        { connection.fd }, (Iron_TlsStream *)(intptr_t)connection.tls, NULL
     };
     return read_request_transport(transport, max_header_bytes, max_body_bytes,
                                   timeout);
@@ -1568,35 +1610,53 @@ static int64_t send_response_transport(HttpTransport transport,
             (long long)response.status, (int)reason_len, reason, body_len,
             keep_alive ? "keep-alive" : "close");
     }
-    if (fixed_len < 0 || (size_t)fixed_len >= sizeof(fixed)) return IRON_ERR_HTTP_INVALID_ARGUMENT;
-    int64_t err = send_all(transport, (const uint8_t *)fixed, (size_t)fixed_len, deadline);
-    if (err) return err;
+    if (fixed_len < 0 || (size_t)fixed_len >= sizeof(fixed))
+        return IRON_ERR_HTTP_INVALID_ARGUMENT;
+    size_t header_ending = headers_len &&
+        (headers_len < 2 || headers[headers_len - 2] != '\r' ||
+         headers[headers_len - 1] != '\n') ? 2 : 0;
+    size_t sent_body_len = forbids_body ? 0 : body_len;
+    if (headers_len > SIZE_MAX - (size_t)fixed_len - header_ending - 2 ||
+        sent_body_len > SIZE_MAX - (size_t)fixed_len - headers_len -
+                        header_ending - 2)
+        return IRON_ERR_HTTP_INVALID_ARGUMENT;
+    size_t wire_len = (size_t)fixed_len + headers_len + header_ending + 2 +
+                      sent_body_len;
+    uint8_t *wire = (uint8_t *)malloc(wire_len ? wire_len : 1);
+    if (!wire) return IRON_ERR_NET_NO_MEMORY;
+    size_t used = 0;
+    memcpy(wire + used, fixed, (size_t)fixed_len);
+    used += (size_t)fixed_len;
     if (headers_len) {
-        err = send_all(transport, (const uint8_t *)headers, headers_len, deadline);
-        if (err) return err;
-        if (headers_len < 2 || headers[headers_len - 2] != '\r' || headers[headers_len - 1] != '\n') {
-            err = send_all(transport, (const uint8_t *)"\r\n", 2, deadline);
-            if (err) return err;
-        }
+        memcpy(wire + used, headers, headers_len);
+        used += headers_len;
     }
-    err = send_all(transport, (const uint8_t *)"\r\n", 2, deadline);
-    if (err) return err;
-    if (body_len && !forbids_body)
-        err = send_all(transport, (const uint8_t *)body, body_len, deadline);
+    if (header_ending) {
+        memcpy(wire + used, "\r\n", 2);
+        used += 2;
+    }
+    memcpy(wire + used, "\r\n", 2);
+    used += 2;
+    if (sent_body_len) {
+        memcpy(wire + used, body, sent_body_len);
+        used += sent_body_len;
+    }
+    int64_t err = send_all(transport, wire, used, deadline);
+    free(wire);
     return err;
 }
 
 int64_t Iron_httpconnection_send_response(Iron_HttpConnection connection,
                                            Iron_HttpResponse response,
                                            int64_t timeout) {
-    HttpTransport transport = { { connection.fd }, NULL };
+    HttpTransport transport = { { connection.fd }, NULL, NULL };
     return send_response_transport(transport, response, false, timeout);
 }
 
 int64_t Iron_httpconnection_send_response_keep_alive(
     Iron_HttpConnection connection, Iron_HttpResponse response,
     bool keep_alive, int64_t timeout) {
-    HttpTransport transport = { { connection.fd }, NULL };
+    HttpTransport transport = { { connection.fd }, NULL, NULL };
     return send_response_transport(transport, response, keep_alive, timeout);
 }
 
@@ -1604,7 +1664,7 @@ int64_t Iron_httpsconnection_send_response(Iron_HttpsConnection connection,
                                             Iron_HttpResponse response,
                                             int64_t timeout) {
     HttpTransport transport = {
-        { connection.fd }, (Iron_TlsStream *)(intptr_t)connection.tls
+        { connection.fd }, (Iron_TlsStream *)(intptr_t)connection.tls, NULL
     };
     return send_response_transport(transport, response, false, timeout);
 }
@@ -1613,7 +1673,7 @@ int64_t Iron_httpsconnection_send_response_keep_alive(
     Iron_HttpsConnection connection, Iron_HttpResponse response,
     bool keep_alive, int64_t timeout) {
     HttpTransport transport = {
-        { connection.fd }, (Iron_TlsStream *)(intptr_t)connection.tls
+        { connection.fd }, (Iron_TlsStream *)(intptr_t)connection.tls, NULL
     };
     return send_response_transport(transport, response, keep_alive, timeout);
 }
@@ -1795,7 +1855,7 @@ static Iron_HttpResponse http_request_tls_options(
         http_response_error(&out, dr.v1.code);
         return out;
     }
-    HttpTransport transport = { dr.v0, NULL };
+    HttpTransport transport = { dr.v0, NULL, NULL };
     if (parsed.secure) {
         Iron_TlsStreamResult tls = iron_tls_client_connect(
             dr.v0, host, ca_file, insecure, deadline);
@@ -2225,6 +2285,95 @@ Iron_HttpResponse Iron_httpclient_request(
     http_response_error(&out, IRON_ERR_NET_CLOSED);
     http_client_release(client, slot, 0);
     return out;
+}
+
+uint64_t iron_http_bench_parse_requests(
+    const uint8_t *data, size_t len, size_t message_count,
+    size_t repetitions, int64_t *error_out) {
+    const int64_t memory_fd = INT64_MIN + 9112;
+    uint64_t checksum = 0;
+    *error_out = 0;
+    http_pending_clear(memory_fd);
+    for (size_t repetition = 0; repetition < repetitions; repetition++) {
+        HttpMemoryTransport memory;
+        memset(&memory, 0, sizeof(memory));
+        memory.input = data;
+        memory.input_len = len;
+        HttpTransport transport = {{memory_fd}, NULL, &memory};
+        for (size_t message = 0; message < message_count; message++) {
+            Iron_HttpRequest request = read_request_transport(
+                transport, HTTP_DEFAULT_MAX_HEADER, HTTP_DEFAULT_MAX_BODY,
+                1000);
+            if (request.error != 0) {
+                *error_out = request.error;
+                Iron_httprequest_release(request);
+                http_pending_clear(memory_fd);
+                return checksum;
+            }
+            checksum += iron_string_byte_len(&request.method) * 3u +
+                        iron_string_byte_len(&request.target) * 5u +
+                        iron_string_byte_len(&request.headers) * 7u +
+                        iron_string_byte_len(&request.body) * 11u +
+                        (uint64_t)request.keep_alive;
+            Iron_httprequest_release(request);
+        }
+        http_pending_clear(memory_fd);
+    }
+    return checksum;
+}
+
+uint64_t iron_http_bench_serialize_response(
+    int64_t status, const char *headers, size_t headers_len,
+    const uint8_t *body, size_t body_len, size_t repetitions,
+    uint64_t *bytes_out, int64_t *error_out) {
+    *bytes_out = 0;
+    *error_out = 0;
+    if (body_len > SIZE_MAX - headers_len - 512) {
+        *error_out = IRON_ERR_HTTP_INVALID_ARGUMENT;
+        return 0;
+    }
+    size_t capacity = body_len + headers_len + 512;
+    uint8_t *output = (uint8_t *)malloc(capacity);
+    if (!output) {
+        *error_out = IRON_ERR_NET_NO_MEMORY;
+        return 0;
+    }
+    Iron_String header_string = http_slice(headers, headers_len);
+    Iron_String body_string = http_slice((const char *)body, body_len);
+    Iron_HttpResponse response = Iron_http_response(
+        status, header_string, body_string);
+    iron_string_release(&header_string);
+    iron_string_release(&body_string);
+    if (response.error != 0) {
+        *error_out = response.error;
+        Iron_httpresponse_release(response);
+        free(output);
+        return 0;
+    }
+    uint64_t checksum = 0;
+    for (size_t repetition = 0; repetition < repetitions; repetition++) {
+        HttpMemoryTransport memory;
+        memset(&memory, 0, sizeof(memory));
+        memory.output = output;
+        memory.output_cap = capacity;
+        HttpTransport transport = {{INT64_MIN + 9110}, NULL, &memory};
+        int64_t error = send_response_transport(
+            transport, response, true, 1000);
+        if (error != 0) {
+            *error_out = error;
+            break;
+        }
+        if (memory.write_calls != 1) {
+            *error_out = IRON_ERR_HTTP_MALFORMED_MESSAGE;
+            break;
+        }
+        *bytes_out += memory.output_len;
+        checksum += memory.output_len ? output[memory.output_len - 1] : 0;
+        checksum += memory.output_len;
+    }
+    Iron_httpresponse_release(response);
+    free(output);
+    return checksum;
 }
 
 void Iron_httpclient_close(Iron_HttpClient handle) {
