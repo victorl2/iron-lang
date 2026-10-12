@@ -2729,8 +2729,10 @@ int iron_build(const char *source_path, const char *output_path,
              * other signal (a crash) would otherwise go unreported. */
             int sig = WTERMSIG(wstatus);
             if (sig != SIGABRT)
+                /* binary_name is the run temp file, cleared above: name
+                 * the program by its source (it printed ''). */
                 fprintf(stderr, "error: '%s' terminated by signal %d (%s)\n",
-                        binary_name, sig, strsignal(sig));
+                        source_path, sig, strsignal(sig));
             return 128 + sig;
         }
         return 1;
