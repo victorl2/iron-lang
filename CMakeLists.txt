@@ -2545,8 +2545,10 @@ if(NOT WIN32)
     )
 
     iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_in_arena_block.iron")
+    # This compiler-heavy fixture can exceed one minute in the documented
+    # parallel ASan suite while the module fuzz targets are still running.
     set_tests_properties(v4_3.7-arena_boundary_in_arena_block PROPERTIES
-        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 120
         WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
 
     add_test(
