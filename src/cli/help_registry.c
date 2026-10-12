@@ -55,6 +55,7 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
     { "build", "--force-comptime",     NULL, "off",    "Skip comptime evaluation cache" },
     { "build", "--dump-ir-passes",     NULL, "off",    "Print IR after each optimization pass" },
     { "build", "--report-compression", NULL, "off",    "Show fields narrowed for value range compression" },
+    { "build", "--report-bounds-checks", NULL, "off",   "List the bounds checks left after optimization" },
     { "build", "--warn-fusion-break",  NULL, "off",    "Show where fusion chains are broken by non-fusible calls" },
     { "build", "--output",             "-o", NULL,     "Output binary path" },
 
@@ -78,6 +79,7 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
     { "run", "--force-comptime",     NULL, "off",    "Skip comptime evaluation cache" },
     { "run", "--dump-ir-passes",     NULL, "off",    "Print IR after each optimization pass" },
     { "run", "--report-compression", NULL, "off",    "Show fields narrowed for value range compression" },
+    { "run", "--report-bounds-checks", NULL, "off",   "List the bounds checks left after optimization" },
     { "run", "--warn-fusion-break",  NULL, "off",    "Show where fusion chains are broken by non-fusible calls" },
     { "run", "--output",             "-o", NULL,     "Keep the built binary at this path (default: temp file, removed on exit)" },
 

@@ -34,6 +34,7 @@ typedef struct {
     bool        no_optimize;      /* --no-optimize: skip copy-prop/const-fold/DCE */
     bool        warn_fusion_break; /* --warn-fusion-break: emit diagnostics at fusion chain break points */
     bool        report_compression; /* --report-compression: show which fields were narrowed */
+    bool        report_bounds_checks; /* --report-bounds-checks: list the bounds checks left after optimization */
     IronBuildTarget target;   /* --target=native|web|<os>-<arch>. Default IRON_TARGET_NATIVE. */
     const struct IronCrossTarget *cross_target; /* when target == IRON_TARGET_CROSS */
     bool            release;  /* --release flag. Native: clang -O2. Web: Phase 7 consumes for -Oz -flto -sASSERTIONS=0. */

@@ -2359,7 +2359,11 @@ static IronLIR_ValueId lower_intrinsic(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr,
             break;
         case IRON_INTR_LIST_SPARE:    r = intr_call(ctx, "iron_t_list_spare", NULL, args, argc, type, true, span); break;
         case IRON_INTR_LIST_COMMIT:   r = intr_call(ctx, "iron_list_commit", NULL, args, argc, type, true, span); break;
-        case IRON_INTR_VIEW_LEN:      r = intr_call(ctx, "iron_view_len", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_VIEW_LEN:
+            /* A field read the optimizer understands (bounds check ranges). */
+            r = iron_lir_get_field(ctx->current_func, ctx->current_block, args[0], "len",
+                                   type, span)->id;
+            break;
         case IRON_INTR_VIEW_SLICE:    r = intr_call(ctx, "iron_view_slice", NULL, args, argc, type, false, span); break;
         case IRON_INTR_VIEW_INDEX_OF: r = intr_call(ctx, "iron_view_index_of", NULL, args, argc, type, false, span); break;
         case IRON_INTR_VIEW_STARTS_WITH: r = intr_call(ctx, "iron_view_starts_with", NULL, args, argc, type, false, span); break;
