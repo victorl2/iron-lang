@@ -239,6 +239,13 @@ void ilsp_handle_initialized(IronLsp_Server    *s,
     if (s && s->dyn_reg) {
         ilsp_dyn_register_watched_files(s);
     }
+    /* List the workspace's .iron files (parsed only; analysis is on demand)
+     * so workspace symbols, references and renames across files, type
+     * hierarchy and workspace diagnostics have files to answer from. The
+     * index was created at initialize and stayed empty. */
+    if (s && s->workspace_index) {
+        ilsp_workspace_index_warm_seed(s->workspace_index, NULL);
+    }
 }
 
 /* ── shutdown (request) ─────────────────────────────────────────────────── */

@@ -170,10 +170,17 @@ counts. It reports requests/s, latency percentiles, errors, CPU time per
 1000 requests and resident memory. `bench/go-baseline` is the same API in Go
 (net/http, database/sql, go-sql-driver/mysql) for comparison.
 
-## Debugging
+## Editing and debugging
 
-- `iron build --debug` and `ironc debug`, or VS Code with the Iron extension
-  (see docs/guide.md), for breakpoints on `.iron` lines.
+- Open `apps/inventory` as the editor's folder: the language server
+  analyzes the files under `src/` together, as `iron build` compiles them,
+  so names from the other files resolve, and go to definition, references
+  and workspace symbols cross files. The other files are read as saved.
+- `iron build --debug` and `iron debug`, or VS Code with the Iron extension
+  (see docs/guide.md), for breakpoints on `.iron` lines: a breakpoint at
+  `src/api.iron` in `dispatch` stops on the next request. The service
+  starts without MySQL (database routes answer 503), which is enough to
+  step through routing and the rate cache.
 - `IRON_CFLAGS="-g -fsanitize=address,undefined" iron build` for a
   sanitizer build of the whole service, runtime included.
 - `log_level = debug` logs every rate refresh; `log_requests = true` logs
