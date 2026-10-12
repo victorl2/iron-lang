@@ -25,6 +25,8 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
 
+STEP_TIMEOUT = int(os.environ.get("DAP_STEP_TIMEOUT", "60"))
+
 
 class StepTimeout(queue.Empty):
     """A wait that ran out of time (#412). A queue.Empty, so a caller that
@@ -85,7 +87,7 @@ class Client:
         self.p.stdin.flush()
         return self.seq
 
-    def wait(self, pred, timeout=60, what=None):
+    def wait(self, pred, timeout=STEP_TIMEOUT, what=None):
         # Messages seen earlier while waiting for something else.
         for m in self.seen:
             if pred(m):
@@ -115,17 +117,17 @@ class Client:
                 return m
             self.seen.append(m)
 
-    def response(self, seq, command, timeout=60):
+    def response(self, seq, command, timeout=STEP_TIMEOUT):
         return self.wait(lambda m: m.get("type") == "response" and m.get("request_seq") == seq,
                          timeout, "response to %s" % command)
 
-    def call(self, command, args=None, timeout=60):
+    def call(self, command, args=None, timeout=STEP_TIMEOUT):
         r = self.response(self.send(command, args), command, timeout)
         if not r.get("success"):
             raise RuntimeError("%s failed: %s" % (command, r.get("message")))
         return r.get("body") or {}
 
-    def event(self, name, timeout=60):
+    def event(self, name, timeout=STEP_TIMEOUT):
         return self.wait(lambda m: m.get("type") == "event" and m.get("event") == name,
                          timeout, "%s event" % name)
 
@@ -303,7 +305,7 @@ def main():
     # Run on to line 12 in main: the list formatter is loaded.
     for _ in range(4):
         c.call("continue", {"threadId": tid})
-        stop = c.event("stopped", timeout=60)
+        stop = c.event("stopped", timeout=STEP_TIMEOUT)
         frames = c.call("stackTrace", {"threadId": stop["body"].get("threadId")})["stackFrames"]
         if frames[0]["name"].startswith("main"):
             break

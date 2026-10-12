@@ -3246,7 +3246,14 @@ if(NOT WIN32)
   add_test(NAME debug_panic_smoke
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_panic_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
-  set_tests_properties(debug_panic_smoke PROPERTIES TIMEOUT 300)
+  if(IRON_ENABLE_SANITIZERS)
+    # Preserve the client's 60-second standalone watchdog while giving each
+    # debugger step headroom in the full sanitizer smoke test (#757).
+    set_tests_properties(debug_panic_smoke PROPERTIES TIMEOUT 900
+      ENVIRONMENT "DAP_STEP_TIMEOUT=180")
+  else()
+    set_tests_properties(debug_panic_smoke PROPERTIES TIMEOUT 300)
+  endif()
 endif()
 # #312: gdb, LLDB and Visual Studio (natvis) views of Iron values in
 # `--debug` programs.
