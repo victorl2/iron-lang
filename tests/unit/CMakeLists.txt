@@ -342,6 +342,15 @@ endif()
 add_test(NAME test_stdlib_mysql COMMAND test_stdlib_mysql)
 set_tests_properties(test_stdlib_mysql PROPERTIES LABELS "unit;networking;mysql" TIMEOUT 120)
 
+add_executable(test_mysql_conformance ${CMAKE_SOURCE_DIR}/tests/mysql/conformance.c)
+target_link_libraries(test_mysql_conformance iron_stdlib iron_runtime unity)
+if(WIN32)
+    target_link_libraries(test_mysql_conformance ws2_32 iphlpapi)
+endif()
+add_test(NAME test_mysql_conformance COMMAND test_mysql_conformance)
+set_tests_properties(test_mysql_conformance PROPERTIES
+    LABELS "unit;mysql;conformance" TIMEOUT 180)
+
 # MySQL client against a live server: tests/mysql/run.sh skips (exit 77)
 # unless IRON_MYSQL_URL names one. scripts/ci/local_ci.sh and ci.yml start a
 # MySQL container and set it for the Linux legs.
