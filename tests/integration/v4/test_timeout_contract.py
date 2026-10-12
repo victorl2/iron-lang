@@ -8,6 +8,13 @@ import sys
 
 
 FIXTURES = (
+    "v4_7_drop_happy",
+    "v4_7_boundary_drop_chain",
+    "v4_7_boundary_copy_hook",
+    "v4_7_boundary_nocopy",
+    "v4_3.2_boundary_destructor_runs",
+    "v4_7_panic_destructor_panic",
+    "v4_7_boundary_partial_init_cleanup",
     "v4_4.3-unchecked-ptr_happy",
     "v4_4.3-unchecked-ptr_boundary_box_unwrap",
     "v4_4.3-unchecked-ptr_boundary_box_takes_ownership",

@@ -1969,35 +1969,35 @@ if(NOT WIN32)
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/happy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/happy.iron && actual=\$(\"\$d/happy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_7_drop_happy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    set_tests_properties(v4_7_drop_happy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 120)
 
     add_test(
         NAME v4_7_boundary_drop_chain
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_drop_chain\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_drop_chain.iron && actual=\$(\"\$d/boundary_drop_chain\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_drop_chain.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_7_boundary_drop_chain PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    set_tests_properties(v4_7_boundary_drop_chain PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 120)
 
     add_test(
         NAME v4_7_boundary_copy_hook
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_copy_hook\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_copy_hook.iron && actual=\$(\"\$d/boundary_copy_hook\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_copy_hook.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_7_boundary_copy_hook PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    set_tests_properties(v4_7_boundary_copy_hook PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 120)
 
     add_test(
         NAME v4_7_boundary_nocopy
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_nocopy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_nocopy.iron && actual=\$(\"\$d/boundary_nocopy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_nocopy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_7_boundary_nocopy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    set_tests_properties(v4_7_boundary_nocopy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 120)
 
     add_test(
         NAME v4_3.2_boundary_destructor_runs
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_destructor_runs\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.2-heap/boundary_destructor_runs.iron && actual=\$(\"\$d/boundary_destructor_runs\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.2-heap/boundary_destructor_runs.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_3.2_boundary_destructor_runs PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    set_tests_properties(v4_3.2_boundary_destructor_runs PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 120)
 
     # Phase 24 Plan 24-02: v4-fail/7-drop-copy/copy_nocopy.iron (E0286 nocopy assignment) — flips GREEN here.
     add_test(
@@ -2021,7 +2021,7 @@ if(NOT WIN32)
         COMMAND /bin/sh -c "d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/panic_destructor_panic\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/panic_destructor_panic.iron && \"\$d/panic_destructor_panic\" 2>&1; rc=\$? ; rm -rf \"\$d\" ; [ \$rc -ne 0 ]"
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_7_panic_destructor_panic PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    set_tests_properties(v4_7_panic_destructor_panic PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 120)
 
     # Phase 24 Plan 24-03: DROP-05 structural prerequisite — objects with droppable fields
     # drop in declaration order at scope exit. Full panic-mid-init path deferred.
@@ -2030,7 +2030,7 @@ if(NOT WIN32)
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_partial_init_cleanup\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.iron && actual=\$(\"\$d/boundary_partial_init_cleanup\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_7_boundary_partial_init_cleanup PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    set_tests_properties(v4_7_boundary_partial_init_cleanup PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 120)
 endif()
 
 # `ctest -L phase25-invariant` aggregates the Wave 0 RED→GREEN corpus for Phase 25
