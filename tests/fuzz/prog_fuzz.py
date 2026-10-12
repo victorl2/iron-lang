@@ -272,7 +272,9 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
         cmd = ['valgrind', '--quiet', f'--tool={mode}', '--error-exitcode=99',
                f'--suppressions={VG_SUPP}', exe]
     if mode == 'asan':
-        env['ASAN_OPTIONS'] = (f'detect_leaks={0 if leaks_ok else 1}:abort_on_error=0:exitcode=99:'
+        # (LeakSanitizer does not exist on macOS: asking for it ends the run)
+        leaks = 0 if leaks_ok or sys.platform == 'darwin' else 1
+        env['ASAN_OPTIONS'] = (f'detect_leaks={leaks}:abort_on_error=0:exitcode=99:'
                                'detect_stack_use_after_return=1')
         env['UBSAN_OPTIONS'] = 'print_stacktrace=1:halt_on_error=1'
     if mode == 'tsan':
