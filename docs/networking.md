@@ -538,6 +538,10 @@ for address in addresses {
 `IPv4Addr.parse`, `IPv6Addr.parse` and the matching `format` functions
 convert between text and the typed addresses the socket calls take.
 
+An address literal resolves to itself without a resolver query. A name that
+is empty or holds a zero byte is error `1009` (it is never looked up as the
+text before the zero byte).
+
 ## Concurrency
 
 A standalone `spawn` statement is detached: the handler runs to completion

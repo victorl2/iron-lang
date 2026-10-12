@@ -22,6 +22,10 @@ func main() {
     val (n2, se2) = Net.udp_sendto_v4(tx, "x", IPv4Addr(127, 0, 0, 300), 9, 100)
     println("{se1.code} {se2.code}")
     UdpSocket.close(tx)
+    -- a name holding a zero byte is no host: it is not looked up as its prefix
+    val (addrs, dns) = Net.lookup_host("127.0.0.1" + nul + "evil", 5000)
+    val (lit4, dns4) = Net.lookup_host("127.0.0.1", 5000)
+    println("{dns.code} {addrs.len()} {dns4.code} {lit4.len()}")
 
     var port = 0
     var listener = TcpListener(-1)

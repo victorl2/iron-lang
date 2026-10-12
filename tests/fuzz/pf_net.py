@@ -16,7 +16,12 @@ invalid descriptor (1015).
 UDP: datagrams of 0 .. 65507 bytes to a bound receiver, received with
 limits above and below their size (truncated, 1018), timeouts (1004),
 invalid limits (1024), a datagram too large to send (1018), invalid ports
-(1024) and octets outside 0..255 (1008).
+(1024) and octets outside 0..255 (1008); the same over the IPv6 loopback
+(Net.udp_sendto_v6) where there is one.
+
+DNS: Net.lookup_host on address literals, which need no resolver (one
+address, the literal), and on the empty name and names holding a zero
+byte (1009).
 
 Addresses: IPv4Addr / IPv6Addr parse against the platform inet_pton
 (socket.inet_pton in Python), zone identifiers (with the %25 URL form), and
@@ -73,6 +78,31 @@ func udp_any() -> (UdpSocket, Int) {
     var tries = 0
     while tries < 300 {
         val (u, e) = Net.udp_bind("127.0.0.1", p)
+        if e.code == 0 {
+            return (u, p)
+        }
+        p = 20000 + (p - 20000 + 7919) % 40000
+        tries += 1
+    }
+    return (UdpSocket(-1), -1)
+}
+
+func addrs_text(addrs: [Address]) -> String {
+    var t = ""
+    for a in addrs {
+        match a {
+            Address.V4(v) -> { t += " v4=" + IPv4Addr.format(v) }
+            Address.V6(v) -> { t += " v6=" + IPv6Addr.format(v) }
+        }
+    }
+    return t
+}
+
+func udp6_any() -> (UdpSocket, Int) {
+    var p = 20000 + (Time.now_ns() / 1000 + 29) % 40000
+    var tries = 0
+    while tries < 300 {
+        val (u, e) = Net.udp_bind("::1", p)
         if e.code == 0 {
             return (u, p)
         }
@@ -177,6 +207,18 @@ func drain(l: TcpListener, n: Int) -> Int {
 
 
 MAX_DATAGRAM = 9216 if sys.platform == 'darwin' else 65507
+
+
+def _have_v6():
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as s:
+            s.bind(('::1', 0))
+        return True
+    except OSError:
+        return False
+
+
+HAVE_V6 = _have_v6()
 
 
 def frame(n):
@@ -397,6 +439,77 @@ class NetGen(StdGen):
         code += ['UdpSocket.close(tx)', 'UdpSocket.close(rx)']
         return Probe(code, out)
 
+    def p_udp6(self):
+        """UDP over the IPv6 loopback (where the machine generating the
+        program has one)."""
+        r = self.r
+        code, out = [], []
+        code += ['val (rx, re) = Net.udp_bind("::1", 0)', 'val (tx, te) = Net.udp_bind("::1", 0)',
+                 'val (lo, pe) = IPv6Addr.parse("::1")']
+        if not HAVE_V6:
+            code += ['UdpSocket.close(tx)', 'UdpSocket.close(rx)']
+            self.raw(code, out, ['pe.code', 'q(IPv6Addr.format(lo))'], [0, '::1'])
+            return Probe(code, out)
+        # the receiver's port: found by sending to candidate ports is not
+        # possible, so bind the receiver on a searched port instead
+        code[0] = 'val (rx, rport) = udp6_any()'
+        for _ in range(r.randint(1, 3)):
+            k = r.random()
+            pk = self.fresh('pk')
+            if k < 0.7:
+                n = r.choice([0, 1, 100, 1452, 8192])
+                seed = r.randint(1, 10**6)
+                mx = max(1, r.choice([n, n + 1, 65536, n - 1, 1]))
+                d = blob(n, seed)
+                got = d[:mx]
+                trunc = len(d) > mx
+                code += [f'val (sn{pk}, se{pk}) = Net.udp_sendto_v6(tx, blob({n}, {seed}), lo, rport, 1000)',
+                         f'val {pk} = UdpSocket.recvfrom(rx, {mx}, 2000)']
+                self.raw(code, out, [f'sn{pk}', f'se{pk}.code', f'{pk}.error.code', f'{pk}.truncated',
+                                     f'{pk}.data.byte_len()', f'digest({pk}.data)', f'{pk}.address'],
+                         [n, 0, 1018 if trunc else 0, 1 if trunc else 0, len(got), digest(got), '::1'])
+            elif k < 0.85:
+                port = r.choice([-1, 65536, 70000])
+                code.append(f'val (sn{pk}, se{pk}) = Net.udp_sendto_v6(tx, "x", lo, {port}, 100)')
+                code.append(f'val (ub{pk}, ue{pk}) = Net.udp_bind("::1", {port})')
+                self.raw(code, out, [f'se{pk}.code', f'ue{pk}.code'], [1024, 1024])
+            else:
+                # 16 raw bytes make an address; any other length does not
+                n = r.choice([0, 4, 15, 17])
+                code.append(f'val (sn{pk}, se{pk}) = Net.udp_sendto_v6(tx, "x", IPv6Addr("a".repeat({n}), ""), rport, 100)')
+                self.raw(code, out, [f'se{pk}.code'], [1008])
+        code += ['UdpSocket.close(tx)', 'UdpSocket.close(rx)']
+        return Probe(code, out)
+
+    # ------------------------------------------------------------------ DNS
+    def p_lookup(self):
+        """Net.lookup_host on names that need no resolver: address
+        literals (one address, the literal), the empty name and names
+        holding a zero byte (1009)."""
+        r = self.r
+        code, out = [], []
+        for _ in range(r.randint(1, 4)):
+            k = r.random()
+            a, e = self.fresh('la'), self.fresh('le')
+            if k < 0.35:
+                s = '.'.join(str(r.choice([0, 1, 10, 127, 192, 255])) for _ in range(4))
+                want = [0, 1, ' v4=' + s]
+            elif k < 0.6:
+                s = r.choice(['::1', '::', '2001:db8::7', '1:2:3:4:5:6:7:8', '::ffff:1.2.3.4',
+                              '2001:0db8:0000:0000:0000:0000:0000:0007', 'FE80::ABCD'])
+                want = [0, 1, ' v6=' + socket.inet_ntop(socket.AF_INET6, socket.inet_pton(socket.AF_INET6, s))]
+            elif k < 0.7:
+                s = ''
+                want = [1009, 0, '']
+            else:
+                s = r.choice(['127.0.0.1\x00evil', '\x00', '::1\x00', 'localhost\x00.example',
+                              '10.0.0.1\x00', 'a\x00b'])
+                want = [1009, 0, '']
+            code.append(f'val ({a}, {e}) = Net.lookup_host({lit(s)}, 5000)')
+            self.raw(code, out, [f'{e}.code', f'{a}.len()', f'q(addrs_text({a}))'],
+                     [want[0], want[1], qtext(want[2].encode())])
+        return Probe(code, out)
+
     # ------------------------------------------------------------ addresses
     V4 = ['127.0.0.1', '0.0.0.0', '255.255.255.255', '256.1.1.1', '1.2.3', '1.2.3.4.5', '01.2.3.4',
           '1.2.3.04', ' 1.2.3.4', '1.2.3.4 ', '1..2.3', '', '1.2.3.4\x00', '\x00', '192.168.1.255',
@@ -471,7 +584,7 @@ class NetGen(StdGen):
 
     def probe_kinds(self):
         return [(5, self.p_echo), (1, self.p_bigwrite), (1, self.p_many), (4, self.p_edges),
-                (3, self.p_udp), (4, self.p_addr)]
+                (3, self.p_udp), (4, self.p_addr), (1, self.p_udp6), (2, self.p_lookup)]
 
 
 def generate(rng):

@@ -1491,6 +1491,13 @@ Iron_Tuple__Address__NetError Iron_net_lookup_host(Iron_String name,
     memset(&out, 0, sizeof(out));
     out.v1 = iron_net_err_none();
 
+    /* A name holding a zero byte is no host name: getaddrinfo would look
+     * up its prefix ("127.0.0.1\0evil" resolved to 127.0.0.1). */
+    if (!iron_net_host_ok(&name)) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_BAD_HOST);
+        return out;
+    }
+
     DnsJob *job = (DnsJob *)calloc(1, sizeof(*job));
     if (!job) {
         out.v1 = iron_net_err_code(IRON_ERR_NET_NO_MEMORY);
