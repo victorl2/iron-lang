@@ -47,6 +47,13 @@
 /* Build and enqueue a response body. Takes arena-owned body bytes and
  * copies them to a malloc'd buffer that ownership transfers to the
  * writer. */
+/* LSP clients reject a symbol whose name is empty (VS Code drops the whole
+ * outline): a declaration the parser recovered without a name gets a
+ * placeholder. */
+static const char *symbol_name(const char *name) {
+    return name && name[0] ? name : "(unnamed)";
+}
+
 static void enqueue_json(IronLsp_Server *s, yyjson_mut_doc *d,
                           Iron_Arena *arena) {
     if (!s || !d || !arena || !s->writer) return;
@@ -193,7 +200,7 @@ void ilsp_handle_text_document_implementation(IronLsp_Server *s,
 static yyjson_mut_val *doc_sym_to_json(yyjson_mut_doc *rd,
                                          const IronLsp_DocSymbol *s) {
     yyjson_mut_val *o = yyjson_mut_obj(rd);
-    yyjson_mut_obj_add_strcpy(rd, o, "name", s->name ? s->name : "");
+    yyjson_mut_obj_add_strcpy(rd, o, "name", symbol_name(s->name));
     if (s->detail) {
         yyjson_mut_obj_add_strcpy(rd, o, "detail", s->detail);
     }
@@ -536,7 +543,7 @@ void ilsp_handle_text_document_signature_help(IronLsp_Server *s,
 static yyjson_mut_val *ws_sym_to_json(yyjson_mut_doc *rd,
                                         const IronLsp_WorkspaceSymbol *ws) {
     yyjson_mut_val *o = yyjson_mut_obj(rd);
-    yyjson_mut_obj_add_strcpy(rd, o, "name", ws->name ? ws->name : "");
+    yyjson_mut_obj_add_strcpy(rd, o, "name", symbol_name(ws->name));
     yyjson_mut_obj_add_int   (rd, o, "kind", ws->kind);
     if (ws->container_name && *ws->container_name) {
         yyjson_mut_obj_add_strcpy(rd, o, "containerName", ws->container_name);
@@ -618,7 +625,7 @@ static yyjson_mut_val *type_hierarchy_item_to_json(
     yyjson_mut_doc                  *rd,
     const IronLsp_TypeHierarchyItem *it) {
     yyjson_mut_val *o = yyjson_mut_obj(rd);
-    yyjson_mut_obj_add_strcpy(rd, o, "name", it->name ? it->name : "");
+    yyjson_mut_obj_add_strcpy(rd, o, "name", symbol_name(it->name));
     yyjson_mut_obj_add_int   (rd, o, "kind", it->kind);
     /* Phase 11 PATCH-02 (Plan 11-02 Task 1): optional detail field per
      * LSP 3.17 spec. Only emitted for patch-method virtual entries

@@ -6038,9 +6038,15 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                          expected_count, ce->arg_count);
                 const char *callee_name = (ce->callee && ce->callee->kind == IRON_NODE_IDENT)
                     ? ((Iron_Ident *)ce->callee)->name : "the function";
+                /* The declaration's names, when it is the one the type
+                 * came from: a second declaration of the name (E0201) can
+                 * have fewer parameters, and reading its list up to the
+                 * type's count ran past it. */
+                Iron_Node **sig_params =
+                    (fd_for_parm && fd_for_parm->param_count == expected_count)
+                        ? fd_for_parm->params : NULL;
                 emit_error(ctx, IRON_ERR_ARG_COUNT, ce->span, msg,
-                           params_signature(ctx, callee_name,
-                                            fd_for_parm ? fd_for_parm->params : NULL,
+                           params_signature(ctx, callee_name, sig_params,
                                             expected_count, 0,
                                             callee_type->func.param_types));
                 for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
@@ -12725,6 +12731,10 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         Iron_Symbol *esym = iron_scope_lookup(ctx.global_scope, ed->name);
         if (!esym || !esym->type || esym->type->kind != IRON_TYPE_ENUM) continue;
         Iron_Type *ty = esym->type;
+        /* A second declaration of the name (E0201) does not own the type:
+         * filling the type's arrays from its variants sized them for the
+         * wrong enum, and a construct of the first one read past them. */
+        if (ty->enu.decl != ed) continue;
         /* Allocate outer array of Iron_Type** pointers */
         Iron_Type ***vpt = iron_arena_alloc(ctx.arena,
             sizeof(Iron_Type **) * (size_t)ed->variant_count, _Alignof(Iron_Type **));

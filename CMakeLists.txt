@@ -1050,6 +1050,16 @@ add_test(NAME diag_error_receiver
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/error_receiver.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 
+# A declaration with a syntax error still binds its names (no undefined
+# identifier cascade in `ironc check`).
+add_test(NAME diag_broken_declaration
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/broken_declaration.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/broken_declaration.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/broken_declaration.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+
 # A mutating call on a val suggests `readonly` when the method never
 # changes self.
 add_test(NAME diag_readonly_hint
@@ -1661,6 +1671,24 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/json_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/json_fuzz)
     set_tests_properties(json_fuzz PROPERTIES LABELS "stdlib" TIMEOUT 900)
+    # The tools: editing sessions against ironls (tests/fuzz/lsp_fuzz.py)
+    # and the formatter against itself, ironc check and the language
+    # server's formatting (tests/fuzz/fmt_fuzz.py). Fixed seeds, about a
+    # minute each; longer campaigns are described in docs/dev/fuzzing.md.
+    if(IRON_BUILD_LSP AND NOT WIN32)
+        add_test(NAME lsp_fuzz_short
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/lsp_fuzz.py
+                --ironls $<TARGET_FILE:ironls> --ironc $<TARGET_FILE:ironc>
+                --seed 1 --sessions 12 --steps 250 -j 3 --quiet
+                --out ${CMAKE_BINARY_DIR}/lsp_fuzz --tmp ${CMAKE_BINARY_DIR}/lsp_fuzz/tmp)
+        set_tests_properties(lsp_fuzz_short PROPERTIES LABELS "lsp;fuzz" TIMEOUT 600)
+        add_test(NAME fmt_fuzz_short
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/fmt_fuzz.py
+                --ironc $<TARGET_FILE:ironc> --ironls $<TARGET_FILE:ironls>
+                --seed 1 --count 150 -j 3 --quiet
+                --out ${CMAKE_BINARY_DIR}/fmt_fuzz --tmp ${CMAKE_BINARY_DIR}/fmt_fuzz/tmp)
+        set_tests_properties(fmt_fuzz_short PROPERTIES LABELS "fmt;fuzz" TIMEOUT 600)
+    endif()
     # Packages, the module system and the iron project tool
     # (tests/fuzz/mod_fuzz.py), and the iron / ironc command lines
     # (tests/fuzz/cli_fuzz.py). Fixed seeds.
