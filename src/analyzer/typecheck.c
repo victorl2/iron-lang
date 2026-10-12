@@ -4367,10 +4367,16 @@ static bool redirect_generic_call(TypeCtx *ctx, Iron_CallExpr *ce, Iron_Type *ex
      * the function's return type against it, or an expected instance of
      * the object. Explicit type arguments are never replaced. */
     if (expd && !explicit_args && !explicit_arg) {
-        if (tmpl->kind == IRON_NODE_FUNC_DECL)
-            unify_generic(((Iron_FuncDecl *)tmpl)->return_type, expd, gps, ngp, bind);
-        else
+        if (tmpl->kind == IRON_NODE_FUNC_DECL) {
+            /* A non-null value fits `T?`; the nullable expected type supplies
+             * its inner type to omitted return type arguments (#626, #694). */
+            Iron_Type *return_expd = expd->kind == IRON_TYPE_NULLABLE && expd->nullable.inner
+                ? expd->nullable.inner : expd;
+            unify_generic(((Iron_FuncDecl *)tmpl)->return_type, return_expd,
+                          gps, ngp, bind);
+        } else {
             bind_from_expected_instance(tmpl, expd, bind, ngp);
+        }
     }
     for (int i = 0; i < ngp; i++) {
         if (!bind[i]) {
