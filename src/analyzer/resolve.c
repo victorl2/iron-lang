@@ -9,6 +9,7 @@
  */
 
 #include "hir/stdlib_origin.h"
+#include "comptime/comptime.h"
 #include "analyzer/generics.h"
 #include "analyzer/resolve.h"
 #include "analyzer/typo_candidate.h"
@@ -1584,6 +1585,14 @@ static const char *const k_stdlib_modules[] = {
  * src/lib.iron, `greeter` matches vendor/greeter/src/lib.iron, `a.b.c`
  * matches src/a/b/c.iron. */
 static bool file_matches_module(const char *filename, const char *mod) {
+    /* In a package only the path below the package directory counts: a
+     * single-file package is compiled from its absolute path, whose
+     * directories above the package matched (#603). */
+    const char *root = iron_comptime_package_root();
+    size_t rl = root ? strlen(root) : 0;
+    if (rl && strncmp(filename, root, rl) == 0 &&
+        (filename[rl] == '/' || filename[rl] == '\\'))
+        filename += rl + 1;
     char comps[64][128];
     int n = 0;
     const char *p = filename;
@@ -1643,6 +1652,13 @@ static void validate_imports(ResolveCtx *ctx, Iron_Program *program) {
                            strcmp(o->span.filename + fl - 10, ".iron-stub") == 0;
             if (!is_stub && iron_stdlib_origin_classify(o->span.filename) != 0) continue;
             found = file_matches_module(o->span.filename, imp->path);
+        }
+        /* A package file without declarations (empty, or only imports and
+         * comments) still exists: its `-- @file:` marker named it. */
+        for (int j = 0; !found && iron_source_marker_get(j); j++) {
+            const char *mf = iron_source_marker_get(j);
+            if (iron_stdlib_origin_classify(mf) != 0) continue;
+            found = file_matches_module(mf, imp->path);
         }
         if (found) continue;
         char msg[512];
