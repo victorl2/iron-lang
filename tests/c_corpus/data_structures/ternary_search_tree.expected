@@ -1,0 +1,19 @@
+words inserted 1500, distinct 1230, nodes 3111, height 22
+prefix tr   ->   6 words: tree tribe trie trip triple ...
+prefix ban  ->   4 words: ban banana band bandana
+prefix a    -> 195 words: a aa aaa aaabdfbd aaadbfb ...
+prefix ab   ->  24 words: ab aba abacbfce abacfe abae ...
+prefix fff  ->   3 words: fffacd fffcd fffeffc
+prefix top  ->   2 words: top topic
+prefix e    -> 200 words: ea eaa eaaa eaacea eaae ...
+pattern t...   ->   5 matches
+pattern ..     ->  38 matches
+pattern b.n    ->   1 matches
+pattern .a.a.  ->  10 matches
+pattern ....   -> 216 matches
+pattern a      ->   1 matches
+pattern .      ->   1 matches
+pattern ab.d   ->   0 matches
+60 hamming-neighbour queries, 545 results in total
+longest stored prefix of bandanas: 7 chars
+height: random order 22, sorted order 25, reverse sorted 28, median-first 17; node counts 3111 3111 3111 3111

@@ -1,0 +1,4 @@
+mid-run: live=10 free blocks=7 free bytes=2016 largest=1024
+mid-run internal fragmentation=469 bytes (2080 block vs 1611 requested)
+splits=1425 merges=1407 failed allocs=467 peak block bytes=4096
+after freeing everything: single free block of 4096 bytes

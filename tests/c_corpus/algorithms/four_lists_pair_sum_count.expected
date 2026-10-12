@@ -1,0 +1,6 @@
+40 random instances verified against O(n^4)
+classic example: 2
+n=300, target -100: 2743666 quadruples
+n=300, target 0: 2747116 quadruples
+n=300, target 100: 2738829 quadruples
+all zeros n=128: 268435456 (expect 128^4)

@@ -1,0 +1,11 @@
+allocations for one course: 10
+shallow shares memory: 1
+a after write via shallow: Systems [ada=1000 bob=60 cy=80] best=cy/83
+live allocs unchanged by shallow copy: 1
+deep shares memory: 0, allocs=20
+a: Systems [ada=1000 bob=60 cy=80] best=cy/83
+deep: Xystems [ada=1000 bob=-1 cy=80] best=cy/83
+best alias same name ptr: 1
+after move: a.title=null a.students=null moved ok=1
+moved: Systems [ada=1000 bob=60 cy=80] best=cy/83
+live allocs at end: 0

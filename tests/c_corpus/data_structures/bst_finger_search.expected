@@ -1,0 +1,10 @@
+tree: 1500 nodes, depth 11
+local walk of 3000 queries: finger steps=17136
+sequential sweep of 3001 queries: finger steps=14964 root steps=31917
+random queries: finger steps=52487 root steps=30422
+gap    1 keys: average steps x100 = 197
+gap    4 keys: average steps x100 = 463
+gap   16 keys: average steps x100 = 812
+gap   64 keys: average steps x100 = 1171
+gap  256 keys: average steps x100 = 1455
+gap 1024 keys: average steps x100 = 1739

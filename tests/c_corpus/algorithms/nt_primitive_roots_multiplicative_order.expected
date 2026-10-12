@@ -1,0 +1,14 @@
+primitive roots exist exactly for 1,2,4,p^k,2p^k (n<=400 verified)
+least primitive roots: 3:2 5:2 7:3 11:2 13:2 14:3 17:3 18:5 19:2 23:5 25:2 27:2 41:6 71:7 97:5 998244353:3
+p=7 primitive roots: 2 = phi(phi(p)) = 2
+p=13 primitive roots: 4 = phi(phi(p)) = 4
+p=31 primitive roots: 8 = phi(phi(p)) = 8
+p=101 primitive roots: 40 = phi(phi(p)) = 40
+p=257 primitive roots: 128 = phi(phi(p)) = 128
+orders in Z/91*: ord1 x1 ord2 x3 ord3 x8 ord4 x4 ord6 x24 ord12 x32
+ind_3 mod 17: 0 14 1 12 5 15 11 10 2 3 7 13 4 9 6 8
+lambda(15)=4 phi=8
+lambda(24)=2 phi=8
+lambda(91)=12 phi=72
+lambda(100)=20 phi=40
+cyclic unit groups among n in 3..100: 48

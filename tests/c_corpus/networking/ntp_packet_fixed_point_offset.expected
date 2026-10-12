@@ -1,0 +1,21 @@
+unix 0 -> ntp seconds 2208988800; 0.5 s -> fraction 0x80000000
+all 1000000 microsecond values survive the 32.32 round trip
+unix 0           -> ntp seconds 2208988800 (era 0) -> unix 0
+unix 1700000000  -> ntp seconds 3908988800 (era 0) -> unix 1700000000
+unix 2085978495  -> ntp seconds 4294967295 (era 0) -> unix 2085978495
+unix 2147483647  -> ntp seconds 61505151   (era 1) -> unix 2147483647
+unix 4102444800  -> ntp seconds 2016466304 (era 1) -> unix 4102444800
+unix 4294968295  -> ntp seconds 2208989799 (era 1) -> unix 4294968295
+header byte 0x24 (li=0 vn=4 mode=4), stratum 2, poll 6 (64 s), precision -20 (0.95 us), root delay 0.5000 s, root dispersion 1.0000 s
+refid 192.0.2.1, wire bytes 16..23: e8fe6f801f9acffa
+sample  offset_us   delay_us
+   0     1243314      50163
+   1     1232837      75112
+   2     1233613      49970
+   3     1239412      69895
+   4     1234414      64128
+   5     1236011      47679
+   6     1239516      42146
+   7     1233381      56703
+clock filter picks delay 42146 us, offset 1239516 us (true offset 1234567, error 4949 us)
+checks: ok, not-a-server-reply, origin-timestamp-mismatch, stratum-unsynchronized, alarm-condition, kiss-of-death RATE, kiss-of-death DENY, zero-transmit-timestamp, server-time-went-backwards, bad-version

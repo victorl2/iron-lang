@@ -1,0 +1,6 @@
+full-cone       pool=200: created=319 refreshed=  6 expired=270 preserved=225 exhausted=  0 in_ok= 89/214 blocked=  0 nomap=186 peak=60
+full-cone       pool= 24: created=239 refreshed=  6 expired=204 preserved=106 exhausted= 80 in_ok=163/214 blocked=  0 nomap=112 peak=35
+port-restricted pool=200: created=320 refreshed=  5 expired=276 preserved=228 exhausted=  0 in_ok= 45/214 blocked= 42 nomap=188 peak=59
+port-restricted pool= 24: created=264 refreshed=  4 expired=229 preserved=107 exhausted= 57 in_ok= 56/214 blocked=105 nomap=114 peak=35
+symmetric       pool=200: created=323 refreshed=  2 expired=278 preserved=230 exhausted=  0 in_ok= 46/214 blocked= 43 nomap=186 peak=59
+symmetric       pool= 24: created=264 refreshed=  2 expired=230 preserved=106 exhausted= 59 in_ok= 55/214 blocked=106 nomap=114 peak=34

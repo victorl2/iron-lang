@@ -1,0 +1,4 @@
+500 random arrays, peak index checksum 12341
+mountain search hits: 1617
+demo top=3 value=12
+find 4 -> 5, 8 -> 2, 5 -> -1

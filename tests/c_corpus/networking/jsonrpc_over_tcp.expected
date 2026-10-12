@@ -1,0 +1,29 @@
+--> {"jsonrpc":"2.0","method":"add","params":[19,23],"id":1}
+<-- {"jsonrpc":"2.0","result":42,"id":1}
+--> {"jsonrpc":"2.0","method":"subtract","params":{"subtrahend":...
+<-- {"jsonrpc":"2.0","result":19,"id":"req-2"}
+--> {"jsonrpc":"2.0","method":"sum","params":[[1,2,3,4,5,-5]],"i...
+<-- {"jsonrpc":"2.0","result":10,"id":3}
+--> {"jsonrpc":"2.0","method":"concat","params":["iron","-lang"]...
+<-- {"jsonrpc":"2.0","result":"iron-lang","id":4}
+--> {"jsonrpc":"2.0","method":"echo","params":[{"k":[1,true,null...
+<-- {"jsonrpc":"2.0","result":{"k":[1,true,null,"x"],"e":{}},"id":5}
+--> notification, no reply expected
+--> {"jsonrpc":"2.0","method":"nope","id":6}
+<-- {"jsonrpc":"2.0","error":{"code":-32601,"message":"Method not found"},"id":6}
+--> {"jsonrpc":"2.0","method":"add","params":[1,"two"],"id":7}
+<-- {"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid params"},"id":7}
+--> {"jsonrpc":"2.0","method":"add","params":[1,2
+<-- {"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"},"id":null}
+--> {"method":"add","id":8}
+<-- {"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request"},"id":null}
+--> [1,2]
+<-- [{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request"},"id":null},{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request"},"id":null}]
+--> []
+<-- {"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request"},"id":null}
+--> [{"jsonrpc":"2.0","method":"add","params":[1,2],"id":"a"},{"...
+<-- [{"jsonrpc":"2.0","result":3,"id":"a"},{"jsonrpc":"2.0","result":30,"id":"b"},{"jsonrpc":"2.0","error":{"code":-32601,"message":"Method not found"},"id":"c"}]
+--> notification, no reply expected
+--> {"jsonrpc":"2.0","method":"add","params":[5,5],"id":9}
+<-- {"jsonrpc":"2.0","result":10,"id":9}
+server lines=15 notifications=4

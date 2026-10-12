@@ -1,0 +1,4 @@
+allocs=5820 frees=5714 failed=466 live=106
+splits=5699 merges=5541 heap moves=87203
+free blocks=53 free units=370 largest=19
+drained: single block of 1024 units

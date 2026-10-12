@@ -1,0 +1,9 @@
+items=40 cap=500 best=2861 used_weight=497 chosen=20
+pick mask=4657459e33
+cap  50 -> 704
+cap 150 -> 1477
+cap 450 -> 2708
+brute(16 items, cap 60)=645
+brute(16 items, cap 140)=941
+brute(16 items, cap 220)=1199
+brute(16 items, cap 300)=1433

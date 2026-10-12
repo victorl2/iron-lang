@@ -1,0 +1,17 @@
+msg 0: len=34 id=16223292120261883051 delta=-1952811 name="a" f32=2FED85EC point=(-18886,-29867) unknown=0
+msg 1: len=15 id=2 delta=-223495249 name="" f32=00BDA433 point=none(0,0) unknown=0
+msg 2: len=28 id=2 delta=309664369 name="beta" f32=7780E5AC point=(20506,-6769) unknown=0
+msg 3: len=27 id=1 delta=332589 name="beta" f32=417869E1 point=(29073,-59997) unknown=0
+stream: 676 bytes, 20 messages, 12 unknown fields skipped
+varint                    0 ->  1 bytes, last=00
+varint                    1 ->  1 bytes, last=01
+varint                  127 ->  1 bytes, last=7F
+varint                  128 ->  2 bytes, last=01
+varint                16383 ->  2 bytes, last=7F
+varint                16384 ->  3 bytes, last=01
+varint           4294967295 ->  5 bytes, last=0F
+varint  9223372036854775807 ->  9 bytes, last=7F
+varint 18446744073709551615 -> 10 bytes, last=01
+zigzag: 0->0 -1->1 1->2 -2->3 2147483647->4294967294 -2147483648->4294967295
+truncated=0 overlong=0 overflow=0 too_long=0
+clean cut points: 20 of 676 (message boundaries plus empty)

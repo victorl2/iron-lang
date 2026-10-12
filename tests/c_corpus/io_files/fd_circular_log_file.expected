@@ -1,0 +1,7 @@
+after  10 appends: kept=10 first=0 last=9 used=431
+after  40 appends: kept=27 first=13 last=39 used=1012
+after 400 appends: kept=27 first=373 last=399 used=987 head=289
+wrapping writes split in two: 15, dropped: 373
+digest of surviving payloads: f4e1df6d4f1299d2
+after reopen: kept=27 first=373 last=399 same digest=1
+after resume: last=400 kept=28

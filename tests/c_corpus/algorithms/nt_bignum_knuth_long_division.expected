@@ -1,0 +1,7 @@
+q1=0xfffffffefffffffe
+r1=0x100000002
+add-back steps so far: 0
+random cases verified: 400, fold 6739545789267885425
+total add-back corrections: 2
+2^128 / (2^64+1) q=0xffffffffffffffff
+remainder=0x1

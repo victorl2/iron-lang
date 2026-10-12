@@ -1,0 +1,6 @@
+objects allocated: 1022
+minor collections: 57 (work 560, swept 248), full: 14 (work 176, swept 757)
+marking work if every collection had been full: 893
+barrier recorded 307 dirty sources
+old garbage kept by minors, summed: 1344
+oracle checks: 71

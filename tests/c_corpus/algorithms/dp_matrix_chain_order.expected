@@ -1,0 +1,5 @@
+n=6 cost=15125 trees=42 order=((M1 (M2 M3)) ((M4 M5) M6))
+n=4 cost=14496 trees=5 order=((M1 (M2 M3)) M4)
+n=7 cost=31308 trees=132 order=(M1 (((M2 M3) M4) ((M5 M6) M7)))
+n=8 cost=31190 trees=429 order=(((((((M1 M2) M3) M4) M5) M6) M7) M8)
+n=10 cost=34500 trees=4862 order=(M1 (M2 (M3 (M4 (M5 (M6 (M7 (M8 (M9 M10)))))))))

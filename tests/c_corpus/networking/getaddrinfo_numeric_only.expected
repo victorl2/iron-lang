@@ -1,0 +1,8 @@
+numeric host and service: ok
+address is loopback: yes, port 8080: yes, addrlen matches: yes
+getnameinfo: 127.0.0.1:8080
+hostname with AI_NUMERICHOST: EAI_NONAME
+service name with AI_NUMERICSERV: EAI_NONAME
+malformed address: EAI_NONAME
+passive: wildcard yes, datagram yes, port 9000 yes
+connected through getaddrinfo results: yes

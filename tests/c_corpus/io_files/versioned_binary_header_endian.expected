@@ -1,0 +1,19 @@
+v1 little-endian: 112 bytes, first header bytes: 49 52 4E 46 01 4C 10 00 0C 00 00 00
+      rec[3] id=1021 score=-25520.00 flags=0000 name=""
+v1 big   -endian: 112 bytes, first header bytes: 49 52 4E 46 01 42 00 10 00 00 00 0C
+      rec[3] id=1021 score=-25520.00 flags=0000 name=""
+v2 little-endian: 136 bytes, first header bytes: 49 52 4E 46 02 4C 10 00 0C 00 00 00
+      rec[3] id=1021 score=-25520.00 flags=1A71 name=""
+v2 big   -endian: 136 bytes, first header bytes: 49 52 4E 46 02 42 00 10 00 00 00 0C
+      rec[3] id=1021 score=-25520.00 flags=1A71 name=""
+v3 little-endian: 254 bytes, first header bytes: 49 52 4E 46 03 4C 14 00 0C 00 00 00
+      rec[3] id=1021 score=-25520.00 flags=1A71 name="dave-the-long"
+v3 big   -endian: 254 bytes, first header bytes: 49 52 4E 46 03 42 00 14 00 00 00 0C
+      rec[3] id=1021 score=-25520.00 flags=1A71 name="dave-the-long"
+damage at 0: bad magic
+damage at 4: unknown version
+damage at 5: bad endian marker
+damage at 8: header crc mismatch
+damage at 13: header crc mismatch
+damage at 6: header crc mismatch
+truncated by 3: bad name length

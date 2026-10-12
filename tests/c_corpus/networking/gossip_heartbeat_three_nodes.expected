@@ -1,0 +1,19 @@
+round  1:  n0[1,1,0] AAA  n1[0,1,1] AAA
+round  2:  n0[2,1,2] AAA  n1[2,2,1] AAA
+round  3:  n0[3,3,2] AAA  n1[2,3,3] AAA
+round  4:  n0[4,3,4] AAA  n1[4,4,3] AAA
+round  5:  n0[5,5,4] AAA  n1[4,5,3] AAA  (n2 down)
+round  6:  n0[6,5,4] AAA  n1[6,6,4] AAA  (n2 down)
+round  7:  n0[7,7,4] AAS  n1[6,7,4] AAA  (n2 down)
+round  8:  n0[8,7,4] AAS  n1[8,8,4] AAA  (n2 down)
+round  9:  n0[9,9,4] AAD  n1[8,9,4] AAS  (n2 down)
+round 10:  n0[10,9,4] AAD  n1[10,10,4] AAS  (n2 down)
+round 11:  n0[11,11,4] AAD  n1[10,11,5] AAA
+round 12:  n0[12,11,6] AAA  n1[12,12,5] AAA
+round 13:  n0[13,13,6] AAA  n1[12,13,7] AAA
+round 14:  n0[14,13,8] AAA  n1[14,14,7] AAA
+round 15:  n0[15,15,8] AAA  n1[14,15,9] AAA
+round 16:  n0[16,15,10] AAA  n1[16,16,9] AAA
+counters at end: n0=16,15,10 n1=16,16,9 n2=15,16,10
+rounds in which node 2 was considered dead: n0=3 n1=0
+messages received: n0=13 n1=13 n2=16

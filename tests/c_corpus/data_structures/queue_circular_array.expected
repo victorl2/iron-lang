@@ -1,0 +1,3 @@
+enqueue ok=13634 full=6661
+dequeue ok=13630 empty=6075
+wraps=1048 head=6 tail=10 count=4 checksum=946907062

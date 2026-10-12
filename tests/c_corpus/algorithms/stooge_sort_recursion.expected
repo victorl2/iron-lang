@@ -1,0 +1,9 @@
+stooge sort: T(n) = 3 T(2n/3) + O(1), exponent log(3)/log(1.5) = 2.710
+n=3   stooge calls=4         swaps=0       local exponent=0.0 slowsort calls=10
+n=6   stooge calls=40        swaps=7       local exponent=3.3 slowsort calls=55
+n=9   stooge calls=121       swaps=22      local exponent=2.7 slowsort calls=178
+n=12  stooge calls=364       swaps=30      local exponent=3.8 slowsort calls=448
+n=18  stooge calls=1093      swaps=57      local exponent=2.7 slowsort calls=1879
+n=27  stooge calls=3280      swaps=180     local exponent=2.7 slowsort calls=9310
+n=40  stooge calls=9841      swaps=323     local exponent=2.8
+n=60  stooge calls=29524     swaps=703     local exponent=2.7

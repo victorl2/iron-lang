@@ -1,0 +1,4 @@
+ascending 300: black height=9 depth=12 rotations=288 flips=587
+descending 300: black height=9 depth=12 rotations=576 flips=1174
+random: inserted=1407 duplicates=2593 size=1407 black height=9 worst depth=13
+rotations=1461 flips=3584

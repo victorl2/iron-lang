@@ -1,0 +1,13 @@
+heap  60 slots: 26 pauses, total 2578 units, max 111, p50 99, p95 109, run length 5578 ticks
+  MMU per mille: w=50 0, w=200 170, w=800 475, w=3200 523
+  pause histogram (<=16,32,64,128,256,...): 0 0 1 25 0 0 0 0
+heap 120 slots: 12 pauses, total 2047 units, max 192, p50 176, p95 192, run length 5047 ticks
+  MMU per mille: w=50 0, w=200 40, w=800 431, w=3200 559
+  pause histogram (<=16,32,64,128,256,...): 0 0 0 1 11 0 0 0
+heap 240 slots: 6 pauses, total 1741 units, max 332, p50 318, p95 332, run length 4741 ticks
+  MMU per mille: w=50 0, w=200 0, w=800 411, w=3200 568
+  pause histogram (<=16,32,64,128,256,...): 0 0 0 0 1 5 0 0
+heap 400 slots: 4 pauses, total 1769 units, max 536, p50 528, p95 536, run length 4769 ticks
+  MMU per mille: w=50 0, w=200 0, w=800 118, w=3200 597
+  pause histogram (<=16,32,64,128,256,...): 0 0 0 0 1 0 3 0
+oracle checks: 48

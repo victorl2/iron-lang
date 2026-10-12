@@ -1,0 +1,9 @@
+trace: 9000 ops, 4561 allocations, 4439 frees
+first fails=   8 ( 3216 B) steps=  72063 avg extents=38.17 max extents= 60
+      final: free= 4360 in  50 extents, largest= 1328, peak live=14080, worst sampled frag=929/1000
+best  fails=   4 ( 1680 B) steps= 115977 avg extents=25.51 max extents= 44
+      final: free= 4360 in  32 extents, largest= 1264, peak live=15256, worst sampled frag=902/1000
+worst fails= 221 (83024 B) steps= 242729 avg extents=53.12 max extents= 80
+      final: free= 7872 in  57 extents, largest=  296, peak live=10272, worst sampled frag=979/1000
+next  fails=  72 (29488 B) steps=  14468 avg extents=51.44 max extents= 82
+      final: free= 5216 in  63 extents, largest=  360, peak live=12720, worst sampled frag=958/1000

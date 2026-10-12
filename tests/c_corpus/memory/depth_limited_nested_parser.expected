@@ -1,0 +1,13 @@
+flat       -> ok       leaves=5 maxdepth=1 leaked=0
+nested     -> ok       leaves=8 maxdepth=4 leaked=0
+empty      -> ok       leaves=0 maxdepth=1 leaked=0
+unclosed   -> syntax   leaves=-1 maxdepth=2 leaked=0
+junk       -> syntax   leaves=-1 maxdepth=1 leaked=0
+trailing   -> trailing leaves=-1 maxdepth=1 leaked=0
+not a list -> syntax   leaves=-1 maxdepth=0 leaked=0
+paren bomb -> too-deep maxdepth=64 leaked=0
+depth 60 with limit 64 -> ok leaves=1
+depth 63 with limit 64 -> ok leaves=1
+depth 66 with limit 64 -> too-deep leaves=-1
+wide list, budget 100 -> node-budget leaked=0
+wide list, budget 501 -> ok leaves=500

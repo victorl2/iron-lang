@@ -1,0 +1,12 @@
+ 1x1  gray: file= 112 chunks=4 idat=1(13 bytes) stored blocks=1 adler=00070006
+ 7x6  rgb : file= 247 chunks=4 idat=1(148 bytes) stored blocks=2 adler=DA620FB3
+  chunks: IHDR(13) tEXt(30) IDAT(148) IEND(0)
+  flip in signature        -> bad signature
+  flip in IHDR data        -> chunk crc mismatch
+  flip in text chunk body  -> chunk crc mismatch
+  flip in IDAT body        -> chunk crc mismatch
+  valid chunk crc, bad pixel data -> adler32 mismatch
+  truncated file -> chunk overruns file
+32x20 gray: file= 856 chunks=7 idat=4(721 bytes) stored blocks=11 adler=059A5F1C
+13x11 rgb : file= 574 chunks=6 idat=3(451 bytes) stored blocks=1 adler=88D04D24
+50x30 rgb : file=4909 chunks=26 idat=23(4546 bytes) stored blocks=2 adler=352B0704

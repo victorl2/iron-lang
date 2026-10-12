@@ -1,0 +1,11 @@
+request 0 -> 200 backend-0:/r0
+request 1 -> 200 backend-2:/r1
+request 2 -> 200 backend-0:/r2
+request 3 -> 200 backend-2:/r3
+request 4 -> 200 backend-0:/r4
+request 5 -> 200 backend-2:/r5
+request 6 -> 200 backend-0:/r6
+request 7 -> 200 backend-2:/r7
+request 8 -> 200 backend-0:/r8
+failovers=1 up=[1 0 1]
+picks=[5 0 4] served=[5 0 4]

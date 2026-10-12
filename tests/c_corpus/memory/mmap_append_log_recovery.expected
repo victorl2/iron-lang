@@ -1,0 +1,6 @@
+appended 60 records, payload=1173 bytes, file grew: yes
+committed count=60 tail-offset=1888
+recovery 1: adopted=1 torn=0 count=61
+recovery 2: adopted=0 torn=1 count=61
+final records=62 payload=1208
+last record: after-recovery

@@ -1,0 +1,12 @@
+initial: '0123456789'
+overwrite head: 'AB23456789'
+size right after O_TRUNC: 0
+size after write: 3
+read after truncating open: EOF
+read back at 6: 'world'
+size after second open truncates: 0
+read at stale offset 8: 0
+size after write at offset 8: 9
+hole bytes zero: 8, last: Z
+created empty: 0
+20 rounds ok, bytes written in total: 2338

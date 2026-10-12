@@ -1,0 +1,5 @@
+B (1 permit) granted while A (3 permits) is ahead: no
+grant order: A then B = yes
+permits in use after A and B: 4 of 4
+stress: 750 grants, weight granted 1926 (expected 1926)
+over capacity observations 0, max in use within capacity: yes, grant order breaks 0

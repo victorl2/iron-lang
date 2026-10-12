@@ -1,0 +1,4 @@
+nodes 500, max depth 150
+queries 20000, distance sum 1076698
+lca is root: 75, one endpoint is lca: 6138
+lca(499,498)=498 lca(400,17)=17 lca(250,251)=244

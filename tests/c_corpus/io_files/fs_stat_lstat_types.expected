@@ -1,0 +1,18 @@
+regular    lstat: - size=13  stat: - size=13
+empty      lstat: - size=0  stat: - size=0
+hardlink   lstat: - size=13  stat: - size=13
+sparse     lstat: - size=1048576  stat: - size=1048576
+directory  lstat: d  stat: d
+fifo       lstat: p  stat: p
+socket     lstat: s  stat: s
+sl->file   lstat: l size=3  stat: - size=13
+sl->dir    lstat: l size=3  stat: d
+sl->dead   lstat: l size=7  stat: ENOENT
+sl chain   lstat: l size=7  stat: - size=13
+chardev    lstat: c  stat: c
+missing    lstat: ENOENT  stat: ENOENT
+via file   lstat: ENOTDIR  stat: ENOTDIR
+stat("reg/"): ENOTDIR
+lstat("sl_dir/") reports directory: yes
+reg and hard are the same file, nlink=2
+fifo mode 0644, reg mode 0644

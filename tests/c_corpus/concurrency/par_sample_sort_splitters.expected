@@ -1,0 +1,3 @@
+round 0: splitters -31053 -12483 8172 28759 | bucket sizes 951 958 1010 1006 1075
+round 1: splitters 7 15 23 31 | bucket sizes 857 1042 963 1031 1107
+round 2: splitters -1500 -500 500 1500 | bucket sizes 1000 1000 1000 1000 1000

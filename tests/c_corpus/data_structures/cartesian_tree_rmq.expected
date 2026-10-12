@@ -1,0 +1,8 @@
+random     n=300 root=30 value=6 height=18 depth sum=2682 rmq queries=618 steps=1352
+ascending  n=200 root=0 value=0 height=200 depth sum=19900 rmq queries=282 steps=18564
+descending n=200 root=199 value=1 height=200 depth sum=19900 rmq queries=282 steps=19459
+constant   n=200 root=0 value=5 height=200 depth sum=19900 rmq queries=282 steps=18564
+sawtooth   n=200 root=0 value=0 height=29 depth sum=2971 rmq queries=282 steps=2110
+few values n=200 root=0 value=0 height=34 depth sum=3218 rmq queries=282 steps=2423
+total rmq queries=2028 steps=62472
+treap-style: n=64 root index=4 height=13

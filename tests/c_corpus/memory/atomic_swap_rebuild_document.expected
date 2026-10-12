@@ -1,0 +1,5 @@
+v1: sections=3 checksum=41bef5f7 live=14
+v2: sections=4 checksum=4f37e261, rebuild took 16 allocations
+v3 rebuild needs 9 allocations; 9 injected failures left v2 intact
+v3: sections=2 checksum=d00cbc01 live=9
+final live=0 (base was 14)

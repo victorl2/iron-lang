@@ -1,0 +1,6 @@
+create  ok=129 refused=524
+mkdir   ok=134 refused=532
+unlink  ok=71 refused=619
+rmdir   ok=24 refused=658
+rename  ok=161 refused=1148
+final tree: 141 nodes, 91 directories

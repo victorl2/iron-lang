@@ -1,0 +1,5 @@
+n=12 hull=7 area2=142 sum_sq_edges=172 first=(1,0)
+n=25 hull=7 area2=355 sum_sq_edges=444 first=(2,0)
+n=60 hull=11 area2=4041 sum_sq_edges=3168 first=(14,0)
+n=81 hull=4 area2=128 sum_sq_edges=256 first=(0,0)
+fixed hull: (0,0) (4,0) (4,4) (0,4)

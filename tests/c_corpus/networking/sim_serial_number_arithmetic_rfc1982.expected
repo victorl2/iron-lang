@@ -1,0 +1,42 @@
+8-bit pairs: equal=256 less=32512 greater=32512 undefined=256
+8-bit s+n cases that wrapped past 255: 8128 of 32512
+non-transitive triple: 0<100=yes 100<200=yes 0<200=no
+  00000000 == 00000000
+  00000000 < 00000001
+  00000000 < 7fffffff
+  00000000 undefined 80000000
+  00000000 > fffffffe
+  00000000 > ffffffff
+  00000001 > 00000000
+  00000001 == 00000001
+  00000001 < 7fffffff
+  00000001 < 80000000
+  00000001 > fffffffe
+  00000001 > ffffffff
+  7fffffff > 00000000
+  7fffffff > 00000001
+  7fffffff == 7fffffff
+  7fffffff < 80000000
+  7fffffff < fffffffe
+  7fffffff undefined ffffffff
+  80000000 undefined 00000000
+  80000000 > 00000001
+  80000000 > 7fffffff
+  80000000 == 80000000
+  80000000 < fffffffe
+  80000000 < ffffffff
+  fffffffe < 00000000
+  fffffffe < 00000001
+  fffffffe > 7fffffff
+  fffffffe > 80000000
+  fffffffe == fffffffe
+  fffffffe < ffffffff
+  ffffffff < 00000000
+  ffffffff < 00000001
+  ffffffff undefined 7fffffff
+  ffffffff > 80000000
+  ffffffff > fffffffe
+  ffffffff == ffffffff
+SOA serial 2024123199
+naive reset: 2000000000 > 1 (slaves ignore it)
+slaves reach serial 1 as 'newer' after 1 jump(s); holding 4147483647

@@ -1,0 +1,5 @@
+phase1: double_frees=1 quarantined=40 bytes
+phase2: uaf_writes=1 evicted=3
+phase3: max quarantine=256 (budget 256) evicted=193
+phase4: invalid_frees=1
+summary: uaf=1 double=1 invalid=1 leftover=0

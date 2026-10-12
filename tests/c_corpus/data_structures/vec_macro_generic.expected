@@ -1,0 +1,4 @@
+ints: n=792 max=999 min=1
+recs: top=5/9/8 bottom=168/0
+pts: first=(0,4) last=(19,15) weighted=1397718
+bytes: n=999 popped=110 sum=127462 sizeof(Rec)=8

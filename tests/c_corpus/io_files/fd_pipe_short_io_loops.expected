@@ -1,0 +1,9 @@
+reference: total=200000 sum=4303892faba465cc
+bufsz=1      total=200000 checksum match
+bufsz=7      total=200000 checksum match
+bufsz=64     total=200000 checksum match
+bufsz=511    total=200000 checksum match
+bufsz=4096   total=200000 checksum match
+bufsz=65536  total=200000 checksum match
+write with no reader: -1 EPIPE
+rd_full asked 10, got 5

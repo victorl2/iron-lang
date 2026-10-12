@@ -1,0 +1,55 @@
+http://user:pw@Example.COM:8080/a/./b/../c?x=1&y=%7euser#Frag
+  scheme=http host=Example.COM port=8080 path=/a/./b/../c query=x=1&y=%7euser frag=Frag
+  normal: http://user:pw@example.com:8080/a/c?x=1&y=~user#Frag
+HTTP://www.EXAMPLE.com:80/%7Ejane/%2fx
+  scheme=http host=www.EXAMPLE.com port=80 path=/%7Ejane/%2fx query=- frag=-
+  normal: http://www.example.com/~jane/%2Fx
+https://example.com:443
+  scheme=https host=example.com port=443 path=(empty) query=- frag=-
+  normal: https://example.com/
+ftp://ftp.is.co.za/rfc/rfc1808.txt
+  scheme=ftp host=ftp.is.co.za port=- path=/rfc/rfc1808.txt query=- frag=-
+  normal: ftp://ftp.is.co.za/rfc/rfc1808.txt
+http://[2001:DB8::7]:8000/path
+  scheme=http host=[2001:db8::7] port=8000 path=/path query=- frag=-
+  normal: http://[2001:db8::7]:8000/path
+mailto:John.Doe@example.com
+  scheme=mailto host=- port=- path=John.Doe@example.com query=- frag=-
+  normal: mailto:John.Doe@example.com
+urn:oasis:names:specification:docbook:dtd:xml:4.1.2
+  scheme=urn host=- port=- path=oasis:names:specification:docbook:dtd:xml:4.1.2 query=- frag=-
+  normal: urn:oasis:names:specification:docbook:dtd:xml:4.1.2
+http://a/b/c/../../../g
+  scheme=http host=a port=- path=/b/c/../../../g query=- frag=-
+  normal: http://a/g
+file:///etc/hosts
+  scheme=file host= port=- path=/etc/hosts query=- frag=-
+  normal: file:///etc/hosts
+http://example.com/a%2fb%41%7E?q=%3d%3D#
+  scheme=http host=example.com port=- path=/a%2fb%41%7E query=q=%3d%3D frag=(empty)
+  normal: http://example.com/a%2FbA~?q=%3D%3D#
+//host/only/network-path
+  scheme=- host=host port=- path=/only/network-path query=- frag=-
+  normal: //host/only/network-path
+/just/a/path?with=query
+  scheme=- host=- port=- path=/just/a/path query=with=query frag=-
+  normal: /just/a/path?with=query
+http://example.com:/x
+  scheme=http host=example.com port=- path=/x query=- frag=-
+  normal: http://example.com/x
+news:comp.infosystems.www.servers.unix
+  scheme=news host=- port=- path=comp.infosystems.www.servers.unix query=- frag=-
+  normal: news:comp.infosystems.www.servers.unix
+reject http://exa mple.com/   bad-host
+reject http://host:99999/     port-out-of-range
+reject http://host:8a/        bad-port
+reject http://[::1/           unterminated-ip-literal
+reject http://a/b%zz          bad-path
+reject http://a/b%4           bad-path
+reject http://us er@h/        bad-userinfo
+reject http://h/a b           bad-path
+reject http://[::g]/          bad-ip-literal
+reject http://h/<x>           bad-path
+reject http://h/?q="          bad-query
+%61/%63 case: http://example.com/a/c
+equivalent forms all normalize to http://example.com/a/c

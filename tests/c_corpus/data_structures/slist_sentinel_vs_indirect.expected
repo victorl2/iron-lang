@@ -1,0 +1,3 @@
+insert=3099 remove=1203 miss=1105 purged_even=1395 final=501
+head-case hits: explicit=70 sentinel=70 indirect=70
+smallest 16: 1 1 1 1 1 1 1 1 1 1 1 1 3 3 3 3

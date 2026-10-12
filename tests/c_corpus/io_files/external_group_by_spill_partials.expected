@@ -1,0 +1,6 @@
+rows=12000 distinct keys=700 memory groups=48 spill events=238 partial aggregates spilled=11397
+partition partial counts: 2625 2933 3063 2776
+groups=678 total sum=59846423
+key 0: count=24 sum=102907 min=228 max=9843 avg=4287
+key 1: count=34 sum=197498 min=14 max=9998 avg=5808
+key 2: count=37 sum=191803 min=49 max=9894 avg=5183

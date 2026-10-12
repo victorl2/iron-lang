@@ -1,0 +1,7 @@
+peterson: counter=3000 (expected 3000) violations=0
+tournament: counter=1600 (expected 1600) violations=0
+  thread 0 entered 400 times
+  thread 1 entered 400 times
+  thread 2 entered 400 times
+  thread 3 entered 400 times
+all nodes idle: yes

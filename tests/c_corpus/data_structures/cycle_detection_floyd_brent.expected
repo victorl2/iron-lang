@@ -1,0 +1,8 @@
+case n=0 tail_to=-1 -> cycle=0 entry=-1 mu=0 lambda=0
+case n=1 tail_to=-1 -> cycle=0 entry=-1 mu=0 lambda=0
+case n=1 tail_to=0 -> cycle=1 entry=0 mu=0 lambda=1
+case n=2 tail_to=0 -> cycle=1 entry=0 mu=0 lambda=2
+case n=5 tail_to=2 -> cycle=1 entry=2 mu=2 lambda=3
+case n=8 tail_to=7 -> cycle=1 entry=7 mu=7 lambda=1
+case n=12 tail_to=0 -> cycle=1 entry=0 mu=0 lambda=12
+cases=307 with_cycle=198 floyd_steps=27486 brent_steps=17847

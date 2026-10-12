@@ -1,0 +1,18 @@
+rfc6455 accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+masked Hello: 81 85 37 fa 21 3d 7f 9f 4d 51 58
+unmasked Hello: 81 05 48 65 6c 6c 6f
+plain GET: 400
+handshake: 101, accept=s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+echo text 5        ok (crc 8587d865)
+echo binary 125    ok (crc 5c8dacd8)
+echo binary 126    ok (crc b2ff9fda)
+echo binary 300    ok (crc a3ddec09)
+echo binary 65535  ok (crc 8e6cee8b)
+echo binary 65536  ok (crc 09a909eb)
+echo binary 70000  ok (crc 4151d043)
+pong payload: keepalive
+reassembled after interleaved ping: Hello, fragments
+close echoed with code 1000
+handshake: 101, accept=HSmrc0sMlYUkAGmm5OPpG2HaGWk=
+unmasked frame -> close code 1002
+server: frames=14 messages=8 pings=2 protocol_errors=1 bytes=201643

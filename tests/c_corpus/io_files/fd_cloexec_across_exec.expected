@@ -1,0 +1,7 @@
+inheritable: shell output 'done'
+data pipe received: hello
+cloexec      marker reached the pipe: no
+inheritable  marker reached the pipe: yes
+unmapped     marker reached the pipe: no
+shell read builtin: [second line] [first line]
+parent descriptors unchanged

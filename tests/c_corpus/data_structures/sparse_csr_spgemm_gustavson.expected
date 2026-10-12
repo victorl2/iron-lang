@@ -1,0 +1,7 @@
+density= 4% nnzA= 30 nnzB= 25 nnzC= 24 products=   24 trace=-2 sum=7
+density=10% nnzA= 97 nnzB= 76 nnzC=220 products=  246 trace=-3 sum=11
+density=16% nnzA=117 nnzB=126 nnzC=372 products=  471 trace=8 sum=185
+A^2: nnz=106 walks=107
+A^3: nnz=188 walks=197
+A^4: nnz=306 walks=364
+A^5: nnz=442 walks=670

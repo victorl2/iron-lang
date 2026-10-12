@@ -1,0 +1,2 @@
+static n=20000 height=15 worst hops=13 avg hops=6
+dynamic inserts=17244 deletes=1162 size=16082 rebuilds=31 height=14

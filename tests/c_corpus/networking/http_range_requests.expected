@@ -1,0 +1,15 @@
+bytes=0-99       -> 206 len=100 cr=bytes 0-99/1000 crc=d0e0bfe2
+bytes=900-       -> 206 len=100 cr=bytes 900-999/1000 crc=2bf1c0b7
+bytes=-50        -> 206 len=50 cr=bytes 950-999/1000 crc=ff37f8b7
+bytes=0-0        -> 206 len=1 cr=bytes 0-0/1000 crc=d80241aa
+bytes=990-2000   -> 206 len=10 cr=bytes 990-999/1000 crc=c71d2ea0
+bytes=1000-      -> 416 len=0 cr=bytes */1000
+bytes=-0         -> 416 len=0 cr=bytes */1000
+bytes=5-2        -> 200 len=1000 cr=-
+items=1-2        -> 200 len=1000 cr=-
+bytes=1-2,4-5    -> 200 len=1000 cr=-
+bytes=-5000      -> 206 len=1000 cr=bytes 0-999/1000 crc=02751205
+bytes=abc-9      -> 200 len=1000 cr=-
+bytes=999-999    -> 206 len=1 cr=bytes 999-999/1000 crc=5f0ae278
+(none)           -> 200 len=1000 cr=-
+served: 200=5 206=7 416=2 bytes=6262

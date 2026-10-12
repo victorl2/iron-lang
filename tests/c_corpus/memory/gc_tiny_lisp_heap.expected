@@ -1,0 +1,12 @@
+(fib 12)                                             => 144
+(sum (map (lambda (x) (* x x)) (range 0 25)))        => 4900
+(len (rev (range 0 40) '()))                         => 40
+((make-adder 5) 10)                                  => 15
+(ack 2 3)                                            => 9
+(churn 40)                                           => 0
+(let ((a 6) (b 7)) (* a b))                          => 42
+((compose (make-adder 1) (make-adder 20)) 1)         => 22
+(car (rev (range 0 30) '()))                         => 29
+heap 640 cells: 14516 allocations, 48 collections, 14003 cells reclaimed, peak live 582
+stress mode (collect on every allocation): 14516 collections
+oracle checks: 14564

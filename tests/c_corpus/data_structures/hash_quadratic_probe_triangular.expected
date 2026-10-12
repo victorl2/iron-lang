@@ -1,0 +1,3 @@
+triangular sequence is a full permutation for sizes 2..1024
+linear   : n=617 cap=4096 dead=525 avg probes=1.7421
+quadratic: n=617 cap=4096 dead=530 avg probes=1.7006

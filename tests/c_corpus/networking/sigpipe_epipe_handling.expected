@@ -1,0 +1,6 @@
+send to closed peer (ignored): EPIPE
+write to closed peer (ignored): EPIPE
+handler ran 3 times for 3 failed writes
+send after own SHUT_WR: EPIPE
+reads still work after SHUT_WR
+tcp writes to closed peer eventually fail: yes

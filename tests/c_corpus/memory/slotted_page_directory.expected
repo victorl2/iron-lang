@@ -1,0 +1,6 @@
+inserts=971 deletes=938 updates=468 rejected=1150
+live records=33 directory slots=41 live bytes=837
+contiguous free=9 total free=15
+fragmentation bytes=6
+after compaction: contiguous free=15 fragmentation=0
+extra 12-byte records that fit: 1, free left=3

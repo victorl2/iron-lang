@@ -1,0 +1,4 @@
+ascending 600: height=13 rotations=587
+after deleting every third: size=400 height=10
+random: inserts=1226 deletes=1221 size=405 maxheight=13 rotations=945
+drained

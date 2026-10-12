@@ -1,0 +1,6 @@
+allocs=2804 fails=0
+rollbacks=246 resets=212
+peak=3367 used=1406 live=24
+alignment waste=6456 requested=167680
+100-byte blocks at align 4: 81 (used 8100 of 8192)
+full-arena block ok, extra alloc refused

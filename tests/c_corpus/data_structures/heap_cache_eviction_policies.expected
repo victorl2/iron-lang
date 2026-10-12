@@ -1,0 +1,10 @@
+workload         policy hits    misses  hit%      
+skewed           LFU    2810    9190    23.41%  eviction_hash=55985
+skewed           LRU    2352    9648    19.60%  eviction_hash=7909
+skewed           FIFO   2263    9737    18.85%  eviction_hash=92725
+hot set + scans  LFU    6350    5650    52.91%  eviction_hash=7371
+hot set + scans  LRU    6000    6000    50.00%  eviction_hash=79171
+hot set + scans  FIFO   6000    6000    50.00%  eviction_hash=53709
+uniform          LFU    1276    10724   10.63%  eviction_hash=16110
+uniform          LRU    1195    10805   9.95%  eviction_hash=36707
+uniform          FIFO   1198    10802   9.98%  eviction_hash=33910

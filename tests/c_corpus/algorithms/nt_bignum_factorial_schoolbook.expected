@@ -1,0 +1,13 @@
+20! has 19 digits, digit sum 54, trailing zeros 4 (Legendre 4)
+  = 2432902008176640000
+25! has 26 digits, digit sum 72, trailing zeros 6 (Legendre 6)
+  = 15511210043330985984000000
+50! has 65 digits, digit sum 216, trailing zeros 12 (Legendre 12)
+100! has 158 digits, digit sum 648, trailing zeros 24 (Legendre 24)
+200! has 375 digits, digit sum 1404, trailing zeros 49 (Legendre 49)
+100! head: 933262154439441526816992388562...
+C(20,10) = 184756
+C(100,50) = 100891344545564193334812497256
+C(200,100) = 90548514656103281165404177077484163874504589675413336841320
+Catalan(30) = 3814986502092304
+2^1000: 302 digits, digit sum 1366

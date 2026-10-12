@@ -1,0 +1,14 @@
+reverse: 00000001 -> 80000000, 12345678 -> 1e6a2c48, f0f0f0f0 -> 0f0f0f0f
+random words checked: 20000
+rotl(80000001,1)=00000003 rotr(80000001,1)=c0000000 bswap(11223344)=44332211
+Morton rank table (8x8):
+   0  1  4  5 16 17 20 21
+   2  3  6  7 18 19 22 23
+   8  9 12 13 24 25 28 29
+  10 11 14 15 26 27 30 31
+  32 33 36 37 48 49 52 53
+  34 35 38 39 50 51 54 55
+  40 41 44 45 56 57 60 61
+  42 43 46 47 58 59 62 63
+32x32 Z-curve: 512 unit steps, 511 jumps, longest jump 32
+box query: 272 cells in box, 496 false positives in the code interval [147,914]

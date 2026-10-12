@@ -1,0 +1,12 @@
+after first write: size 5 content "hello"
+after second write: size 13 content "hello, world!"
+after overwrite: size 12 content "hello, WORLD!"
+report is 5022 bytes
+| item        qty     price     amount
+| bolt        120      0.25      30.00
+| washer     4000      0.05     200.00
+| gear         12     14.50     174.00
+| chain         3     89.99     269.97
+| total                         673.97
+lines in report: 306
+empty stream: size 0, string ""

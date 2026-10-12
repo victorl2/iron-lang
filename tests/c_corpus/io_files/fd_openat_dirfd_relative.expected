@@ -1,0 +1,19 @@
+a.txt size via base: 5
+b.txt size via sub: 11
+b.txt size via base/sub/b.txt: 11
+a.txt seen from sub via ..: 5
+read a.txt after chdir: alpha
+AT_FDCWD lookup of a.txt: ENOENT (cwd moved)
+fchdir(sub): b.txt visible by plain name
+read after renaming the directory: bravo-bravo
+a.txt in base after renameat: -1
+moved.txt in sub: 5
+readlinkat: sub/b.txt
+follow: 11, nofollow: 9
+openat with O_NOFOLLOW on a symlink: ELOOP
+openat with an absolute path ignores dirfd: 1
+openat on a regular file dirfd: ENOTDIR
+openat on invalid dirfd: EBADF
+unlinkat directory without AT_REMOVEDIR: fails
+unlinkat AT_REMOVEDIR on non-empty dir: ENOTEMPTY
+cleaned up through unlinkat

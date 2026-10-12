@@ -1,0 +1,7 @@
+thread 0 pushed 267
+thread 1 pushed 267
+thread 2 pushed 266
+thread 3 pushed 267
+pushed 1067, pushed == popped + remaining: yes
+list links consistent: yes, violations 0
+trylock sequence: 1 0 1

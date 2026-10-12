@@ -1,0 +1,7 @@
+worker 0: primes in [0,20000) = 2262, sum=21171191, exit=0
+worker 1: primes in [20000,40000) = 1941, sum=57999475, exit=1
+worker 2: primes in [40000,60000) = 1854, sum=92678072, exit=2
+worker 3: primes in [60000,80000) = 1780, sum=124639470, exit=3
+worker 4: primes in [80000,100000) = 1755, sum=157908329, exit=4
+worker 5: truncated record (16 of 32 bytes), exit=45
+total primes=9592 sum=454396537

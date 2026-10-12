@@ -1,0 +1,9 @@
+htons(0x1234) bytes: 12 34
+htonl(0xA1B2C3D4) bytes: a1 b2 c3 d4
+1000 random values verified, digest 34e74c8c
+be64 bytes: 01 02 03 04 05 06 07 08
+swap64 -> 0807060504030201
+ipv4 header checksum: 0xb861
+checksum of header including its checksum: 0x0000
+after a bit flip the check is nonzero: yes
+odd length checksum: 0xf6f9

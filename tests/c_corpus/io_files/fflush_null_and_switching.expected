@@ -1,0 +1,9 @@
+before flush: 0 0 0
+after fflush(NULL): 16 32 48
+flush b only: 16 37
+after close: 21
+next after patch: "line three"
+  1: line one
+  2: LINE TWO
+  3: line three
+first char after flush: l

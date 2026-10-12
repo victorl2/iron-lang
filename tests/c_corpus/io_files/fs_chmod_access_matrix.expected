@@ -1,0 +1,31 @@
+file mode -> stat mode | access R W X (owner view)
+00000 -> 00000 | 0 0 0
+00400 -> 00400 | 1 0 0
+00200 -> 00200 | 0 1 0
+00100 -> 00100 | 0 0 1
+00600 -> 00600 | 1 1 0
+00500 -> 00500 | 1 0 1
+00300 -> 00300 | 0 1 1
+00700 -> 00700 | 1 1 1
+00644 -> 00644 | 1 1 0
+00755 -> 00755 | 1 1 1
+00111 -> 00111 | 0 0 1
+04755 -> 04755 | 1 1 1
+open attempts (owner view):
+  0000: read EACCES, write EACCES
+  0400: read ok, write EACCES
+  0200: read EACCES, write ok
+  0600: read ok, write ok
+directory mode -> list, create, traverse (owner view)
+  0700: list=1 create=1 traverse=1
+  0500: list=1 create=0 traverse=1
+  0300: list=0 create=1 traverse=1
+  0100: list=0 create=0 traverse=1
+  0400: list=1 create=0 traverse=0
+  0200: list=0 create=0 traverse=0
+  0000: list=0 create=0 traverse=0
+chmod via symlink changed target: 0640
+fchmod: 0444
+sticky dir: 01777 sticky=1
+chmod under umask 077: 0777
+chmod(missing): ENOENT

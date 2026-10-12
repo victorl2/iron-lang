@@ -1,0 +1,11 @@
+rc=3 live=1 copies=0
+a=hello world b=Jello world c=hello world
+rc a=2 b=1 live=2 copies=1
+a=hello world c=hello world!!! copies=2
+a upper=HELLO WORLD, c=hello world!!!
+d rc=2, live=4, copies=2
+snap0 len=20 tail=8,9,
+snap1 len=50 tail=,19,
+snap2 len=80 tail=,29,
+snap3 len=110 tail=,39,
+final len=110 copies=5

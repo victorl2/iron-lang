@@ -1,0 +1,6 @@
+ascending 300: depth=8 nodes=295 splits=287
+red-black view: 295 black, 5 red
+random: inserts=1475 deletes=1530 size=245 max depth=8
+splits=2146 borrows=3093 merges=1993
+final: depth=6 nodes=159 (159 black, 86 red)
+drained

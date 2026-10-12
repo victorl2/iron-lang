@@ -1,0 +1,3 @@
+A nnz=133 B nnz=128 (AB) nnz=319 of 2304 entries
+after 20000 random updates: nnz=2166 table cap=8192 trace=-29 checksum=-6020
+sum of entries of A*B=965

@@ -1,0 +1,11 @@
+Sunzi: x = 23 (mod 105)
+mixed radix digits: 2 2 1
+x=0 -> residues 0 0 0 0 -> 0
+x=1 -> residues 1 1 1 1 -> 1
+x=123456789 -> residues 594 453 863 532 -> 123456789
+x=999999999999 -> residues 506 196 907 490 -> 999999999999
+x=1063409504682 -> residues 1008 1012 1018 1020 -> 1063409504682
+system A: solvable x = 68 mod 90
+system B: inconsistent (parity clash)
+random pairs: 216 solvable, 84 inconsistent
+lcm(1..20) = 232792560

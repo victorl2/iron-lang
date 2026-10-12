@@ -1,0 +1,5 @@
+start gate: 6 of 6 workers saw the gate open
+wait group: 31 tasks, path sum 496, threads joined 31
+phase 0 total 30
+phase 1 total 195
+phase 2 total 1035

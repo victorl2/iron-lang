@@ -1,0 +1,8 @@
+checksum of 3000 rectangle sums: 2459727
+k=1  best=12    at (0,0) worst=-8
+k=2  best=47    at (8,12) worst=-27
+k=3  best=79    at (7,48) worst=-41
+k=5  best=144   at (7,2) worst=-50
+k=8  best=284   at (7,44) worst=-5
+k=16 best=789   at (0,10) worst=325
+origin-anchored positive rectangles: 3071 of 3072

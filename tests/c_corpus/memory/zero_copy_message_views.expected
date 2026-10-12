@@ -1,0 +1,12 @@
+frame length: 63
+parse: ok type=0x42 fields=5
+  tag 1 len 12 offset   7 hash 1086663128
+  tag 2 len  3 offset  22 hash      79680
+  tag 3 len 11 offset  28 hash 4121620970
+  tag 4 len  0 offset  42 hash          0
+  tag 9 len 18 offset  45 hash 3771493359
+patched method: PET
+reframed: 40 bytes, 2 fields
+truncations rejected: 63
+bit-flip outcomes: ok=150 short=30 length=6 too-many=2 trailing=1
+trailing byte: rejected

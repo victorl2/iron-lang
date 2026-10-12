@@ -1,0 +1,11 @@
+before cleanup: 3 site(s) with live blocks
+  dup_str    line 53 count=3 bytes=18
+  site_a     line 50 count=1 bytes=10
+  site_b     line 51 count=1 bytes=100
+bad free from main:106
+bad free from main:108
+bad frees detected: 2
+after partial cleanup: 1 site(s) with live blocks
+  dup_str    line 53 count=3 bytes=18
+swept 3 leaked blocks
+final: 0 site(s) with live blocks

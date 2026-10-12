@@ -1,0 +1,5 @@
+producer 0: 400 items, value sum 197182
+producer 1: 400 items, value sum 3364782
+producer 2: 400 items, value sum 6532382
+pushed=1200 popped=1200 grand sum=10094346 order errors=0
+ring capacity 8, left empty: yes

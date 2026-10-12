@@ -1,0 +1,11 @@
+seed 7919 loss  0%: chosen=102 at t=54 ballots started=6 adoptions so far=2
+seed 15838 loss  0%: chosen=102 at t=40 ballots started=6 adoptions so far=4
+seed 23757 loss  0%: chosen=102 at t=41 ballots started=5 adoptions so far=6
+seed 7920 loss 20%: chosen=101 at t=144 ballots started=11 adoptions so far=151
+seed 15839 loss 20%: chosen=101 at t=173 ballots started=6 adoptions so far=155
+seed 23758 loss 20%: chosen=102 at t=44 ballots started=9 adoptions so far=158
+seed 7921 loss 40%: chosen=101 at t=194 ballots started=19 adoptions so far=379
+seed 15840 loss 40%: chosen=0 at t=-1 ballots started=24 adoptions so far=379
+seed 23759 loss 40%: chosen=102 at t=124 ballots started=14 adoptions so far=383
+runs=180 decided=152 total ballots=2206 adoptions=540
+chosen value by proposer: p0=21 p1=25 p2=106

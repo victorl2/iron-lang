@@ -1,0 +1,6 @@
+rec   files=84 dirs=33 bytes=3914 maxdepth=5 per_depth: 3 9 24 41 40
+stack files=84 dirs=33 bytes=3914 maxdepth=5 per_depth: 3 9 24 41 40
+bfs   files=84 dirs=33 bytes=3914 maxdepth=5 per_depth: 3 9 24 41 40
+deepest: root/d0_0/d1_0/d2_0/d3_0/f11_0.dat
+bfs kind order: DDfDDDfffDDfDDDffffDDDfDDDfffffDffffDDfffDDfffffffffDDDfffffDfDDDfffDDDfDDfffffffffffffffffffffffffffffffffffffffffff
+removed 118 entries incl. root

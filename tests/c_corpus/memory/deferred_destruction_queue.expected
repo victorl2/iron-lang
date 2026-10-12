@@ -1,0 +1,22 @@
+frame  0: destroyed=0 pending=0 live_bytes=48
+frame  1: destroyed=0 pending=0 live_bytes=96
+frame  2: destroyed=0 pending=0 live_bytes=144
+frame  3: destroyed=0 pending=0 live_bytes=176
+frame  4: destroyed=0 pending=0 live_bytes=208
+frame  5: destroyed=0 pending=0 live_bytes=240
+frame  6: destroyed=0 pending=0 live_bytes=256
+frame  7: destroyed=0 pending=1 live_bytes=272
+frame  8: destroyed=0 pending=2 live_bytes=320
+frame  9: destroyed=0 pending=3 live_bytes=384
+frame 10: destroyed=1 pending=3 live_bytes=416
+frame 11: destroyed=1 pending=3 live_bytes=400
+frame 12: destroyed=1 pending=2 live_bytes=384
+frame 13: destroyed=1 pending=2 live_bytes=384
+frame 14: destroyed=1 pending=2 live_bytes=400
+frame 15: destroyed=0 pending=3 live_bytes=432
+frame 16: destroyed=1 pending=3 live_bytes=416
+frame 17: destroyed=1 pending=3 live_bytes=448
+frame 18: destroyed=1 pending=3 live_bytes=416
+frame 19: destroyed=1 pending=3 live_bytes=400
+max pending 3
+drained after 3 frames, live_bytes=0, total freed=20

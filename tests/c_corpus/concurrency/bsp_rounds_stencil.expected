@@ -1,0 +1,10 @@
+round  1 max 500
+round  7 max 210
+round 13 max 154
+round 19 max 128
+round 25 max 112
+round 31 max 100
+round 37 max 92
+round 43 max 86
+final max 82 total 1900
+cells 0..7 after 48 rounds: 50 58 67 76 79 82 79 76

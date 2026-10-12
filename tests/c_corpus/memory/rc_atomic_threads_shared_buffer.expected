@@ -1,0 +1,6 @@
+thread 0 sum 111378
+thread 1 sum 110503
+thread 2 sum 112463
+thread 3 sum 112260
+bad reads: 0
+frees: 8

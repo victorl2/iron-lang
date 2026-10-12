@@ -1,0 +1,7 @@
+indexed 250 lines
+index file is 1000 bytes
+random access verified for 60 lines
+first: k0000004 ehknqt
+last: k0001262 oruxadgjmpsvybehknqtwzc
+line 100: k0000529 jmpsvybehknqtwz
+binary search: 12 found, 68 missing, 629 probes total

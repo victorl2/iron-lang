@@ -1,0 +1,6 @@
+fill=14: keys=2449 pages=193 height=4 point lookups=817 reads/lookup=4.00
+         40 range scans returned 3055 keys over 260 leaf pages
+fill=10: keys=2449 pages=268 height=4 point lookups=817 reads/lookup=4.00
+         40 range scans returned 3138 keys over 356 leaf pages
+fill= 7: keys=2449 pages=382 height=4 point lookups=817 reads/lookup=4.00
+         40 range scans returned 2849 keys over 456 leaf pages

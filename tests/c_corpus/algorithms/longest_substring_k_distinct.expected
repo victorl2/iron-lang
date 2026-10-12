@@ -1,0 +1,7 @@
+200 random strings verified
+eceba         k=2 longest=3 "ece" exactly-2 substrings=5
+aaaaaa        k=2 longest=6 "aaaaaa" exactly-2 substrings=0
+abcabcabc     k=2 longest=2 "ab" exactly-2 substrings=8
+araaci        k=2 longest=4 "araa" exactly-2 substrings=8
+aabbccddeeff  k=2 longest=4 "aabb" exactly-2 substrings=20
+(empty)       k=2 longest=0 "" exactly-2 substrings=0

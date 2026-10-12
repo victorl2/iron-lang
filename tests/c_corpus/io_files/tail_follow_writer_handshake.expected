@@ -1,0 +1,11 @@
+round 0 (3 full lines): new=3 partial=0 truncated=0
+round 1 (nothing new): new=0 partial=0 truncated=0
+round 2 (line split across two writes (first half)): new=0 partial=22 truncated=0
+round 3 (second half completes the line): new=1 partial=0 truncated=0
+round 4 (burst of 20 lines): new=20 partial=0 truncated=0
+round 5 (truncate the file): new=0 partial=0 truncated=1
+round 6 (2 lines after truncation): new=2 partial=0 truncated=0
+round 7a: half line buffered, new=0 partial=25 truncated=0
+round 7 (half line, then rotate-truncate): new=0 partial=0 truncated=1
+round 8 (final 4 lines): new=4 partial=0 truncated=0
+follower saw lines=30 truncations=2 crc matches writer=yes

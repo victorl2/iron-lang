@@ -1,0 +1,8 @@
+square-ccw    n= 4 area2=  32 orient=ccw convex=1 simple=1 centroid=(2.0000, 2.0000)
+square-cw     n= 4 area2= -32 orient=cw  convex=1 simple=1 centroid=(2.0000, 2.0000)
+L-shape       n= 6 area2=  40 orient=ccw convex=0 simple=1 centroid=(2.2000, 2.2000)
+star          n= 8 area2= -24 orient=cw  convex=0 simple=1 centroid=(0.0000, 0.0000)
+bowtie        n= 4 area2=   0 orient=degenerate convex=0 simple=0
+triangle      n= 3 area2=  54 orient=ccw convex=1 simple=1 centroid=(4.0000, 4.0000)
+comb          n=12 area2=  66 orient=ccw convex=0 simple=1 centroid=(4.6818, 2.1364)
+collinear-mid n= 5 area2=  24 orient=ccw convex=1 simple=1 centroid=(2.0000, 1.5000)

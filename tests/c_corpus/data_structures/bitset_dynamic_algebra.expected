@@ -1,0 +1,5 @@
+n=   1 |a|=  1 |b|=  1 and=  1 or=  1 xor=  0 shifted=   2 first=0 last=0 gaps=0
+n=  63 |a|= 15 |b|= 33 and=  8 or= 40 xor= 32 shifted=  60 first=5 last=61 gaps=56
+n=  64 |a|= 20 |b|= 34 and=  9 or= 45 xor= 36 shifted=  80 first=4 last=62 gaps=58
+n= 130 |a|= 38 |b|= 68 and= 19 or= 87 xor= 68 shifted= 261 first=0 last=128 gaps=128
+n=1000 |a|=301 |b|=511 and=157 or=655 xor=498 shifted=2876 first=4 last=987 gaps=983

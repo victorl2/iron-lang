@@ -1,0 +1,10 @@
+knuth example: 1 solution(s), rows: 3 0 4
+2x2 dominoes:     2 tilings, link updates=6
+2x5 dominoes:     8 tilings, link updates=48
+4x4 dominoes:    36 tilings, link updates=261
+4x5 dominoes:    95 tilings, link updates=710
+4x6 dominoes:   281 tilings, link updates=2078
+5x6 dominoes:  1183 tilings, link updates=9057
+6x6 dominoes:  6728 tilings, link updates=50635
+3x8 dominoes:   153 tilings, link updates=1197
+sudoku as exact cover: 1 solution, row 1 = 534678912, row 9 = 345286179

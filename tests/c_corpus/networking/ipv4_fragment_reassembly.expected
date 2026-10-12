@@ -1,0 +1,9 @@
+payload 1480 mtu 1500 -> 1 fragments, last off=0 mf=0 len=1480
+payload 1481 mtu 1500 -> 2 fragments, last off=185 mf=0 len=1
+payload 3000 mtu 1500 -> 3 fragments, last off=370 mf=0 len=40
+payload 4000 mtu 576 -> 8 fragments, last off=483 mf=0 len=136
+payload 3000 mtu 1500 df=1 -> cannot fragment (needs ICMP frag-needed)
+payload 100 mtu 68 -> 3 fragments, last off=12 mf=0 len=4
+200 shuffled trials reassembled (230 duplicate fragments injected)
+dropped fragment 1 of 4: incomplete, got 2024 of 3000 bytes, hole [976,1952)
+overlap: overlapped 16 bytes, total 48, byte15=aa byte16=aa byte31=aa byte32=bb

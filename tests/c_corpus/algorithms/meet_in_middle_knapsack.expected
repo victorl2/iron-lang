@@ -1,0 +1,6 @@
+trial 0: n=6 cap=83 best=148
+trial 1: n=6 cap=73 best=199
+trial 2: n=14 cap=174 best=470
+trial 3: n=4 cap=49 best=143
+25 instances match the weight DP
+huge weights: best value 13534, kept lists 52 and 52 of 32768

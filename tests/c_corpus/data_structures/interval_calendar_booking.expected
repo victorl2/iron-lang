@@ -1,0 +1,3 @@
+calendar: tries=3523 booked=1035 rejected=2488 cancelled=991 fit queries=486
+calendar: 44 bookings live, 413 of 1000 minutes busy, first slot for 25 free min from 0 at 50
+depth map: 600 live bookings, 577 boundaries, max overlap 56, peak changed 222 times

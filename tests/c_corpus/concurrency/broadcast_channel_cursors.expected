@@ -1,0 +1,5 @@
+subscriber 0: first seq 0, received 300, sum 15025700, weighted 146967
+subscriber 1: first seq 0, received 300, sum 15025700, weighted 146407
+subscriber 2: first seq 0, received 300, sum 15025700, weighted 144870
+subscriber 3: first seq 100, received 200, sum 10203800, weighted 98725
+early subscribers identical, late subscriber saw the suffix from 100

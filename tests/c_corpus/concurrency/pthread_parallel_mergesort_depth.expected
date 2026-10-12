@@ -1,0 +1,5 @@
+depth 0: threads spawned=0 checksum=997069262
+depth 1: threads spawned=1 checksum=997069262
+depth 2: threads spawned=3 checksum=997069262
+depth 3: threads spawned=7 checksum=997069262
+min=0 max=399 median=199

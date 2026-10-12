@@ -1,0 +1,10 @@
+epoch 0 readers pinned at 0 0
+retired=2 reclaimed=0 live=5
+advance with readers at current epoch: freed 0, epoch 1
+advance blocked (readers stale): freed 0, epoch 1
+reader1 still stale: freed 0, epoch 1
+advance after unpin: freed 2, epoch 2
+advance again: freed 0, epoch 2
+advance again: freed 0, epoch 3
+retired=2 reclaimed=2 live=3 uaf=0
+max live nodes 16, retired=62 reclaimed=62 uaf=0

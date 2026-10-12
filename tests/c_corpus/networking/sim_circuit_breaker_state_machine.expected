@@ -1,0 +1,17 @@
+with circuit breaker
+  t=104 CLOSED    -> OPEN
+  t=144 OPEN      -> HALF_OPEN
+  t=144 HALF_OPEN -> OPEN
+  t=224 OPEN      -> HALF_OPEN
+  t=225 HALF_OPEN -> OPEN
+  t=385 OPEN      -> HALF_OPEN
+  t=387 HALF_OPEN -> CLOSED
+  time in state: CLOSED=417 OPEN=280 HALF_OPEN=3, trips=3
+without circuit breaker
+                        breaker     none
+backend calls               423      700
+fast-failed (rejected)      277        0
+backend failures             15      204
+client-visible errors       292      204
+backend calls in outage        6      120
+mean latency x100           180     1016

@@ -1,0 +1,11 @@
+10.1.1.1 -> nexthop 4 (matched /24)
+10.1.1.129 -> nexthop 5 (matched /25)
+10.1.2.1 -> nexthop 3 (matched /16)
+10.99.0.0 -> nexthop 2 (matched /8)
+192.168.1.100 -> nexthop 7 (matched /32)
+192.168.1.101 -> nexthop 6 (matched /16)
+8.8.8.8 -> nexthop 1 (matched /0)
+nodes after fixed table: 58
+withdrew 2 routes, freed 17 nodes, now 41
+random table: 20000 lookups, 10049 hits, 9951 misses, 2333 nodes
+after full withdrawal nodes=0 root=freed

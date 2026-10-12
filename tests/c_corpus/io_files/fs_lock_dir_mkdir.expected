@@ -1,0 +1,6 @@
+second mkdir on held lock: EEXIST
+lock released, free again: yes
+workers ok=4, counter=240 (expected 240)
+child died holding the lock: lock exists=1
+stale lock detected and stolen: yes
+lock held by a live process stolen: no

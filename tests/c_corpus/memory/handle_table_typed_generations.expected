@@ -1,0 +1,11 @@
+create when full: full
+resolve h2 as mesh: ok
+resolve h2 as sound: wrong-type
+resolve null: null
+destroy h1: ok, again: stale
+stale resolve: stale
+reused index: yes, gen 1 -> 2, type 3
+old handle vs new slot: stale
+generation wrapped after 4094 churns, final gen 907
+ancient handle still stale? yes
+destroyed payload sum: 12498156

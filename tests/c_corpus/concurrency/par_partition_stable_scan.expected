@@ -1,0 +1,6 @@
+pivot   0: less=   0 equal=  69 greater=6931  first-of-each seq: -1 67 0
+pivot   1: less=  69 equal=  49 greater=6882  first-of-each seq: 67 9 0
+pivot  50: less=3464 equal=  67 greater=3469  first-of-each seq: 1 15 0
+pivot  99: less=6934 equal=  66 greater=   0  first-of-each seq: 0 26 -1
+pivot 100: less=7000 equal=   0 greater=   0  first-of-each seq: 0 -1 -1
+pivot  37: less=2549 equal=  75 greater=4376  first-of-each seq: 1 45 0

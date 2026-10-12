@@ -1,0 +1,13 @@
+remote file: 30000 bytes, crc 69163ce9
+HASH beyond end: ERR range
+attempt 1: starting from 0
+attempt 1: received 7000 of 30000 bytes, connection dropped
+attempt 2: partial file (7000 bytes) verified, resuming
+attempt 2: received 9000 of 23000 bytes, connection dropped
+attempt 3: partial file (16000 bytes) verified, resuming
+attempt 3: received 14000 of 14000 bytes, segment checksum ok
+download 1 complete after 3 attempts, crc 69163ce9
+attempt 1: partial file (5000 bytes) fails prefix check, restarting from 0
+attempt 1: received 30000 of 30000 bytes, segment checksum ok
+download 2 complete, crc 69163ce9
+server: gets=4

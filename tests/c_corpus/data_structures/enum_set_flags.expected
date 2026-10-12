@@ -1,0 +1,10 @@
+permission sets=256 closed under implication=58
+subsets of {read|exec|audit|own}: 16
+user0: granted=own | effective=read|write|admin|own (4) | denied=audit | missing 4
+user1: granted=exec|audit|own | effective=read|write|admin|audit|own (5) | denied=exec | missing 3
+user2: granted=exec|audit|own | effective=read|write|exec|admin|audit|own (6) | denied=delete | missing 2
+user3: granted=read | effective=read (1) | denied=write | missing 7
+user4: granted=read|exec|audit | effective=read|exec|audit (3) | denied=delete | missing 5
+closure of owner+delete+share+exec = read|write|exec|delete|admin|share|own
+irreducible members = exec|delete|share|own
+sets with no direct redundancy: 76

@@ -1,0 +1,8 @@
+GET /a    via proxy -> 200 OK [origin says /a] cache=MISS via=1.1 iron-proxy
+GET /a    via proxy -> 200 OK [origin says /a] cache=HIT via=1.1 iron-proxy
+GET /b    via proxy -> 200 OK [origin says /b] cache=MISS via=1.1 iron-proxy
+GET /dead via proxy -> 502 Bad Gateway [upstream refused] cache=- via=1.1 iron-proxy
+CONNECT -> 200 Connection Established
+through tunnel -> 200 [origin says /c] x-origin=3
+proxy: hits=1 misses=2 bad_gateway=1 upstream_conns=3 tunnel_bytes>0=1
+origin served 3 requests

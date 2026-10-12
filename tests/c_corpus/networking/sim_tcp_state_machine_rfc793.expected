@@ -1,0 +1,87 @@
+== normal open, active close by A, passive close by B
+t=  0 B: CLOSED      -> LISTEN      (app listen)
+t=  0 A: send S   seq=100 ack=0
+t=  0 A: CLOSED      -> SYN_SENT    (app connect)
+t=  5 B: send S.  seq=900 ack=101
+t=  5 B: LISTEN      -> SYN_RCVD    (rcv SYN)
+t= 10 A: send .   seq=101 ack=901
+t= 10 A: SYN_SENT    -> ESTABLISHED (rcv SYN+ACK)
+t= 15 B: SYN_RCVD    -> ESTABLISHED (rcv ACK of SYN)
+t= 30 A: send F.  seq=101 ack=901
+t= 30 A: ESTABLISHED -> FIN_WAIT_1  (app close)
+t= 35 B: send .   seq=901 ack=102
+t= 35 B: ESTABLISHED -> CLOSE_WAIT  (rcv FIN)
+t= 40 A: FIN_WAIT_1  -> FIN_WAIT_2  (rcv ACK of FIN)
+t= 50 B: send F.  seq=901 ack=102
+t= 50 B: CLOSE_WAIT  -> LAST_ACK    (app close)
+t= 55 A: send .   seq=102 ack=902
+t= 55 A: FIN_WAIT_2  -> TIME_WAIT   (rcv FIN)
+t= 60 B: LAST_ACK    -> CLOSED      (rcv ACK of FIN)
+t= 95 A: TIME_WAIT   -> CLOSED      (2MSL expired)
+== A's FIN acked late: B's ACK lost, B replies FIN+ACK
+t=  0 B: CLOSED      -> LISTEN      (app listen)
+t=  0 A: send S   seq=100 ack=0
+t=  0 A: CLOSED      -> SYN_SENT    (app connect)
+t=  5 B: send S.  seq=900 ack=101
+t=  5 B: LISTEN      -> SYN_RCVD    (rcv SYN)
+t= 10 A: send .   seq=101 ack=901
+t= 10 A: SYN_SENT    -> ESTABLISHED (rcv SYN+ACK)
+t= 15 B: SYN_RCVD    -> ESTABLISHED (rcv ACK of SYN)
+t= 30 A: send F.  seq=101 ack=901
+t= 30 A: ESTABLISHED -> FIN_WAIT_1  (app close)
+t= 35 B: send .   seq=901 ack=102  LOST
+t= 35 B: ESTABLISHED -> CLOSE_WAIT  (rcv FIN)
+t= 36 B: send F.  seq=901 ack=102
+t= 36 B: CLOSE_WAIT  -> LAST_ACK    (app close)
+t= 41 A: send .   seq=102 ack=902
+t= 41 A: FIN_WAIT_1  -> TIME_WAIT   (rcv FIN+ACK)
+t= 46 B: LAST_ACK    -> CLOSED      (rcv ACK of FIN)
+t= 81 A: TIME_WAIT   -> CLOSED      (2MSL expired)
+== simultaneous open, simultaneous close
+t=  0 A: send S   seq=100 ack=0
+t=  0 A: CLOSED      -> SYN_SENT    (app connect)
+t=  0 B: send S   seq=900 ack=0
+t=  0 B: CLOSED      -> SYN_SENT    (app connect)
+t=  5 B: send S.  seq=900 ack=101
+t=  5 B: SYN_SENT    -> SYN_RCVD    (rcv SYN (simultaneous open))
+t=  5 A: send S.  seq=100 ack=901
+t=  5 A: SYN_SENT    -> SYN_RCVD    (rcv SYN (simultaneous open))
+t= 10 A: SYN_RCVD    -> ESTABLISHED (rcv ACK of SYN)
+t= 10 B: SYN_RCVD    -> ESTABLISHED (rcv ACK of SYN)
+t= 30 A: send F.  seq=101 ack=901
+t= 30 A: ESTABLISHED -> FIN_WAIT_1  (app close)
+t= 30 B: send F.  seq=901 ack=101
+t= 30 B: ESTABLISHED -> FIN_WAIT_1  (app close)
+t= 35 B: send .   seq=902 ack=102
+t= 35 B: FIN_WAIT_1  -> CLOSING     (rcv FIN (simultaneous close))
+t= 35 A: send .   seq=102 ack=902
+t= 35 A: FIN_WAIT_1  -> CLOSING     (rcv FIN (simultaneous close))
+t= 40 A: CLOSING     -> TIME_WAIT   (rcv ACK of FIN)
+t= 40 B: CLOSING     -> TIME_WAIT   (rcv ACK of FIN)
+t= 80 A: TIME_WAIT   -> CLOSED      (2MSL expired)
+t= 80 B: TIME_WAIT   -> CLOSED      (2MSL expired)
+== last ACK lost, FIN retransmitted into TIME_WAIT
+t=  0 B: CLOSED      -> LISTEN      (app listen)
+t=  0 A: send S   seq=100 ack=0
+t=  0 A: CLOSED      -> SYN_SENT    (app connect)
+t=  5 B: send S.  seq=900 ack=101
+t=  5 B: LISTEN      -> SYN_RCVD    (rcv SYN)
+t= 10 A: send .   seq=101 ack=901
+t= 10 A: SYN_SENT    -> ESTABLISHED (rcv SYN+ACK)
+t= 15 B: SYN_RCVD    -> ESTABLISHED (rcv ACK of SYN)
+t= 30 A: send F.  seq=101 ack=901
+t= 30 A: ESTABLISHED -> FIN_WAIT_1  (app close)
+t= 35 B: send .   seq=901 ack=102
+t= 35 B: ESTABLISHED -> CLOSE_WAIT  (rcv FIN)
+t= 40 B: send F.  seq=901 ack=102
+t= 40 B: CLOSE_WAIT  -> LAST_ACK    (app close)
+t= 40 A: FIN_WAIT_1  -> FIN_WAIT_2  (rcv ACK of FIN)
+t= 45 A: send .   seq=102 ack=902  LOST
+t= 45 A: FIN_WAIT_2  -> TIME_WAIT   (rcv FIN)
+t= 52 B: send F.  seq=901 ack=102
+t= 52 B: FIN retransmit timer
+t= 57 A: send .   seq=102 ack=902
+t= 57 A: retransmitted FIN in TIME_WAIT, restart 2MSL
+t= 62 B: LAST_ACK    -> CLOSED      (rcv ACK of FIN)
+t= 97 A: TIME_WAIT   -> CLOSED      (2MSL expired)
+all 11 states visited

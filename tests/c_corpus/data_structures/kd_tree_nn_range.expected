@@ -1,0 +1,3 @@
+nearest: distance^2 digest=754090 id digest=1498686
+box results=14657
+avg nodes visited: nearest 17/query, box 47/query (of 2000 points)

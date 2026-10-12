@@ -1,0 +1,6 @@
+results: list sum 1225, churn 597, self cycle 299, recursion length 40
+instructions: 27523, allocations: 1650
+collections: 30 (heap 96 objects), objects freed: 1566
+peak operand stack: 85, peak call depth: 41
+stress run collections: 1650, results identical
+oracle checks: 1680

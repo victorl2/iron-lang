@@ -1,0 +1,12 @@
+envelopes case 0: n=22 range=23 max_nesting=7
+envelopes case 1: n=30 range=26 max_nesting=6
+envelopes case 2: n=15 range=22 max_nesting=7
+envelopes case 3: n=17 range=11 max_nesting=4
+envelopes case 4: n=58 range=17 max_nesting=10
+envelopes case 5: n=23 range=25 max_nesting=7
+bitonic case 0: n=22 LIS=5 LDS=8 LNDS=7 longest_bitonic=10
+bitonic case 1: n=35 LIS=8 LDS=10 LNDS=10 longest_bitonic=14
+bitonic case 2: n=30 LIS=9 LDS=8 LNDS=9 longest_bitonic=12
+bitonic case 3: n=9 LIS=4 LDS=4 LNDS=4 longest_bitonic=6
+bitonic case 4: n=22 LIS=7 LDS=5 LNDS=7 longest_bitonic=9
+bitonic case 5: n=28 LIS=7 LDS=8 LNDS=8 longest_bitonic=10

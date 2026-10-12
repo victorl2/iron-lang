@@ -1,0 +1,27 @@
+u 0                    -> 00
+u 1                    -> 01
+u 127                  -> 7f
+u 128                  -> 80 01
+u 300                  -> ac 02
+u 16383                -> ff 7f
+u 16384                -> 80 80 01
+u 4294967295           -> ff ff ff ff 0f
+u 4294967296           -> 80 80 80 80 10
+u 18446744073709551615 -> ff ff ff ff ff ff ff ff ff 01
+s 0                    -> 00
+s -1                   -> 7f
+s 63                   -> 3f
+s 64                   -> c0 00
+s -64                  -> 40
+s -65                  -> bf 7f
+s 9223372036854775807  -> ff ff ff ff ff ff ff ff ff 00
+s -9223372036854775808 -> 80 80 80 80 80 80 80 80 80 7f
+round trips: 4000
+empty                  -> truncated
+dangling continuation  -> truncated
+overlong zero          -> overlong
+overlong 1             -> overlong
+11 continuation bytes  -> overflow
+10th byte too big      -> overflow
+max u64                -> ok
+garbage: ok=4091 truncated=895 overflow=0 overlong=14

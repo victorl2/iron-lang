@@ -1,0 +1,11 @@
+length -> mode as 'x' is appended:
+  len  1 mode inline
+  len 21 mode inline
+  len 22 mode inline
+  len 23 mode heap
+  len 24 mode heap
+  len 26 mode heap
+after truncate to 10: heap
+after shrink: inline len 10
+steps inline=2781 heap=1219
+heap allocations=269 promotions=219 demotions=89

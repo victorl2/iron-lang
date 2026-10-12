@@ -1,0 +1,94 @@
+$ tree (default)
+.
+├── Makefile
+├── README.md
+├── docs
+│   └── index.md
+├── empty
+├── entry -> src/main.c
+├── src
+│   ├── core
+│   │   ├── a.c
+│   │   ├── a.h
+│   │   └── impl
+│   │       └── x.c
+│   ├── docs_link -> ../docs
+│   └── main.c
+└── zeta
+    └── last
+
+6 directories, 10 files
+
+$ tree -a
+.
+├── .cache
+│   └── blob
+├── .gitignore
+├── Makefile
+├── README.md
+├── docs
+│   └── index.md
+├── empty
+├── entry -> src/main.c
+├── src
+│   ├── core
+│   │   ├── a.c
+│   │   ├── a.h
+│   │   └── impl
+│   │       └── x.c
+│   ├── docs_link -> ../docs
+│   └── main.c
+└── zeta
+    └── last
+
+7 directories, 12 files
+
+$ tree -d
+.
+├── docs
+├── empty
+├── src
+│   └── core
+│       └── impl
+└── zeta
+
+6 directories
+
+$ tree -L 2
+.
+├── Makefile
+├── README.md
+├── docs
+│   └── index.md
+├── empty
+├── entry -> src/main.c
+├── src
+│   ├── core
+│   ├── docs_link -> ../docs
+│   └── main.c
+└── zeta
+    └── last
+
+5 directories, 7 files
+
+$ tree -s --charset=ascii
+.
+|-- [   310] Makefile
+|-- [  1200] README.md
+|-- [      ] docs
+|   `-- [    88] index.md
+|-- [      ] empty
+|-- [      ] entry -> src/main.c
+|-- [      ] src
+|   |-- [      ] core
+|   |   |-- [    77] a.c
+|   |   |-- [     5] a.h
+|   |   `-- [      ] impl
+|   |       `-- [999999] x.c
+|   |-- [      ] docs_link -> ../docs
+|   `-- [  4096] main.c
+`-- [      ] zeta
+    `-- [     0] last
+
+6 directories, 10 files
+

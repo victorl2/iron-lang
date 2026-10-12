@@ -1,0 +1,9 @@
+phase 1: 2980 allocs, 2849 frees, zero false positives, 131 live
+phase 2: injected bugs vs detections
+  overflow        injected=11 detected=11
+  underflow       injected=11 detected=11
+  double-free     injected=11 detected=11
+  invalid-free    injected=22 detected=22
+  use-after-free  injected=11 detected=11
+leak report: 122 blocks, 7216 bytes, alloc sequence 3486..3979
+cleaned up; quarantine empty, total allocations=3989

@@ -1,0 +1,16 @@
+ 1: customer 0 sits (1 eating)
+ 2: customer 1 sits (2 eating)
+ 3: customer 2 sits (3 eating)
+ 4: customer 3 sits (4 eating)
+ 5: customer 4 sits (5 eating)
+ 6: customer 5 waits outside (1 in queue)
+ 7: customer 6 waits outside (2 in queue)
+ 8: customer 7 waits outside (3 in queue)
+ 9: customer 8 waits outside (4 in queue)
+10: customer 9 waits outside (5 in queue)
+11: bar empty, 5 waiting customers admitted
+12: customer 10 waits outside (1 in queue)
+13: customer 11 waits outside (2 in queue)
+14: bar empty, 2 waiting customers admitted
+15: customer 12 sits (3 eating)
+16: bar empty, 0 waiting customers admitted

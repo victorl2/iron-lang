@@ -1,0 +1,8 @@
+row 1 sum 60
+row 2 product 2000
+position after two rows 14
+stream length 24
+tail line "name=zed"
+after flush buffer holds "2+3=5"
+lines 4 words 9 longest 19
+patched record AAAA-zzzz

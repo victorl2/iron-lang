@@ -1,0 +1,4 @@
+40 arrays: sum of (max xor mod 1000) = 17328
+dynamic set: 2149 inserts, 1549 deletes, 2300 queries, checksum 1147640, trie nodes 43080
+25 subarray problems: checksum 16161
+20 counting problems: total pairs 88425

@@ -1,0 +1,3 @@
+probe while held: EBUSY
+probe when free: acquired
+counter=8000 acquisitions=8000

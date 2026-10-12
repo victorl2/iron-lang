@@ -1,0 +1,5 @@
+mid-run: live=94 free blocks=4 free bytes=376 largest=160
+mid-run external fragmentation=575 per mille
+allocs=5747 frees=5656 failed=597
+search steps=53798 exact hits=2350 splits=1831 merges next=904 prev=821
+drained: one free block of 8192 bytes

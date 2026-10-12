@@ -1,0 +1,5 @@
+threads=5 per-thread=200 counter=1000
+grants in exact ticket order: yes (breaks=0)
+per-thread order regressions 0, violations 0
+counters wrapped past zero: yes
+next-serving gap at rest: 0

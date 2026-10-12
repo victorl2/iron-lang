@@ -1,0 +1,5 @@
+entries=3402 buckets=972 level=7 split pointer=460 splits=968
+pages in chains=1049 file pages=1049 free pages=0 overflow allocations=351
+  chains of 1 page(s): 895
+  chains of 2 page(s): 77
+load factor=3.50 entries per bucket

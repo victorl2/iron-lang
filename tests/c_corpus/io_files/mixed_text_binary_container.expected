@@ -1,0 +1,6 @@
+header: count=4 creator=reference, body starts at 34
+blob 0:  10 bytes at offset   44, adler32 167603dd, newlines 1, zeros 1
+blob 1:   0 bytes at offset   64, adler32 00000001, newlines 0, zeros 0
+blob 2: 300 bytes at offset   76, adler32 2d269f1d, newlines 8, zeros 6
+blob 3:  41 bytes at offset  387, adler32 9702132a, newlines 1, zeros 1
+payload total 351 bytes, file length 433

@@ -1,0 +1,2 @@
+txns=400 commits=250 rollbacks=150 partial rollbacks=563 savepoint releases=254
+undo records written=5337 undone=2739, live cells=24 checksum=194026

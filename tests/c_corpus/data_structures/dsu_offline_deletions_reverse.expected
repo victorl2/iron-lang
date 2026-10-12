@@ -1,0 +1,11 @@
+edges=160 vertices=70 initial_comps=1 initial_largest=70
+after   0 deletions: comps= 1 largest=70
+after  20 deletions: comps= 1 largest=70
+after  40 deletions: comps= 4 largest=66
+after  60 deletions: comps= 7 largest=61
+after  80 deletions: comps= 8 largest=60
+after 100 deletions: comps=17 largest=45
+after 120 deletions: comps=31 largest=26
+after 140 deletions: comps=50 largest= 5
+after 160 deletions: comps=70 largest= 1
+component-count increases: 69, first drop of giant component at deletion 21 (70 -> 67)

@@ -1,0 +1,22 @@
+1.0        bits=0x3f800000 sign=0 exp=127 frac=0x000000 normal
+-2.5       bits=0xc0200000 sign=1 exp=128 frac=0x200000 normal
+0.1        bits=0x3dcccccd sign=0 exp=123 frac=0x4ccccd normal
++0         bits=0x00000000 sign=0 exp=  0 frac=0x000000 zero
+min-sub    bits=0x00000001 sign=0 exp=  0 frac=0x000001 subnormal
+max        bits=0x7f7fffff sign=0 exp=254 frac=0x7fffff normal
++inf       bits=0x7f800000 sign=0 exp=255 frac=0x000000 inf
+-inf       bits=0xff800000 sign=1 exp=255 frac=0x000000 inf
+6.5f = 0x40d00000
+1.0 double = 0x3ff0000000000000
+-0.5 double = 0xbfe0000000000000
+negate/abs via bits ok
+ordering map monotone over 9 values
+next_up(1.0) bits=0x3f800001 delta bits=1
+ulp(2)=2^-22 ulp(4)=2^-21: yes
+floats in [1,2): 8388608
+floats in [0,1): 1065353216
+rsqrt(0.25) = 2.0000
+rsqrt(1) = 1.0000
+rsqrt(2) = 0.7071
+rsqrt(9) = 0.3333
+rsqrt(100) = 0.1000

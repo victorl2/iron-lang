@@ -1,0 +1,8 @@
+step  800: versions hold 66 cells, 34 live nodes
+step 1600: versions hold 29 cells, 20 live nodes
+step 2400: versions hold 47 cells, 39 live nodes
+step 3200: versions hold 65 cells, 23 live nodes
+step 4000: versions hold 39 cells, 22 live nodes
+pushes=1540 pops=611 forks=759 branches=369 drops=427
+largest shared tail: 5 nodes between versions 1 and 14
+all released, live nodes = 0

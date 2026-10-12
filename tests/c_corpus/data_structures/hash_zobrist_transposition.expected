@@ -1,0 +1,3 @@
+moves=30000 distinct positions=3023 (exact) = 3023 (zobrist) max repetitions of one position=34, third repetitions=2952
+transposition table 1024 entries: hits=13923 replacements=16077 of which evictions=15107
+hash restored after unmake; final position hash low 16 bits=96aa

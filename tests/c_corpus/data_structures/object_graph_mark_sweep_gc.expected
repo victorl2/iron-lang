@@ -1,0 +1,4 @@
+mutator ops=3500 logical objects=1424 roots=12 reachable at end=56
+mark-sweep: collections=21 finalized=1368 peak live=220 live now=56 (heap capacity 220)
+refcount: freed=1235 live=189 leaked garbage=133 (of which on cycles 26)
+collections cross-checked against reachability: 20

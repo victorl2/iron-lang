@@ -1,0 +1,7 @@
+replayed 10 records, 0 bad
+state (4 keys): alpha=one beta=again gamma=three eps=5
+after compaction: 4 records, 0 bad
+state (4 keys): alpha=one beta=again gamma=three eps=5
+with torn tail: 5 records, 1 bad
+state (5 keys): alpha=one beta=again gamma=three eps=5 zeta=6
+with corrupt first record: 0 records, 1 bad, 0 keys

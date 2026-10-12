@@ -1,0 +1,3 @@
+views checked=1088, final dims histogram: 0d=0 1d=20 2d=58 3d=138 4d=84
+contiguous finals=60 (reshape ok=60), non-contiguous refused=240, axis sums verified=300
+4x3 transpose with reversed rows: 3 7 11 2 6 10 1 5 9 0 4 8

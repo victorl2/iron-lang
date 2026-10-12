@@ -1,0 +1,4 @@
+exhaustive sizes 1..200: 20672 probes agree with binary search
+n=1000 height=10: 5000 queries, eytzinger iterations=49723, binary search iterations=49714, exact hits=1627
+root value=1533, smallest at slot 512, largest at slot 511
+leaf slots=500 of 1000

@@ -1,0 +1,6 @@
+A: card=294036 array_containers=4 bitmap_containers=7 bytes=72854 (flat bitmap 131072)
+B: card=294081 array_containers=4 bitmap_containers=7 bytes=72930
+A & B: card=119504 arrays=6 bitmaps=4
+A | B: card=468613 arrays=1 bitmaps=11
+A - B: card=174532 arrays=4 bitmaps=7
+after mutations: card=301798 arrays=4 bitmaps=8 up=1 down=0

@@ -1,0 +1,14 @@
+get[64]: out of range
+get[63]: ok
+sub(10,5): out of range
+sub(0,65): out of range
+sub(64,64): ok (len 0)
+split_at(65): out of range
+split_first(empty): empty
+copy overlapping: overlap
+copy mismatched: length mismatch
+copy disjoint: ok
+chunks(0): zero size, windows(0): zero size
+copy_within out of range: out of range
+randomized: 4000 ops, 307 rejected by bounds checks, buffer always matched the model
+status counts: ok=5210 out of range=312 overlap=1 length mismatch=1 empty=1 zero size=2 not found=497

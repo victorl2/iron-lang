@@ -1,0 +1,11 @@
+head guard readable: 0
+tail guard readable: 0
+first byte writable: 1
+last byte writable: 1
+one past end writable: 0
+start of body page readable: 1
+stores accepted before guard: 100
+buffer sum: 11110
+opened tail guard writable: 1
+closed tail guard writable: 0
+misaligned mprotect: EINVAL

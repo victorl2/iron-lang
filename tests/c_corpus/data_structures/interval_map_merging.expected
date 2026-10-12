@@ -1,0 +1,4 @@
+assigns=3644 max segments=111 final segments=65
+point digest=2894 weighted digest=247641 shifts=251811
+first segments: [0]=0 [3]=3 [6]=0 [7]=3 [26]=0 [33]=4
+after full assign: segments=1 value=3 total=9000

@@ -1,0 +1,37 @@
+(connect)              220 iron ftpd ready
+PWD                    530 not logged in
+USER anon              331 password please
+PASS                   530 login incorrect
+USER anon              331 password please
+PASS guest@            230 logged in
+SYST                   215 UNIX Type: L8
+TYPE I                 200 type set to I
+LIST                   425 use PASV or PORT first
+PASV                   227 Entering Passive Mode (<addr>)
+LIST                   150 opening data connection
+  data: 24 bytes, reply 226 transfer complete
+d pub
+- readme.txt 21
+CWD /pub               250 directory changed
+CWD /nowhere           550 no such directory
+PWD                    257 "/pub" is current directory
+PASV                   227 Entering Passive Mode (<addr>)
+LIST                   150 opening data connection
+  data: 32 bytes, reply 226 transfer complete
+- data.bin 3000
+- notes.txt 6
+SIZE data.bin          213 3000
+PASV                   227 Entering Passive Mode (<addr>)
+RETR data.bin          150 opening data connection
+  retrieved 3000 bytes, reply 226 transfer complete, identical=1
+PASV                   227 Entering Passive Mode (<addr>)
+RETR missing.bin       550 no such file
+PORT <addr>            200 PORT ok
+STOR upload.txt        150 opening data connection
+  upload reply 226 transfer complete
+SIZE upload.txt        213 40
+DELE notes.txt         250 deleted
+DELE notes.txt         550 no such file
+MKD x                  502 command not implemented
+QUIT                   221 goodbye
+data connections: 4

@@ -1,0 +1,9 @@
+topology: 10 routers, 16 links
+initial flood: msgs=230 accepted=90 stale-dropped=140 sum of all-pairs distances=704
+router 0 table: 1:via1/4 2:via7/7 3:via7/12 4:via7/10 5:via9/10 6:via7/11 7:via7/6 8:via7/13 9:via9/7
+killed links 0-7 and 2-4
+after failures: msgs=306 accepted=126 stale-dropped=180 sum of all-pairs distances=804
+reflood messages: 76
+router 0 table: 1:via1/4 2:via9/10 3:via9/15 4:via9/15 5:via9/10 6:via9/14 7:via9/9 8:via9/16 9:via9/7
+one-sided failure 2-3 seen from router 1: dist to 3 is 14 with the two-way check, 13 without
+  distances that differ: 1

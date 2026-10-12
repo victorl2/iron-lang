@@ -1,0 +1,5 @@
+allocs=5862 frees=5796 failed=342 live=66
+list visits=24332 upper splits=4970 whole-block takes=892
+coalesce cases: neither=1856 next=1397 prev=1612 both=931
+free blocks=34 free bytes=4108 largest=392
+drained: single block of 8184 bytes

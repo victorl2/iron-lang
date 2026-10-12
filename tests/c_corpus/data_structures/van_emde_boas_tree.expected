@@ -1,0 +1,6 @@
+u=2^1  nodes=    1 depth=1 ops=3566 queries=2434 members=2 checksum=-3788
+u=2^2  nodes=    4 depth=2 ops=3583 queries=2417 members=3 checksum=7699
+u=2^3  nodes=    9 depth=2 ops=3613 queries=2387 members=5 checksum=29115
+u=2^5  nodes=   42 depth=3 ops=3561 queries=2439 members=22 checksum=146906
+u=2^8  nodes=  358 depth=4 ops=3598 queries=2402 members=170 checksum=1220360
+u=2^12 nodes= 5331 depth=4 ops=3574 queries=2426 members=1601 checksum=20109256

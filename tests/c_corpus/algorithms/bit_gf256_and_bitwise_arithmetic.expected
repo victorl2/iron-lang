@@ -1,0 +1,6 @@
+57+13=70  (iterations 4)
+ripple additions: mean iterations 8.18 over 20000 samples, worst 27
+1000000007 divmod 97 = 10309278 rem 41; 12345*6789 = 83810205
+gf(256): 57*83=c1 57*13=fe
+inverse of 0x53 = 0xca, inverse of 0x02 = 0x8d, sum of all inverses = 32640
+order of 3 in GF(256)* = 255

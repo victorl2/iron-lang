@@ -1,0 +1,5 @@
+stress: 1200 reads, 200 writes, final pair (200,200)
+torn reads 0, exclusion violations 0
+policy: new reader admitted while writer waits: yes
+policy: writer done before readers leave: no
+policy: writer done after readers leave: yes

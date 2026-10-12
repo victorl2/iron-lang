@@ -1,0 +1,6 @@
+uniform       n=200 hull=11 area2=1871134 recursion_calls= 20 max_depth=3
+tiny-range    n=100 hull= 4 area2=     50 recursion_calls=  6 max_depth=1
+disc          n=500 hull=29 area2= 237109 recursion_calls= 56 max_depth=6
+line          n= 20 hull= 2 area2=      0 recursion_calls=  2 max_depth=0
+single        n=  5 hull= 1 area2=      0 recursion_calls=  0 max_depth=0
+two-clusters  n=300 hull=13 area2= 177534 recursion_calls= 24 max_depth=4

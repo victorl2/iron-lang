@@ -1,0 +1,8 @@
+n=0     range=1      partitions=0    depth=0   weighted=0
+n=1     range=1      partitions=0    depth=0   weighted=0
+n=2     range=2      partitions=1    depth=0   weighted=3
+n=50    range=3      partitions=3    depth=2   weighted=195
+n=200   range=1000   partitions=109  depth=14  weighted=390181
+n=500   range=5      partitions=5    depth=2   weighted=4270
+n=1000  range=100000 partitions=564  depth=16  weighted=195987791
+n=800   range=1      partitions=1    depth=0   weighted=0

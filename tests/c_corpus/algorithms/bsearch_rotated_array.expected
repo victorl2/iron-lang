@@ -1,0 +1,8 @@
+queries verified: 68880
+demo min index: 5
+search 72 -> 4
+search 5 -> 5
+search 33 -> 9
+search 40 -> 0
+search 6 -> -1
+search 100 -> -1

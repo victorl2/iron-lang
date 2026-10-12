@@ -1,0 +1,22 @@
+parent holds write lock on [0,100)
+child GETLK write [50,60)                conflict: write lock at 0 len 100, owner is parent: 1
+child GETLK read [90,120)                conflict: write lock at 0 len 100, owner is parent: 1
+child GETLK write [100,110)              no conflict
+child SETLK write [10,20)                denied (EAGAIN/EACCES)
+child SETLK read [99,100)                denied (EAGAIN/EACCES)
+child SETLK write [100,150)              granted
+child GETLK after its own lock [120,130) no conflict
+parent downgrades to read lock on [0,100)
+child GETLK read [0,10)                  no conflict
+child GETLK write [0,10)                 conflict: read lock at 0 len 100, owner is parent: 1
+child SETLK read [20,30)                 granted
+child SETLK write [25,26)                denied (EAGAIN/EACCES)
+child unlock [20,30)                     granted
+parent GETLK write [140,160): write at 100 len 50, owner is child: 1
+parent unlocks [0,100)
+child GETLK write [0,100)                no conflict
+child SETLK write [0,100)                granted
+parent GETLK read [140,EOF): write
+parent GETLK read [150,EOF): none
+child releases everything                granted
+parent GETLK write [0,EOF) after release: none

@@ -1,0 +1,9 @@
+(1+x)^20 coefficients: 1 20 190 1140 4845 15504 38760 77520 125970 167960 184756 167960 125970 77520 38760 15504 4845 1140 190 20 1
+deg 0 x deg 0 product checksum 794271937
+deg 2 x deg 4 product checksum 845449109
+deg 16 x deg 32 product checksum 37819782
+deg 99 x deg 63 product checksum 641297534
+deg 199 x deg 199 product checksum 19310475
+product of two 30-digit numbers: 121932631137021795226185032733622923332237463801111263526900
+NTT(delta) all ones: 1, round trip restores delta: 1
+w8 = 372528824, w8^4 = 998244352, w8^8 = 1

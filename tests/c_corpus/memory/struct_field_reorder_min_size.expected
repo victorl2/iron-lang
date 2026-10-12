@@ -1,0 +1,25 @@
+mixed5 (5 fields, 120 orderings)
+  declared order: size 32 pad 16
+  worst order:    size 32 pad 16
+  best order:     size 16 pad 0
+  align-desc sort: size 16 pad 0
+  payload 16, best waste 0
+simulator matches compiler: 32 and 16
+record6 (6 fields, 720 orderings)
+  declared order: size 32 pad 8
+  worst order:    size 40 pad 16
+  best order:     size 24 pad 0
+  align-desc sort: size 24 pad 0
+  payload 24, best waste 0
+wide7 (7 fields, 5040 orderings)
+  declared order: size 24 pad 5
+  worst order:    size 32 pad 13
+  best order:     size 24 pad 5
+  align-desc sort: size 24 pad 5
+  payload 19, best waste 5
+odd5 (5 fields, 120 orderings)
+  declared order: size 24 pad 6
+  worst order:    size 24 pad 6
+  best order:     size 20 pad 2
+  align-desc sort: size 20 pad 2
+  payload 18, best waste 2

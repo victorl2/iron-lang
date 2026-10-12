@@ -1,0 +1,10 @@
+nodes: 2350, reachable: 1650, garbage: 700
+workers policy   rounds speedup steals failed stolen  lost-claims  min/max scanned
+      1 one        1650      1.00      0      0      0          312     1650/1650
+      2 one         830      1.98      7      3      7          312      822/828
+      2 half        832      1.98     11      3     20          312      822/828
+      4 one         421      3.91     23     11     23          312      409/416
+      4 half        428      3.85     33     29    103          312      409/418
+      8 one         365      4.52    204   1066    204          312      184/220
+      8 half        363      4.54    222   1032    281          312      198/219
+sweep would free 700 nodes

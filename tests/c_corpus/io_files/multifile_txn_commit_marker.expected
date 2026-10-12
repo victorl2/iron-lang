@@ -1,0 +1,14 @@
+steps in one transaction=10
+crash after step 0: clean                    version=1
+crash after step 1: discarded (uncommitted)  version=1
+crash after step 2: discarded (uncommitted)  version=1
+crash after step 3: discarded (uncommitted)  version=1
+crash after step 4: discarded (bad marker)   version=1
+crash after step 5: rolled forward           version=2
+crash after step 6: rolled forward           version=2 (was mixed on disk)
+crash after step 7: rolled forward           version=2 (was mixed on disk)
+crash after step 8: rolled forward           version=2 (was mixed on disk)
+crash after step 9: rolled forward           version=2
+crash after step 10: clean                    version=2
+old=5 new=6 rolled forward=5 discarded=3 torn marker=1
+chain of 40 attempts with 34 crashes ends at version 26

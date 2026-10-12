@@ -1,0 +1,7 @@
+unix      lf=3 crlf=0 cr=0 lines=3 out=14 "one\ntwo\nthree\n"
+dos       lf=0 crlf=3 cr=0 lines=3 out=14 "one\ntwo\nthree\n"
+oldmac    lf=0 crlf=0 cr=3 lines=3 out=14 "one\ntwo\nthree\n"
+mixed     lf=3 crlf=2 cr=2 lines=7 out=12 "a\nb\nc\nd\n\ne\n\n"
+no-eol    lf=0 crlf=0 cr=0 lines=0 out=11 "single line"
+cr-at-end lf=0 crlf=0 cr=1 lines=1 out=2 "x\n"
+empty     lf=0 crlf=0 cr=0 lines=0 out=0 ""

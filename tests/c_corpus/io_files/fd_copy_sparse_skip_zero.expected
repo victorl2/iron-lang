@@ -1,0 +1,9 @@
+source: size=15961 checksum=538c8a4062931985
+block=1     copied=15961 written=4669 skipped=11292 size=15961 identical
+block=64    copied=15961 written=86 skipped=164 size=15961 identical
+block=256   copied=15961 written=31 skipped=32 size=15961 identical
+block=512   copied=15961 written=21 skipped=11 size=15961 identical
+block=1000  copied=15961 written=16 skipped=0 size=15961 identical
+block=4096  copied=15961 written=4 skipped=0 size=15961 identical
+all-zero file: written=0 skipped=20 size=10240
+empty file: bytes=0 size=0

@@ -1,0 +1,6 @@
+grows: single extent=889 multi extent=746 failed=987
+truncates=993 deletes=376 defrags=96 skipped=1543 blocks copied=2486
+files=16 blocks used=770 free=254 in 33 extents, largest free=28
+extents per file (1..8): 2 3 2 1 2 2 2 2
+max extents seen on one file: 8
+all files deleted: one free extent of 1024 blocks

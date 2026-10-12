@@ -1,0 +1,3 @@
+dequeued=9000 sum=913495500
+per-producer FIFO violations: 0
+free nodes at end: 63 of 64

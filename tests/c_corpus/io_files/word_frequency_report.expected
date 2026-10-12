@@ -1,0 +1,9 @@
+73 tokens, 30 distinct words, longest 11
+word        count  share  histogram
+the             9  12.3%  #########
+it              8  11.0%  ########
+of              8  11.0%  ########
+was             8  11.0%  ########
+we              4   5.5%  ####
+5 words with 3 or more occurrences cover 37 tokens
+singletons: belief best darkness everything foolishness heaven incredulity light nothing other to way ... (14 total)

@@ -1,0 +1,4 @@
+scheduled=18096 fired=15457 cancelled=1216 pending=1423
+cascades=2665 moved=15880 checksum=6565582682
+inserts by level: 6321 4807 2047 4921
+busiest tick=13652 with 6 timers

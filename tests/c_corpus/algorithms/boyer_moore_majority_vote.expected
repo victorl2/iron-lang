@@ -1,0 +1,5 @@
+500 trials verified, 280 had a strict majority
+[2,2,1,1,1,2,2] majority: 2
+[3,2,3] majority: 3
+[1,2,3,4] majority: -1
+> n/3 in [1,1,1,3,3,2,2,2]: 1 2

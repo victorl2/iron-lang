@@ -1,0 +1,8 @@
+aligned 40 allocations across 8 alignments, live=0
+align 3: refused
+align 0: refused
+size SIZE_MAX: refused
+size SIZE_MAX-70 align 64: refused
+10 rows on 64-byte boundaries: 10, sum=12720.0
+12 mixed blocks pattern intact: 1
+live=0

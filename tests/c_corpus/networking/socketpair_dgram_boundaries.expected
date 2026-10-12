@@ -1,0 +1,6 @@
+socket type: SOCK_DGRAM
+received sizes: 1 7 30 3 12
+side0 first: pong-one
+side0 second: pong-two!
+side1: ping
+after truncation the next message is: tail

@@ -1,0 +1,74 @@
+find -name '*.c' -type f -> 3
+  w/src/core/alloc.c
+  w/src/main.c
+  w/src/util.c
+find -name '*.[ch]' -> 6
+  w/main_link.c
+  w/src/core/alloc.c
+  w/src/core/alloc.h
+  w/src/main.c
+  w/src/util.c
+  w/src/util.h
+find -type d -> 6
+  w/.git
+  w/build
+  w/build/obj
+  w/docs
+  w/src
+  w/src/core
+find -type l -> 2
+  w/docs_link
+  w/main_link.c
+find -type f -empty -> 2
+  w/docs/empty.md
+  w/src/core/alloc.h
+find -type f -size +1999c -> 4
+  w/build/app
+  w/build/obj/main.o
+  w/src/core/alloc.c
+  w/src/main.c
+find -type f -size 100..1000c -> 4
+  w/.git/config
+  w/Makefile
+  w/README.md
+  w/src/util.c
+find -maxdepth 1 -> 9
+  w/.git
+  w/.hidden
+  w/Makefile
+  w/README.md
+  w/build
+  w/docs
+  w/docs_link
+  w/main_link.c
+  w/src
+find -mindepth 3 -> 4
+  w/build/obj/main.o
+  w/build/obj/util.o
+  w/src/core/alloc.c
+  w/src/core/alloc.h
+find -name '?????.?' -type f -> 2
+  w/src/core/alloc.c
+  w/src/core/alloc.h
+find -name '*.[co]' -prune build -> 3
+  w/src/core/alloc.c
+  w/src/main.c
+  w/src/util.c
+find -type f -prune '.*' -> 13
+  w/.hidden
+  w/Makefile
+  w/README.md
+  w/build/app
+  w/build/obj/main.o
+  w/build/obj/util.o
+  w/docs/empty.md
+  w/docs/guide.md
+  w/src/core/alloc.c
+  w/src/core/alloc.h
+  w/src/main.c
+  w/src/util.c
+  w/src/util.h
+find -name '*' -type f -maxdepth 1 -> 3
+  w/.hidden
+  w/Makefile
+  w/README.md

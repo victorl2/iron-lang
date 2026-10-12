@@ -1,0 +1,4 @@
+300 random walks verified
+[8,2,4,7] limit 4 -> 2 at 1
+[10,1,2,4,7,2] limit 5 -> 4 at 2
+[4,2,2,2,4,4,2,2] limit 0 -> 3 at 1

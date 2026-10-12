@@ -1,0 +1,5 @@
+path   n=255 centroid=127 levels=8 dist-sum(marked)=1147 lca-level-sum=1903 pairs(d=1,2,5)=254,253,250
+star   n=201 centroid=  0 levels=2 dist-sum(marked)=295 lca-level-sum=7 pairs(d=1,2,5)=200,19900,0
+binary n=255 centroid=  0 levels=8 dist-sum(marked)=509 lca-level-sum=1927 pairs(d=1,2,5)=254,379,960
+random n=300 centroid=  1 levels=8 dist-sum(marked)=495 lca-level-sum=725 pairs(d=1,2,5)=299,613,3844
+random n=120 centroid=  2 levels=7 dist-sum(marked)=278 lca-level-sum=1047 pairs(d=1,2,5)=119,231,916

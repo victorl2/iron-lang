@@ -1,0 +1,11 @@
+reachable 300 of 300
+distance sum 18491, farthest vertex 147 at 181
+heap pushes 422, stale pops 122
+d(0,1) = 55
+d(0,2) = 91
+d(0,3) = 80
+d(0,4) = 57
+d(0,5) = 73
+d(0,6) = 59
+d(0,7) = 35
+d(0,8) = 49

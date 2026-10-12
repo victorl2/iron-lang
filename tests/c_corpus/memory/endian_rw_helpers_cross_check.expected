@@ -1,0 +1,8 @@
+cross checks passed: 74000
+be64 bytes: 01 02 03 04 05 06 07 08
+le64 bytes: 08 07 06 05 04 03 02 01
+bswap32(0x11223344)=0x44332211
+bswap64(0x0102030405060708)=0x0807060504030201
+24-bit samples: -8388608 8388607 1 -1
+sum -1
+middle-endian bytes: bb aa dd cc

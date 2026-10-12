@@ -1,0 +1,4 @@
+relaxed  final=12000 distinct=12000 ticket_sum=71994000
+acq_rel  final=12000 distinct=12000 ticket_sum=71994000
+seq_cst  final=12000 distinct=12000 ticket_sum=71994000
+last arriver saw slots summing to 10028, arrivals=4

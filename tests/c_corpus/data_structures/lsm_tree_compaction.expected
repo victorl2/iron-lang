@@ -1,0 +1,12 @@
+step  1500: mem=11 scan[376,676]=145 keys, L0:2runs/64recs L1:2runs/184recs L3:1runs/430recs 
+step  3000: mem= 0 scan[490,790]=192 keys, L2:2runs/510recs L3:2runs/1011recs 
+step  4500: mem=23 scan[371,671]=219 keys, L0:2runs/64recs L1:2runs/186recs L2:2runs/478recs L4:1runs/667recs 
+step  6000: mem=16 scan[381,681]=214 keys, L2:1runs/251recs L3:2runs/1139recs L4:1runs/667recs 
+step  7500: mem=17 scan[431,731]=217 keys, L2:2runs/518recs L4:2runs/1598recs 
+step  9000: mem=30 scan[319,619]=229 keys, L3:2runs/1161recs L4:2runs/1598recs 
+step 10500: mem=28 scan[464,764]=230 keys, L2:1runs/250recs L5:1runs/741recs 
+step 12000: mem=11 scan[126,426]=225 keys, L1:1runs/94recs L2:2runs/508recs L3:1runs/578recs L5:1runs/741recs 
+puts 7161 deletes 2445 gets 2394 (found 1557)
+flushes 291 compactions 143 records written 35072 tombstones dropped 650
+bloom skipped 6272 run probes, 5117 run lookups done; live keys 756; stored records 1921
+write amplification 3.65

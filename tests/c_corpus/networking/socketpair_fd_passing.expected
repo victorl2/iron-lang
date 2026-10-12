@@ -1,0 +1,9 @@
+message 'P' carried 1 descriptor(s)
+read via the received descriptor: through the pipe
+message 'T' carried 3 descriptor(s)
+descriptor 0 yields: pipe-0
+descriptor 1 yields: pipe-1
+descriptor 2 yields: pipe-2
+a passed socket still talks to its original peer: yes
+peer sees EOF once all copies are closed: yes
+received fd read '01', original fd continued with '234'

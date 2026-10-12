@@ -1,0 +1,6 @@
+case 0: n=12 total=378 reachable=325 ways(total/2)=44 min_diff=0
+case 1: n=16 total=503 reachable=474 ways(total/2)=320 min_diff=1
+case 2: n=10 total=278 reachable=241 ways(total/2)=4 min_diff=0
+case 3: n=17 total=444 reachable=445 ways(total/2)=754 min_diff=0
+case 4: n=17 total=562 reachable=513 ways(total/2)=688 min_diff=0
+case 5: n=14 total=359 reachable=338 ways(total/2)=109 min_diff=1

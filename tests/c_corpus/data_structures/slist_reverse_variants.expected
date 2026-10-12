@@ -1,0 +1,9 @@
+original      : 1 2 3 4 5 6 7 8 9 10
+iterative     : 10 9 8 7 6 5 4 3 2 1
+recursive     : 1 2 3 4 5 6 7 8 9 10
+between 3..7  : 1 2 7 6 5 4 3 8 9 10
+groups 3 keep : 7 2 1 4 5 6 9 8 3 10
+groups 4 all  : 4 1 2 7 8 9 6 5 10 3
+values only   : 3 10 5 6 9 8 7 2 1 4
+alternate 3   : 5 10 3 6 9 8 1 2 7 4
+randomized reversal checks passed: 400

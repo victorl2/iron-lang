@@ -1,0 +1,17 @@
+rmdir missing        -> ENOENT
+rmdir regular file   -> ENOTDIR
+rmdir non-empty      -> ENOTEMPTY_OR_EEXIST
+rmdir dot            -> EINVAL
+rmdir symlink->dir   -> ENOTDIR
+rmdir file/          -> ENOTDIR
+rmdir through file   -> ENOTDIR
+rmdir empty          -> OK
+rmdir empty again    -> ENOENT
+unlink directory     -> EISDIR_OR_EPERM
+unlink missing       -> ENOENT
+unlink dir symlink   -> OK
+unlink file symlink  -> OK
+unlink dangling      -> OK
+unlink through file  -> ENOTDIR
+rmdir full (sub left) -> ENOTEMPTY_OR_EEXIST
+rmdir full (emptied) -> OK

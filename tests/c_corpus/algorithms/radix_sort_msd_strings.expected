@@ -1,0 +1,6 @@
+cutoff=1   probes=4754   max_depth=8
+cutoff=8   probes=3680   max_depth=5
+cutoff=32  probes=3060   max_depth=4
+cutoff=500 probes=0      max_depth=0
+tiny: [] [by] [sea] [seashells] [sells] [sells] [she] [she] [shells] [shore] [the] [the]
+first=a last=dddaaccc

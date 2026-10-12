@@ -1,0 +1,18 @@
+after generation 3:
+  app.log    [generation 3]
+  app.log.1  [generation 2]
+  app.log.2  [generation 1]
+after generation 7:
+  app.log    [generation 7]
+  app.log.1  [generation 6]
+  app.log.2  [generation 5]
+  app.log.3  [generation 4]
+  app.log.4  [generation 3]
+after removing .2 and rotating (gen 8):
+  app.log    [generation 8]
+  app.log.1  [generation 7]
+  app.log.2  [generation 6]
+  app.log.4  [generation 4]
+rename rotation, writer still open:
+  app.log exists=0, app.log.1 has 23 bytes
+copytruncate: app.log=6 bytes, app.log.copy=13 bytes

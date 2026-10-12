@@ -1,0 +1,4 @@
+waiter after an earlier stray signal: still blocked = yes
+real signal woke exactly 1 waiter
+broadcast released waiters: total passed 5, waiters left 0
+consumed 450 items, sum 483975, produced sum 483975

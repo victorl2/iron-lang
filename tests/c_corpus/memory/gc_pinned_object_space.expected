@@ -1,0 +1,6 @@
+objects allocated: 770
+collections: 26, movable objects copied: 280
+pinned objects marked: 87, swept: 187, live at end: 6
+edges movable->pinned: 61, pinned->movable fixed up: 62
+movable space in use at end: 9 of 100
+oracle checks: 26

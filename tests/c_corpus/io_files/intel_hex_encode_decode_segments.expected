@@ -1,0 +1,16 @@
+rec_len=16:  32 records, 1224 bytes, data=394, max addr=2FFFF, start=0001A000
+  :020000040000FA
+  :10000000B674B346BB51501A3F71EACF4EC256F296
+  :100010001FA7E4F4B949C4039E02669E0B22D01FB9
+  :0D002000744D389391B87B25DAFBE527CFAE
+rec_len=32:  21 records, 1081 bytes, data=394, max addr=2FFFF, start=0001A000
+  corrupt @5 -> line 1: checksum mismatch
+  corrupt @20 -> line 2: checksum mismatch
+  corrupt @0 -> line 1: malformed record
+  corrupt @3 -> line 1: bad hex digit
+rec_len= 5:  87 records, 1939 bytes, data=394, max addr=2FFFF, start=0001A000
+case 0: ok
+case 1: checksum mismatch
+case 2: record after EOF
+case 3: ok
+case 4: address out of range

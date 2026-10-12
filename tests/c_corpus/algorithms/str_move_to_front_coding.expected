@@ -1,0 +1,4 @@
+mtf(bananaaa): 98 98 110 1 1 1 0 0
+local (drifting alphabet)  zeros=1356 big= 203 gamma(mtf)= 11328 gamma(raw)= 48260
+uniform 16 symbols         zeros= 238 big=   0 gamma(mtf)= 23106 gamma(raw)= 23088
+single symbol              zeros=3999 big=   1 gamma(mtf)=  4010 gamma(raw)= 44000

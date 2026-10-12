@@ -1,0 +1,3 @@
+version=398 commits=398 aborts=16
+latest state: 34 keys, sum 14978; snapshot reads verified=280
+gc dropped 50 revisions, 712 remain, longest chain 28

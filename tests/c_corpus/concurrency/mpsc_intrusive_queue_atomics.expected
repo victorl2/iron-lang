@@ -1,0 +1,6 @@
+local order: 0 1 2 3 4
+producer 0: 2000 items, last seq 1999
+producer 1: 2000 items, last seq 1999
+producer 2: 2000 items, last seq 1999
+producer 3: 2000 items, last seq 1999
+total 8000 checksum 1207996000

@@ -1,0 +1,5 @@
+detector: good snapshot accepted, spliced snapshot rejected
+validated reads: 4500, torn snapshots accepted: 0
+final value 1201, words consistent yes
+sequence counter 2402 (even: yes), expected 2402
+non-monotonic snapshots 0

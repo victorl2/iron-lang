@@ -1,0 +1,3 @@
+int map: size=298 adds=922 overwrites=2000 deletes=624 sum=1495304 buckets=256
+string map: size=265 rehashes=6
+point map: 1392 distinct cells of 1681, hottest cell hit 8 times

@@ -1,0 +1,6 @@
+distinct<=2     actual=2     3way cmps=7500    2way cmps=59127
+distinct<=5     actual=5     3way cmps=12164   2way cmps=61701
+distinct<=16    actual=16    3way cmps=19058   2way cmps=61719
+distinct<=100   actual=100   3way cmps=34191   2way cmps=67999
+distinct<=5000  actual=3193  3way cmps=62737   2way cmps=78203
+hist: 10 8 4 9 6 8 12 7

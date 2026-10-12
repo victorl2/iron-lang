@@ -1,0 +1,7 @@
+wrote 30 bytes, err=0
+rec 0 ok=1 id=deadbeef flags=0102 name=alice n=3 last=30
+rec 1 ok=1 id=00000007 flags=0000 name=bob n=0 last=-1
+consumed exactly: 1
+oversized name: written=33 read ok=0 err=1
+prefix sweep over 31 lengths: full parse=1, errors=28
+tiny writer: pos=6 err=1

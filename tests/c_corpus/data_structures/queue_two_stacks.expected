@@ -1,0 +1,3 @@
+push=22989 pop=22865 front=1967 back=2034
+transfers=575 moved=22935 max_size=841 final=124 sum=11430123
+moved_per_push_x100=99

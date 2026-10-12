@@ -1,0 +1,16 @@
+wild "aa" ~ "a": 0
+wild "aa" ~ "*": 1
+wild "cb" ~ "?a": 0
+wild "adceb" ~ "*a*b": 1
+wild "acdcb" ~ "a*c?b": 0
+wild "" ~ "***": 1
+wild "mississippi" ~ "m??*ss*?i*pi": 0
+wild "abcabc" ~ "*abc": 1
+regex "aa" ~ "a": 0
+regex "aa" ~ "a*": 1
+regex "ab" ~ ".*": 1
+regex "aab" ~ "c*a*b": 1
+regex "mississippi" ~ "mis*is*p*.": 0
+regex "" ~ "a*b*": 1
+regex "abc" ~ ".*c": 1
+random wildcard matches=44 regex matches=32 of 400

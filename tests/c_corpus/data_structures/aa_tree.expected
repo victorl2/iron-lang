@@ -1,0 +1,4 @@
+ascending 400: height=11 root level=8 skews=0 splits=389
+random: inserts=1185 deletes=1290 size=295 maxheight=14 root level=7
+skews=1916 splits=1675
+drained

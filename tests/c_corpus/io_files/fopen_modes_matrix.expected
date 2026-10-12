@@ -1,0 +1,14 @@
+r/r+ on missing file fail
+w    -> [XY]
+a    -> [abcdef123]
+r+   -> [XYcdef]
+r+ read "01"
+r+rw -> [01__456789]
+w+ read back "fresh data"
+w+   -> [fresh data]
+a+ initial read "head"
+a+ full read (9) "head|tail"
+a+   -> [head|tail]
+rb+ size before append 3
+rb+  -> [bin!]
+write on r stream rejected

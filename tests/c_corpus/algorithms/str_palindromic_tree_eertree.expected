@@ -1,0 +1,11 @@
+eertree      distinct palindromes=7, total occurrences=12
+abacaba      distinct palindromes=7, total occurrences=12
+aaaaa        distinct palindromes=5, total occurrences=15
+abcde        distinct palindromes=5, total occurrences=5
+mississippi  distinct palindromes=11, total occurrences=20
+random n=95 alphabet=1 distinct=95 total=4560 longest=95
+random n=39 alphabet=2 distinct=31 total=109 longest=12
+random n=86 alphabet=2 distinct=42 total=238 longest=16
+random n=98 alphabet=3 distinct=42 total=193 longest=13
+random n=55 alphabet=4 distinct=26 total=96 longest=7
+n=2000 binary: 258 distinct palindromes

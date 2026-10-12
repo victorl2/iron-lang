@@ -1,0 +1,6 @@
+set 0: 5 words after pruning, optimal=16 greedy=16  gctaagttcatgcatc
+set 1: 4 words after pruning, optimal=6 greedy=6  abcdef
+set 2: 4 words after pruning, optimal=6 greedy=6  aaabbb
+set 3: 2 words after pruning, optimal=4 greedy=4  wxyz
+set 4: 2 words after pruning, optimal=4 greedy=4  baba
+random: greedy strictly worse than optimal in 2 of 60 instances

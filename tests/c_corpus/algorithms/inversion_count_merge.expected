@@ -1,0 +1,8 @@
+n=0      inversions=0          of max 0         
+n=1      inversions=0          of max 0         
+n=2      inversions=1          of max 1         
+n=10     inversions=19         of max 45        
+n=100    inversions=2517       of max 4950      
+n=1000   inversions=255448     of max 499500    
+n=20000  inversions=99393948   of max 199990000 
+kendall tau of random ranking vs identity: 27 (of 66)

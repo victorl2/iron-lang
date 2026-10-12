@@ -1,0 +1,8 @@
+phase 0 refusals=643
+phase 1 refusals=1908
+phase 2 refusals=1520
+phase 3 refusals=1849
+allocs low=1986 high=2138 refused low=3032 high=2888
+marker releases low=1946 high=1843
+peak used=4096 of 4096, smallest gap=0, steps with zero gap=237
+final lo=4057 hi=4072 gap=15

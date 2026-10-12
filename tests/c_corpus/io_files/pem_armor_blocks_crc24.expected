@@ -1,0 +1,30 @@
+rfc4648 vectors ok
+-----BEGIN CERTIFICATE-----
+2NLOGO5EQGn9xqk8OAhay3+dkNLlJRMPeQiZeiyLQHw=
+-----END CERTIFICATE-----
+some prose between blocks
+-----BEGIN RSA PRIVATE KEY-----
+Proc-Type: 4,ENCRYPTED
+DEK-Info: AES-128-CBC,00112233445566778899AABBCCDDEEFF
+
+0DfjTkXh7pZq75SePqchU2ZA5pRGff7qCtn3/tc5DWOqt4ocvryI2SFQy5zmHYsl
+DIhA1YLHt40d7/k1gb2l+4TrGQDyzb0HB/C3ZiHjNWPHGILLX1/TwworeDjuTGcu
+zmV8UYFDXSDzXUlXErOjGvzx9VvWSkH9l7YGLMhE3vu0ma6tAqE/pw2gSt3L69Fx
+F9r1JANoTGJfL+/K1lg2cuvk0vNEO9n8rIQJ5WAGYkKKScYdoyevl6Y3fCs20rI6
+gCn5gh7XLgg=
+-----END RSA PRIVATE KEY-----
+-----BEGIN PGP MESSAGE-----
+OzBI
+=shKG
+-----END PGP MESSAGE-----
+block 0: label="CERTIFICATE" headers=0 payload=32 bytes crc=absent
+block 1: label="RSA PRIVATE KEY" headers=2 payload=200 bytes crc=absent
+block 2: label="PGP MESSAGE" headers=0 payload=3 bytes crc=ok
+corrupted body: crc=BAD
+b64 Zg=       -> -1
+b64 Zg==Zg==  -> -1
+b64 Z$==      -> -1
+b64 Zh==      -> -1
+b64 Zm9vY     -> -1
+b64 ====      -> -1
+missing END: missing END line

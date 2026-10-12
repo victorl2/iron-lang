@@ -1,0 +1,3 @@
+tokens=30000 distinct=353 table buckets=256 avg compares per lookup=1.8991
+top 10: an=1703 ex=1490 to=1445 ren=1251 vi=1224 lo=1090 mi=936 su=914 ka=809 th=583
+singletons=7

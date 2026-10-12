@@ -1,0 +1,6 @@
+phase 0: live=158 peak=160 slabs partial=2 full=14 empty=0 idle=0
+phase 1: live=  0 peak=157 slabs partial=0 full=0 empty=1 idle=15
+phase 2: live=160 peak=160 slabs partial=0 full=16 empty=0 idle=0
+phase 3: live=  1 peak=159 slabs partial=1 full=0 empty=0 idle=15
+objects per slab=10 created=31 reaped=30 refused=801 max full=16
+after drain: empty=1 idle=15 (empty list only)

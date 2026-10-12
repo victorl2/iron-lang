@@ -1,0 +1,7 @@
+400 random arrays verified
+remove 3 from 3,2,2,3: 2 2
+move zeroes:           1 3 12 0 0
+swaps performed: 3
+at most twice:         1 1 2 2 3
+dutch flag:            0 0 1 1 2 2
+unique:                0 1 2 3

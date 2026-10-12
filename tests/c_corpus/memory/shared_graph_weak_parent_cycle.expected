@@ -1,0 +1,10 @@
+weak parent pointers:
+  built: strong root=1 a=1 c=1 weak root=2
+  after dropping root: live=0 freed=[root a c b ]
+strong parent pointers (cycle):
+  built: strong root=3 a=2 c=1 weak root=0
+  after dropping root: live=4 freed=[]
+  registry sweep reclaimed them
+sibling strong cycle broken through weak side:
+  live=2 (mutual strong refs leak)
+  after breaking: live=0 freed=[y x ]

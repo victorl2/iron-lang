@@ -1,0 +1,5 @@
+ascending 400: height=9 rotations=392 flips=389
+after deleting top half: size=200 height=8
+random: inserts=1037 deletes=975 size=262 maxheight=12
+rotations=5616 flips=9319
+drained

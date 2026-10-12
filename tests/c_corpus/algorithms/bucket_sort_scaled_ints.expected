@@ -1,0 +1,4 @@
+uniform           buckets=1000 max_bucket=11   empty=19   chain_steps=3972
+squared (skewed)  buckets=1000 max_bucket=125  empty=61   chain_steps=10969
+clustered         buckets=1000 max_bucket=2015 empty=998  chain_steps=1998846
+two values        buckets=1000 max_bucket=2009 empty=998  chain_steps=3998081

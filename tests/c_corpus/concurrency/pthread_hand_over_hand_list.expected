@@ -1,0 +1,5 @@
+thread 0: inserted=122 dups=145 removed=71
+thread 1: inserted=123 dups=144 removed=72
+thread 2: inserted=126 dups=141 removed=74
+thread 3: inserted=118 dups=149 removed=75
+length=197 sum=30380 sorted=yes

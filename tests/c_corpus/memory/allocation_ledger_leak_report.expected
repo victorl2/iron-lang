@@ -1,0 +1,11 @@
+after build: cur=416 peak=416 | parser live=160 peak=160 total=160, cache live=256 peak=256 total=256, temp live=0 peak=0 total=0
+with temps: cur=576 peak=576 | parser live=160 peak=160 total=160, cache live=256 peak=256 total=256, temp live=160 peak=160 total=160
+temps freed: cur=416 peak=576 | parser live=160 peak=160 total=160, cache live=256 peak=256 total=256, temp live=0 peak=160 total=160
+bad frees: 2
+partial release: cur=320 peak=576 | parser live=64 peak=160 total=160, cache live=256 peak=256 total=256, temp live=0 peak=160 total=160
+leak report:
+  id=2 tag=parser size=24
+  id=4 tag=parser size=40
+  id=6 tag=cache size=256
+leaks: 3 blocks, 320 bytes
+cleanup: cur=0 peak=576 | parser live=0 peak=160 total=160, cache live=0 peak=256 total=256, temp live=0 peak=160 total=160

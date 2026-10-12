@@ -1,0 +1,6 @@
+n=0      swaps=0       buckets=0      first=0000000000000000 last=0000000000000000
+n=1      swaps=0       buckets=0      first=27dc4e92298caead last=27dc4e92298caead
+n=13     swaps=11      buckets=13     first=04f6472855d19941 last=f8744e8f8ea3b00a
+n=100    swaps=92      buckets=81     first=0089465bc62976e2 last=feb74c968494e851
+n=3000   swaps=4206    buckets=1895   first=000000002200b500 last=0000ff00eb003200
+n=30000  swaps=58490   buckets=24377  first=0000b53ae6421b6e last=fff4b31d7fdfaf3b

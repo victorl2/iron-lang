@@ -1,0 +1,16 @@
+directed 0:  8 edges, acyclic
+directed 1: 10 edges, acyclic
+directed 2: 12 edges, acyclic
+directed 3: 14 edges, acyclic
+directed 4: 16 edges, acyclic
+directed 5: 18 edges, acyclic
+directed 6: 20 edges, cycle length 4: 3 12 11 8
+directed 7: 22 edges, cycle length 3: 0 12 10
+directed 8: 24 edges, cycle length 5: 2 5 6 10 9
+directed 9: 26 edges, cycle length 7: 3 4 8 9 1 10 11
+undirected 0:  6 edges, first cycle-closing edge -1, components 10, independent cycles 0
+undirected 1:  9 edges, first cycle-closing edge -1, components 7, independent cycles 0
+undirected 2: 12 edges, first cycle-closing edge 11, components 5, independent cycles 1
+undirected 3: 15 edges, first cycle-closing edge 11, components 4, independent cycles 3
+undirected 4: 18 edges, first cycle-closing edge 9, components 2, independent cycles 4
+cyclic directed graphs: 4 of 10

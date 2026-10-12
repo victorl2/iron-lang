@@ -1,0 +1,13 @@
+pre: 1 2 4 5 3 6
+in: 4 2 5 1 3 6
+post: 4 5 2 6 3 1
+level: 1 2 3 4 5 6
+zigzag: 1 3 2 4 5 6
+height=3 count=6
+serial=1,2,4,#,#,5,#,#,3,#,6,#,#,
+random size=38 height=10 prehash=4112391232 serlen=224
+random size=160 height=15 prehash=4261494865 serlen=942
+random size=174 height=14 prehash=423829262 serlen=1029
+total height over 40 random trees=500
+after ops: count=138 deletes=131 height=8
+level hash=732612181

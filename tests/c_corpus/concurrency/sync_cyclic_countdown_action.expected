@@ -1,0 +1,6 @@
+events per cycle 10, cycles 60, producers 4
+cycles completed 60, actions run 60, cycles with action not exactly once 0
+action order violations 0, witness sum 1830
+observer 0 (every 1 cycles) saw actions done before release: yes
+observer 1 (every 2 cycles) saw actions done before release: yes
+observer 2 (every 3 cycles) saw actions done before release: yes

@@ -1,0 +1,23 @@
+*.txt          -> Gamma.txt alpha.txt beta.txt
+*.c            -> a1.c a2.c b10.c delta.c
+?[0-9]*.c      -> a1.c a2.c b10.c
+[a-b]*         -> a*b a1.c a2.c alpha.txt b10.c beta.txt
+[!a-b]*        -> Gamma.txt delta.c doc empty_dir lib src
+*/*.c          -> src/main.c src/util.c
+*/lib*         -> lib/liba.a lib/libb.so
+*/             -> doc/ empty_dir/ lib/ src/
+s*/*           -> src/main.c src/util.c
+*/.gitkeep     -> src/.gitkeep
+.*.txt         -> .env.txt
+nothing*       -> (no match)
+*.[ch]         -> a1.c a2.c b10.c delta.c
+??????.txt     -> (no match)
+d*/*           -> doc/notes.txt doc/readme
+*/*/*          -> (no match)
+GLOB_MARK on *.c: 4 paths, none end in '/': 1
+GLOB_MARK on s*: src/
+GLOB_NOCHECK on zzz*: 1 path(s), first=zzz*
+no match without NOCHECK: GLOB_NOMATCH
+GLOB_APPEND: 7 paths: Gamma.txt alpha.txt beta.txt a1.c a2.c b10.c delta.c
+escaped star matches: a*b (1)
+with GLOB_NOESCAPE the backslash is literal: GLOB_NOMATCH

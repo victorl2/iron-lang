@@ -1,0 +1,10 @@
+ch=1 rate= 8000 bits= 8 frames= 37 chunks=3 file=96 peak=100 mean-square=3479
+ch=2 rate=44100 bits=16 frames= 50 chunks=2 file=244 peak=32767 mean-square=368405163
+ch=2 rate=48000 bits=24 frames= 33 chunks=3 file=256 peak=8388607 mean-square=24907449041117
+ch=1 rate=22050 bits=16 frames=101 chunks=3 file=260 peak=32767 mean-square=370739747
+patch  0: not RIFF/WAVE
+patch  4: RIFF size mismatch
+patch 20: not PCM
+patch 32: bad block align
+patch 34: bad block align
+patch 40: partial frame

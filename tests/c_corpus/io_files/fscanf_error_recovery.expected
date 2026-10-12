@@ -1,0 +1,19 @@
+line 1 ok: alice        age  30 weight  55.50
+line 2 bad: matched 1 field(s)
+line 3 ok: carol        age  27 weight  48.25
+line 4 bad: matched 2 field(s)
+line 5 ok: erin         age  35 weight  70.00
+line 6 blank
+line 7 bad: matched 1 field(s)
+line 8 bad: matched 2 field(s)
+line 9 ok: hal          age  -5 weight  65.75 (trailing text ignored)
+ok 4 bad 4, age sum 87, weight sum 239.50
+fscanf-only pass accepted 3 records
+  int 12 consumed 2
+  int -7 consumed 3
+  int 99 consumed 4
+  int 0 consumed 2
+parsed 4 ints (sum 104), stopped at "abc 5"
+record: matched 3 id=42 name="Widget Pro" tags="red,blue,green"
+partial: matched 1 a=17 b=-1
+empty input returns EOF: 1

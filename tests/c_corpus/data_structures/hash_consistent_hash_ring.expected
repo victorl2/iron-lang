@@ -1,0 +1,8 @@
+8 nodes, 1 vnodes      nodes=8 min load=41 max load=9173 ratio=223.732
+8 nodes, 8 vnodes      nodes=8 min load=875 max load=4290 ratio=4.903
+8 nodes, 64 vnodes     nodes=8 min load=2021 max load=2984 ratio=1.476
+8 nodes, 256 vnodes    nodes=8 min load=2289 max load=2951 ratio=1.289
+join node 8: moved 2235 of 20000 keys (0.1118, ideal 1/9=0.1111)
+leave node 3: moved 2224 keys (all were on node 3: 2224)
+after join+leave       nodes=8 min load=2269 max load=2786 ratio=1.228
+naive hash mod N, 8 to 9 nodes: moved 17780 keys (0.8890)

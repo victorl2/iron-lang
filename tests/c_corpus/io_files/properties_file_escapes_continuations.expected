@@ -1,0 +1,22 @@
+ 0 <simple> = <value>
+ 1 <spaced.key> = <padded value  >
+ 2 <colon.sep> = <v2>
+ 3 <space.sep> = <v3 with words>
+ 4 <empty.value> = <>
+ 5 <only.key> = <>
+ 6 <multi> = <one two three>
+ 7 <escaped key=x> = <val\tTab\nNL>
+ 8 <unicode> = <café € A>
+ 9 <trailing.backslashes> = <keep\>
+10 <next.line> = <after>
+11 <dup> = <second>
+12 <crlf.line> = <windows>
+13 <last> = <no newline at end>
+properties=14 bad=1
+rewritten file: 271 bytes, round trip identical
+simple=value
+spaced.key=padded value  
+colon.sep=v2
+space.sep=v3 with words
+empty.value=
+only.ke...

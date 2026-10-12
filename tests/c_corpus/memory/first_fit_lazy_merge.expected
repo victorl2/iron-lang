@@ -1,0 +1,4 @@
+mid-run: blocks=63 used=4504 physical largest free=696 logical largest free=1568
+allocs=4783 frees=4730 failed=487 double frees caught=584
+scan steps=195469 splits=3482 lazy merges=3413
+whole-heap block obtained after drain: blocks=1

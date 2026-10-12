@@ -1,0 +1,39 @@
+100755 -rwxr-xr-x
+100644 -rw-r--r--
+040700 drwx------
+104755 -rwsr-xr-x
+104644 -rwSr--r--
+102755 -rwxr-sr-x
+102745 -rwxr-Sr-x
+041777 drwxrwxrwt
+041770 drwxrwx--T
+107000 ---S--S--T
+107777 -rwsrwsrwt
+010600 prw-------
+120777 lrwxrwxrwx
+020620 crw--w----
+
+site:
+total 87
+drwxr-x---  0 assets/
+prw-r-----  0 events
+l ----------  7 hidden -> private
+-rw-r--r-- 32 index.html
+drwx------  0 private/
+-r--r--r-- 14 robots.txt
+-rwxr-xr-x 18 run.sh
+l ---------- 16 style -> assets/style.css
+
+site/assets:
+total 15
+drwxr-xr-x  0 img/
+-rw-r--r-- 15 style.css
+
+site/assets/img:
+total 123462
+-rw-r--r-- 123456 big.dat
+-rw-r--r--      6 logo.svg
+
+site/private:
+total 6
+-rw------- 6 key

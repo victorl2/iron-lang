@@ -1,0 +1,2 @@
+n=1774 cap/table=2048 load=0.4331
+kicks=6575 rehashes=7 growths=7 longest eviction chain=37

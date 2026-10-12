@@ -1,0 +1,4 @@
+n=   10 slots=    45 (4.500 per key, 36.00 bits/key) seeds tried=1 fpr=0.00375 (ideal 0.00391)
+n=  200 slots=   279 (1.395 per key, 11.16 bits/key) seeds tried=1 fpr=0.00439 (ideal 0.00391)
+n= 3000 slots=  3723 (1.241 per key, 9.93 bits/key) seeds tried=1 fpr=0.00361 (ideal 0.00391)
+n=40000 slots= 49233 (1.231 per key, 9.85 bits/key) seeds tried=1 fpr=0.00420 (ideal 0.00391)

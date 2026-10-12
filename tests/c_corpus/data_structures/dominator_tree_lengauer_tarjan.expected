@@ -1,0 +1,6 @@
+graph  0: n=12 reachable=12 tree-depth=5 |DF|=12 idom: 0 0 0 3 4 3 6 2 8 9 10
+graph  1: n=12 reachable=11 tree-depth=3 |DF|=28 idom: 8 -9 8 11 8 8 8 0 8 8 8
+graph 15: n=31 reachable=28 tree-depth=4 |DF|=75 idom: 0 -9 0 6 0 12 0 0 0 6 0 0 -9
+graph 30: n=11 reachable= 1 tree-depth=0 |DF|=0 idom: -9 -9 -9 -9 -9 -9 -9 -9 -9 -9
+graph 45: n= 7 reachable= 7 tree-depth=2 |DF|=11 idom: 6 0 2 0 0 0
+60 graphs, reachable total 641, max dominator depth 7, |DF| total 1356

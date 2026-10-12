@@ -1,0 +1,7 @@
+inserted=1000 erased=132 live=868 high_water=3021
+common prefix matches=143
+prefix a -> 145
+prefix b -> 49
+prefix ab -> 8
+prefix ce -> 12
+prefix gg -> 17

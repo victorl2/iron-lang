@@ -1,0 +1,4 @@
+edges 1200, negative edges 378
+reachable 247, sum 5805, min -4
+spfa pops 491, successful relaxations 656
+bellman-ford passes 7

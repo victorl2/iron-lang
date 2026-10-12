@@ -1,0 +1,10 @@
+trailing newline 1, block    1: 120 lines, mismatches 0
+trailing newline 1, block    7: 120 lines, mismatches 0
+trailing newline 1, block   64: 120 lines, mismatches 0
+trailing newline 1, block 4096: 120 lines, mismatches 0
+first output line: 119:acbqpvobuolctobktwnjwgvshmif
+trailing newline 0, block    1: 120 lines, mismatches 0
+trailing newline 0, block    7: 120 lines, mismatches 0
+trailing newline 0, block   64: 120 lines, mismatches 0
+trailing newline 0, block 4096: 120 lines, mismatches 0
+empty file: 0 lines

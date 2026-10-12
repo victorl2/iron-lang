@@ -1,0 +1,10 @@
+n=2     layers=1   comparators=1      min=4726 max=5183
+n=4     layers=3   comparators=6      min=298 max=8920
+n=8     layers=6   comparators=24     min=239 max=7741
+n=16    layers=10  comparators=80     min=343 max=9603
+n=32    layers=15  comparators=240    min=100 max=9247
+n=64    layers=21  comparators=672    min=70 max=9895
+n=128   layers=28  comparators=1792   min=120 max=9914
+n=256   layers=36  comparators=4608   min=64 max=9925
+n=512   layers=45  comparators=11520  min=10 max=9973
+n=1024  layers=55  comparators=28160  min=0 max=9991

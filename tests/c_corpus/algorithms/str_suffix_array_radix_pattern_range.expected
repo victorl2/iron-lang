@@ -1,0 +1,9 @@
+suffix array built for n=5000, sa[0..4] = 4999 916 4618 2308 917
+a                count=1632  sa range [0,1632) probes=25 first=3
+ab               count=561   sa range [527,1088) probes=25 first=18
+abc              count=198   sa range [890,1088) probes=24 first=20
+cba              count=173   sa range [3883,4056) probes=22 first=50
+aabbcc           count=6     sa range [281,287) probes=25 first=255
+bcbcbcbc         count=0     sa range [3109,3109) probes=23
+abcabcabcabcabc  count=0     sa range [928,928) probes=24
+banana sa: 5 3 1 0 4 2; "ana" range [1,3)

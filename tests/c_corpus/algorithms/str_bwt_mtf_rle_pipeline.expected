@@ -1,0 +1,5 @@
+tongue twister x4  n= 340 runs(src)= 320 runs(bwt)=  36 mtf zeros= 304 rle0 symbols= 134
+random 4 letters   n=1000 runs(src)= 715 runs(bwt)= 750 mtf zeros= 250 rle0 symbols= 948
+periodic pattern   n=1200 runs(src)= 461 runs(bwt)=   8 mtf zeros=1192 rle0 symbols=  48
+all identical      n= 700 runs(src)=   1 runs(bwt)=   1 mtf zeros= 699 rle0 symbols=  10
+zero-run codes: 1=A 2=B 3=AA 4=BA 5=AB 6=BB 7=AAA 8=BAA 9=ABA 10=BBA

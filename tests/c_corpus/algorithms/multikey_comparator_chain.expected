@@ -1,0 +1,29 @@
+chain: dept, salary desc, name
+  108 ENG   Flo2  75 2020
+  125 ENG   Di2   70 2016
+  105 ENG   Ada1  65 2017
+  135 ENG   Ed0   60 2015
+  113 ENG   Bo1   55 2022
+chain: year desc, dept, id
+  113 ENG   Bo1   55 2022
+  131 OPS   Cy0   50 2022
+  130 HR    Bo0   70 2021
+  108 ENG   Flo2  75 2020
+  116 HR    Flo1  40 2020
+chain: salary, year, name
+  127 HR    Cy2   40 2015
+  109 OPS   Ada0  40 2017
+  119 OPS   Hal2  40 2017
+  120 ENG   Gus0  40 2018
+  100 ENG   Di2   40 2019
+chain: name only (ties by id)
+  109 OPS   Ada0  40 2017
+  114 OPS   Ada0  70 2018
+  105 ENG   Ada1  65 2017
+  111 SALES Ada2  60 2019
+  117 OPS   Bo0   70 2016
+groups:
+  ENG   n=9 total=510 top=Flo2
+  HR    n=10 total=515 top=Bo0
+  OPS   n=13 total=760 top=Ada0
+  SALES n=8 total=505 top=Di1

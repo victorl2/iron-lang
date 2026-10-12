@@ -1,0 +1,4 @@
+allocs=27962 (cons=17886 box=5193 vec=4883) mutations=7883
+collections=30 words copied=8578 (avg 285 per collection) max live=1402 of 3071
+out-of-memory events=0
+final: 91 reachable objects, 285 words, heap pointer 2497, digest 1229640145

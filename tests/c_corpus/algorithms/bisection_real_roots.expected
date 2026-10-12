@@ -1,0 +1,19 @@
+x=2          sqrt=1.414214 cbrt=1.259921
+x=10         sqrt=3.162278 cbrt=2.154435
+x=0.25       sqrt=0.500000 cbrt=0.629961
+x=1e+06      sqrt=1000.000000 cbrt=100.000000
+x=12345.7    sqrt=111.111107 cbrt=23.112042
+x=1          sqrt=1.000000 cbrt=1.000000
+root of x^3-2x-5  = 2.094551 (iterations within bound: yes)
+root of cos(x)-x  = 0.739085 (iterations within bound: yes)
+root of e^x+x-4   = 1.073729 (iterations within bound: yes)
+root of x ln x-3  = 2.857391 (iterations within bound: yes)
+isqrt(0)=0
+isqrt(1)=1
+isqrt(2)=1
+isqrt(15)=3
+isqrt(16)=4
+isqrt(17)=4
+isqrt(99999999)=9999
+isqrt(4294967295)=65535
+isqrt(1000000007)=31622

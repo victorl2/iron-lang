@@ -1,0 +1,8 @@
+n=2 permutations=2     worst_flips=1  total_flips=1
+n=3 permutations=6     worst_flips=3  total_flips=9
+n=4 permutations=24    worst_flips=5  total_flips=66
+n=5 permutations=120   worst_flips=7  total_flips=498
+n=6 permutations=720   worst_flips=9  total_flips=4068
+n=7 permutations=5040  worst_flips=11 total_flips=36396
+example flips=11 sequence: 4 8 3 7 2 6 2 5 2 3 2
+burnt flips=11 result: +1 +2 +3 +4 +5 +6

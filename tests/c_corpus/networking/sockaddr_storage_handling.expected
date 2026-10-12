@@ -1,0 +1,12 @@
+storage holds a sockaddr_in: yes
+storage holds a sockaddr_in6: yes
+storage holds a sockaddr_un: yes
+entry 0: inet 203.0.113.9 port 4242
+entry 1: inet6 [2001:db8::35] port 53
+entry 2: unix path service.sock
+entry 3: unknown family
+accept peer length equals sizeof sockaddr_in: yes
+accepted peer: inet 127.0.0.1
+peer equals the client's own address: yes
+datagram sender: inet 127.0.0.1, is the sending socket: yes
+full address needs 16 bytes, buffer had 4: reported length larger: yes

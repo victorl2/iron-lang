@@ -1,0 +1,2 @@
+mallocs=6500 reuses=9377 peak=1858 final_depth=1856 freelist=2
+popped=14021 score_total=683175270 tags int=5270 char=5405 pair=5202

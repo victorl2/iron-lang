@@ -1,0 +1,16 @@
+F[ 0]=  1 units (  16 bytes): 425 blocks handed out
+F[ 1]=  2 units (  32 bytes): 905 blocks handed out
+F[ 2]=  3 units (  48 bytes): 678 blocks handed out
+F[ 3]=  5 units (  80 bytes): 903 blocks handed out
+F[ 4]=  8 units ( 128 bytes): 236 blocks handed out
+F[ 5]= 13 units ( 208 bytes): 347 blocks handed out
+F[ 6]= 21 units ( 336 bytes): 505 blocks handed out
+F[ 7]= 34 units ( 544 bytes): 156 blocks handed out
+F[ 8]= 55 units ( 880 bytes): 58 blocks handed out
+F[ 9]= 89 units (1424 bytes): 67 blocks handed out
+F[10]=144 units (2304 bytes): 26 blocks handed out
+F[11]=233 units (3728 bytes): 0 blocks handed out
+F[12]=377 units (6032 bytes): 0 blocks handed out
+splits=1687 merges=1654 failed=415
+block bytes handed out: fibonacci=703824 power-of-two=794864 (requested 542700)
+all freed: one block of 377 units

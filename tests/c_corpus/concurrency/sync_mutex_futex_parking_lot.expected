@@ -1,0 +1,6 @@
+initial state 0
+after lock: 1
+with a parked waiter: 2
+waiter acquired and released: 0, wakes issued 1
+stress: counter=2400 sections=2400 violations=0
+final state 0

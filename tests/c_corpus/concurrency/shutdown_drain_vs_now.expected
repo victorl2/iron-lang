@@ -1,0 +1,5 @@
+drain: executed 45 tasks (3 trees of 15)
+drain: submit after shutdown rejected (shutdown)
+now: discarded 10 pending tasks
+now: executed 2 tasks (the two running ones finish)
+now: submit after shutdown rejected (shutdown)

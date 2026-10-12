@@ -1,0 +1,6 @@
+case 0: n=5 cost=130 cubic_steps=35 knuth_steps=29 shape=((.1.)2(((.3.)4.)5.))
+case 1: n=24 cost=3522 cubic_steps=2600 knuth_steps=563
+case 2: n=20 cost=3446 cubic_steps=1540 knuth_steps=400
+case 3: n=20 cost=3034 cubic_steps=1540 knuth_steps=405
+case 4: n=28 cost=5907 cubic_steps=4060 knuth_steps=763
+case 5: n=8 cost=1074 cubic_steps=120 knuth_steps=65

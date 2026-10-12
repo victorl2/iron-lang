@@ -1,0 +1,7 @@
+full: 0 12 12 16
+line: 0 7 7 11 12
+none: 0 1 3 8
+vb_full.txt: [hello|world|more]
+vb_line.txt: [abcdef|ghi|j]
+vb_none.txt: [xyz12345]
+big: flushed-early=partial final=3000

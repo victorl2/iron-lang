@@ -1,0 +1,7 @@
+n=3 comparators=3  inputs=8   failures=0 essential=3/3
+n=4 comparators=5  inputs=16  failures=0 essential=5/5
+n=5 comparators=9  inputs=32  failures=0 essential=9/9
+n=6 comparators=12 inputs=64  failures=0 essential=12/12
+n=7 comparators=16 inputs=128 failures=0 essential=16/16
+n=8 comparators=19 inputs=256 failures=0 essential=19/19
+truncated n=5 network fails on 2 of 32 inputs

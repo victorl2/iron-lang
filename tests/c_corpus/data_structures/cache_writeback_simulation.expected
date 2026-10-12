@@ -1,0 +1,2 @@
+write-back    reads=39131 (hit 33015) writes=20869 (hit 17728) fills=9257 writebacks=5883 word_writes=0 traffic_words=60560
+write-through reads=39131 (hit 31438) writes=20869 (hit 16929) fills=7693 writebacks=0 word_writes=20869 traffic_words=51641

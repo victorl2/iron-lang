@@ -1,0 +1,8 @@
+k=1     windows=2000  sum of maxima=1016262  pops=982 (<= n)
+k=2     windows=1999  sum of maxima=1355298  pops=1335 (<= n)
+k=3     windows=1998  sum of maxima=1518884  pops=1498 (<= n)
+k=7     windows=1994  sum of maxima=1755802  pops=1755 (<= n)
+k=50    windows=1951  sum of maxima=1919482  pops=1966 (<= n)
+k=333   windows=1668  sum of maxima=1662581  pops=1990 (<= n)
+k=2000  windows=1     sum of maxima=999      pops=1994 (<= n)
+descending k=4: 9 8 7 6 5 4 3

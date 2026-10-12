@@ -1,0 +1,9 @@
+demo: k=1 4, k=2 7, unlimited 7, cooldown 7
+case 0: n= 8 k1=  7 k2=  8 k3=  8 unlimited=  8 cooldown=  7 fee(2)=  5
+case 1: n=15 k1= 34 k2= 41 k3= 41 unlimited= 41 cooldown= 39 fee(3)= 35
+case 2: n=11 k1= 14 k2= 17 k3= 20 unlimited= 20 cooldown= 17 fee(2)= 14
+case 3: n=13 k1=  6 k2=  7 k3=  8 unlimited=  9 cooldown=  8 fee(4)=  2
+case 4: n=15 k1= 34 k2= 42 k3= 42 unlimited= 42 cooldown= 42 fee(4)= 34
+case 5: n=13 k1= 14 k2= 19 k3= 24 unlimited= 25 cooldown= 19 fee(3)= 15
+case 6: n= 7 k1= 16 k2= 16 k3= 16 unlimited= 16 cooldown= 16 fee(3)= 13
+case 7: n=12 k1= 10 k2= 13 k3= 14 unlimited= 14 cooldown= 11 fee(3)=  7

@@ -1,0 +1,7 @@
+equality queries: 3000, equal pairs: 227
+random lcp sum=1963 max=11, planted lcp(200,1500)=406
+distinct substrings of length  1: 2
+distinct substrings of length  2: 4
+distinct substrings of length  4: 16
+distinct substrings of length  8: 256
+distinct substrings of length 16: 2537

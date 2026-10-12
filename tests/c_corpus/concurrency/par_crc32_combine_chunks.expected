@@ -1,0 +1,8 @@
+crc32("123456789") = cbf43926
+n=     0 whole=00000000 combined-ok(1..8 threads)
+n=     1 whole=8f6af48f combined-ok(1..8 threads)
+n=     7 whole=9af1b809 combined-ok(1..8 threads)
+n=   100 whole=70d45a68 combined-ok(1..8 threads)
+n=  4096 whole=783862b5 combined-ok(1..8 threads)
+n= 65537 whole=acd14ca2 combined-ok(1..8 threads)
+n=200003 whole=209cdff3 combined-ok(1..8 threads)

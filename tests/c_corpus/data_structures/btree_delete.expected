@@ -1,0 +1,9 @@
+t=2: ascending depth=7, random inserts=760 deletes=750 size=260 max depth=7
+     splits=418 borrows=228 merges=266
+t=3: ascending depth=5, random inserts=729 deletes=735 size=244 max depth=5
+     splits=209 borrows=215 merges=129
+t=4: ascending depth=4, random inserts=746 deletes=731 size=265 max depth=4
+     splits=148 borrows=186 merges=90
+t=6: ascending depth=3, random inserts=762 deletes=752 size=260 max depth=3
+     splits=90 borrows=196 merges=58
+drained all

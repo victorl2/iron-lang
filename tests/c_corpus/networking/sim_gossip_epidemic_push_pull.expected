@@ -1,0 +1,12 @@
+N=256 nodes, fanout 1, 60 trials per row (rounds are averages x10)
+loss= 0% push     : half= 80 90%=108 full=144 (min 13 max 17) messages/node=  6
+loss= 0% pull     : half= 85 90%=102 full=116 (min  9 max 16) messages/node= 16
+loss= 0% push-pull: half= 53 90%= 65 full= 76 (min  7 max  9) messages/node= 12
+loss=20% push     : half= 97 90%=128 full=173 (min 15 max 23) messages/node=  7
+loss=20% pull     : half= 98 90%=121 full=148 (min 12 max 19) messages/node= 19
+loss=20% push-pull: half= 62 90%= 77 full= 95 (min  8 max 11) messages/node= 15
+rumor mongering, n=1000, average residue (nodes that never heard) over 20 runs:
+  k=1 residue=17.77%
+  k=2 residue=4.85%
+  k=3 residue=1.56%
+  k=4 residue=0.54%

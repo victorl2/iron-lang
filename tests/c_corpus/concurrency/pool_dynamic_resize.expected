@@ -1,0 +1,7 @@
+resize to 2: live 2, executed 200, sum 97472
+resize to 6: live 6, executed 400, sum 198141
+resize to 3: live 3, executed 600, sum 307750
+resize to 1: live 1, executed 800, sum 408743
+resize to 5: live 5, executed 1000, sum 511928
+resize to 0: live 0
+final executed 1000 sum 511928

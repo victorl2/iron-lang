@@ -1,0 +1,2 @@
+reads=1800 inconsistent=0 version regressions=0
+writes=300 final log head=400 tail=423

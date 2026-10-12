@@ -1,0 +1,14 @@
+fetch_add 0x20 on 0xfffffff0: old=0xfffffff0 new=0x00000010 (wraps)
+fetch_sub 0x20: old=0x00000010 new=0xfffffff0 (wraps back)
+fetch_or 0x0f: old=0xfffffff0 new=0xffffffff
+fetch_and 0xff00ffff: old=0xffffffff new=0xff00ffff
+fetch_xor ~0: old=0xff00ffff new=0x00ff0000
+exchange 7: old=0x00ff0000 new=0x00000007
+cas(expect 5, want 9) on 7: fail, expected now 7, value 7
+cas(expect 7, want 9) on 7: ok, value 9
+signed fetch_add 2 near INT64_MAX: old=9223372036854775805 new=9223372036854775807
+signed fetch_sub 10: old=9223372036854775807 new=9223372036854775797
+signed fetch_add -7 on -5: old=-5 new=-12
+xor toggles: each of 6 bits toggled 5001 times (odd) -> 0x3f
+or set bits 0..47: 0xffffffffffff, and cleared them: low bits 0x000000000000
+exchange chain: 12000 swaps, token sum conserved: 30012006000

@@ -1,0 +1,4 @@
+regions created=399 destroyed=298 alive=1 max depth=4
+pages released by destroys=141 free now=0 of 160
+failed allocs=843 live records=745
+root destroyed, 160 pages returned, all 160 free

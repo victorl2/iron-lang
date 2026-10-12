@@ -1,0 +1,7 @@
+objects allocated: 730
+compactions: 25
+survivors summed over collections: 393
+objects moved: 299
+order inversions among survivors: 294
+top at end: 16
+oracle checks: 25

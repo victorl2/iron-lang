@@ -1,0 +1,7 @@
+points 1500, tree depth 35, build distance calls 16162
+k=1: 100 queries, avg tree distance calls 307 (brute 1500), sum of neighbour distances 454
+k=3: 100 queries, avg tree distance calls 399 (brute 1500), sum of neighbour distances 1596
+k=8: 100 queries, avg tree distance calls 469 (brute 1500), sum of neighbour distances 4634
+range r=0: 50 queries, 98 hits, avg tree calls 12
+range r=3: 50 queries, 1335 hits, avg tree calls 197
+range r=6: 50 queries, 4560 hits, avg tree calls 395

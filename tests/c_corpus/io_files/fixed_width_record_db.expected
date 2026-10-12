@@ -1,0 +1,28 @@
+after inserts:
+  #0 0100 ada              1000 live
+  #1 0110 grace            2001 live
+  #2 0120 linus            3002 live
+  #3 0130 dennis           4003 live
+  #4 0140 ken              5004 live
+  #5 0150 margaret         6005 live
+  #6 0160 a very long      7006 live
+find 110 after delete: -1
+find 999: -1
+after update and delete:
+  #0 0100 ada              1000 live
+  #1 0110 grace            2001 deleted
+  #2 0120 linus            3002 live
+  #3 0130 dennis           4253 live
+  #4 0140 ken              5004 live
+  #5 0150 margaret         6005 live
+  #6 0160 a very long      7006 live
+size 203 = 7 records x 29
+compacted: kept 6 dropped 1, live balance total 26270
+after compaction:
+  #0 0100 ada              1000 live
+  #1 0120 linus            3002 live
+  #2 0130 dennis           4253 live
+  #3 0140 ken              5004 live
+  #4 0150 margaret         6005 live
+  #5 0160 a very long      7006 live
+record 6 readable: 0

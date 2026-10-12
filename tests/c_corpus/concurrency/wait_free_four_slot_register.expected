@@ -1,0 +1,5 @@
+versions written per register: 20000
+torn or backwards reads: 0
+reader 0 final version: 20000
+reader 1 final version: 20000
+reader 2 final version: 20000

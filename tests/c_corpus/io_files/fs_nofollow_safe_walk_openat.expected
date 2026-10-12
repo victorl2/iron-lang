@@ -1,0 +1,10 @@
+safe : files=3 dirs=2 links=3 bytes=13 skipped=0
+naive: files=10 dirs=8 bytes=104 (links followed out of the tree)
+a/b/two.txt          opened, starts with 't'
+top.txt              opened, starts with 't'
+a/escape/secret1     refused: ELOOP_OR_ENOTDIR
+leak                 refused: ELOOP_OR_ENOTDIR
+self_alias/one.txt   refused: ELOOP_OR_ENOTDIR
+a/nothing            refused: ENOENT
+openat(a/b) after swap: ELOOP_OR_ENOTDIR
+plain open through the swapped link reads outside data: yes

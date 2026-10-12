@@ -1,0 +1,13 @@
+fsync regular file (rdwr): OK
+fsync regular file (rdonly): OK
+fsync directory: OK
+fsync closed descriptor: EBADF
+fsync pipe: EINVAL
+other reader sees before fsync: unsynced
+after child _exit without fsync: left behind
+config v1: version=1
+config v6: version=6
+size=600
+fsync calls in protocol: 12
+temp file after replace: ENOENT
+config after interrupted update: version=6

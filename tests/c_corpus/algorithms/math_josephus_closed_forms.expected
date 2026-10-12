@@ -1,0 +1,10 @@
+n=10 k=3 elimination order: 3 6 9 2 7 1 8 5 10 4
+survivor 4
+simulation, recurrence, Fenwick agree for n<=300, k<=12
+k=2 survivors for n=1..16: 1 1 3 1 3 5 7 1 3 5 7 9 11 13 15 1
+n = 2^m always leaves position 1 (m<20)
+n=41: k=2 survivor 19, k=3 survivor 31, k=7 survivor 31
+n=1000: k=2 survivor 977, k=3 survivor 604, k=7 survivor 404
+n=100000: k=2 survivor 68929, k=3 survivor 92620, k=7 survivor 27152
+n=1000000: k=2 survivor 951425, k=3 survivor 637798, k=7 survivor 206072
+n=41 k=3 last three standing: 35 16 31

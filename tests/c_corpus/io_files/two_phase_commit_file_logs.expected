@@ -1,0 +1,4 @@
+protocol steps for 4 transactions=24
+crash-free result: 20 135 145
+crash points=25 in-doubt participants resolved=32 (max per crash 3)
+recovered to full outcome=4, to an earlier consistent prefix=21

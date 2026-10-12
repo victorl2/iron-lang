@@ -1,0 +1,8 @@
+floors:         1   2   6  10  36 100 250
+eggs=1         1   2   6  10  36 100 250
+eggs=2         1   2   3   4   8  14  22
+eggs=3         1   2   3   4   6   9  12
+eggs=4         1   2   3   4   6   8   9
+eggs=5         1   2   3   4   6   7   9
+eggs=6         1   2   3   4   6   7   9
+100 floors, 2 eggs: 14 drops; 10^9 floors, 2 eggs: 44721; 10^9 floors, 11 eggs: 37

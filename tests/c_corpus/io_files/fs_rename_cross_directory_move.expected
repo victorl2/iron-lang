@@ -1,0 +1,15 @@
+file move preserved inode: yes, size=5
+write via old fd landed in moved file: ??avo!
+subtree move kept every inode below it: yes
+relative link src/main.c still resolves after the move: yes
+proj-v1/.. is the new parent: yes
+d 0755 ./archive
+d 0755 ./archive/2024
+- 0644 5 ./archive/2024/a.txt
+d 0755 ./archive/2024/proj-v1
+l ./archive/2024/proj-v1/entry -> src/main.c
+d 0755 ./archive/2024/proj-v1/src
+- 0644 25 ./archive/2024/proj-v1/src/main.c
+d 0755 ./inbox
+- 0644 6 ./inbox/README.moved
+- 0644 6 ./inbox/b_again.txt

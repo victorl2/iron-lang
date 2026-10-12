@@ -1,0 +1,18 @@
+TTL 50
+edge=  0 regional=  0 ttl=  50 | edge hit  0% | regional hit  0% (of 40000) | origin bodies=40000 304s=    0 | mean latency 150.00 ms | stale served 0.00%
+edge= 20 regional=  0 ttl=  50 | edge hit 21% | regional hit  0% (of 31285) | origin bodies=31285 304s=    0 | mean latency 118.40 ms | stale served 1.02%
+edge= 20 regional=100 ttl=  50 | edge hit 21% | regional hit 12% (of 30431) | origin bodies=12946 304s=14548 | mean latency 107.03 ms | stale served 1.53%
+edge= 60 regional=100 ttl=  50 | edge hit 21% | regional hit 12% (of 30431) | origin bodies=12946 304s=14548 | mean latency 107.03 ms | stale served 1.53%
+edge= 60 regional=200 ttl=  50 | edge hit 21% | regional hit 12% (of 30140) | origin bodies= 7482 304s=20012 | mean latency 107.03 ms | stale served 1.53%
+TTL 500
+edge=  0 regional=  0 ttl= 500 | edge hit  0% | regional hit  0% (of 40000) | origin bodies=40000 304s=    0 | mean latency 150.00 ms | stale served 0.00%
+edge= 20 regional=  0 ttl= 500 | edge hit 37% | regional hit  0% (of 24809) | origin bodies=24809 304s=    0 | mean latency  94.93 ms | stale served 9.74%
+edge= 20 regional=100 ttl= 500 | edge hit 37% | regional hit 40% (of 24236) | origin bodies=12771 304s= 2217 | mean latency  65.46 ms | stale served 16.17%
+edge= 60 regional=100 ttl= 500 | edge hit 52% | regional hit 24% (of 18745) | origin bodies=13325 304s= 1323 | mean latency  60.92 ms | stale served 15.69%
+edge= 60 regional=200 ttl= 500 | edge hit 52% | regional hit 25% (of 18234) | origin bodies= 7302 304s= 7208 | mean latency  60.50 ms | stale served 15.81%
+TTL 5000
+edge=  0 regional=  0 ttl=5000 | edge hit  0% | regional hit  0% (of 40000) | origin bodies=40000 304s=    0 | mean latency 150.00 ms | stale served 0.00%
+edge= 20 regional=  0 ttl=5000 | edge hit 38% | regional hit  0% (of 24500) | origin bodies=24500 304s=    0 | mean latency  93.81 ms | stale served 14.62%
+edge= 20 regional=100 ttl=5000 | edge hit 38% | regional hit 49% (of 24427) | origin bodies=12313 304s=    6 | mean latency  57.26 ms | stale served 34.76%
+edge= 60 regional=100 ttl=5000 | edge hit 58% | regional hit 25% (of 16419) | origin bodies=12283 304s=    0 | mean latency  52.11 ms | stale served 33.47%
+edge= 60 regional=200 ttl=5000 | edge hit 58% | regional hit 58% (of 16218) | origin bodies= 6650 304s=  244 | mean latency  35.94 ms | stale served 42.20%

@@ -1,0 +1,5 @@
+ascending 300: height=9 root rank=8 promotes=587 rotations=291
+insert-only after 600 keys: height=10 root rank=9
+random: inserts=1596 deletes=1454 size=742 maxheight=12
+promotes=3859 demotes=2564 rotations=1779
+drained

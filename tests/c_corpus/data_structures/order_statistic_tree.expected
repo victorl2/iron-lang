@@ -1,0 +1,4 @@
+inserts=909 deletes=510 size=399 rank queries=3000 select queries=2998
+select(0)=0 median=358 select(last)=699
+sum of 400 running medians=20212062
+inversions in a random permutation of 300: 20720

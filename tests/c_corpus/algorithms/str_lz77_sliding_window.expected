@@ -1,0 +1,5 @@
+abracadabra abracadabra -> a b r a c a d <7,4>   <12,11>
+word text       tokens= 412 matches= 376 overlapping= 10 covered=2964 probes=93566
+random letters  tokens=2897 matches=  51 overlapping=  0 covered= 154 probes=706485
+runs            tokens= 127 matches= 118 overlapping= 27 covered=2991 probes=29667
+invalid token streams rejected

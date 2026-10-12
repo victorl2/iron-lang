@@ -1,0 +1,7 @@
+step 1000: length  1887 depth  31 prefix "uaeapriasipensma"
+step 2000: length  5647 depth  38 prefix "aeaupriasilirbsw"
+step 3000: length  7334 depth  46 prefix "aeaupriasswjrpna"
+step 4000: length  9438 depth  45 prefix "aeaupriazcfbbyvj"
+step 5000: length 10995 depth  41 prefix "aeauprimresvpqar"
+inserts 2022 deletes 1012 reverses 1021 substrings 945, chars touched 72472
+max length 10995, final length 10995, max sampled depth 51, kth checksum 32914

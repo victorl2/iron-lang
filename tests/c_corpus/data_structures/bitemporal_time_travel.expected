@@ -1,0 +1,8 @@
+transactions=258 rows stored=491 current rows=63, as-of cells verified=46980
+entity 0: 87 of 90 valid instants known now,  58 belief changes sampled
+entity 1: 76 of 90 valid instants known now,  57 belief changes sampled
+entity 2: 74 of 90 valid instants known now,  75 belief changes sampled
+entity 3: 49 of 90 valid instants known now,  43 belief changes sampled
+entity 4: 66 of 90 valid instants known now,  55 belief changes sampled
+entity 5: 90 of 90 valid instants known now,  70 belief changes sampled
+entity 0 @ valid 45 over system time: [tx 0: -1] [tx 25: 32] [tx 27: 52] [tx 104: 23] [tx 152: 87] [tx 240: 99]

@@ -1,0 +1,5 @@
+allocs=7986 frees=7967 failed=47
+quick hits=4803 misses=1087 pushes=5874 (hit rate 81% of small requests)
+class flushes=551 consolidations=80 base allocs=3183 base frees=3145
+at end: cached blocks=19 (1328 bytes) free blocks=7 free bytes=2280
+drained after consolidation: one block of 6144 bytes

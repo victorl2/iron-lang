@@ -1,0 +1,9 @@
+uint sizes: 0->1 127->1 128->2 255->2 256->3 65535->3 65536->5 4294967295->5 4294967296->9
+int sizes: -1->1 -32->1 -33->2 -128->2 -129->3 -32768->3 -32769->5 -2147483648->5 -2147483649->9
+spec example: 18 bytes: 82 A7 63 6F 6D 70 61 63 74 C3 A6 73 63 68 65 6D 61 00
+doc 0 (3 bytes): -32768
+doc 1 (11 bytes): [nil,{"k0":-2147483648}]
+doc 2 (132 bytes): [[[true,bin(1)],[nil,{"k0":nil},bin(116)]]]
+80 documents, 4633 bytes; root types nil/bool/int/uint/str/bin/arr/map: 11 6 10 5 6 11 24 7
+truncations rejected: 66 of 66
+invalid: unsupported type byte / count exceeds input

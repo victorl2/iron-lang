@@ -1,0 +1,15 @@
+coverage mask: 0xffffffffffffffff
+packed word: 0x901e2409c405dcd1
+  kind     shift  0 width  5 = 17
+  priority shift  5 width  2 = 2
+  urgent   shift  7 width  1 = 1
+  length   shift  8 width 12 = 1500
+  owner    shift 20 width 16 = 40000
+  offset   shift 36 width 24 = 123456
+  version  shift 60 width  4 = 9
+random isolation trials: 5000
+oversized values rejected: 7 of 7
+all fields max: 0xffffffffffffffff
+even fields cleared: 0x0ffffff0000fff60
+3-bit values: 3 0 5 2 7 4 1 6 3 0 5 2 7 4 1 6 3 0 5 2 7
+mismatches: 0

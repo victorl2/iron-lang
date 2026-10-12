@@ -1,0 +1,5 @@
+stages 5 queue capacity 2 items 300
+first outputs 13717 14043 18645 16083
+last output 4417
+chain hash 252051399
+in-flight bound respected: yes

@@ -1,0 +1,4 @@
+push_back=6287 push_front=6444 pop_front=4553 pop_back=5678 set=3517 rot_left=1732 rot_right=1776
+len=2500 cap=4096 grows=11 wrapped_steps=28449
+first: 93836 99265 83434 45088 81883
+last: 346 12925 48607 5058 89180

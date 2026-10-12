@@ -1,0 +1,4 @@
+trial 0: max capacity    1000, phases 10, augmentations   6, flow 723
+trial 1: max capacity  983587, phases 20, augmentations   7, flow 1206800
+trial 2: max capacity     994, phases 10, augmentations   3, flow 981
+trial 3: max capacity  983634, phases 20, augmentations   4, flow 932649

@@ -1,0 +1,6 @@
+partition 0: build=96 probe=182 matches=78
+partition 1: build=232 probe=302 matches=8098
+partition 2: build=95 probe=161 matches=100
+partition 3: build=177 probe=255 matches=4327
+total matches=12603 recursive repartitions=2 files written=26
+payload checksum=53700245

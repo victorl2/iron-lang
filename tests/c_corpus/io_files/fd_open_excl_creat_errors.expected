@@ -1,0 +1,13 @@
+O_WRONLY missing                   -> ENOENT
+O_CREAT|O_EXCL missing             -> ok
+O_CREAT|O_EXCL existing            -> EEXIST
+O_CREAT existing keeps size        -> 5
+O_EXCL through dangling symlink    -> EEXIST
+target of dangling link not created
+O_WRONLY on directory              -> EISDIR
+O_RDONLY on directory              -> ok
+O_CREAT|O_EXCL on directory        -> EEXIST
+create below a regular file        -> ENOTDIR
+create below missing directory     -> ENOENT
+race: winners=1 losers=7 bad=0
+lock file holds exactly the winner's tag

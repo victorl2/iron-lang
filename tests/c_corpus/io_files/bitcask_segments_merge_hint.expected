@@ -1,0 +1,3 @@
+puts=1260 deletes=240 merges=3 segments merged=42
+segments now=12 total log bytes=17377 live bytes=8451
+recovery: hint files used=1 torn tails cut=1 keys verified=299 differing=1

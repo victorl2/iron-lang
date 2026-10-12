@@ -1,0 +1,5 @@
+filled       |############################+...................| free=77 runs=1 largest=77 files=30 extents=30
+fragmented   |#+.#.++#+++.+.++++.#.++++#+++...................| free=131 runs=15 largest=78 files=15 extents=15
+refilled     |##+#####++######+#####+#########################| free=7 runs=5 largest=2 files=24 extents=32
+defragmented |##############################################+.| free=7 runs=1 largest=7 files=24 extents=24
+created=30 refilled=9 max extents per file after defrag=1 bitmap writes=103

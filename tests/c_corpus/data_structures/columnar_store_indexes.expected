@@ -1,0 +1,9 @@
+rows=918 live=756 dictionary=8 strings, queries=693, total hits=90625
+  art    rows= 95 avg salary=52715
+  eng    rows=105 avg salary=51228
+  fin    rows= 89 avg salary=50455
+  hr     rows= 98 avg salary=52071
+  it     rows= 78 avg salary=53391
+  legal  rows= 91 avg salary=53340
+  ops    rows=100 avg salary=53275
+  sales  rows=100 avg salary=53235

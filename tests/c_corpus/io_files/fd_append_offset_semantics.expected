@@ -1,0 +1,7 @@
+offset after first write: 4
+offset after write at seek 0: 8
+content (8 bytes): one
+two
+size after write with seek 1000: 14
+final (19 bytes): ONE|TWO|three|four|
+interleaved: a0;b1;a2;b3;a4;b5;a6;b7;a8;b9;

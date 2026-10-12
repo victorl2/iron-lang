@@ -1,0 +1,26 @@
+ID  total_1
+OP  =
+OP  (
+NUM 12 (12)
+OP  +
+NUM 345 (345)
+OP  )
+OP  *
+ID  x2
+OP  <=
+NUM 9 (9)
+OP  **
+NUM 2 (2)
+OP  !=
+ID  y
+ID  foo
+OP  (
+NUM 7 (7)
+OP  ,
+NUM 8 (8)
+OP  )
+OP  -
+NUM 1 (1)
+numbers 7 identifiers 4 operators 12, sum of numbers 384
+ungetc: first 't' tell 1, after pushback tell 0, reread 't'
+substituted '#' then continues with 'o'

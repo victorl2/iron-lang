@@ -1,0 +1,31 @@
+ann <- WELCOME ann
+ann <- #1 * ann joined
+bob <- WELCOME bob
+ann <- #2 * bob joined
+bob <- #2 * bob joined
+cy <- WELCOME cy
+ann <- #3 * cy joined
+bob <- #3 * cy joined
+cy <- #3 * cy joined
+dee <- ERR nick unavailable
+dee <- ERR register first
+ann <- #4 ann: hello everyone
+bob <- #4 ann: hello everyone
+cy <- #4 ann: hello everyone
+ann <- #5 bob: b1
+ann <- #6 bob: b2
+ann <- #7 bob: b3
+ann <- #8 cy: from cy
+bob <- #8 cy: from cy
+cy <- #8 cy: from cy
+cy <- USERS ann bob cy
+ann <- #9 (pm) ann -> cy: psst
+cy <- #9 (pm) ann -> cy: psst
+ann <- ERR no such nick
+bob <- ERR unknown command
+ann <- #10 * bob left
+cy <- #10 * bob left
+ann <- #11 ann: bye
+cy <- #11 ann: bye
+cross-client sequence checks: 22
+server assigned 13 sequence numbers, handled 16 lines

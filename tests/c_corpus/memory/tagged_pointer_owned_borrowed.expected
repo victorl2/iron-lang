@@ -1,0 +1,11 @@
+normalize  borrowed  len=13 "already lower"
+normalize  owned     len=10 "mixed case"
+normalize  owned     len=5 "upper"
+normalize  borrowed  len=0 ""
+normalize  owned     len=8 "tail end"
+heap items live: 3
+owned      owned     len=5 "hello"
+owned passthrough live: 4
+mutated    owned     len=8 "borrowed"
+static table unchanged: Borrowed
+heap items at end: 0

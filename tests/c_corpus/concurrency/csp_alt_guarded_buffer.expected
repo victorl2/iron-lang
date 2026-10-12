@@ -1,0 +1,3 @@
+puts served=360 gets served=360
+items consumed=360 sum=381420
+buffer capacity 4 never exceeded: yes

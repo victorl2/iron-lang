@@ -1,0 +1,9 @@
+card  minors dirty-cards objs-scanned barrier-execs
+   1      26         146          146           310
+   4      26          88          352           310
+  16      26          46          730           310
+  64      26          31         1487           310
+ 256      26          27         3557           310
+objects allocated: 562, promoted: 346
+old garbage never collected: 336
+oracle checks: 130

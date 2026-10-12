@@ -1,0 +1,16 @@
+2^10 mod 1000 = 24
+3^200 mod 13 = 9
+7^0 mod 1 = 0
+2^61 mod M61 = 1
+5^(M61-1) mod M61 = 1 (Fermat)
+3^(p-1) mod largest64 prime = 1
+checksum of 500 large-modulus powers: 14295821476403435892
+7^(7^7) mod 10^9 = 870132343 (via e=823543)
+10^0 mod 7 = 1
+10^1 mod 7 = 3
+10^2 mod 7 = 2
+10^3 mod 7 = 6
+10^4 mod 7 = 4
+10^5 mod 7 = 5
+10^6 mod 7 = 1
+10^7 mod 7 = 3

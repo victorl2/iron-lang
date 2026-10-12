@@ -1,0 +1,18 @@
+policy routing (customer > peer > provider, valley-free export)
+converged: reachable 64/64, updates=81 withdrawals=23 loop-rejects=0 decisions=89
+  AS5 -> prefix 7: 5 2 3 7
+  AS5 -> prefix 6: 5 2 3 6
+  AS2 -> prefix 4: 2 0 1 4
+  AS6 -> prefix 5: 6 3 2 5
+failure of link 3-7
+after 3-7 down: reachable 64/64, updates=91 withdrawals=33 loop-rejects=1 decisions=118
+  AS5 -> prefix 7: 5 2 0 1 4 7
+  AS6 -> prefix 7: 6 3 1 4 7
+  churn: 20 messages
+no policy (shortest path, export everything)
+converged: reachable 64/64, updates=104 withdrawals=0 loop-rejects=0 decisions=112
+  AS5 -> prefix 7: 5 2 3 7
+  AS2 -> prefix 4: 2 0 1 4
+after 3-7 down: reachable 64/64, updates=119 withdrawals=5 loop-rejects=3 decisions=144
+  AS5 -> prefix 7: 5 2 0 1 4 7
+  AS6 -> prefix 7: 6 3 1 4 7

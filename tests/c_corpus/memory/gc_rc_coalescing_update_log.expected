@@ -1,0 +1,6 @@
+objects allocated: 643, freed: 525
+epochs: 49, pointer stores: 840, objects logged: 930
+immediate counting would do 1044 updates, coalesced did 710
+unchanged snapshot slots skipped: 96
+reachable at end: 17, present: 118, leaked cyclic garbage: 101
+oracle checks: 49

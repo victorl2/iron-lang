@@ -1,0 +1,27 @@
+0: bytes=5 ascii="hello"
+   cps: U+0068 U+0065 U+006C U+006C U+006F 
+1: bytes=5 ascii="caf\u00e9"
+   cps: U+0063 U+0061 U+0066 U+00E9 
+2: bytes=10 ascii="\ud83d\ude00 smile"
+   cps: U+1F600 U+0020 U+0073 U+006D U+0069 U+006C U+0065 
+3: bytes=7 ascii="\u20ac5 \u00a3"
+   cps: U+20AC U+0035 U+0020 U+00A3 
+4: bytes=8 ascii="tab\tnl\n/"
+   cps: U+0074 U+0061 U+0062 U+0009 U+006E U+006C U+000A U+002F 
+5: bytes=9 ascii="\ud834\udd1e clef"
+   cps: U+1D11E U+0020 U+0063 U+006C U+0065 U+0066 
+7: bytes=8 ascii="\uffff\u0800\u07ff"
+   cps: U+FFFF U+0800 U+07FF 
+bad 0: high surrogate without pair
+bad 1: lone low surrogate
+bad 2: high surrogate followed by non-low
+bad 3: high surrogate without pair
+bad 4: bad \u digits
+bad 5: bad \u digits
+bad 6: unknown escape
+bad 7: unterminated
+bad 8: raw control
+bad 9: high surrogate followed by non-low
+invalid utf-8 rejected: 6/6
+random code points checked=299 astral pairs=286
+file bytes: C3 A9 F0 9F 98 80

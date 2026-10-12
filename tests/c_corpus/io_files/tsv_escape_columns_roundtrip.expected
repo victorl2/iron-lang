@@ -1,0 +1,5 @@
+bytes=505 rows=20
+qty sum=509 max=49
+total value cents=1112664 avg=55633.20
+first data line escaped: widget|tab\there|46|25286
+bad escape: -1, dangling: -1, overflow: -1

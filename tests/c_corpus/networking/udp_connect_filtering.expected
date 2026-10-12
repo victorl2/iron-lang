@@ -1,0 +1,9 @@
+unconnected first: from-1
+unconnected second: from-2
+connected to p1 receives: friend
+second datagram pending: no
+p1 got: to-p1
+p2 got nothing: yes
+peer port is p1: yes
+connected to p2 receives: new-friend
+queue is empty afterwards: yes

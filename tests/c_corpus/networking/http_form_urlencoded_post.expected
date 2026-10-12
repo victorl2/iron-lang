@@ -1,0 +1,20 @@
+GET query -> 200
+4 fields
+flag=<>
+lang=<c++>
+page=<2>
+q=<iron lang>
+encode[0] a+b%26c%3Dd
+encode[1] 100%25+sure
+encode[2] caf%C3%A9
+encode[3] line1%0Aline2
+encode[4] ~safe-_.
+POST form -> 200
+5 fields
+f0=<a b&c=d>
+f1=<100% sure>
+f2=<caf\xc3\xa9>
+f3=<line1\x0aline2>
+f4=<~safe-_.>
+POST bad escape -> 400 bad form
+POST wrong type -> 400 unsupported type

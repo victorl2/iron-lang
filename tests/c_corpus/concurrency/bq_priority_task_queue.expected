@@ -1,0 +1,12 @@
+first 8 of sorted stream (prio:producer:idx)
+  0:0:19
+  0:0:86
+  0:0:128
+  0:0:186
+  0:1:70
+  0:1:159
+  0:1:239
+  0:1:248
+prio of 100th item 5
+total 1000 checksum 302649
+each consumer stream monotone: yes

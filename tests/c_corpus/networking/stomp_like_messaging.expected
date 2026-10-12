@@ -1,0 +1,24 @@
+prod  <- CONNECTED
+c1    <- CONNECTED
+c2    <- CONNECTED
+c1    <- RECEIPT receipt=r1
+c2    <- RECEIPT receipt=r2
+c1    <- RECEIPT receipt=r3
+c2    <- RECEIPT receipt=r4
+prod  <- RECEIPT receipt=sync1
+c1    <- MESSAGE sub=0 dest=/queue/jobs id=m-1 body=[job-1]
+c1    <- MESSAGE sub=0 dest=/queue/jobs id=m-3 body=[job\03]
+c1    <- MESSAGE sub=0 dest=/queue/jobs id=m-5 body=[line1\nline2]
+c2    <- MESSAGE sub=7 dest=/queue/jobs id=m-2 body=[job-2]
+c2    <- MESSAGE sub=7 dest=/queue/jobs id=m-4 body=[job-4]
+prod  <- RECEIPT receipt=sync2
+c1    <- MESSAGE sub=1 dest=/topic/news id=m-6 body=[extra! extra!]
+c2    <- MESSAGE sub=8 dest=/topic/news id=m-7 body=[extra! extra!]
+prod  <- RECEIPT receipt=sync3
+c2    <- MESSAGE sub=9 dest=/queue/late id=m-8 body=[first]
+c2    <- MESSAGE sub=9 dest=/queue/late id=m-9 body=[second]
+c2    <- RECEIPT receipt=r5
+c2    <- RECEIPT receipt=ack1
+c1    <- ERROR message="unknown command BOGUS"
+prod  <- RECEIPT receipt=bye
+broker: delivered=9 errors=1 stored_left=0 msgids=9

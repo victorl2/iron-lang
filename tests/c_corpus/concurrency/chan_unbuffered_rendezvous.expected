@@ -1,0 +1,3 @@
+try_send with no receiver: failed; with parked receiver: delivered 4242
+rendezvous: 300 items, sum 314850, every send returned after its receive
+request/response: 40 calls, sum of replies 22180

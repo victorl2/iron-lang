@@ -1,0 +1,8 @@
+trial 0: edges  4 matching  4 cover L= 4 R= 0 independent set 16
+trial 1: edges  7 matching  5 cover L= 4 R= 1 independent set 15
+trial 2: edges 10 matching  5 cover L= 4 R= 1 independent set 15
+trial 3: edges  9 matching  5 cover L= 4 R= 1 independent set 15
+trial 4: edges 16 matching  7 cover L= 4 R= 3 independent set 13
+trial 5: edges 22 matching  9 cover L= 9 R= 0 independent set 11
+trial 6: edges 17 matching  8 cover L= 7 R= 1 independent set 12
+trial 7: edges 19 matching  7 cover L= 6 R= 1 independent set 13

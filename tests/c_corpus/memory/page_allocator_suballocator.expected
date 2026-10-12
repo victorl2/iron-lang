@@ -1,0 +1,10 @@
+small allocs=6981 large allocs=412 failed=455 live=241
+page allocator calls=769 frees=681 peak pages=96 of 96
+class 16: pages= 4 live objects= 41
+class 24: pages= 2 live objects= 14
+class 32: pages= 3 live objects= 13
+class 48: pages= 8 live objects= 37
+class 64: pages=11 live objects= 28
+class 96: pages=48 live objects= 96
+free pages=3 largest free run=1
+drained: all 96 pages back with the page allocator

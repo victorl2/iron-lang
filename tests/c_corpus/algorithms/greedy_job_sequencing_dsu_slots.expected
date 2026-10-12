@@ -1,0 +1,3 @@
+classic: profit=142 slots: t1=j2 t2=j0 t3=j4
+300 instances: total profit=80420, fully packed horizons=214, find calls=2102
+large: profit=122877 of 205737 offered, filled=150/150

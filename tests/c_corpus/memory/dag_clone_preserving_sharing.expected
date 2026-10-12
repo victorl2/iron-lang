@@ -1,0 +1,7 @@
+original distinct nodes: 5
+clone copied 5 nodes, distinct in clone: 5
+shared tail preserved: 1
+back edge preserved: 1
+original labels: 1 4; clone labels: 100 400
+naive clone (depth 4) made 9 nodes, distinct reachable: 9
+live nodes: 19

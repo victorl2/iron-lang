@@ -1,0 +1,17 @@
+F(1) mod 1e9+7 = 1
+F(10) mod 1e9+7 = 55
+F(50) mod 1e9+7 = 586268941
+F(90) mod 1e9+7 = 210345902
+F(1000) mod 1e9+7 = 517691607
+F(1000000) mod 1e9+7 = 918091266
+F(1000000000000) mod 1e9+7 = 730695249
+F(1000000000000000000) mod 1e9+7 = 209783453
+tribonacci T(299) = 722916721, T(10^18) = 913728402
+4th order q(299) = 28279231, q(10^15) = 186970572
+closed walks length 1: trace 0, total walks 12
+closed walks length 2: trace 12, total walks 30
+closed walks length 3: trace 6, total walks 74
+closed walks length 4: trace 56, total walks 184
+walks 0->4 of length 10^12: 974263157 using 53 matrix products
+domino tilings of 2x30 board: 1346269
+F(300) mod p = 644264086

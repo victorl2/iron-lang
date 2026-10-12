@@ -1,0 +1,7 @@
+cutoff= 1 comparisons=32923
+cutoff= 4 comparisons=31821
+cutoff= 8 comparisons=31891
+cutoff=16 comparisons=33895
+cutoff=32 comparisons=40220
+presorted comparisons=2999
+fnv=c0f7ac11 min=0 max=99

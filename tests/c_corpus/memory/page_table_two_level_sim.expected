@@ -1,0 +1,13 @@
+second-level tables allocated: 3
+frames in use: 30 of 64
+va 0x00400abc -> dir 1 table 0 offset 0xabc
+va 0x10013fff -> dir 64 table 19 offset 0xfff
+va 0xbffff123 -> dir 767 table 1023 offset 0x123
+heap pattern checksum: 100846
+write to code: protection fault
+read unmapped: not-present fault
+region edges honoured
+accessed pages: 21 dirty pages: 20
+frames after unmapping 10 heap pages: 20
+extra pages mapped before frames ran out: 34
+tlb: hits=1650 misses=47 flushes=10

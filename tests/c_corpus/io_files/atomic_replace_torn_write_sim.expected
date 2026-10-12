@@ -1,0 +1,6 @@
+old image=166 bytes new image=206 bytes
+in-place truncate: old=0 new=1 corrupt=206 of 207 crash points
+in-place overwrite: corrupt=201 of 207 crash points
+atomic replace: old=207 new=1 corrupt=0 of 208 crash points
+stale temp files seen=207 removed on restart=207
+final version after 20 atomic updates=21

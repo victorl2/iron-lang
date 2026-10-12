@@ -1,0 +1,5 @@
+sets=14829 dels=3566 refused=127
+commits=1765 rollbacks=1897 deepest nesting=6 checkpoints=616
+log entries scanned by lookups=1781062, arena peak=6144 of 6144
+live keys=42 (1262 value bytes), log now 52 entries in 2400 bytes
+after final checkpoint: 42 entries, 1996 bytes

@@ -1,0 +1,5 @@
+grid 0: paths=84 mincost=52 two_walkers=111
+grid 1: paths=50 mincost=57 two_walkers=116
+grid 2: paths=783 mincost=52 two_walkers=153
+grid 3: paths=46 mincost=47 two_walkers=114
+grid 4: paths=9 mincost=50 two_walkers=93

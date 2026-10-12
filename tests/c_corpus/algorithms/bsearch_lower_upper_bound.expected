@@ -1,0 +1,9 @@
+keys present: 254, absent: 57
+sum lower_bound: 77614
+sum upper_bound: 78114
+count in [0,49] = 82
+count in [100,199] = 161
+count in [250,299] = 82
+count in [-10,1000] = 500
+empty lb=0 ub=0
+single lb(7)=0 ub(7)=1 lb(8)=1 ub(6)=0

@@ -1,0 +1,7 @@
+len 0 cap 4
+fifth send: full, len 4
+close: ok, second close: already
+blocked sender result: closed
+send after close: closed
+drain buffered values after close: 10 20 30 40 | last recv ok=0 value=0
+range loops: 1200 values, sum 2639400

@@ -1,0 +1,5 @@
+cell=300 limit=300 upgrades=300 sum of per-thread=300
+side=120 mirror=120
+decision changed across upgrade: 0, violations: 0
+reader sees 1000 after downgrade
+idle state restored

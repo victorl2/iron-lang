@@ -1,0 +1,24 @@
+dot=1 dotdot=1 entries=20
+seekdir resume replays 17 entries: yes
+- -dash
+- .hidden
+- 0
+- 10
+- 9
+- B2
+- Beta.txt
+- <120 x 'L'>
+- a
+- alpha.txt
+- b.d
+p fifo0
+l link_dead
+l link_to_alpha
+d sub
+- tab\x09here
+- with space
+- zzz
+- ~tilde
+- \xc3\xa9t\xc3\xa9
+opendir(file): ENOTDIR
+opendir(missing): ENOENT

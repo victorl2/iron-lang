@@ -1,0 +1,24 @@
+encodings:
+  U+0024: 24
+  U+007F: 7F
+  U+0080: C2 80
+  U+00A2: C2 A2
+  U+07FF: DF BF
+  U+0800: E0 A0 80
+  U+20AC: E2 82 AC
+  U+D7FF: ED 9F BF
+  U+E000: EE 80 80
+  U+FFFF: EF BF BF
+  U+10000: F0 90 80 80
+  U+1F600: F0 9F 98 80
+  U+10FFFF: F4 8F BF BF
+exhaustive: 1112064 scalar values, 4382592 bytes
+  overlong slash     -> overlong at 0
+  overlong 3-byte    -> overlong at 0
+  surrogate D800     -> surrogate at 0
+  above 10FFFF       -> out-of-range at 0
+  lone continuation  -> bad-lead at 0
+  truncated euro     -> truncated at 0
+  bad continuation   -> bad-continuation at 0
+  F8 lead            -> bad-lead at 0
+random bytes: 503 accepted, 3497 rejected

@@ -1,0 +1,23 @@
+targets/names: 18, variables: 3, warnings: 1
+all        [phony] deps: prog docs
+clean      [phony] deps:
+test       [phony] deps: prog
+prog       deps: main.o util.o libfoo.a
+docs       deps: README.txt
+main.o     deps: common.h main.c config.h util.h | builddir
+util.o     deps: common.h util.c util.h | builddir
+libfoo.a   deps: foo1.o foo2.o
+common.h   [source] deps:
+builddir   deps:
+main.c     [source] deps:
+config.h   [source] deps:
+util.h     [source] deps:
+util.c     [source] deps:
+foo1.o     deps: foo.h
+foo2.o     deps: foo.h
+foo.h      [source] deps:
+README.txt [source] deps:
+build order (16): common.h main.c config.h util.h builddir main.o util.c util.o foo.h foo1.o foo2.o libfoo.a prog README.txt docs all
+cycle: a -> b -> c -> a
+cycle: e -> e
+cycles found: 2, partial order: c d b a e

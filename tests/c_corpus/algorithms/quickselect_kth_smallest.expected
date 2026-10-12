@@ -1,0 +1,10 @@
+k=0     value=8      comparisons=28221
+k=1     value=14     comparisons=14585
+k=100   value=1106   comparisons=12872
+k=2500  value=24784  comparisons=37601
+k=5000  value=49595  comparisons=22610
+k=7500  value=75401  comparisons=19239
+k=9999  value=99994  comparisons=12368
+k=10000 value=99997  comparisons=13204
+percentiles: p1=1106 p10=9396 p25=24784 p50=49595 p75=75401 p90=89844 p99=98996
+dup median=2 comparisons=23282

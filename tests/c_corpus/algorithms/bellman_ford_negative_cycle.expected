@@ -1,0 +1,4 @@
+edges 90, negative edges 25, no negative cycle
+reachable 29, distance sum 1041, min distance -7
+negative cycle length 2: 3 1
+negative cycle weight negative: yes

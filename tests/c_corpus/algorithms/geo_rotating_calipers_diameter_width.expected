@@ -1,0 +1,6 @@
+n=  8 hull=  5 diameter^2=      400 pointer_steps=  6 width^2=8281/149
+n= 25 hull=  9 diameter^2=    12186 pointer_steps= 12 width^2=727218/113
+n= 60 hull= 10 diameter^2=   585940 pointer_steps= 13 width^2=6157070089/20333
+n=200 hull= 13 diameter^2=     4165 pointer_steps= 19 width^2=2401/1
+n=300 hull= 14 diameter^2=   288818 pointer_steps= 19 width^2=14520009001/94889
+rectangle: diameter^2=73 width^2=9/1

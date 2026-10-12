@@ -1,0 +1,6 @@
+square            n= 4 triangles= 2 collinear_dropped=0 area2=32
+arrow             n= 4 triangles= 2 collinear_dropped=0 area2=24
+L-shape           n= 6 triangles= 4 collinear_dropped=0 area2=40
+square+midpoints  n= 8 triangles= 6 collinear_dropped=0 area2=32
+comb              n=12 triangles= 9 collinear_dropped=1 area2=66
+random star polygons: triangles=655 reflex_vertices=294

@@ -1,0 +1,4 @@
+grade histogram: A=83 B=70 C=81 D=85 E=81
+grade then score, first 8: A-50 A-50 A-49 A-49 A-42 A-42 A-41 A-41
+decile histogram: 36 41 42 31 43 29 37 47 41 53
+lowest score -50 (seq 81), highest +49 (seq 363)

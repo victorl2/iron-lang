@@ -1,0 +1,26 @@
+192.168.1.1    strict=ok            192.168.1.1     lenient=192.168.1.1
+0.0.0.0        strict=ok            0.0.0.0         lenient=0.0.0.0
+255.255.255.255 strict=ok            255.255.255.255 lenient=255.255.255.255
+010.0.0.1      strict=leading-zero  -               lenient=8.0.0.1  ambiguous (octal vs decimal)
+1.2.3          strict=too-few       -               lenient=1.2.0.3  lenient only
+1.2.3.4.5      strict=too-many      -               lenient=-
+256.1.1.1      strict=range         -               lenient=-
+1..2.3         strict=empty-part    -               lenient=-
+1.2.3.         strict=empty-part    -               lenient=-
+.1.2.3         strict=empty-part    -               lenient=-
+1.2.3.4        strict=bad-char      -               lenient=-
+ 1.2.3.4       strict=bad-char      -               lenient=-
+0x7f.0.0.1     strict=bad-char      -               lenient=127.0.0.1  lenient only
+127.1          strict=too-few       -               lenient=127.0.0.1  lenient only
+0177.0.0.1     strict=long-part     -               lenient=127.0.0.1  lenient only
+08.1.1.1       strict=leading-zero  -               lenient=-
+1.2.3.-4       strict=bad-char      -               lenient=-
+1234.1.1.1     strict=long-part     -               lenient=-
+(empty)        strict=empty         -               lenient=-
+00             strict=leading-zero  -               lenient=0.0.0.0  ambiguous (octal vs decimal)
+0.0.0.00       strict=leading-zero  -               lenient=0.0.0.0  ambiguous (octal vs decimal)
+3232235777     strict=long-part     -               lenient=192.168.1.1  lenient only
+1.2.3.4a       strict=bad-char      -               lenient=-
+99.99.99.99    strict=ok            99.99.99.99     lenient=99.99.99.99
+accepted 4 of 24
+random strings agree with inet_pton: 9833, accepted 27

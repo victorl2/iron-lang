@@ -1,0 +1,14 @@
+source: 50021 bytes, hash d0338b8e
+fgetc/fputc, stdio buffer     2: copied 50021, identical yes
+fgetc/fputc, stdio buffer    17: copied 50021, identical yes
+fgetc/fputc, stdio buffer   512: copied 50021, identical yes
+fgetc/fputc, stdio buffer  8192: copied 50021, identical yes
+fread/fwrite block     1: 50021 calls, identical yes
+fread/fwrite block    10:  5003 calls, identical yes
+fread/fwrite block  1000:    51 calls, identical yes
+fread/fwrite block  4096:    13 calls, identical yes
+fread/fwrite block 65536:     1 calls, identical yes
+item copy size    3 (partial tail recovered): identical yes
+item copy size   64 (partial tail recovered): identical yes
+item copy size 1000 (partial tail recovered): identical yes
+fgets/fputs copy of binary data: differs (NUL bytes truncate lines)

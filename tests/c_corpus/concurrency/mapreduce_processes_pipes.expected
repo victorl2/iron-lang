@@ -1,0 +1,15 @@
+alpha      377  reducer 2
+bravo      358  reducer 0
+charlie    303  reducer 1
+foxtrot    300  reducer 0
+delta      296  reducer 1
+echo       253  reducer 2
+golf       211  reducer 2
+hotel      184  reducer 0
+india      152  reducer 0
+juliet     149  reducer 1
+kilo        90  reducer 2
+lima        66  reducer 0
+mike        42  reducer 2
+november    19  reducer 0
+distinct=14 total=2800

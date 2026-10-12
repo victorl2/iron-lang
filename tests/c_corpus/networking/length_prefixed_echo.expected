@@ -1,0 +1,4 @@
+frames echoed: 40, payload bytes: 5527, wire bytes: 5687
+frame hash c51c49b2, largest frame accepted
+oversize frame header: connection closed by server
+server echoed 40 frames and rejected the oversize header

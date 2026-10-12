@@ -1,0 +1,4 @@
+any(A|B) woke with mask 0x2
+all(C|D|E) woke with mask 0x1c
+any(E) woke with mask 0x10
+leftover A..D bits: 0x2

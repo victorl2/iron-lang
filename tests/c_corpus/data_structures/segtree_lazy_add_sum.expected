@@ -1,0 +1,8 @@
+n=1 done, running checksum=-147908283
+n=2 done, running checksum=-275576865
+n=3 done, running checksum=-774637072
+n=10 done, running checksum=-613446525
+n=97 done, running checksum=-916959207
+n=500 done, running checksum=-858372049
+queries=4463 pushes=16191
+full-range sum=68

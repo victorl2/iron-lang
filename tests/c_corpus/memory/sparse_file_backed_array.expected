@@ -1,0 +1,6 @@
+elements=1048576 chunks=2048
+writes=3000 distinct-verified=2962 overwritten=38
+chunks touched: 256 of 2048
+sampled untouched chunk elements all zero: 25088
+non-zero elements via pread: 2962 in 256 chunks
+edge elements: 111 222

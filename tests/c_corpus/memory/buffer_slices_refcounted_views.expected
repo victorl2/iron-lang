@@ -1,0 +1,11 @@
+line     off=0 len=24 rc=7 "GET /index.html HTTP/1.1"
+method   off=0 len=3 rc=7 "GET"
+path     off=4 len=11 rc=7 "/index.html"
+version  off=16 len=8 rc=7 "HTTP/1.1"
+copies so far: 1, backing live: 1
+after dropping parents: live=1, path rc=3, path="/index.html"
+joined   off=0 len=14 rc=1 "GET/index.html"
+copies now: 2, backing live: 2
+live after dropping method,version: 2 (path still holds original)
+live after dropping path: 1
+final live: 0

@@ -1,0 +1,8 @@
+cell 0 = 7431529f
+cell 1 = cd377a64
+cell 2 = 2e6fee54
+cell 3 = 7065c7c2
+cell 4 = 9e020a9b
+cell 5 = 2b3714e7
+threads=6 dissemination rounds per barrier=3 (LOGN=3)
+matches sequential ring: yes

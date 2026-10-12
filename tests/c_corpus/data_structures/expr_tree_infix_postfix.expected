@@ -1,0 +1,21 @@
+expr 0: 1 + 2 * 3 = 7
+  full  (1+(2*3))
+  post  1 2 3 * + 
+  pre   + 1 * 2 3 
+expr 1: (1 + 2) * 3 = 9
+  full  ((1+2)*3)
+  post  1 2 + 3 * 
+  pre   * + 1 2 3 
+expr 2: 10 - 4 - 3 = 3
+  full  ((10-4)-3)
+  post  10 4 - 3 - 
+  pre   - - 10 4 3 
+expr 3: 100 / 5 / 2 + 7 * (8 - 3) = 45
+  full  (((100/5)/2)+(7*(8-3)))
+  post  100 5 / 2 / 7 8 3 - * + 
+  pre   + / / 100 5 2 * 7 - 8 3 
+expr 4: 2 * (3 + (4 - 1)) * 5 = 60
+  full  ((2*(3+(4-1)))*5)
+  post  2 3 4 1 - + * 5 * 
+  pre   * * 2 + 3 - 4 1 5 
+random trees 400, div-by-zero 46, nodes 6226, max height 5, value sum 13112

@@ -1,0 +1,11 @@
+task  0: n=93539 steps=146 modpow=566464
+task  4: n=126890 steps=105 modpow=383382
+task  8: n=126708 steps=79 modpow=559419
+task 12: n=184312 steps=240 modpow=539061
+task 16: n=185810 steps=191 modpow=265644
+task 20: n=158909 steps=121 modpow=446438
+task 24: n=71808 steps=50 modpow=126716
+task 28: n=1241 steps=39 modpow=123630
+task 32: n=46570 steps=145 modpow=210184
+task 36: n=166848 steps=90 modpow=581423
+tasks=40 workers=4 answers checksum=9632440608075182315

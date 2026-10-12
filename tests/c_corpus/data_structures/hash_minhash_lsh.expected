@@ -1,0 +1,6 @@
+pairs=276 mean abs error=0.0131 max abs error=0.0575 (k=128)
+doc0 vs doc1: |inter|=320 |union|=340 exact=0.9412 estimate=0.9297
+doc0 vs doc2: |inter|=314 |union|=354 exact=0.8870 estimate=0.8438
+doc0 vs doc3: |inter|=317 |union|=375 exact=0.8453 estimate=0.8672
+LSH bands=32 rows=4 candidates=36 family hits=36 cross-family=0 missed family pairs=0
+S-curve 1-(1-s^r)^b: s=0.1:0.0032 s=0.3:0.2291 s=0.5:0.8732 s=0.7:0.9998 s=0.9:1.0000

@@ -1,0 +1,9 @@
+pi(2000000) = 148933
+twin prime pairs: 14871, last (1999889,1999891)
+Goldbach 4: 1 partitions, smallest 2 + 2
+Goldbach 100: 6 partitions, smallest 3 + 97
+Goldbach 1000: 28 partitions, smallest 3 + 997
+Goldbach 9998: 99 partitions, smallest 31 + 9967
+Goldbach 100000: 810 partitions, smallest 11 + 99989
+Goldbach 1999998: 21850 partitions, smallest 5 + 1999993
+memory words: 31250

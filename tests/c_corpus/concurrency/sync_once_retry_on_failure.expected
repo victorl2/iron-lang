@@ -1,0 +1,6 @@
+resource 0: init attempts 1 (failures scripted 0), overlapping runs 0, state DONE
+resource 1: init attempts 3 (failures scripted 2), overlapping runs 0, state DONE
+resource 2: init attempts 5 (failures scripted 4), overlapping runs 0, state DONE
+resource 3: init attempts 7 (failures scripted 6), overlapping runs 0, state DONE
+failures reported to callers 12 (expected 12), invisible initializations 0
+call after completion: rc=0, extra attempts 0

@@ -1,0 +1,15 @@
+journal bytes=371 transactions=6
+crash scenarios verified=597
+  journal cuts with 0 committed txns: 60
+  journal cuts with 1 committed txns: 69
+  journal cuts with 2 committed txns: 53
+  journal cuts with 3 committed txns: 61
+  journal cuts with 4 committed txns: 68
+  journal cuts with 5 committed txns: 60
+  journal cuts with 6 committed txns: 1
+final tree:
+d root/a
+d root/e
+f root/e/f2 two-v2
+f root/e/f4 four
+f root/e/f5 five

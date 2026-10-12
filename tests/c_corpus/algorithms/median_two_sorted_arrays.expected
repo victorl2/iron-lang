@@ -1,0 +1,7 @@
+1000 random pairs verified
+[1,3]+[2]      median = 2
+[1,2]+[3,4]    median = 2.5
+zeros          median = 0
+[2]+[0]        median = 1
+disjoint       median = 100
+empty+[1,2,3]  median = 2

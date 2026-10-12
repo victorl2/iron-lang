@@ -1,0 +1,4 @@
+all 100 step sizes give a full cycle mod 101
+distinct=699 cap=1597 (prime) load=0.4377
+avg probes=1.6631
+sample: bmr=0 bmxpmiza=699

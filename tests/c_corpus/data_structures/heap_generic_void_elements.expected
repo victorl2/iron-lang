@@ -1,0 +1,7 @@
+ints min: first=0 weighted_sum=782480 compares=7545
+ints max: first=994 weighted_sum=727002 compares=7624
+person 0: ada 18 #9
+person 1: ada 18 #51
+person 2: ada 18 #66
+largest five words: lime melon peach pear plum
+points left=260 nearest5_dist2_sum=99 farthest_dist2=4804 comparator_calls=14827

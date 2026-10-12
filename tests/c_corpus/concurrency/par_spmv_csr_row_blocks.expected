@@ -1,0 +1,4 @@
+row cuts for 6 threads: 0 4 55 115 176 238 300
+nnz per thread: 601 606 606 604 593 601
+nnz after merging duplicates=3611 (of 4000 triplets)
+sum(y)=5160 max(y)=1071 y[0]=-1185 y[299]=-37

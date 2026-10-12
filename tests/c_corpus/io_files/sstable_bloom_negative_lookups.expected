@@ -1,0 +1,5 @@
+records=3000 blocks=188 bloom bytes=3750 file bytes=28522
+present lookups=429 block reads=429
+absent probes=31126
+block reads without filter=31120 with filter=277 (false positives=277)
+false positive rate=0.89% (theory for 10 bits/key, 7 hashes: about 0.8%)

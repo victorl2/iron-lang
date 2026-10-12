@@ -1,0 +1,5 @@
+static-block  digest f5e83c9f
+static-cyclic digest f5e83c9f
+dynamic       digest f5e83c9f chunks 271 max 37 min 10 first 37 37 37
+guided        digest f5e83c9f chunks 47 max 1250 min 2 first 1250 1093 957
+all policies agree with the sequential digest f5e83c9f

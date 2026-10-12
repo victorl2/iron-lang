@@ -1,0 +1,16 @@
+p=3 (2-adic valuation of p-1 = 1): 2 square classes incl. 0
+p=5 (2-adic valuation of p-1 = 2): 3 square classes incl. 0
+p=7 (2-adic valuation of p-1 = 1): 4 square classes incl. 0
+p=13 (2-adic valuation of p-1 = 2): 7 square classes incl. 0
+p=17 (2-adic valuation of p-1 = 4): 9 square classes incl. 0
+p=41 (2-adic valuation of p-1 = 3): 21 square classes incl. 0
+p=97 (2-adic valuation of p-1 = 5): 49 square classes incl. 0
+p=113 (2-adic valuation of p-1 = 4): 57 square classes incl. 0
+p=257 (2-adic valuation of p-1 = 8): 129 square classes incl. 0
+p=7681 (s=9): sqrt(2)=3138 sqrt(3)=316 sqrt(5)=2777 sqrt(10)=3709 sqrt(123456)=1888 sqrt(99999989)=3786
+p=65537 (s=16): sqrt(2)=4080 3:nonresidue 5:nonresidue 10:nonresidue sqrt(123456)=26539 sqrt(99999989)=26409
+p=998244353 (s=23): sqrt(2)=116195171 3:nonresidue 5:nonresidue 10:nonresidue 123456:nonresidue 99999989:nonresidue
+p=1000000007 (s=1): sqrt(2)=59713600 sqrt(3)=82062379 5:nonresidue 10:nonresidue sqrt(123456)=422054139 99999989:nonresidue
+tonelli inner iterations recorded: some
+quadratic residues mod 10007: 5003 of 10006
+quadratic reciprocity verified for 45 prime pairs

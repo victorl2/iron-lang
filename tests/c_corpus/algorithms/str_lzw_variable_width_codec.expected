@@ -1,0 +1,6 @@
+TOBEORNOTTOBEORTOBEORNOT: 16 codes, 144 bits (raw 192 bits)
+a^16: 6 codes
+2-letter random  n=6000 codes= 853 bytes= 1045
+4-letter random  n=6000 codes=1480 bytes= 1907
+byte noise       n=6000 codes=5792 bytes= 8336
+period 7         n=6000 codes= 284 bytes=  323

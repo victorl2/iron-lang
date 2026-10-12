@@ -1,0 +1,5 @@
+500 trials verified, length checksum 3921
+[2,-1,2] k=3 -> 3
+[1,2] k=4 -> -1
+[84,-37,32,40,95] k=167 -> 3
+64-bit sums k=6e9 -> 3

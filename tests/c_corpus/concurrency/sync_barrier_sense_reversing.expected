@@ -1,0 +1,7 @@
+parties=5 rounds=60 barrier episodes=120
+cell 0 = 9599 (sequential 9599)
+cell 1 = 2940 (sequential 2940)
+cell 2 = 2296 (sequential 2296)
+cell 3 = 5176 (sequential 5176)
+cell 4 = 7302 (sequential 7302)
+early passes 0, matches sequential: yes

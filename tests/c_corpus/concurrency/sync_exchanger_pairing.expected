@@ -1,0 +1,4 @@
+pair swap: a received 222, b received 111
+threads=6 rounds=100 exchanges=300
+received 600 values, out of range 0, self swaps 0, asymmetric pairs 0
+value sums equal: yes (1529700)

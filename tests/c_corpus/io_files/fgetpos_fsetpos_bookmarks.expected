@@ -1,0 +1,12 @@
+recorded 12 bookmarks
+bookmark  7 -> "07:hazel"
+bookmark  0 -> "00:amber-extra-long-suffix"
+bookmark 11 -> "11:lapis"
+bookmark  3 -> "03:dune-extra-long-suffix"
+bookmark  3 -> "03:dune-extra-long-suffix"
+bookmark  9 -> "09:jade-extra-long-suffix"
+bookmark  1 -> "01:basalt"
+after eof, bookmark 5 starts with '0'
+patched line 4: "XX:ember"
+second stream line 8: "08:indigo"
+total bytes 181

@@ -1,0 +1,30 @@
+catsanddog: ways=12 min_words=3
+    cat s an d d og
+    cat s an d dog
+    cat s and d og
+    cat s and dog
+    cat san d d og
+    cat san d dog
+pineapplepenapple: ways=3 min_words=3
+    pine apple pen apple
+    pine applepen apple
+    pineapple pen apple
+catsandog: ways=9 min_words=3
+    cat s an d og
+    cat s an dog
+    cat s and og
+    cat san d og
+    cat san dog
+    cat sand og
+antsandants: ways=30 min_words=3
+    an t s an d an t s
+    an t s an d ant s
+    an t s an d ants
+    an t s and an t s
+    an t s and ant s
+    an t s and ants
+aaaaaaaaaaaaaaaaaaaaaaaa: ways=1 min_words=24
+dogcat: ways=2 min_words=2
+    d og cat
+    dog cat
+x: ways=0 min_words=-1

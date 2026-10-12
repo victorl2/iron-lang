@@ -1,0 +1,3 @@
+push_back=759 push_front=721 pop_front=538 pop_back=935 insert_after=493 reverse=553
+len=500 head=7885 tail=799 node_size_words=2
+weighted_sum=640387064

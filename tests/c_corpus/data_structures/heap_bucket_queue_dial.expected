@@ -1,0 +1,3 @@
+settled=400 max_dist=27 dist_sum=5873
+decreases=151 empty_bucket_scans=27 final_cur=27
+window pops=2743 popsum=21428 remaining=319 cur=15

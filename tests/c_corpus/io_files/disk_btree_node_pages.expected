@@ -1,0 +1,4 @@
+keys inserted=1500 distinct=1049 found=1049
+nodes=243 file pages=244 height=4
+keys in [500,599]=57
+page reads for 400 lookups (after walk)=1552

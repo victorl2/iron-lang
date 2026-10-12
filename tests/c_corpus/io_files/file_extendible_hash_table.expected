@@ -1,0 +1,8 @@
+live keys=2004 global depth=11 directory slots=2048
+buckets=504 splits=503 max page=503
+  buckets with local depth 7: 2
+  buckets with local depth 8: 72
+  buckets with local depth 9: 295
+  buckets with local depth 10: 125
+  buckets with local depth 11: 10
+avg load=3.98 of 6

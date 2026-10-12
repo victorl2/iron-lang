@@ -1,0 +1,15 @@
+philosopher 0 meals=300 weight=45150
+philosopher 1 meals=300 weight=90300
+philosopher 2 meals=300 weight=135450
+philosopher 3 meals=300 weight=180600
+philosopher 4 meals=300 weight=225750
+philosopher 5 meals=300 weight=270900
+philosopher 6 meals=300 weight=316050
+fork 0 used 600 times
+fork 1 used 600 times
+fork 2 used 600 times
+fork 3 used 600 times
+fork 4 used 600 times
+fork 5 used 600 times
+fork 6 used 600 times
+seat limit 6 respected: yes

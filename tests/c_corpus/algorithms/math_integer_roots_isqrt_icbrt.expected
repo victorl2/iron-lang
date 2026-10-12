@@ -1,0 +1,42 @@
+isqrt(0) = 0 (newton steps 0)
+isqrt(1) = 1 (newton steps 0)
+isqrt(2) = 1 (newton steps 1)
+isqrt(3) = 1 (newton steps 2)
+isqrt(4) = 2 (newton steps 1)
+isqrt(15) = 3 (newton steps 3)
+isqrt(16) = 4 (newton steps 3)
+isqrt(17) = 4 (newton steps 3)
+isqrt(99) = 9 (newton steps 5)
+isqrt(100) = 10 (newton steps 4)
+isqrt(65535) = 255 (newton steps 11)
+isqrt(65536) = 256 (newton steps 10)
+isqrt(4294967295) = 65535 (newton steps 20)
+isqrt(4294967296) = 65536 (newton steps 19)
+isqrt(999999999999) = 999999 (newton steps 24)
+isqrt(18446744065119617025) = 4294967295 (newton steps 36)
+isqrt(18446744065119617024) = 4294967294 (newton steps 37)
+isqrt(18446744073709551615) = 4294967295 (newton steps 37)
+sum of 20000 random isqrt values: 3272730759037
+icbrt(0) = 0
+icbrt(1) = 1
+icbrt(7) = 1
+icbrt(8) = 2
+icbrt(26) = 2
+icbrt(27) = 3
+icbrt(999999999999) = 9999
+icbrt(1000000000000) = 10000
+icbrt(18446724184312856125) = 2642245
+floor(2^64-1)^(1/2) = 4294967295
+floor(2^64-1)^(1/3) = 2642245
+floor(2^64-1)^(1/4) = 65535
+floor(2^64-1)^(1/5) = 7131
+floor(2^64-1)^(1/6) = 1625
+floor(2^64-1)^(1/7) = 565
+floor(2^64-1)^(1/8) = 255
+floor(2^64-1)^(1/9) = 138
+floor(2^64-1)^(1/10) = 84
+floor(2^64-1)^(1/11) = 56
+floor(2^64-1)^(1/12) = 40
+perfect powers < 400: 4=2^2 8=2^3 9=3^2 16=4^2 25=5^2 27=3^3 32=2^5 36=6^2 49=7^2 64=8^2 81=9^2 100=10^2 121=11^2 125=5^3 128=2^7 144=12^2 169=13^2 196=14^2 216=6^3 225=15^2 243=3^5 256=16^2 289=17^2 324=18^2 343=7^3 361=19^2
+3^40 detected as 3486784401^2
+squares up to 100000: 316

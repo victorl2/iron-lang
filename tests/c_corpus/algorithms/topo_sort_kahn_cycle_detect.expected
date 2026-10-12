@@ -1,0 +1,5 @@
+edges: 29
+fifo order: 1 2 5 8 11 12 13 14 23 19 3 9 22 17 21 18 0 4 20 15 7 10 16 6
+lex order:  1 2 5 8 11 12 3 0 9 13 14 19 22 4 7 20 10 23 17 18 15 16 6 21
+cycle after 2 back edges, emitted 20 of 24
+stuck vertices: 6 15 16 18

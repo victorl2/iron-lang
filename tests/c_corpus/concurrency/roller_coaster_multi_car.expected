@@ -1,0 +1,15 @@
+ride  0: car 0 carried 6 passengers
+ride  1: car 1 carried 6 passengers
+ride  2: car 2 carried 6 passengers
+ride  3: car 0 carried 6 passengers
+ride  4: car 1 carried 6 passengers
+ride  5: car 2 carried 6 passengers
+ride  6: car 0 carried 6 passengers
+ride  7: car 1 carried 6 passengers
+ride  8: car 2 carried 6 passengers
+ride  9: car 0 carried 6 passengers
+ride 10: car 1 carried 6 passengers
+ride 11: car 2 carried 6 passengers
+car 0: rides=4 passengers=24 distance=991
+car 1: rides=4 passengers=24 distance=1016
+car 2: rides=4 passengers=24 distance=986

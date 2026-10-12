@@ -1,0 +1,15 @@
+initial tell 0
+after write tell 26
+first A tell 1
+cur+9 K tell 11
+end-3 X tell 24
+cur-1 X tell 24
+seek to -100 failed, tell unchanged yes
+read at end -> EOF, feof=1
+after rewind A tell 1
+size after sparse write 105
+first 100 bytes: 26 letters, 74 zeros
+tail "<END>"
+window "IJ--MNOP"
+ZUP-FA
+stepped 6 times

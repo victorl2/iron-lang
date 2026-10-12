@@ -1,0 +1,20 @@
+grid 24x16: reachable=305 farthest=38
+distance to bottom-right: 38
+queue peak length=20 compactions=18
+file BFS matches in-memory BFS: yes
+01234##tsrqpqrstuvwxy#21
+####56###qpopq#stuvw#y#0
+c#8767##qponopqrstuv#xyz
+ba98#89a#onmnopqrstuvwx#
+#ba#a9a##nml#p#rs#uvwxyz
+dc#cba#ef#lk#on#tutu#wx#
+ede#cbcde##jk#mn#ts#uvwx
+fefedcd#fghijklmn#r#tuvw
+gfgfed#hg#ijklmnopqrstu#
+h##gf#jihijklmnop#rs#uvw
+ijihg#k##jklmnopqrstuvwx
+j##i#m##lk#mnop##stuvwx#
+#lkjklmn#lm#opqrstu#wx#1
+r#lklm#onmn#pqrst#v#xyz0
+q#mlmnopo#op#rs#uv#zyz01
+ponmnopq#qpqrstuvwxyz012

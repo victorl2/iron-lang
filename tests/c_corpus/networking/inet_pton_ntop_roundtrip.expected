@@ -1,0 +1,23 @@
+127.0.0.1        -> 0x7f000001 loopback
+0.0.0.0          -> 0x00000000 unspecified
+255.255.255.255  -> 0xffffffff broadcast
+10.20.30.40      -> 0x0a141e28 private
+192.168.1.1      -> 0xc0a80101 private
+172.16.254.3     -> 0xac10fe03 private
+169.254.7.7      -> 0xa9fe0707 link-local
+224.0.0.251      -> 0xe00000fb multicast
+8.8.4.4          -> 0x08080404 public
+1.2.3.4          -> 0x01020304 public
+rejected 10 of 10 malformed IPv4 strings
+2000 random addresses round-tripped, digest 4d8a713a
+inet_ntop into 8 bytes: ENOSPC
+::1                                        -> ::1
+::                                         -> ::
+2001:db8::ff00:42:8329                     -> 2001:db8::ff00:42:8329
+2001:0db8:0000:0000:0000:ff00:0042:8329    -> 2001:db8::ff00:42:8329
+1:2:3:4:5:6:7:8                            -> 1:2:3:4:5:6:7:8
+fe80::1                                    -> fe80::1
+FE80:0:0:0:0:0:0:ABCD                      -> fe80::abcd
+::ffff:1.2.3.4                             -> ::ffff:1.2.3.4
+rejected 6 of 6 malformed IPv6 strings
+sockaddr_in raw address bytes: 192 0 2 33, port 8080
