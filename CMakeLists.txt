@@ -1552,6 +1552,18 @@ if(NOT WIN32)
     )
 endif()
 
+if(NOT WIN32)
+    add_test(
+        NAME test_run_tests_worker_failure_summary
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/run_tests_worker_failure_smoke.sh
+    )
+    set_tests_properties(test_run_tests_worker_failure_summary PROPERTIES
+        PASS_REGULAR_EXPRESSION "run_tests worker failure summary OK"
+        LABELS "unit;hijack-canary"
+        TIMEOUT 30
+    )
+endif()
+
 # ── Benchmark rows (2026-07 realism split) ─────────────────────────────────
 # The old benchmark_smoke ran the FULL 139-problem corpus (~22 min serial,
 # measured 21m45s; serially re-confirmed on a quiet container 2026-07-18)

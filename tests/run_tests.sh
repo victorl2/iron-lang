@@ -536,10 +536,17 @@ for test_file in ${_main_loop_files}; do
 "
 done
 if [ -n "${_ordered_files}" ] && [ "${JOBS}" -gt 1 ]; then
+    # A worker can still exit before it writes its final verdict (for example,
+    # if a shell command outside a guarded build/run path fails). Do not let
+    # `set -e` stop at xargs: replay every worker log and status below so the
+    # actual fixture and the aggregate summary are visible.
+    set +e
     printf '%s' "${_ordered_files}" \
         | IRON_TEST_RESULTS="${RESULTS_DIR}" IRON_TEST_CATEGORY="${CATEGORY}" \
           IRON_TEST_BIN="${IRON_BIN}" \
           xargs -P "${JOBS}" -n 1 sh -c 'IRON_TEST_ONE="$1" bash "$0" "${IRON_TEST_CATEGORY}" "${IRON_TEST_BIN}" > "${IRON_TEST_RESULTS}/$(echo "$1" | tr / _).log" 2>&1' "${BASH_SOURCE[0]}"
+    _worker_pool_rc=$?
+    set -e
 fi
 for test_file in ${_ordered_files}; do
     TOTAL=$((TOTAL + 1))
