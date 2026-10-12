@@ -513,6 +513,21 @@ def run_step(area, seed, ironc, iron, outdir, adapter):
                 if (events[c][0], events[c][1]) == got:
                     match = c
                     break
+            if match is None and sites and cmd != "stepIn":
+                # gdb does not stop in the middle of the caller's line: it
+                # finishes that line (calls later in it included) and stops
+                # on the caller's next one.
+                for d in sorted(set(sites.values()), reverse=True):
+                    k = after_return(events, pos, d)
+                    while k < len(events) and match is None:
+                        if events[k][2] <= d:
+                            if (events[k][0], events[k][1]) == got:
+                                match = k
+                            if not events[k][3]:
+                                break
+                        k += 1
+                    if match is not None:
+                        break
             if match is not None:
                 want_stack = list(reversed(events[match][4]))
                 got_stack = [n for n, _ in fr]
