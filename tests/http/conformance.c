@@ -2,7 +2,6 @@
 #include "runtime/iron_errors.h"
 #include "runtime/iron_runtime.h"
 #include "stdlib/iron_http.h"
-#include "stdlib/iron_net.h"
 
 #include <errno.h>
 #include <pthread.h>
@@ -300,6 +299,7 @@ static void test_body_free_serialization(void) {
 typedef struct RawResponseServer {
     Iron_HttpServer server;
     const char *wire;
+    size_t split;
     int64_t error;
 } RawResponseServer;
 
@@ -315,11 +315,17 @@ static void *serve_raw_response(void *arg) {
     if (request.error != 0) {
         server->error = request.error;
     } else {
-        Iron_TcpSocket socket = {accepted.connection.fd};
-        Iron_Result_Int_Error sent = Iron_net_tcp_send_bytes(
-            socket, (const uint8_t *)server->wire,
-            (int64_t)strlen(server->wire), 3000);
-        server->error = sent.v1.code;
+        size_t len = strlen(server->wire);
+        size_t first = server->split < len ? server->split : len;
+        if (!write_all((int)accepted.connection.fd,
+                       (const uint8_t *)server->wire, first)) {
+            server->error = -1;
+        } else {
+            if (first < len) usleep(1000);
+            if (!write_all((int)accepted.connection.fd,
+                           (const uint8_t *)server->wire + first,
+                           len - first)) server->error = -1;
+        }
     }
     Iron_httprequest_release(request);
     Iron_httpconnection_close(accepted.connection);
@@ -327,8 +333,8 @@ static void *serve_raw_response(void *arg) {
     return NULL;
 }
 
-static Iron_HttpResponse parse_response(const char *method, const char *wire,
-                                        int64_t max_body) {
+static Iron_HttpResponse parse_response_split(
+    const char *method, const char *wire, int64_t max_body, size_t split) {
     Iron_HttpServerResult listening = Iron_http_listen(istr("127.0.0.1"), 0);
     Iron_HttpResponse out;
     memset(&out, 0, sizeof(out));
@@ -337,7 +343,7 @@ static Iron_HttpResponse parse_response(const char *method, const char *wire,
         return out;
     }
     int64_t port = Iron_httpserver_port(listening.server);
-    RawResponseServer server = {listening.server, wire, 0};
+    RawResponseServer server = {listening.server, wire, split, 0};
     pthread_t thread;
     if (pthread_create(&thread, NULL, serve_raw_response, &server) != 0) {
         Iron_httpserver_close(listening.server);
@@ -355,6 +361,11 @@ static Iron_HttpResponse parse_response(const char *method, const char *wire,
     Iron_httpserver_close(listening.server);
     Iron_httpserverresult_release(listening);
     return out;
+}
+
+static Iron_HttpResponse parse_response(const char *method, const char *wire,
+                                        int64_t max_body) {
+    return parse_response_split(method, wire, max_body, SIZE_MAX);
 }
 
 typedef struct ResponseCase {
@@ -456,6 +467,21 @@ static void test_response_lines_headers_and_framing(void) {
                   "%s: response keep_alive", cases[i].name);
         }
         Iron_httpresponse_release(out);
+    }
+
+    static const size_t split_cases[] = {0, 4, 8};
+    for (size_t c = 0; c < sizeof(split_cases) / sizeof(split_cases[0]); c++) {
+        const ResponseCase *test = &cases[split_cases[c]];
+        size_t len = strlen(test->wire);
+        for (size_t split = 0; split <= len; split++) {
+            Iron_HttpResponse out = parse_response_split(
+                test->method, test->wire, 1024 * 1024, split);
+            CHECK(out.error == 0 && out.status == test->status &&
+                  string_is(out.body, test->body),
+                  "%s split %zu: error %lld", test->name, split,
+                  (long long)out.error);
+            Iron_httpresponse_release(out);
+        }
     }
 
     Iron_HttpResponse limited = parse_response(
