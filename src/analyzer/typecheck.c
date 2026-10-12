@@ -212,6 +212,9 @@ typedef struct {
     /* The operand of the heap expression being checked: `heap [UInt8; 100]`
      * allocates a sized buffer, the one place `[T; N]` is a value. */
     Iron_Node         *heap_operand;
+    /* the callee of the call being checked: a built-in function may only
+     * be named there */
+    Iron_Node         *call_callee;
     /* Where "a list cannot hold tuples" was last reported: an annotated
      * binding has the tuple list in its type and in its literal (#322). */
     const char        *tuple_list_file;
@@ -4676,6 +4679,24 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
+            /* A built-in function (println, len, ...) has no function
+             * value: the C emitter writes its calls inline. Naming one
+             * anywhere but as a callee built a closure from nothing. */
+            if (id->name && node != ctx->call_callee) {
+                Iron_Symbol *bs = tc_lookup(ctx, id->name);
+                if (bs && bs->sym_kind == IRON_SYM_FUNCTION && !bs->decl_node &&
+                    bs == id->resolved_sym) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "built-in function '%s' cannot be used as a value", id->name);
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, id->span, msg,
+                               "call it, or wrap the call in a function literal");
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    id->resolved_type = result;
+                    break;
+                }
+            }
+
             /* 1. Check narrowing map first */
             Iron_Type *narrowed = narrowing_get(ctx, id->name);
             if (narrowed) {
@@ -5717,7 +5738,9 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
+            ctx->call_callee = ce->callee;
             Iron_Type *callee_type = check_expr(ctx, ce->callee);
+            ctx->call_callee = NULL;
 
             if (!callee_type || callee_type->kind == IRON_TYPE_ERROR) {
                 for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
@@ -6796,6 +6819,28 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                              (strcmp(rn, "Channel") == 0 && strcmp(mm, "send") == 0)) {
                         want = 1;
                         want_elem = true;
+                    }
+                    /* Any other method name on these types has no runtime
+                     * function: `ch.close()` called an undeclared
+                     * Iron_channel_close in the C. */
+                    const char *known = NULL;
+                    if (strcmp(rn, "Mutex") == 0) known = "lock";
+                    else if (strcmp(rn, "RWLock") == 0) known = "read, write";
+                    else if (strcmp(rn, "MutexGuard") == 0 ||
+                             strcmp(rn, "RWWriteGuard") == 0) known = "get, set";
+                    else if (strcmp(rn, "RWReadGuard") == 0) known = "get";
+                    else if (strcmp(rn, "Channel") == 0) known = "send, recv";
+                    if (known && want < 0) {
+                        char msg[256], help[128];
+                        snprintf(msg, sizeof(msg), "no method '%s' on type '%s'", mm, rn);
+                        snprintf(help, sizeof(help), "%s methods: %s", rn, known);
+                        const char *hc = iron_arena_strdup(ctx->arena, help, strlen(help));
+                        emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg, hc);
+                        for (int ai = 0; ai < mc->arg_count; ai++)
+                            check_expr(ctx, mc->args[ai]);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
                     }
                     if (want >= 0 && mc->arg_count != want) {
                         char msg[256];
@@ -12745,6 +12790,17 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                     if (ta->is_self_type || (ta->name && strcmp(ta->name, "Self") == 0)) continue;
                     Iron_Type *pt = resolve_type_annotation(&ctx, p->type_ann);
                     if (pt && pt->kind != IRON_TYPE_ERROR) p->resolved_type = pt;
+                }
+                /* The return type too: a function or pointer type has no
+                 * annotation name, and the dispatcher returned Iron_func
+                 * or Iron_. */
+                if (!sig->resolved_return_type && sig->return_type &&
+                    sig->return_type->kind == IRON_NODE_TYPE_ANNOTATION) {
+                    Iron_TypeAnnotation *ra = (Iron_TypeAnnotation *)sig->return_type;
+                    if (!ra->is_self_type && !(ra->name && strcmp(ra->name, "Self") == 0)) {
+                        Iron_Type *rt = resolve_type_annotation(&ctx, sig->return_type);
+                        if (rt && rt->kind != IRON_TYPE_ERROR) sig->resolved_return_type = rt;
+                    }
                 }
             }
         }

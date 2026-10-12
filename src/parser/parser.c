@@ -1462,10 +1462,17 @@ static bool iron_elem_is_nullable_type(Iron_Parser *p) {
              * expressions whose type arguments hold the `?`. */
             for (int m = j + 1; m < p->token_count; m++) {
                 Iron_TokenKind km = p->tokens[m].kind;
-                if (km == IRON_TOK_LBRACKET) depth++;
+                if (km == IRON_TOK_LBRACKET || (km == IRON_TOK_LPAREN && depth > 0)) depth++;
                 else if (km == IRON_TOK_RBRACKET || km == IRON_TOK_RPAREN) {
                     if (depth == 0) return true;
                     depth--;
+                    /* `]` then `(` or `.` at any depth constructs or calls
+                     * the generic the `?` is an argument of: the element
+                     * `[Gp[Int?, Int](1, 2)]` is a list literal. */
+                    if (km == IRON_TOK_RBRACKET && m + 1 < p->token_count &&
+                        (p->tokens[m + 1].kind == IRON_TOK_LPAREN ||
+                         p->tokens[m + 1].kind == IRON_TOK_DOT))
+                        return false;
                 } else if (depth == 0 && (km == IRON_TOK_LPAREN || km == IRON_TOK_DOT))
                     return false;
                 else if (depth == 0 && km != IRON_TOK_QUESTION)
