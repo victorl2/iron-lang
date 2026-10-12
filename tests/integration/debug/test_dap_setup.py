@@ -117,4 +117,25 @@ expect("panic stop waits for stderr", not worker.is_alive())
 expect("panic stop keeps the runtime message",
        sent and sent[-1]["body"].get("text") == "iron: out of memory at test-site", sent)
 
+# LLDB can reject one internal evaluation while it is settling the stopped
+# thread. A second request can read the debug trap message immediately; do not
+# expose the raw SIGTRAP because the first response happened to fail (#741).
+proxy4 = dap.Proxy("iron", None)
+responses = iter([
+    {"success": False},
+    {"success": True, "body": {"result": '"read_file: cannot open x"'}},
+])
+requests = []
+
+
+def transient_request(command, args):
+    requests.append((command, args))
+    return next(responses)
+
+
+proxy4.request = transient_request
+expect("panic trap retries a transient evaluation failure",
+       proxy4.trap_message({"id": 1}) == "read_file: cannot open x")
+expect("panic trap retries exactly once", len(requests) == 2, requests)
+
 sys.exit(1 if failed else 0)

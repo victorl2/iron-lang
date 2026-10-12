@@ -1143,8 +1143,13 @@ class Proxy:
         message in iron_debug_panic_message and runs a breakpoint
         instruction in the Iron function, so the stop is already on the
         Iron line; the panic itself (and its abort) runs on continue."""
-        r = self.request("evaluate", {"expression": "(const char *)iron_debug_panic_message",
-                                      "frameId": frame.get("id"), "context": "watch"})
+        args = {"expression": "(const char *)iron_debug_panic_message",
+                "frameId": frame.get("id"), "context": "watch"}
+        r = {}
+        for _ in range(2):
+            r = self.request("evaluate", args)
+            if r.get("success"):
+                break
         if not r.get("success"):
             return None
         m = re.search(r'"((?:[^"\\]|\\.)*)"', str((r.get("body") or {}).get("result", "")))
