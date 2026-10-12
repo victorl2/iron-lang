@@ -244,7 +244,9 @@ def values_check(g, src, binary, iron, adapter, problems, area):
         lines = sorted({p.line for p in g.probes})
         bps = s.launch(src, lines)
         for b in bps:
-            if not b.get("verified", True) and adapter != "gdb":
+            # gdb gets its breakpoints before the program (iron dap holds
+            # its launch until the configuration is done): they are pending.
+            if not b.get("verified", True) and b.get("reason") != "pending":
                 problems.append("breakpoint at line %s not verified: %s" % (b.get("line"), b))
         line_to_pid = {}
         for p in g.probes:
