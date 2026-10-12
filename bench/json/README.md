@@ -78,6 +78,7 @@ means a new allocator each time, as a handler that does not pool them would.
 | File | Role |
 |---|---|
 | run.sh | builds every variant and runs the sweep, appending RESULT lines |
+| capture.sh | validates each benchmark process result and rejects failed or incomplete sweeps |
 | table.py | median / MAD / GB/s tables in markdown from a results file |
 | fetch.sh, SHA256SUMS | pinned downloads |
 | gen_small.py | small.ndjson |
