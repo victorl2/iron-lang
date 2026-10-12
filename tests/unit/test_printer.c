@@ -110,6 +110,50 @@ void test_print_for_parallel(void) {
 }
 
 /* Round-trip hello: parse hello.iron, print, parse again, verify AST structure */
+/* print(parse(src)) parses again and prints the same text: generic
+ * instances and interface defaults are made by printing and parsing, so
+ * static functions, interface signatures (tiers, static, default bodies)
+ * and tuple literals must survive it (#455, #648). */
+void test_print_static_and_interface_fixed_point(void) {
+    const char *src =
+        "interface Make {\n"
+        "    static func make(n: Int) -> Self?\n"
+        "    static func label() -> String {\n"
+        "        return \"m\"\n"
+        "    }\n"
+        "    readonly func same(o: Self) -> Bool\n"
+        "    pure func pair() -> (Int, String) {\n"
+        "        return (1, \"a\")\n"
+        "    }\n"
+        "}\n"
+        "object P {\n"
+        "    val x: Int\n"
+        "    static func zero() -> Self {\n"
+        "        return P(0)\n"
+        "    }\n"
+        "    readonly func get() -> Int {\n"
+        "        return self.x\n"
+        "    }\n"
+        "}\n"
+        "patch object P {\n"
+        "    static func tag[T](t: T) -> (P, T) {\n"
+        "        return (P.zero(), t)\n"
+        "    }\n"
+        "}\n";
+    Iron_Node *ast1 = parse(src);
+    char *out1 = iron_print_ast(ast1, NULL, &arena);
+    TEST_ASSERT_NOT_NULL(out1);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(out1, "static func make(n: Int) -> Self?"), out1);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(out1, "static func zero() -> Self"), out1);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(out1, "static func tag[T](t: T) -> (P, T)"), out1);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(out1, "readonly func same(o: Self) -> Bool"), out1);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(out1, "return (P.zero(), t)"), out1);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(out1, "return (1, \"a\")"), out1);
+    Iron_Node *ast2 = parse(out1);
+    char *out2 = iron_print_ast(ast2, NULL, &arena);
+    TEST_ASSERT_EQUAL_STRING(out1, out2);
+}
+
 void test_roundtrip_hello(void) {
     const char *src =
         "func main() {\n"
@@ -271,6 +315,28 @@ void test_v94_pub_stubs_groups_methods_under_owner(void) {
     free(out);
 }
 
+void test_v94_pub_stubs_preserve_api_modifiers(void) {
+    const char *src =
+        "pub object Parser {\n"
+        "    val n: Int\n"
+        "    pub static func empty() -> Parser { return Parser(0) }\n"
+        "    pub readonly func get() -> Int { return self.n }\n"
+        "    pub pure func positive() -> Bool { return self.n > 0 }\n"
+        "}\n"
+        "pub func keyed[T: Hashable](x: T) -> Int { return x.hash() }\n";
+    char *out = capture_stub(src, "mylib", "0.1.0", NULL);
+    TEST_ASSERT_NOT_NULL(out);
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(out, "pub static func empty() -> Parser"), out);
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(out, "pub readonly func get() -> Int"), out);
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(out, "pub pure func positive() -> Bool"), out);
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(out, "pub func keyed[T: Hashable](x: T) -> Int"), out);
+    free(out);
+}
+
 void test_v94_pub_stubs_round_trip(void) {
     /* The plan's RESEARCH "Critical constraint" line 241: the consumer's
      * parser will re-parse the concatenated stubs through the SAME parse
@@ -330,6 +396,7 @@ int main(void) {
     RUN_TEST(test_print_if_elif_else);
     RUN_TEST(test_print_for_parallel);
     RUN_TEST(test_roundtrip_hello);
+    RUN_TEST(test_print_static_and_interface_fixed_point);
     RUN_TEST(test_print_interp_string);
     /* Phase 94 LIB-02: pub-stub generator coverage. */
     RUN_TEST(test_v94_pub_stubs_empty_program);
@@ -337,6 +404,7 @@ int main(void) {
     RUN_TEST(test_v94_pub_stubs_skips_private_decls);
     RUN_TEST(test_v94_pub_stubs_skips_patch_object);
     RUN_TEST(test_v94_pub_stubs_groups_methods_under_owner);
+    RUN_TEST(test_v94_pub_stubs_preserve_api_modifiers);
     RUN_TEST(test_v94_pub_stubs_round_trip);
     RUN_TEST(test_v94_pub_stubs_strips_method_body);
     RUN_TEST(test_v94_pub_stubs_header_format);

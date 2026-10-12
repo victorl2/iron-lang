@@ -55,6 +55,29 @@ func worker(shared: rc MysqlPool, task: Int, rounds: Int) -> Int {
     return ok
 }
 
+func reader(shared: rc MysqlPool, rounds: Int) -> Int {
+    var ok = 0
+    for i in range(rounds) {
+        val res = shared.exec("SELECT ? + 1", [MysqlValue.Int(i)])
+        if res.ok() and is_int(res.int(0, 0), i + 1) {
+            ok += 1
+        }
+    }
+    return ok
+}
+
+-- n tasks of `rounds` statements each, all awaited; the statements that worked.
+func readers(shared: rc MysqlPool, n: Int, rounds: Int) -> Int {
+    if n == 0 {
+        return 0
+    }
+    val first = spawn("reader") {
+        return reader(shared, rounds)
+    }
+    val rest = readers(shared, n - 1, rounds)
+    return (await first) + rest
+}
+
 func transfer(shared: rc MysqlPool, task: Int) -> Int {
     var conn = shared.acquire()
     if conn.error.failed() {
@@ -205,6 +228,38 @@ func main() {
         var c = rp.acquire()
         check(c.query("SELECT @iron_pool_var").is_null(0, 0), "reset_on_release clears session state")
     }
+
+    -- More tasks than connections must reuse the connections, not churn
+    -- them: an unsigned clock difference used to see a just-returned idle
+    -- connection as idle for ages and close it, so most statements under
+    -- contention opened a new connection.
+    val before = admin.query("SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Connections'").int_or(0, 0, 0)
+    val cp = Mysql.open_pool(base, MysqlPoolOptions(0, 8))
+    val read_ok = readers(cp, 40, 500)
+    val after = admin.query("SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Connections'").int_or(0, 0, 0)
+    check(read_ok == 20000, "20000 statements from 40 tasks on 8 connections ({read_ok})")
+    check(after - before <= 8, "connections reused under contention ({after - before} opened, max 8)")
+
+    -- init_command runs on every new connection and again after a reset.
+    var icfg = base
+    icfg.init_command = "SET time_zone = '+03:00', @iron_init = 42"
+    var iconn = Mysql.connect(icfg)
+    check(iconn.ok() and is_text(iconn.query("SELECT @@session.time_zone").text(0, 0), "+03:00"), "init_command sets the session time zone")
+    check(is_int(iconn.query("SELECT @iron_init").int(0, 0), 42), "init_command sets a user variable")
+    var iopts = MysqlPoolOptions(1, 2)
+    iopts.reset_on_release = true
+    val initp = Mysql.open_pool(icfg, iopts)
+    {
+        var c = initp.acquire()
+        c.run("SET time_zone = '+05:00'")
+    }
+    check(is_text(initp.query("SELECT @@session.time_zone").text(0, 0), "+03:00"), "init_command runs again after reset_on_release")
+    var bad_init = base
+    bad_init.init_command = "SET no_such_variable_xyz = 1"
+    val bi = Mysql.connect(bad_init)
+    check(bi.error.code == 1193, "a failing init_command fails the connection (got {bi.error.code})")
+    val (url_cfg, url_err) = Mysql.parse_url(url + "?init_command=SET%20time_zone%20%3D%20%27%2B00%3A00%27")
+    check(url_err.ok() and url_cfg.init_command == "SET time_zone = '+00:00'", "init_command URL option ({url_err.message})")
 
     -- Idle connections above min are trimmed.
     var iopt = MysqlPoolOptions(0, 4)

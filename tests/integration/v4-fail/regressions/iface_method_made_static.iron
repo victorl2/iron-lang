@@ -1,0 +1,15 @@
+-- An interface method is not implemented by a static function (#455).
+interface Show {
+    readonly func show() -> String
+}
+
+object P impl Show {
+    val x: Int
+    static func show() -> String {
+        return "p"
+    }
+}
+
+func main() {
+    println("{P(1).x}")
+}

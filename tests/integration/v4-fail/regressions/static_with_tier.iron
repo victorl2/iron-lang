@@ -1,0 +1,11 @@
+-- A static function has no receiver, so readonly and pure do not apply (#455).
+object P {
+    val x: Int
+    static readonly func zero() -> P {
+        return P(0)
+    }
+}
+
+func main() {
+    println("{P.zero().x}")
+}

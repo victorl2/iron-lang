@@ -15,3 +15,25 @@ func OS.env(name: String) -> String? {
     }
     return null
 }
+
+-- Catch SIGINT and SIGTERM (on Windows Ctrl+C, Ctrl+Break and closing the
+-- console) instead of ending the process, so a service can stop accepting
+-- work, drain and exit cleanly. Poll OS.shutdown_signal() afterwards. A
+-- second signal ends the process immediately.
+func OS.trap_shutdown_signals() {}
+
+-- The first shutdown signal received since the trap was installed (2 for
+-- SIGINT, 15 for SIGTERM), or 0.
+func OS.shutdown_signal() -> Int {}
+
+-- The process id.
+func OS.pid() -> Int {}
+
+-- End the process now with exit status `code` (0..255), after flushing
+-- standard output. Pending drops, defers and running tasks are skipped:
+-- use it for fatal errors, not for normal shutdown.
+func OS.exit(code: Int) {}
+
+-- The number of CPUs this process may run on (its affinity mask on Linux,
+-- so container and taskset limits count), at least 1.
+func OS.cpu_count() -> Int {}

@@ -1,0 +1,357 @@
+-- Request, upstream and cache metrics, rendered in the Prometheus text
+-- exposition format by GET /metrics.
+--
+-- Each serving thread records into its own shard (an rc Metrics with its
+-- own lock, uncontended); background work has a shard too. GET /metrics
+-- sums the shards of the MetricsSet.
+
+pub enum Route {
+    Health,
+    Ready,
+    MetricsPage,
+    ItemCreate,
+    ItemGet,
+    ItemList,
+    ItemUpdate,
+    ItemStock,
+    ItemMovements,
+    Report,
+    RateGet,
+    NotFound,
+    BadRequest,
+}
+
+val ROUTE_COUNT = 13
+
+pub func route_index(r: Route) -> Int {
+    match r {
+        Route.Health -> return 0
+        Route.Ready -> return 1
+        Route.MetricsPage -> return 2
+        Route.ItemCreate -> return 3
+        Route.ItemGet -> return 4
+        Route.ItemList -> return 5
+        Route.ItemUpdate -> return 6
+        Route.ItemStock -> return 7
+        Route.ItemMovements -> return 8
+        Route.Report -> return 9
+        Route.RateGet -> return 10
+        Route.NotFound -> return 11
+        Route.BadRequest -> return 12
+    }
+    return 12
+}
+
+val STATUS_CODES = [200, 201, 400, 404, 405, 409, 413, 415, 422, 500, 502, 503, 504]
+val STATUS_COUNT = 14
+
+-- Upper bounds of the latency buckets in microseconds (+Inf is implied).
+val BUCKETS_US = [250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000, 2500000]
+val BUCKET_COUNT = 14
+
+pub func route_name(route: Int) -> String {
+    if route == 0 { return "health" }
+    if route == 1 { return "ready" }
+    if route == 2 { return "metrics" }
+    if route == 3 { return "item_create" }
+    if route == 4 { return "item_get" }
+    if route == 5 { return "item_list" }
+    if route == 6 { return "item_update" }
+    if route == 7 { return "item_stock" }
+    if route == 8 { return "item_movements" }
+    if route == 9 { return "report" }
+    if route == 10 { return "rate_get" }
+    if route == 11 { return "not_found" }
+    return "bad_request"
+}
+
+func status_index(status: Int) -> Int {
+    var i = 0
+    while i < STATUS_CODES.len() {
+        if STATUS_CODES[i] == status {
+            return i
+        }
+        i += 1
+    }
+    return STATUS_COUNT - 1
+}
+
+func bucket_index(us: Int) -> Int {
+    var i = 0
+    while i < BUCKETS_US.len() {
+        if us <= BUCKETS_US[i] {
+            return i
+        }
+        i += 1
+    }
+    return BUCKET_COUNT - 1
+}
+
+-- One set of counters. Every serving thread has its own (a shard), so the
+-- hot path takes an uncontended lock; GET /metrics adds the shards up.
+pub object Metrics {
+    val lock: Mutex[Int]
+    var requests: [Int]       -- ROUTE_COUNT x STATUS_COUNT
+    var latency: [Int]        -- ROUTE_COUNT x BUCKET_COUNT
+    var latency_sum_us: [Int] -- ROUTE_COUNT
+    var upstream: [Int]       -- outcome: ok, http_error, transport_error, malformed, breaker_open
+    var upstream_latency: [Int]
+    var upstream_latency_sum_us: Int
+    var cache_hits: Int
+    var cache_stale: Int
+    var cache_misses: Int
+    var db_errors: Int
+
+    pub init() {
+        self.lock = Mutex(0)
+        self.requests = fill(ROUTE_COUNT * STATUS_COUNT, 0)
+        self.latency = fill(ROUTE_COUNT * BUCKET_COUNT, 0)
+        self.latency_sum_us = fill(ROUTE_COUNT, 0)
+        self.upstream = fill(5, 0)
+        self.upstream_latency = fill(BUCKET_COUNT, 0)
+        self.upstream_latency_sum_us = 0
+        self.cache_hits = 0
+        self.cache_stale = 0
+        self.cache_misses = 0
+        self.db_errors = 0
+    }
+
+    pub func request_finished(r: Route, status: Int, us: Int) {
+        val route = route_index(r)
+        val g = self.lock.lock()
+        self.requests[route * STATUS_COUNT + status_index(status)] += 1
+        self.latency[route * BUCKET_COUNT + bucket_index(us)] += 1
+        self.latency_sum_us[route] += us
+    }
+
+    -- outcome: 0 ok, 1 http error, 2 transport error, 3 malformed, 4 breaker open
+    pub func upstream_call(outcome: Int, us: Int) {
+        val g = self.lock.lock()
+        self.upstream[outcome] += 1
+        if outcome != 4 {
+            self.upstream_latency[bucket_index(us)] += 1
+            self.upstream_latency_sum_us += us
+        }
+    }
+
+    -- kind: 0 fresh hit, 1 stale hit, 2 miss, -1 nothing to record
+    pub func cache_lookup(kind: Int) {
+        if kind < 0 {
+            return
+        }
+        val g = self.lock.lock()
+        if kind == 0 {
+            self.cache_hits += 1
+        } elif kind == 1 {
+            self.cache_stale += 1
+        } else {
+            self.cache_misses += 1
+        }
+    }
+
+    pub func db_error() {
+        val g = self.lock.lock()
+        self.db_errors += 1
+    }
+
+    -- Add this shard's counters into `total` (the caller owns total).
+    func add_into(var total: Totals) {
+        val g = self.lock.lock()
+        for i in range(self.requests.len()) {
+            total.requests[i] += self.requests[i]
+        }
+        for i in range(self.latency.len()) {
+            total.latency[i] += self.latency[i]
+        }
+        for i in range(self.latency_sum_us.len()) {
+            total.latency_sum_us[i] += self.latency_sum_us[i]
+        }
+        for i in range(self.upstream.len()) {
+            total.upstream[i] += self.upstream[i]
+        }
+        for i in range(self.upstream_latency.len()) {
+            total.upstream_latency[i] += self.upstream_latency[i]
+        }
+        total.upstream_latency_sum_us += self.upstream_latency_sum_us
+        total.cache_hits += self.cache_hits
+        total.cache_stale += self.cache_stale
+        total.cache_misses += self.cache_misses
+        total.db_errors += self.db_errors
+    }
+}
+
+object Totals {
+    var requests: [Int]
+    var latency: [Int]
+    var latency_sum_us: [Int]
+    var upstream: [Int]
+    var upstream_latency: [Int]
+    var upstream_latency_sum_us: Int
+    var cache_hits: Int
+    var cache_stale: Int
+    var cache_misses: Int
+    var db_errors: Int
+
+    init() {
+        self.requests = fill(ROUTE_COUNT * STATUS_COUNT, 0)
+        self.latency = fill(ROUTE_COUNT * BUCKET_COUNT, 0)
+        self.latency_sum_us = fill(ROUTE_COUNT, 0)
+        self.upstream = fill(5, 0)
+        self.upstream_latency = fill(BUCKET_COUNT, 0)
+        self.upstream_latency_sum_us = 0
+        self.cache_hits = 0
+        self.cache_stale = 0
+        self.cache_misses = 0
+        self.db_errors = 0
+    }
+}
+
+-- Every shard: one for background work (rate refreshes) and one per
+-- serving thread, registered when the thread starts.
+pub object MetricsSet {
+    val lock: Mutex[Int]
+    var shards: [rc Metrics]
+    val started_ms: Int
+
+    pub init(now_ms: Int) {
+        self.lock = Mutex(0)
+        self.shards = []
+        self.started_ms = now_ms
+    }
+
+    pub func new_shard() -> rc Metrics {
+        val m = rc Metrics()
+        val g = self.lock.lock()
+        self.shards.push(m)
+        return m
+    }
+
+    func totals() -> Totals {
+        var t = Totals()
+        val g = self.lock.lock()
+        for m in self.shards {
+            m.add_into(t)
+        }
+        return t
+    }
+}
+
+func upstream_outcome_name(i: Int) -> String {
+    if i == 0 { return "ok" }
+    if i == 1 { return "http_error" }
+    if i == 2 { return "transport_error" }
+    if i == 3 { return "malformed" }
+    return "breaker_open"
+}
+
+func seconds_text(us: Int) -> String {
+    return "{us / 1000000}.{(us % 1000000).to_string().pad_left(6, "0")}"
+}
+
+func le_text(i: Int) -> String {
+    if i >= BUCKETS_US.len() {
+        return "+Inf"
+    }
+    return seconds_text(BUCKETS_US[i])
+}
+
+-- Extra gauges sampled by the caller when /metrics is scraped.
+pub object Gauges {
+    pub val db_pool_size: Int
+    pub val db_pool_idle: Int
+    pub val db_pool_in_use: Int
+    pub val db_ready: Bool
+    pub val connections_parked: Int
+    pub val connections_accepted: Int
+    pub val connections_expired: Int
+    pub val rates_age_ms: Int
+    pub val rates_count: Int
+    pub val breaker_open: Bool
+}
+
+pub func render_metrics(set: rc MetricsSet, gauges: Gauges, now_ms: Int) -> String {
+    var out: [String] = []
+    val m = set.totals()
+    out.push("# HELP inventory_http_requests_total HTTP requests by route and status code.")
+    out.push("# TYPE inventory_http_requests_total counter")
+    for r in range(ROUTE_COUNT) {
+        for s in range(STATUS_COUNT) {
+            val n = m.requests[r * STATUS_COUNT + s]
+            if n > 0 {
+                var code = "other"
+                if s < STATUS_CODES.len() {
+                    code = "{STATUS_CODES[s]}"
+                }
+                out.push("inventory_http_requests_total\{route=\"{route_name(r)}\",code=\"{code}\"} {n}")
+            }
+        }
+    }
+    out.push("# HELP inventory_http_request_duration_seconds Time from request read to response written.")
+    out.push("# TYPE inventory_http_request_duration_seconds histogram")
+    for r in range(ROUTE_COUNT) {
+        var total = 0
+        for b in range(BUCKET_COUNT) {
+            total += m.latency[r * BUCKET_COUNT + b]
+        }
+        if total == 0 {
+            continue
+        }
+        var cum = 0
+        for b in range(BUCKET_COUNT) {
+            cum += m.latency[r * BUCKET_COUNT + b]
+            out.push("inventory_http_request_duration_seconds_bucket\{route=\"{route_name(r)}\",le=\"{le_text(b)}\"} {cum}")
+        }
+        out.push("inventory_http_request_duration_seconds_sum\{route=\"{route_name(r)}\"} {seconds_text(m.latency_sum_us[r])}")
+        out.push("inventory_http_request_duration_seconds_count\{route=\"{route_name(r)}\"} {total}")
+    }
+    out.push("# HELP inventory_upstream_requests_total Exchange rate API calls by outcome.")
+    out.push("# TYPE inventory_upstream_requests_total counter")
+    for i in range(5) {
+        out.push("inventory_upstream_requests_total\{outcome=\"{upstream_outcome_name(i)}\"} {m.upstream[i]}")
+    }
+    out.push("# HELP inventory_upstream_request_duration_seconds Exchange rate API call latency.")
+    out.push("# TYPE inventory_upstream_request_duration_seconds histogram")
+    var ucum = 0
+    for b in range(BUCKET_COUNT) {
+        ucum += m.upstream_latency[b]
+        out.push("inventory_upstream_request_duration_seconds_bucket\{le=\"{le_text(b)}\"} {ucum}")
+    }
+    out.push("inventory_upstream_request_duration_seconds_sum {seconds_text(m.upstream_latency_sum_us)}")
+    out.push("inventory_upstream_request_duration_seconds_count {ucum}")
+    out.push("# HELP inventory_rates_cache_lookups_total Exchange rate cache lookups by result.")
+    out.push("# TYPE inventory_rates_cache_lookups_total counter")
+    out.push("inventory_rates_cache_lookups_total\{result=\"hit\"} {m.cache_hits}")
+    out.push("inventory_rates_cache_lookups_total\{result=\"stale\"} {m.cache_stale}")
+    out.push("inventory_rates_cache_lookups_total\{result=\"miss\"} {m.cache_misses}")
+    out.push("# HELP inventory_db_errors_total Database operations that failed.")
+    out.push("# TYPE inventory_db_errors_total counter")
+    out.push("inventory_db_errors_total {m.db_errors}")
+    out.push("# TYPE inventory_uptime_seconds gauge")
+    out.push("inventory_uptime_seconds {(now_ms - set.started_ms) / 1000}")
+    out.push("# TYPE inventory_db_pool_connections gauge")
+    out.push("inventory_db_pool_connections\{state=\"idle\"} {gauges.db_pool_idle}")
+    out.push("inventory_db_pool_connections\{state=\"in_use\"} {gauges.db_pool_in_use}")
+    out.push("# TYPE inventory_db_ready gauge")
+    out.push("inventory_db_ready {bool_num(gauges.db_ready)}")
+    out.push("# TYPE inventory_http_connections_parked gauge")
+    out.push("inventory_http_connections_parked {gauges.connections_parked}")
+    out.push("# TYPE inventory_http_connections_accepted_total counter")
+    out.push("inventory_http_connections_accepted_total {gauges.connections_accepted}")
+    out.push("# TYPE inventory_http_connections_expired_total counter")
+    out.push("inventory_http_connections_expired_total {gauges.connections_expired}")
+    out.push("# TYPE inventory_rates_age_seconds gauge")
+    out.push("inventory_rates_age_seconds {gauges.rates_age_ms / 1000}")
+    out.push("# TYPE inventory_rates_currencies gauge")
+    out.push("inventory_rates_currencies {gauges.rates_count}")
+    out.push("# TYPE inventory_upstream_breaker_open gauge")
+    out.push("inventory_upstream_breaker_open {bool_num(gauges.breaker_open)}")
+    out.push("")
+    return "\n".join(out)
+}
+
+func bool_num(b: Bool) -> Int {
+    if b {
+        return 1
+    }
+    return 0
+}

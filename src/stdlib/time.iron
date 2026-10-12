@@ -2,8 +2,12 @@
 object Time {}
 
 func Time.now() -> Float {}
+-- now_ms and now_ns read a monotonic clock (unaffected by wall-clock
+-- changes, with an arbitrary origin): use them to measure durations.
+-- unix_ms is wall-clock time, milliseconds since the Unix epoch.
 func Time.now_ms() -> Int {}
 func Time.now_ns() -> Int {}
+func Time.unix_ms() -> Int {}
 func Time.sleep(ms: Int) {}
 func Time.since(start: Float) -> Float {}
 func Time.Timer(duration: Float) -> Timer {}
