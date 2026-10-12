@@ -18,7 +18,9 @@ if(NOT WIN32)
     # decouples this aggregate from the gate the per-fixture ctest rows use.
     set_tests_properties(test_v4_acceptance PROPERTIES
         LABELS "v4-acceptance"
-        ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}")
+        ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}"
+        PROCESSORS 4
+        TIMEOUT 7200)
 endif()
 
 # Optimizer parity oracle: every runnable v4 / algorithms fixture must behave
