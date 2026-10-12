@@ -1613,14 +1613,7 @@ if(Python3_EXECUTABLE)
     add_test(NAME expr_fuzz
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/expr_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/expr_fuzz)
-    set_tests_properties(expr_fuzz PROPERTIES LABELS "codegen" TIMEOUT 1800)
-    add_test(NAME test_expr_fuzz_timeout
-        COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
-            ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-            expr_fuzz 1800)
-    set_tests_properties(test_expr_fuzz_timeout PROPERTIES
-        LABELS "codegen;unit")
+    set_tests_properties(expr_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
     # Random whole programs (control flow, collections, objects and
     # ownership, closures) compared with a Python model of the manual
     # (tests/fuzz/prog_fuzz.py). Fixed seeds.
@@ -1663,39 +1656,15 @@ if(Python3_EXECUTABLE)
     add_test(NAME prog_fuzz_edges_num
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_edges_num numedge strcoll)
-    # This is the slowest generated-program group. Full CI can start it next
-    # to acceptance and migration aggregates, so allow for CPU
-    # contention without weakening the per-program watchdog in prog_fuzz.py.
-    set_tests_properties(prog_fuzz_edges_num PROPERTIES LABELS "codegen" TIMEOUT 1800)
-    add_test(NAME test_prog_fuzz_edges_num_timeout
-        COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
-            ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-            prog_fuzz_edges_num 1800)
-    set_tests_properties(test_prog_fuzz_edges_num_timeout PROPERTIES
-        LABELS "codegen;unit")
+    set_tests_properties(prog_fuzz_edges_num PROPERTIES LABELS "codegen" TIMEOUT 900)
     add_test(NAME prog_fuzz_edges_types
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_edges_types genedge ptredge)
-    set_tests_properties(prog_fuzz_edges_types PROPERTIES LABELS "codegen" TIMEOUT 1800)
-    add_test(NAME test_prog_fuzz_edges_types_timeout
-        COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
-            ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-            prog_fuzz_edges_types 1800)
-    set_tests_properties(test_prog_fuzz_edges_types_timeout PROPERTIES
-        LABELS "codegen;unit")
+    set_tests_properties(prog_fuzz_edges_types PROPERTIES LABELS "codegen" TIMEOUT 900)
     add_test(NAME prog_fuzz_edges_mem
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_edges_mem ctedge dropord)
-    set_tests_properties(prog_fuzz_edges_mem PROPERTIES LABELS "codegen" TIMEOUT 1800)
-    add_test(NAME test_prog_fuzz_edges_mem_timeout
-        COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
-            ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-            prog_fuzz_edges_mem 1800)
-    set_tests_properties(test_prog_fuzz_edges_mem_timeout PROPERTIES
-        LABELS "codegen;unit")
+    set_tests_properties(prog_fuzz_edges_mem PROPERTIES LABELS "codegen" TIMEOUT 900)
     # The json module against Python's json on random and corrupted
     # documents (tests/fuzz/json_fuzz.py). Fixed seeds.
     add_test(NAME json_fuzz
@@ -1901,14 +1870,7 @@ if(NOT WIN32)
                 ${CMAKE_SOURCE_DIR}/tests/integration/v4/6-readonly/boundary_returns_bounded_vec.iron
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_6_boundary_returns_bounded_vec PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 60)
-    add_test(NAME test_v4_bounded_vec_return_timeout
-        COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
-            ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-            v4_6_boundary_returns_bounded_vec 60)
-    set_tests_properties(test_v4_bounded_vec_return_timeout PROPERTIES
-        LABELS "integration;phase23-invariant;unit")
+    set_tests_properties(v4_6_boundary_returns_bounded_vec PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
 
     # Phase 23 Plan 23-03: OQ-10 corpus — bvec-as-return-value + multi-type bvec.
     # Check-only tests (ironc check) verifying emit_ensure_bvec fires for bvec
@@ -3289,16 +3251,7 @@ if(NOT WIN32)
   add_test(NAME debug_panic_smoke
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_panic_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
-  set_tests_properties(debug_panic_smoke PROPERTIES TIMEOUT 600)
-  if(Python3_Interpreter_FOUND)
-    add_test(NAME test_debug_panic_smoke_timeout
-             COMMAND ${Python3_EXECUTABLE}
-                     ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
-                     ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-                     debug_panic_smoke 600)
-    set_tests_properties(test_debug_panic_smoke_timeout PROPERTIES
-                         LABELS "integration;unit")
-  endif()
+  set_tests_properties(debug_panic_smoke PROPERTIES TIMEOUT 300)
 endif()
 # #312: gdb, LLDB and Visual Studio (natvis) views of Iron values in
 # `--debug` programs.

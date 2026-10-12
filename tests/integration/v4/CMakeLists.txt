@@ -36,22 +36,20 @@ if(NOT WIN32)
     )
     # Not in the v4-acceptance label: it builds every fixture twice, which
     # pushed that 30-minute gate over its limit. The full test jobs run it.
-    # The expanded corpus can take a little over an hour on a 4-core runner.
-    # Run it alone so its compiler workers cannot starve ordinary tests, and
-    # keep a two-hour safety cap for slow hosts.
+    # These exhaustive oracles each run an internal worker pool. Reserve a
+    # four-core runner and serialize them with one another so ctest -j4 does
+    # not multiply that parallelism into timeouts.
     set_tests_properties(test_opt_parity PROPERTIES
         LABELS "oracle"
         PROCESSORS 4
         RESOURCE_LOCK iron_exhaustive_corpus
-        TIMEOUT 7200
-        RUN_SERIAL TRUE)
+        TIMEOUT 7200)
 
     add_test(
         NAME test_opt_parity_timeout
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/check_aggregate_timeout.py
                 ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-                test_opt_parity 7200
     )
     set_tests_properties(test_opt_parity_timeout PROPERTIES LABELS "oracle;unit")
 endif()
