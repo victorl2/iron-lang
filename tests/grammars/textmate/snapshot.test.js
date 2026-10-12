@@ -20,6 +20,7 @@ const REPO_ROOT = path.resolve(TESTS_DIR, '..', '..', '..');
 const GRAMMAR_PATH = path.join(REPO_ROOT,
   'grammars', 'textmate', 'iron.tmLanguage.json');
 const FIXTURE_GLOB = path.join(TESTS_DIR, 'fixtures', '*.iron');
+const LEGACY_FIXTURE_GLOB = path.join(TESTS_DIR, 'fixtures', '*.iron-legacy');
 
 function resolveCli() {
   const localBin = path.join(TESTS_DIR, 'node_modules', '.bin',
@@ -46,7 +47,8 @@ function main() {
   // vscode-tmgrammar-test CLI: `vscode-tmgrammar-test -g <grammar> <glob>`
   // on success prints a pass banner and exits 0; on failure prints a
   // diff and exits non-zero.
-  const res = spawnSync(cli, ['-g', GRAMMAR_PATH, FIXTURE_GLOB], {
+  const res = spawnSync(cli,
+    ['-g', GRAMMAR_PATH, FIXTURE_GLOB, LEGACY_FIXTURE_GLOB], {
     stdio: 'inherit',
     cwd: TESTS_DIR,
   });
