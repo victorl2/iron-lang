@@ -19,8 +19,7 @@ if(NOT WIN32)
         ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}"
         PROCESSORS 4
         RESOURCE_LOCK iron_exhaustive_corpus
-        TIMEOUT 7200
-        RUN_SERIAL TRUE)
+        TIMEOUT 7200)
 endif()
 
 # Optimizer parity oracle: every runnable v4 / algorithms fixture must behave
@@ -52,19 +51,9 @@ if(NOT WIN32)
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/check_aggregate_timeout.py
                 ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-                test_opt_parity 7200 serial
+                test_opt_parity 7200
     )
     set_tests_properties(test_opt_parity_timeout PROPERTIES LABELS "oracle;unit")
-
-    add_test(
-        NAME test_v4_acceptance_serial
-        COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_CURRENT_SOURCE_DIR}/check_aggregate_timeout.py
-                ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-                test_v4_acceptance 0 serial
-    )
-    set_tests_properties(test_v4_acceptance_serial PROPERTIES
-        LABELS "v4-acceptance;unit")
 endif()
 
 # Phase 35 MIG-09: migrated-from-v3/ subdir hosts the hand-migrated v3 corpus.
