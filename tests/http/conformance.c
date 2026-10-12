@@ -132,6 +132,8 @@ static void test_request_lines_headers_and_framing(void) {
          0, "OPTIONS", "*", "*", "", "", 1},
         {"authority", "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n",
          0, "CONNECT", "example.com:443", "example.com:443", "", "", 1},
+        {"authority-ipv6", "CONNECT [2001:db8::1]:443 HTTP/1.1\r\nHost: [2001:db8::1]:443\r\n\r\n",
+         0, "CONNECT", "[2001:db8::1]:443", "[2001:db8::1]:443", "", "", 1},
         {"long-method", "CUSTOM-METHOD-WITH-MORE-THAN-THIRTY-TWO-CHARS / HTTP/1.1\r\nHost: x\r\n\r\n",
          0, "CUSTOM-METHOD-WITH-MORE-THAN-THIRTY-TWO-CHARS", "/", "/", "", "", 1},
         {"token-header-empty-and-repeated",
@@ -166,6 +168,9 @@ static void test_request_lines_headers_and_framing(void) {
         REJECT("fragment", "GET /a#frag HTTP/1.1\r\nHost: x\r\n\r\n", IRON_ERR_HTTP_MALFORMED_MESSAGE),
         REJECT("asterisk-wrong-method", "GET * HTTP/1.1\r\nHost: x\r\n\r\n", IRON_ERR_HTTP_MALFORMED_MESSAGE),
         REJECT("authority-wrong-method", "GET example.com:443 HTTP/1.1\r\nHost: x\r\n\r\n", IRON_ERR_HTTP_MALFORMED_MESSAGE),
+        REJECT("authority-bad-ipv6", "CONNECT [2001:::1]:443 HTTP/1.1\r\nHost: x\r\n\r\n", IRON_ERR_HTTP_MALFORMED_MESSAGE),
+        REJECT("authority-missing-bracket", "CONNECT [2001:db8::1:443 HTTP/1.1\r\nHost: x\r\n\r\n", IRON_ERR_HTTP_MALFORMED_MESSAGE),
+        REJECT("authority-bad-port", "CONNECT example.com:https HTTP/1.1\r\nHost: x\r\n\r\n", IRON_ERR_HTTP_MALFORMED_MESSAGE),
         REJECT("content-length-conflict", "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\nContent-Length: 4\r\n\r\ntest", IRON_ERR_HTTP_BAD_CONTENT_LENGTH),
         REJECT("content-length-conflict-list", "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 4, 5\r\n\r\ntestx", IRON_ERR_HTTP_BAD_CONTENT_LENGTH),
         REJECT("content-length-sign", "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: +4\r\n\r\ntest", IRON_ERR_HTTP_BAD_CONTENT_LENGTH),
@@ -184,7 +189,7 @@ static void test_request_lines_headers_and_framing(void) {
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
         check_request_case(&cases[i], SIZE_MAX);
 
-    static const size_t split_cases[] = {0, 8, 10};
+    static const size_t split_cases[] = {0, 9, 11};
     for (size_t c = 0; c < sizeof(split_cases) / sizeof(split_cases[0]); c++) {
         const RequestCase *test = &cases[split_cases[c]];
         size_t n = strlen(test->wire);

@@ -889,19 +889,70 @@ static int valid_target_octets(const char *target, size_t len) {
     return 1;
 }
 
+static int uri_reg_name_char(unsigned char c) {
+    return isalnum(c) || c == '-' || c == '.' || c == '_' || c == '~' ||
+           c == '!' || c == '$' || c == '&' || c == '\'' || c == '(' ||
+           c == ')' || c == '*' || c == '+' || c == ',' || c == ';' ||
+           c == '=';
+}
+
+static int valid_authority_target(const char *target, size_t len) {
+    size_t port_at = 0;
+    if (target[0] == '[') {
+        size_t close = 1;
+        while (close < len && target[close] != ']') close++;
+        if (close == 1 || close + 2 >= len || target[close + 1] != ':')
+            return 0;
+        size_t literal_len = close - 1;
+        if ((target[1] == 'v' || target[1] == 'V') && literal_len >= 4) {
+            size_t pos = 2;
+            size_t hex_start = pos;
+            while (pos < close && http_is_hex((unsigned char)target[pos])) pos++;
+            if (pos == hex_start || pos >= close || target[pos++] != '.' ||
+                pos == close) return 0;
+            for (; pos < close; pos++) {
+                unsigned char c = (unsigned char)target[pos];
+                if (!(uri_reg_name_char(c) || c == ':')) return 0;
+            }
+        } else {
+            if (literal_len >= 64) return 0;
+            char literal[64];
+            memcpy(literal, target + 1, literal_len);
+            literal[literal_len] = 0;
+            struct in6_addr address;
+#ifdef _WIN32
+            if (InetPtonA(AF_INET6, literal, &address) != 1) return 0;
+#else
+            if (inet_pton(AF_INET6, literal, &address) != 1) return 0;
+#endif
+        }
+        port_at = close + 2;
+    } else {
+        size_t colon = 0;
+        while (colon < len && target[colon] != ':') {
+            unsigned char c = (unsigned char)target[colon];
+            if (c == '%') colon += 3;
+            else {
+                if (!uri_reg_name_char(c)) return 0;
+                colon++;
+            }
+        }
+        if (colon == 0 || colon >= len) return 0;
+        port_at = colon + 1;
+    }
+    if (port_at >= len) return 0;
+    for (size_t i = port_at; i < len; i++)
+        if (target[i] < '0' || target[i] > '9') return 0;
+    return 1;
+}
+
 static int valid_request_target(const char *method, size_t method_len,
                                 const char *target, size_t len) {
     if (len == 0 || !valid_target_octets(target, len)) return 0;
     if (len == 1 && target[0] == '*')
         return ascii_ieq_n(method, method_len, "OPTIONS", strlen("OPTIONS"));
     if (ascii_ieq_n(method, method_len, "CONNECT", strlen("CONNECT"))) {
-        size_t colon = 0;
-        while (colon < len && target[colon] != ':') colon++;
-        if (colon == 0 || colon + 1 >= len) return 0;
-        for (size_t i = colon + 1; i < len; i++)
-            if (target[i] < '0' || target[i] > '9') return 0;
-        return memchr(target, '/', len) == NULL &&
-               memchr(target, '?', len) == NULL;
+        return valid_authority_target(target, len);
     }
     if (target[0] == '/') return 1;
     size_t scheme_end = 0;
