@@ -83,6 +83,13 @@ jobs:
             corpus: build/tests/fuzz/corpus/parser
             dict:   tests/fuzz/iron.dict
             build_target: fuzz_comments iron_seed_blobs
+          # Source analyzed as ironc check and the language server do (stdlib
+          # prelude, broken buffers included), plus formatter idempotence.
+          - target: check
+            binary: build/tests/fuzz/fuzz_check
+            corpus: build/tests/fuzz/corpus/check
+            dict:   tests/fuzz/iron.dict
+            build_target: fuzz_check iron_seed_blobs
           # -- LSP-side (Phase 7 Plan 07-05 HARD-19) --
           # Corpora are hand-crafted in-tree (D-07: no live-traffic mining).
           # No dict: LSP inputs are raw bytes (framed JSON-RPC, binary

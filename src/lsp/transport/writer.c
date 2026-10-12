@@ -1,25 +1,20 @@
-/* Phase 2 Plan 02 Task 03 -- Bounded writer queue + drop policy.
+/* Phase 2 Plan 02 Task 03 -- Writer queue + drop policy.
  *
- * The queue is a fixed-size circular array of 256 slots. head/tail/count
- * form the standard ring-buffer invariants; all state transitions happen
- * under `lock`. Enqueuers signal `cv` after inserting; the writer thread
- * waits on `cv` while `count == 0 && !shutdown`.
+ * The queue is a circular array that starts at ILSP_WRITER_QUEUE_CAPACITY
+ * slots and grows when needed. head/count form the ring invariants; all
+ * state transitions happen under `lock`. Enqueuers signal `cv` after
+ * inserting; the writer thread waits on `cv` while `count == 0 &&
+ * !shutdown`.
  *
- * Drop policy (executed inside the enqueue critical section, BEFORE
- * inserting the new item):
- *   1. If count < capacity: normal insert at tail, return OK.
- *   2. Queue full: walk from head looking for the oldest ILSP_PRIO_LOG.
- *      If found: free its body, shift subsequent slots down by one,
- *      insert the new item at the now-open tail slot, return
- *      OK_DROPPED_LOG.
- *   3. Else walk for oldest ILSP_PRIO_NOTIFICATION; same shift, return
- *      OK_DROPPED_NOTIFICATION.
- *   4. Else all slots are responses: free the NEW item's body (caller
- *      relinquished ownership), return FULL_DROPPED.
- *
- * The shift is O(N) in the worst case. At capacity 256 and typical LSP
- * traffic (tens of messages/sec) the extra work is negligible; the
- * invariant "no dropped response while logs exist" is worth the cost. */
+ * Policy when the queue holds ILSP_WRITER_QUEUE_CAPACITY items or more:
+ *   1. Drop the oldest ILSP_PRIO_LOG (a window/logMessage can be lost)
+ *      and return OK_DROPPED_LOG.
+ *   2. Otherwise grow the array. Responses and notifications are never
+ *      dropped: a request left without its response hangs the client,
+ *      and a lost publishDiagnostics leaves stale diagnostics (they used
+ *      to be dropped once 256 were queued, #589). A client that stops
+ *      reading altogether is bounded by the RSS cap.
+ *   3. FULL_DROPPED only when the array cannot grow (out of memory). */
 #include "lsp/transport/writer.h"
 
 #include <errno.h>
@@ -33,9 +28,10 @@
 
 struct IronLsp_Writer {
     FILE                 *sink;
-    IronLsp_OutboundItem  queue[ILSP_WRITER_QUEUE_CAPACITY];
+    IronLsp_OutboundItem *queue;     /* ring of `cap` slots */
+    int                   cap;
     int                   head;      /* index of oldest item */
-    int                   count;     /* 0..CAPACITY */
+    int                   count;     /* 0..cap */
     iron_mutex_t          lock;
     iron_cond_t           cv;
     iron_thread_t         thread;
@@ -101,7 +97,7 @@ static void *writer_thread_main(void *arg) {
         }
         IronLsp_OutboundItem item = w->queue[w->head];
         w->queue[w->head].body = NULL;
-        w->head = (w->head + 1) % ILSP_WRITER_QUEUE_CAPACITY;
+        w->head = (w->head + 1) % w->cap;
         w->count--;
         IRON_MUTEX_UNLOCK(w->lock);
 
@@ -114,6 +110,9 @@ IronLsp_Writer *ilsp_writer_create(FILE *sink) {
     IronLsp_Writer *w = (IronLsp_Writer *)calloc(1, sizeof(*w));
     if (!w) return NULL;
     w->sink    = sink;
+    w->cap     = ILSP_WRITER_QUEUE_CAPACITY;
+    w->queue   = (IronLsp_OutboundItem *)calloc((size_t)w->cap, sizeof(*w->queue));
+    if (!w->queue) { free(w); return NULL; }
     w->head    = 0;
     w->count   = 0;
     w->started = false;
@@ -127,9 +126,10 @@ void ilsp_writer_destroy(IronLsp_Writer *w) {
     if (!w) return;
     /* Free any un-drained bodies so tests that skip start/join don't leak. */
     for (int i = 0; i < w->count; i++) {
-        int idx = (w->head + i) % ILSP_WRITER_QUEUE_CAPACITY;
+        int idx = (w->head + i) % w->cap;
         free(w->queue[idx].body);
     }
+    free(w->queue);
     IRON_MUTEX_DESTROY(w->lock);
     IRON_COND_DESTROY(w->cv);
     free(w);
@@ -160,7 +160,7 @@ void ilsp_writer_join(IronLsp_Writer *w) {
 static int find_oldest_of_priority(const IronLsp_Writer *w,
                                    IronLsp_Priority prio) {
     for (int i = 0; i < w->count; i++) {
-        int idx = (w->head + i) % ILSP_WRITER_QUEUE_CAPACITY;
+        int idx = (w->head + i) % w->cap;
         if (w->queue[idx].prio == prio) return i;  /* logical offset */
     }
     return -1;
@@ -170,17 +170,17 @@ static int find_oldest_of_priority(const IronLsp_Writer *w,
  * Returns the freed logical slot (always w->count - 1 after shift).
  * Caller holds lock. Frees the removed item's body. */
 static void remove_logical(IronLsp_Writer *w, int logical_offset) {
-    int idx = (w->head + logical_offset) % ILSP_WRITER_QUEUE_CAPACITY;
+    int idx = (w->head + logical_offset) % w->cap;
     free(w->queue[idx].body);
     w->queue[idx].body = NULL;
 
     /* Shift each subsequent item one slot earlier. */
     for (int i = logical_offset; i < w->count - 1; i++) {
-        int from = (w->head + i + 1) % ILSP_WRITER_QUEUE_CAPACITY;
-        int to   = (w->head + i)     % ILSP_WRITER_QUEUE_CAPACITY;
+        int from = (w->head + i + 1) % w->cap;
+        int to   = (w->head + i)     % w->cap;
         w->queue[to] = w->queue[from];
     }
-    int last = (w->head + w->count - 1) % ILSP_WRITER_QUEUE_CAPACITY;
+    int last = (w->head + w->count - 1) % w->cap;
     w->queue[last].body = NULL;
     w->count--;
 }
@@ -198,27 +198,31 @@ IronLsp_EnqueueResult ilsp_writer_enqueue(IronLsp_Writer *w,
     IRON_MUTEX_LOCK(w->lock);
 
     if (w->count >= ILSP_WRITER_QUEUE_CAPACITY) {
-        /* Queue full -- apply drop policy. Try LOG first, then NOTIFICATION. */
         int idx = find_oldest_of_priority(w, ILSP_PRIO_LOG);
         if (idx >= 0) {
             remove_logical(w, idx);
             result = ILSP_ENQUEUE_OK_DROPPED_LOG;
-        } else {
-            idx = find_oldest_of_priority(w, ILSP_PRIO_NOTIFICATION);
-            if (idx >= 0) {
-                remove_logical(w, idx);
-                result = ILSP_ENQUEUE_OK_DROPPED_NOTIFICATION;
-            } else {
-                /* All slots are responses: reject the new item. */
-                IRON_MUTEX_UNLOCK(w->lock);
-                free(body);
-                return ILSP_ENQUEUE_FULL_DROPPED;
-            }
         }
+    }
+    if (w->count >= w->cap) {
+        /* Grow, unrolling the ring into the new array. */
+        int ncap = w->cap * 2;
+        IronLsp_OutboundItem *nq =
+            (IronLsp_OutboundItem *)calloc((size_t)ncap, sizeof(*nq));
+        if (!nq) {
+            IRON_MUTEX_UNLOCK(w->lock);
+            free(body);
+            return ILSP_ENQUEUE_FULL_DROPPED;
+        }
+        for (int i = 0; i < w->count; i++) nq[i] = w->queue[(w->head + i) % w->cap];
+        free(w->queue);
+        w->queue = nq;
+        w->cap = ncap;
+        w->head = 0;
     }
 
     /* Insert at tail. */
-    int tail = (w->head + w->count) % ILSP_WRITER_QUEUE_CAPACITY;
+    int tail = (w->head + w->count) % w->cap;
     w->queue[tail].prio = prio;
     w->queue[tail].body = body;
     w->queue[tail].len  = len;
@@ -238,7 +242,7 @@ bool ilsp_writer_drain_one(IronLsp_Writer *w) {
     }
     IronLsp_OutboundItem item = w->queue[w->head];
     w->queue[w->head].body = NULL;
-    w->head = (w->head + 1) % ILSP_WRITER_QUEUE_CAPACITY;
+    w->head = (w->head + 1) % w->cap;
     w->count--;
     IRON_MUTEX_UNLOCK(w->lock);
 
