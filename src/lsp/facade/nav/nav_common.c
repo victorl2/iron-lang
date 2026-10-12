@@ -311,6 +311,61 @@ static const char *decl_type_name(Iron_Node *d) {
     }
 }
 
+static bool span_contains_point(const Iron_Span *span, uint32_t line, uint32_t col) {
+    if (!span || line < span->line || line > span->end_line) return false;
+    if (line == span->line && col < span->col) return false;
+    if (line == span->end_line && col > span->end_col) return false;
+    return true;
+}
+
+/* Generic templates are checked after instantiation, so `T` in `T.f()` has
+ * no resolved symbol or type in the template AST. Recover the interface
+ * signature from the enclosing declaration's generic constraint so hover,
+ * definition and semantic classification agree with compiler dispatch. */
+static Iron_Node *generic_static_method_decl(const Iron_Program *program,
+                                             const Iron_MethodCallExpr *mc) {
+    if (!program || !mc || !mc->object || mc->object->kind != IRON_NODE_IDENT ||
+        !mc->method) return NULL;
+    const char *receiver = ((Iron_Ident *)mc->object)->name;
+    if (!receiver) return NULL;
+    const char *constraint = NULL;
+    for (int i = 0; i < program->decl_count && !constraint; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || !span_contains_point(&d->span, mc->span.line, mc->span.col)) continue;
+        Iron_Node **gps = NULL;
+        int gp_count = 0;
+        if (d->kind == IRON_NODE_FUNC_DECL) {
+            Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+            gps = fd->generic_params;
+            gp_count = fd->generic_param_count;
+        } else if (d->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+            gps = md->generic_params;
+            gp_count = md->generic_param_count;
+        }
+        for (int j = 0; j < gp_count; j++) {
+            Iron_Node *gp_node = gps ? gps[j] : NULL;
+            if (!gp_node || gp_node->kind != IRON_NODE_IDENT) continue;
+            Iron_Ident *gp = (Iron_Ident *)gp_node;
+            if (gp->name && strcmp(gp->name, receiver) == 0) {
+                constraint = gp->constraint_name;
+                break;
+            }
+        }
+    }
+    Iron_Node *decl = find_type_decl(program, constraint);
+    if (!decl || decl->kind != IRON_NODE_INTERFACE_DECL) return NULL;
+    Iron_InterfaceDecl *id = (Iron_InterfaceDecl *)decl;
+    for (int i = 0; i < id->method_count; i++) {
+        Iron_Node *sig_node = id->method_sigs[i];
+        if (!sig_node || sig_node->kind != IRON_NODE_FUNC_DECL) continue;
+        Iron_FuncDecl *sig = (Iron_FuncDecl *)sig_node;
+        if (sig->is_static && sig->name && strcmp(sig->name, mc->method) == 0)
+            return sig_node;
+    }
+    return NULL;
+}
+
 static Iron_Node *find_method(const Iron_Program *program, const Iron_Type *recv,
                               const char *type_name, const char *method) {
     if (recv && recv->kind == IRON_TYPE_INTERFACE && recv->interface.decl) {
@@ -348,6 +403,8 @@ Iron_Node *ilsp_nav_member_decl(const Iron_Program *program, Iron_Node *n,
             if (!mc->method) return NULL;
             Iron_Node *st = static_receiver_decl(mc->object);
             if (st) return find_method(program, NULL, decl_type_name(st), mc->method);
+            Iron_Node *generic_static = generic_static_method_decl(program, mc);
+            if (generic_static) return generic_static;
             const Iron_Type *t = strip_wrappers(
                 mc->object ? ((Iron_ExprNode *)mc->object)->resolved_type : NULL);
             if (!t) return NULL;
