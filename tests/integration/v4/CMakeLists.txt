@@ -32,11 +32,12 @@ if(NOT WIN32)
     )
     # Not in the v4-acceptance label: it builds every fixture twice, which
     # pushed that 30-minute gate over its limit. The full test jobs run it.
-    # Under ASan on a 4-core CI runner it takes about 25 minutes next to the
-    # other rows, so its own cap is an hour.
+    # This runs next to other CPU-heavy aggregate rows in the full suite. The
+    # expanded corpus can take more than an hour under that contention, so
+    # retain a finite two-hour cap.
     set_tests_properties(test_opt_parity PROPERTIES
         LABELS "oracle"
-        TIMEOUT 3600)
+        TIMEOUT 7200)
 endif()
 
 # Generated C of byte scanning loops and constant tables (#658): inline
