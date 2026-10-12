@@ -1572,6 +1572,12 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/expr_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/expr_fuzz)
     set_tests_properties(expr_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
+    # Scalar bit and overflow intrinsics, borrowed views and StringBuilder
+    # against deterministic Python integer and sequence models.
+    add_test(NAME scalar_views_fuzz
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/scalar_views_fuzz.py
+            $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/scalar_views_fuzz)
+    set_tests_properties(scalar_views_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
     # Random whole programs (control flow, collections, objects and
     # ownership, closures) compared with a Python model of the manual
     # (tests/fuzz/prog_fuzz.py). Fixed seeds.
