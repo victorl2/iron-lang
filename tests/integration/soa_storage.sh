@@ -7,7 +7,8 @@
 #     without is not, and a slice keeps the layout of its source;
 #   - reading or writing one field goes to that field's column, not through
 #     a gather of the whole element;
-#   - a method call on an element lends a gathered copy and writes it back.
+#   - a method call on an element lends a gathered copy and writes back the
+#     fields the method can change, and only those.
 #
 # Usage: soa_storage.sh path/to/ironc
 set -u
@@ -50,7 +51,7 @@ count "two lists created element by element"   '_v[0-9]+ = Iron_List_Iron_P_crea
 need  "field write goes to its column"      '\(\*Iron_List_Iron_P_field_x\(.*\) = '
 need  "field read goes to its column"       '= \(\(\*Iron_List_Iron_P_field_x\(.*\)\) \+ '
 need  "receiver is a gathered copy"         '= Iron_List_Iron_P_read\(\*_sb[0-9]+_l, _sb[0-9]+_i\), &_sb[0-9]+\)'
-need  "the copy is written back"            'Iron_List_Iron_P_write\(_sb[0-9]+_l, _sb[0-9]+_i, _sb[0-9]+\);'
+need  "only the field bump writes goes back" '\{ Iron_List_Iron_P_put_x\(_sb[0-9]+_l, _sb[0-9]+_i, &_sb[0-9]+\); \}'
 need  "a slice takes its source's layout"   '\.soa = \(.*\)\.soa;'
 [ "${fail}" -eq 0 ] && echo "soa storage: ok"
 exit "${fail}"
