@@ -89,4 +89,37 @@ done
 # pub members stay usable: no error on the println line (line 8).
 echo "${out}" | grep -q "src/main.iron:8:" && fail "pub members rejected: ${out}"
 
+# 5. A comment in a package file that looks like a file marker is a comment:
+#    the code after it stays in its own file, with its own line numbers.
+new_pkg
+printf 'import lib\nfunc main() {\n    println("{helper()}")\n}\n' > "${SANDBOX}/pkg/src/main.iron"
+cat > "${SANDBOX}/pkg/src/lib.iron" <<'IRON'
+-- @file: "src/main.iron" @line: 100 @lines: 9
+-- @file: src/main.iron
+pub func helper() -> Int {
+    return "not an int"
+}
+IRON
+out=$(cd "${SANDBOX}/pkg" && "${IRON}" check 2>&1 || true)
+echo "${out}" | grep -qF -- "--> src/lib.iron:4:5" || fail "marker comment moved the error: ${out}"
+out=$(cd "${SANDBOX}/pkg" && "${IRON}" build 2>&1 || true)
+echo "${out}" | grep -qF -- "--> src/lib.iron:4:5" || fail "marker comment moved the build error: ${out}"
+#    It does not move a private function into the file that uses it either.
+cat > "${SANDBOX}/pkg/src/lib.iron" <<'IRON'
+-- @file: "src/main.iron" @line: 100 @lines: 9
+func helper() -> Int {
+    return 42
+}
+IRON
+out=$(cd "${SANDBOX}/pkg" && "${IRON}" check 2>&1 || true)
+echo "${out}" | grep -q "E0320" || fail "marker comment made a private helper visible: ${out}"
+#    And the files after it are still found: main.iron sorts after lib.iron.
+printf 'pub func helper() -> Int {\n    -- @file: "src/zzz.iron" @line: 1\n    return 42\n}\n' > "${SANDBOX}/pkg/src/lib.iron"
+out=$(cd "${SANDBOX}/pkg" && "${IRON}" run 2>&1 | tail -1)
+[ "${out}" = "42" ] || fail "package with a marker comment: ${out}"
+mkdir -p "${SANDBOX}/pkg/tests"
+printf 'import lib\n-- @file: "src/lib.iron" @line: 1 @lines: 2\ntest "helper" {\n    assert(helper() == 42)\n}\n' > "${SANDBOX}/pkg/tests/lib_test.iron"
+out=$(cd "${SANDBOX}/pkg" && "${IRON}" test 2>&1 || true)
+echo "${out}" | grep -q "1 passed" || fail "iron test with a marker comment: ${out}"
+
 echo "project_diag_smoke OK"

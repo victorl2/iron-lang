@@ -194,6 +194,9 @@ typedef struct {
                                          * (from_stdlib_prepend = false). */
     bool                in_stdlib_prepend; /* current region is a synthetic
                                             * stdlib prepend (see Iron_Token) */
+    Iron_FileMarkerGate file_markers;   /* which `@file:` comments are file
+                                         * markers (diagnostics.h); in user
+                                         * source, none */
 } Iron_Lexer;
 
 /* ── API ─────────────────────────────────────────────────────────────────── */
@@ -201,6 +204,14 @@ typedef struct {
 /* Create a lexer over `src` (not copied; must outlive the lexer). */
 Iron_Lexer iron_lexer_create(const char *src, const char *filename,
                               Iron_Arena *arena, Iron_DiagList *diags);
+
+/* The buffer has a compiler-written prelude above the user's source (the
+ * prepended standard library and the marker naming the user's file): the
+ * user's part starts on physical line `line`. The file markers before that
+ * line are honored; so are, when the source was packed by `iron`
+ * (--packed-source), those between its files. Without this call (and
+ * outside multi-file test mode) an `@file:` comment is a plain comment. */
+void iron_lexer_set_user_start_line(Iron_Lexer *l, uint32_t line);
 
 /* HARD-05: attach a caller-owned _Atomic bool *cancel flag to the lexer.
  * NULL means "never cancel" (the default from iron_lexer_create). When the

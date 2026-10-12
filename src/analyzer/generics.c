@@ -436,6 +436,8 @@ static int materialize_one(Iron_Program *program, GenInst *gi, Iron_Arena *arena
     if (!snippet) return 0;
 
     Iron_Lexer lexer = iron_lexer_create(snippet, file, arena, diags);
+    /* Line 1 is the marker written above; the instance starts on line 2. */
+    iron_lexer_set_user_start_line(&lexer, 2);
     Iron_Token *tokens = iron_lex_all(&lexer);
     int token_count = (int)arrlen(tokens);
     Iron_Parser parser = iron_parser_create(tokens, token_count, snippet, file,

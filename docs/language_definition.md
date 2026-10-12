@@ -49,6 +49,14 @@ types and list literals (`[Int; 4]`).
 A line comment starts with `--` and runs to the end of the line. There are
 no block comments, and `//` and `#` are not comments.
 
+A comment never changes what a program means. One comment has a meaning to
+the compiler's own tests: a comment whose text starts with `@file:` (a
+*file marker*) tells the test harness's multi-file mode that the source
+after it belongs to another file. Only that mode
+(`IRON_MULTI_FILE_TEST=1`) honors it; in any other compile it is an
+ordinary comment, and diagnostics after it still name the file it is
+written in.
+
 A line starting with `///` is a documentation comment. A run of `///`
 lines directly above a declaration, field, enum variant or interface method
 (no blank line in between) is attached to it and shown by the language

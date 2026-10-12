@@ -224,7 +224,17 @@ Iron_Lexer iron_lexer_create(const char *src, const char *filename,
     l.phys_line         = 1;
     l.entry_filename    = filename;
     l.in_stdlib_prepend = false;
+    /* No prelude and not a packed source until the caller says so
+     * (iron_lexer_set_user_start_line): only multi-file test mode honors a
+     * file marker here. */
+    l.file_markers        = iron_file_marker_gate(1);
+    l.file_markers.packed = false;
     return l;
+}
+
+/* See lexer.h. */
+void iron_lexer_set_user_start_line(Iron_Lexer *l, uint32_t line) {
+    if (l) l->file_markers = iron_file_marker_gate(line);
 }
 
 /* 2026-07 diagnostics remediation: see lexer.h. phys_line is seated too so a
@@ -943,6 +953,58 @@ static Iron_Token iron_lex_c_operator(Iron_Lexer *l, Iron_TokenKind kind,
     return iron_make_token(l, kind, NULL, start_line, start_col, len);
 }
 
+/* ── File markers ────────────────────────────────────────────────────────── */
+
+/* A line comment's text starts at src[text_start] (just past the comment
+ * introducer, whichever form it has). When that text is a file marker
+ * (`@file: <name> [@line: <n>] [@lines: <count>]`, see diagnostics.h) that
+ * the lexer's gate honors, re-tag the tokens after it with <name>. In user
+ * source the gate honors none and the comment is only a comment. Consumes
+ * nothing: the caller skips the comment to the end of the line either way.
+ *
+ * Every line comment form must call this, so the marker does not depend on
+ * how comments are written. */
+static void iron_lex_comment_marker(Iron_Lexer *l, size_t text_start) {
+    if (text_start > l->src_len) return;
+    size_t eol = text_start;
+    while (eol < l->src_len && l->src[eol] != '\n') eol++;
+
+    Iron_FileMarker m;
+    if (!iron_file_marker_parse(l->src + text_start, eol - text_start, &m)) return;
+    if (!iron_file_marker_admit(&l->file_markers, l->phys_line, &m)) return;
+
+    char *new_filename = iron_arena_strdup(l->arena, m.name, m.name_len);
+    if (!new_filename) return;
+    l->filename = new_filename;
+    iron_source_marker_add(new_filename);
+
+    if (m.line_reset > 0) {
+        /* `@line: <n>` also RESETS the logical line counter, so the next
+         * physical line is reported as line <n> of <name>. The compiler
+         * writes it around each prepended stdlib file (and once more, naming
+         * the entry file, where the user's own source resumes) so spans
+         * carry per-file 1-based line numbers end-to-end (compile
+         * diagnostics AND the runtime deref-site strings emit_c.c bakes
+         * from LIR spans). The comment's trailing '\n' increments l->line,
+         * so seat it at n-1.
+         *
+         * A marker naming the entry file re-enters user code; any other
+         * name opens a synthetic stdlib prepend region. */
+        l->line = m.line_reset - 1;
+        l->in_stdlib_prepend =
+            !(l->entry_filename && strcmp(l->filename, l->entry_filename) == 0);
+    } else {
+        /* A marker WITHOUT `@line:` (the multi-file test harness) re-tags
+         * the filename only: line numbering is resynced to the physical
+         * (TU-wide) count, which is what `line` always was before any
+         * `@line:` marker diverged it, and the files are user code. That
+         * preserves the resolver's line-threshold stdlib carve-out
+         * (resolve.c:is_stdlib_decl) for harness-concatenated files. */
+        l->line = l->phys_line;
+        l->in_stdlib_prepend = false;
+    }
+}
+
 static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
     uint32_t start_line = l->line;
     uint32_t start_col  = l->col;
@@ -969,143 +1031,9 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
             if (iron_peek_char(l) == '-') {
                 /* Comment: consume to end of line. */
 
-                /* Phase 93 VIS-03 multi-file test marker. Recognizes:
-                 *   -- @file: <basename>
-                 * The runner emits this directive between concatenated test
-                 * files so the lexer can re-tag subsequent tokens with the
-                 * correct filename for the resolver's cross-module check.
-                 * The directive is otherwise treated as a normal line-comment
-                 * (its text is consumed; no token emitted). At this point
-                 * we have already consumed the first '-' (start_pos) and
-                 * peeked the second '-'. Consume the second '-' first, then
-                 * skip inline whitespace and look for "@file:". */
-                size_t scan = l->pos + 1;  /* index of char after the second '-' */
-                /* Skip inline whitespace (spaces and tabs only). */
-                while (scan < l->src_len &&
-                       (l->src[scan] == ' ' || l->src[scan] == '\t')) {
-                    scan++;
-                }
-                static const char k_marker[] = "@file:";
-                size_t k_marker_len = sizeof(k_marker) - 1;
-                if (scan + k_marker_len <= l->src_len &&
-                    memcmp(l->src + scan, k_marker, k_marker_len) == 0) {
-                    /* Position scan past "@file:". */
-                    scan += k_marker_len;
-                    /* Skip whitespace before the basename. */
-                    while (scan < l->src_len &&
-                           (l->src[scan] == ' ' || l->src[scan] == '\t')) {
-                        scan++;
-                    }
-                    /* Read the name. Two forms (2026-07 diagnostics
-                     * remediation added the quoted one):
-                     *   bare:   until newline / EOF / whitespace (Phase 93)
-                     *   quoted: "<name>" — may contain spaces; used by the
-                     *           build.c/check.c stdlib line-mapping markers
-                     *           so absolute paths round-trip. */
-                    size_t name_start;
-                    size_t name_len;
-                    if (scan < l->src_len && l->src[scan] == '"') {
-                        scan++; /* opening quote */
-                        name_start = scan;
-                        while (scan < l->src_len &&
-                               l->src[scan] != '"' &&
-                               l->src[scan] != '\n' &&
-                               l->src[scan] != '\r') {
-                            scan++;
-                        }
-                        name_len = scan - name_start;
-                        if (scan < l->src_len && l->src[scan] == '"') {
-                            scan++; /* closing quote */
-                        } else {
-                            name_len = 0; /* unterminated: ignore the marker */
-                        }
-                    } else {
-                        name_start = scan;
-                        while (scan < l->src_len &&
-                               l->src[scan] != '\n' &&
-                               l->src[scan] != '\r' &&
-                               l->src[scan] != ' ' &&
-                               l->src[scan] != '\t') {
-                            scan++;
-                        }
-                        name_len = scan - name_start;
-                    }
-                    char *new_filename = (name_len > 0)
-                        ? iron_arena_strdup(l->arena, l->src + name_start, name_len)
-                        : NULL;
-                    if (new_filename) {
-                        l->filename = new_filename;
-                        iron_source_marker_add(new_filename);
-
-                        /* 2026-07 diagnostics remediation: optional
-                         * `@line: <n>` suffix — `-- @file: <name> @line: <n>`
-                         * additionally RESETS the logical line counter so the
-                         * next physical line is reported as line <n> of
-                         * <name>. Emitted by build.c / check.c around each
-                         * prepended stdlib file (and once more, naming the
-                         * entry file, where the user's own source resumes) so
-                         * spans carry per-file 1-based line numbers end-to-end
-                         * (compile diagnostics AND the runtime deref-site
-                         * strings emit_c.c bakes from LIR spans).
-                         *
-                         * A marker WITHOUT `@line:` keeps the Phase 93
-                         * semantics the multi-file harness and .iron-stub
-                         * concatenation rely on: filename re-tag only, line
-                         * numbering resynced to the physical (TU-wide) count
-                         * — which is what `line` always was before any
-                         * `@line:` marker diverged it. That preserves the
-                         * resolver's line-threshold stdlib carve-out
-                         * (resolve.c:is_stdlib_decl) for harness-concatenated
-                         * user files. */
-                        static const char k_line_marker[] = "@line:";
-                        size_t k_line_marker_len = sizeof(k_line_marker) - 1;
-                        size_t lscan = scan;
-                        while (lscan < l->src_len &&
-                               (l->src[lscan] == ' ' || l->src[lscan] == '\t')) {
-                            lscan++;
-                        }
-                        bool has_line_reset = false;
-                        if (lscan + k_line_marker_len <= l->src_len &&
-                            memcmp(l->src + lscan, k_line_marker,
-                                   k_line_marker_len) == 0) {
-                            lscan += k_line_marker_len;
-                            while (lscan < l->src_len &&
-                                   (l->src[lscan] == ' ' || l->src[lscan] == '\t')) {
-                                lscan++;
-                            }
-                            uint32_t n = 0;
-                            bool any_digit = false;
-                            while (lscan < l->src_len &&
-                                   l->src[lscan] >= '0' && l->src[lscan] <= '9') {
-                                if (n < 100000000u) n = n * 10u + (uint32_t)(l->src[lscan] - '0');
-                                any_digit = true;
-                                lscan++;
-                            }
-                            if (any_digit && n > 0) {
-                                /* The marker line's trailing '\n' consume below
-                                 * increments l->line, so seat it at n-1. */
-                                l->line = n - 1;
-                                has_line_reset = true;
-                            }
-                        }
-                        if (has_line_reset) {
-                            /* A @line marker naming the entry file re-enters
-                             * user code; any other name opens a synthetic
-                             * stdlib prepend region. */
-                            l->in_stdlib_prepend =
-                                !(l->entry_filename && l->filename &&
-                                  strcmp(l->filename, l->entry_filename) == 0);
-                        } else {
-                            /* Plain Phase 93 marker: physical resync + user
-                             * region (multi-file harness files are user code). */
-                            l->line = l->phys_line;
-                            l->in_stdlib_prepend = false;
-                        }
-                    }
-                    /* Fall through: regular consume-to-EOL below picks up
-                     * the rest of the comment line (including any trailing
-                     * text after the basename, if a user wrote one). */
-                }
+                /* The comment's text starts after the second '-'; it may be a
+                 * file marker. */
+                iron_lex_comment_marker(l, l->pos + 1);
 
                 while (l->pos < l->src_len && l->src[l->pos] != '\n') {
                     l->pos++;

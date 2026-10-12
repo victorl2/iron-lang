@@ -81,6 +81,83 @@ void iron_diag_print_all(const Iron_DiagList *list, const char *source_text);
 
 void iron_diaglist_free(Iron_DiagList *list);
 
+/* ── Source file markers ─────────────────────────────────────────────────
+ *
+ * A file marker is a line comment whose text starts with `@file:`:
+ *
+ *     <comment> @file: <name> [@line: <n>] [@lines: <count>]
+ *
+ * It tags the source after it with another file name (and, with `@line:`,
+ * restarts line numbering there), which is how one buffer carries several
+ * files. A marker is honored only where the compiler or the test harness
+ * wrote it:
+ *
+ *   - in the prelude the compiler puts above the user's source (the
+ *     standard library files, then the marker that names the user's file),
+ *     that is on the physical lines before the user's first line;
+ *   - in a package source packed by `iron` (target/combined.iron,
+ *     target/tests.iron, compiled with --packed-source), on the lines
+ *     between files: each of its markers gives the length of the file
+ *     under it with `@lines:`, and nothing inside that file is a marker;
+ *   - anywhere, in multi-file test mode (the test harness packs the files
+ *     of a fixture into one source this way).
+ *
+ * Everywhere else, and so in all user source, the same text is a plain
+ * comment.
+ *
+ * The marker is keyed on the comment's text, not on how the comment is
+ * introduced: iron_comment_intro_len is the one place that knows the
+ * comment forms. */
+
+typedef struct {
+    const char *name;       /* not NUL terminated; points into the text */
+    size_t      name_len;
+    uint32_t    line_reset; /* the `@line:` value; 0 when absent */
+    bool        has_lines;  /* an `@lines:` length was given */
+    uint32_t    lines;      /* physical lines of the file under the marker */
+} Iron_FileMarker;
+
+/* Length of the line comment introducer at the start of `text` (`--`, or
+ * `//` that is not the `///` of a doc comment); 0 when there is none. */
+size_t iron_comment_intro_len(const char *text, size_t len);
+
+/* Parse the text of a comment (what follows the introducer, up to the end
+ * of the line) as a file marker. `name` is bare (up to whitespace) or
+ * quoted (may hold spaces). False when the text is not a well formed
+ * marker. */
+bool iron_file_marker_parse(const char *text, size_t len, Iron_FileMarker *out);
+
+/* Which markers of one buffer are honored. */
+typedef struct {
+    bool     test_mode;   /* multi-file test mode: every marker */
+    bool     packed;      /* the user part is a source packed by `iron` */
+    uint32_t user_start;  /* first physical line of the user part */
+    uint32_t trust_from;  /* packed: the next line a marker may sit on */
+} Iron_FileMarkerGate;
+
+/* The gate of a buffer whose user part starts on physical line
+ * `user_start_line` (1, or 0, when nothing was put above it). */
+Iron_FileMarkerGate iron_file_marker_gate(uint32_t user_start_line);
+
+/* Is the marker `m`, on physical line `phys_line`, honored? Call it once
+ * per marker, in source order. */
+bool iron_file_marker_admit(Iron_FileMarkerGate *gate, uint32_t phys_line,
+                            const Iron_FileMarker *m);
+
+/* Multi-file test mode, off by default. The compiler turns it on when the
+ * environment has IRON_MULTI_FILE_TEST=1; unit tests call this directly. */
+void iron_file_markers_set_test_mode(bool on);
+bool iron_file_markers_test_mode(void);
+
+/* The source being compiled was packed by `iron` (--packed-source). */
+void iron_file_markers_set_packed_source(bool on);
+bool iron_file_markers_packed_source(void);
+
+/* The first physical line of the user part of the buffer that
+ * iron_diag_print is given, so the excerpt it prints follows the same
+ * markers the lexer honored. */
+void iron_diag_set_user_start_line(uint32_t line);
+
 /* ── Error codes ─────────────────────────────────────────────────────────── */
 
 /* ── IRON_ERR_RANGES (Phase 34 LSP-05): canonical namespace map.

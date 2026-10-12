@@ -3515,7 +3515,9 @@ void test_v93_compile_fail_cross_module_private(void) {
      * Two-file synthetic source via @file: markers. The lexer-side hook
      * (Plan 93-04 Task 1) re-tags subsequent tokens with the new filename,
      * so the resolver sees lib.iron and main.iron as distinct source files
-     * for the cross-module check. */
+     * for the cross-module check. The markers are honored in multi-file
+     * test mode only. */
+    iron_file_markers_set_test_mode(true);
     parse_and_resolve(
         "-- @file: lib.iron\n"
         "func helper() -> Int { return 42 }\n"
@@ -3524,6 +3526,7 @@ void test_v93_compile_fail_cross_module_private(void) {
         "    println(\"{helper()}\")\n"
         "}\n"
     );
+    iron_file_markers_set_test_mode(false);
     TEST_ASSERT_TRUE_MESSAGE(
         has_error(IRON_ERR_CROSS_MODULE_PRIVATE),
         "expected E0320 IRON_ERR_CROSS_MODULE_PRIVATE for cross-module private ref");
@@ -3531,6 +3534,23 @@ void test_v93_compile_fail_cross_module_private(void) {
         has_error_msg_substring("not visible from"),
         "expected E0320 'not visible from' substring (locks "
         "tests/compile_fail/v3_cross_module_private.expected)");
+}
+
+void test_file_marker_in_user_source_is_one_file(void) {
+    /* The same source outside multi-file test mode: the `@file:` lines are
+     * comments, helper and main are in one file, and nothing is private
+     * across a file boundary that is not there. */
+    parse_and_resolve(
+        "-- @file: lib.iron\n"
+        "func helper() -> Int { return 42 }\n"
+        "-- @file: main.iron\n"
+        "func main() {\n"
+        "    println(\"{helper()}\")\n"
+        "}\n"
+    );
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_CROSS_MODULE_PRIVATE),
+        "an @file: comment in user source split it into two files");
 }
 
 void test_v93_compile_fail_pub_init_in_private_object(void) {
@@ -3917,6 +3937,7 @@ int main(void) {
      * the substring lock gates CI (tests/compile_fail/ is not auto-discovered
      * by run_tests.sh). */
     RUN_TEST(test_v93_compile_fail_cross_module_private);
+    RUN_TEST(test_file_marker_in_user_source_is_one_file);
     RUN_TEST(test_v93_compile_fail_pub_init_in_private_object);
     RUN_TEST(test_v93_compile_fail_pub_top_level_val);
 

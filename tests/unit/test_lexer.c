@@ -28,6 +28,157 @@ static Iron_Token *lex(const char *src) {
     return iron_lex_all(&l);
 }
 
+/* ── File markers ────────────────────────────────────────────────────────── */
+
+/* The filename of the first identifier token spelled `name`; "?" if none. */
+static const char *file_of(Iron_Token *toks, const char *name) {
+    for (int i = 0; toks[i].kind != IRON_TOK_EOF; i++) {
+        if (toks[i].kind == IRON_TOK_IDENTIFIER && strcmp(toks[i].value, name) == 0)
+            return toks[i].filename ? toks[i].filename : "?";
+    }
+    return "?";
+}
+
+static uint32_t line_of(Iron_Token *toks, const char *name) {
+    for (int i = 0; toks[i].kind != IRON_TOK_EOF; i++) {
+        if (toks[i].kind == IRON_TOK_IDENTIFIER && strcmp(toks[i].value, name) == 0)
+            return toks[i].line;
+    }
+    return 0;
+}
+
+/* In user source an `@file:` comment is a comment: nothing after it is
+ * retagged or renumbered, in any of the marker's spellings. */
+void test_file_marker_is_plain_comment_in_user_source(void) {
+    Iron_Token *toks = lex(
+        "val a = 1\n"
+        "-- @file: other.iron\n"
+        "val b = 2\n"
+        "-- @file: \"quoted name.iron\" @line: 40\n"
+        "val c = 3\n"
+        "val d = 4 -- @file: trailing.iron @line: 7 @lines: 1\n"
+        "val e = 5\n");
+    TEST_ASSERT_EQUAL_STRING("test.iron", file_of(toks, "a"));
+    TEST_ASSERT_EQUAL_STRING("test.iron", file_of(toks, "b"));
+    TEST_ASSERT_EQUAL_STRING("test.iron", file_of(toks, "c"));
+    TEST_ASSERT_EQUAL_STRING("test.iron", file_of(toks, "e"));
+    TEST_ASSERT_EQUAL_UINT32(3, line_of(toks, "b"));
+    TEST_ASSERT_EQUAL_UINT32(5, line_of(toks, "c"));
+    TEST_ASSERT_EQUAL_UINT32(7, line_of(toks, "e"));
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    arrfree(toks);
+}
+
+/* Multi-file test mode: the harness's markers retag what follows them. */
+void test_file_marker_honored_in_multi_file_test_mode(void) {
+    iron_file_markers_set_test_mode(true);
+    Iron_Token *toks = lex(
+        "-- @file: lib.iron\n"
+        "val a = 1\n"
+        "-- @file: \"my main.iron\" @line: 1\n"
+        "val b = 2\n");
+    iron_file_markers_set_test_mode(false);
+    TEST_ASSERT_EQUAL_STRING("lib.iron", file_of(toks, "a"));
+    TEST_ASSERT_EQUAL_UINT32(2, line_of(toks, "a"));
+    TEST_ASSERT_EQUAL_STRING("my main.iron", file_of(toks, "b"));
+    TEST_ASSERT_EQUAL_UINT32(1, line_of(toks, "b"));
+    arrfree(toks);
+}
+
+/* The compiler's prelude: markers above the user's first line are honored,
+ * the same text in the user's source is not. */
+void test_file_marker_honored_only_in_the_prelude(void) {
+    const char *src =
+        "-- @file: \"stdlib/x.iron\" @line: 1\n"   /* 1 */
+        "val a = 1\n"                              /* 2 */
+        "-- @file: \"test.iron\" @line: 1\n"       /* 3: the user's file */
+        "-- @file: \"evil.iron\" @line: 90\n"      /* 4: user line 1 */
+        "val b = 2\n";                             /* 5: user line 2 */
+    Iron_Lexer l = iron_lexer_create(src, "test.iron", &arena, &diags);
+    iron_lexer_set_user_start_line(&l, 4);
+    Iron_Token *toks = iron_lex_all(&l);
+    TEST_ASSERT_EQUAL_STRING("stdlib/x.iron", file_of(toks, "a"));
+    TEST_ASSERT_EQUAL_STRING("test.iron", file_of(toks, "b"));
+    TEST_ASSERT_EQUAL_UINT32(2, line_of(toks, "b"));
+    arrfree(toks);
+}
+
+/* A source packed by `iron`: a marker is honored between files only. Each
+ * gives the length of its file, and a marker inside a file is a comment. */
+void test_file_marker_in_packed_source_honored_between_files(void) {
+    const char *src =
+        "-- project: pkg\n"                                   /* 1 */
+        "-- @file: \"src/a.iron\" @line: 1 @lines: 3\n"       /* 2 */
+        "val a = 1\n"                                         /* 3 */
+        "-- @file: \"src/evil.iron\" @line: 50 @lines: 0\n"   /* 4: in a.iron */
+        "val a2 = 1\n"                                        /* 5 */
+        "-- @file: \"src/b.iron\" @line: 1 @lines: 2\n"       /* 6 */
+        "val b = 2\n"                                         /* 7 */
+        "\n"                                                  /* 8 */
+        "-- @file: \"src/c.iron\" @line: 1\n"                 /* 9: to the end */
+        "val c = 3\n"                                         /* 10 */
+        "-- @file: \"src/evil.iron\" @line: 1 @lines: 1\n"    /* 11: in c.iron */
+        "val c2 = 3\n";                                       /* 12 */
+    iron_file_markers_set_packed_source(true);
+    Iron_Lexer l = iron_lexer_create(src, "combined.iron", &arena, &diags);
+    iron_lexer_set_user_start_line(&l, 1);
+    Iron_Token *toks = iron_lex_all(&l);
+    /* Only a lexer over the compile buffer reads a packed source. */
+    Iron_Lexer plain = iron_lexer_create(src, "combined.iron", &arena, &diags);
+    Iron_Token *plain_toks = iron_lex_all(&plain);
+    iron_file_markers_set_packed_source(false);
+
+    TEST_ASSERT_EQUAL_STRING("src/a.iron", file_of(toks, "a"));
+    TEST_ASSERT_EQUAL_STRING("src/a.iron", file_of(toks, "a2"));
+    TEST_ASSERT_EQUAL_UINT32(3, line_of(toks, "a2"));
+    TEST_ASSERT_EQUAL_STRING("src/b.iron", file_of(toks, "b"));
+    TEST_ASSERT_EQUAL_UINT32(1, line_of(toks, "b"));
+    TEST_ASSERT_EQUAL_STRING("src/c.iron", file_of(toks, "c"));
+    TEST_ASSERT_EQUAL_STRING("src/c.iron", file_of(toks, "c2"));
+    TEST_ASSERT_EQUAL_UINT32(3, line_of(toks, "c2"));
+    TEST_ASSERT_EQUAL_STRING("combined.iron", file_of(plain_toks, "c2"));
+    arrfree(toks);
+    arrfree(plain_toks);
+
+    /* Without --packed-source the same text is one file. */
+    Iron_Lexer l2 = iron_lexer_create(src, "combined.iron", &arena, &diags);
+    iron_lexer_set_user_start_line(&l2, 1);
+    Iron_Token *toks2 = iron_lex_all(&l2);
+    TEST_ASSERT_EQUAL_STRING("combined.iron", file_of(toks2, "b"));
+    TEST_ASSERT_EQUAL_UINT32(7, line_of(toks2, "b"));
+    arrfree(toks2);
+}
+
+/* The marker is the comment's text, whatever introduces the comment. */
+void test_file_marker_parse_keys_on_comment_text(void) {
+    Iron_FileMarker m;
+    TEST_ASSERT_EQUAL_size_t(2, iron_comment_intro_len("-- x", 4));
+    TEST_ASSERT_EQUAL_size_t(2, iron_comment_intro_len("// x", 4));
+    TEST_ASSERT_EQUAL_size_t(0, iron_comment_intro_len("/// doc", 7));
+    TEST_ASSERT_EQUAL_size_t(0, iron_comment_intro_len("- x", 3));
+
+    const char *t = " @file: \"a b.iron\" @line: 12 @lines: 34";
+    TEST_ASSERT_TRUE(iron_file_marker_parse(t, strlen(t), &m));
+    TEST_ASSERT_EQUAL_size_t(8, m.name_len);
+    TEST_ASSERT_EQUAL_INT(0, strncmp(m.name, "a b.iron", 8));
+    TEST_ASSERT_EQUAL_UINT32(12, m.line_reset);
+    TEST_ASSERT_TRUE(m.has_lines);
+    TEST_ASSERT_EQUAL_UINT32(34, m.lines);
+
+    t = "@file:lib.iron";
+    TEST_ASSERT_TRUE(iron_file_marker_parse(t, strlen(t), &m));
+    TEST_ASSERT_EQUAL_size_t(8, m.name_len);
+    TEST_ASSERT_EQUAL_UINT32(0, m.line_reset);
+    TEST_ASSERT_FALSE(m.has_lines);
+
+    t = " see @file: lib.iron";
+    TEST_ASSERT_FALSE(iron_file_marker_parse(t, strlen(t), &m));
+    t = " @file: \"unterminated";
+    TEST_ASSERT_FALSE(iron_file_marker_parse(t, strlen(t), &m));
+    t = " @file:";
+    TEST_ASSERT_FALSE(iron_file_marker_parse(t, strlen(t), &m));
+}
+
 /* ── Keyword tests ───────────────────────────────────────────────────────── */
 
 void test_keyword_val(void) {
@@ -673,6 +824,12 @@ int main(void) {
     RUN_TEST(test_val_x_assign_10);
     RUN_TEST(test_multiline_string);
     RUN_TEST(test_minus_vs_comment);
+
+    RUN_TEST(test_file_marker_is_plain_comment_in_user_source);
+    RUN_TEST(test_file_marker_honored_in_multi_file_test_mode);
+    RUN_TEST(test_file_marker_honored_only_in_the_prelude);
+    RUN_TEST(test_file_marker_in_packed_source_honored_between_files);
+    RUN_TEST(test_file_marker_parse_keys_on_comment_text);
 
     return UNITY_END();
 }

@@ -2023,6 +2023,11 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 3. Lex */
     Iron_Lexer lexer = iron_lexer_create(source, source_path, &arena, &diags);
+    /* Everything above the user's source is the prelude written above: its
+     * file markers are honored, a `@file:` comment in the user's source is
+     * not (see diagnostics.h). */
+    iron_lexer_set_user_start_line(&lexer, (uint32_t)stdlib_prepended_lines + 1);
+    iron_diag_set_user_start_line((uint32_t)stdlib_prepended_lines + 1);
     Iron_Token *tokens = iron_lex_all(&lexer);
 
     if (diags.error_count > 0) {

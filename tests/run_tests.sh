@@ -129,7 +129,9 @@ shopt -s nullglob
 # precedes main.iron alphabetically) with a synthetic `-- @file: <basename>`
 # directive between them. The lexer recognizes that directive and re-tags
 # subsequent tokens with the named filename so the resolver's cross-module
-# check (E0320) sees real per-file source identity.
+# check (E0320) sees real per-file source identity. The lexer honors the
+# directive in multi-file test mode only (IRON_MULTI_FILE_TEST=1, set on the
+# build below); in any other compile it is a plain comment.
 #
 # A fixture directory without an `expected` sibling is treated as compile-only.
 if [ -z "${IRON_TEST_ONE:-}" ] && [ "${CATEGORY}" = "integration" ] && [ -d "${TEST_DIR}/multi_file" ]; then
@@ -168,7 +170,9 @@ if [ -z "${IRON_TEST_ONE:-}" ] && [ "${CATEGORY}" = "integration" ] && [ -d "${T
         echo -n "[RUN ] multi_file/${case_name} ... "
 
         build_stderr="${build_dir}/build.err"
-        if ! (cd "${build_dir}" && "${IRON_BIN}" build "${combined}") 2>"${build_stderr}"; then
+        # IRON_MULTI_FILE_TEST=1 is multi-file test mode: only there does the
+        # compiler honor an `@file:` comment in the source it is given.
+        if ! (cd "${build_dir}" && IRON_MULTI_FILE_TEST=1 "${IRON_BIN}" build "${combined}") 2>"${build_stderr}"; then
             echo "[FAIL] (build failed)"
             cat "${build_stderr}" >&2
             FAIL=$((FAIL + 1))
