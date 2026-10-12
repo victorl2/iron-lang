@@ -1,0 +1,15 @@
+-- The methods of a list, a fixed array, a Map and a Set are not lowered
+-- through a pointer (they typed as Void, emitted C that did not compile or
+-- ran without the pointer check): E0220.
+object Bag {
+    var xs: [Int]
+    init() {
+        self.xs = [1, 2, 3]
+    }
+}
+
+func main() {
+    var b = Bag()
+    val q = &b.xs
+    println("{q.len()}")
+}

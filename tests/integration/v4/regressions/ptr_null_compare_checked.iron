@@ -1,0 +1,31 @@
+-- A checked pointer that is not `?*T` is never null: comparing it with
+-- null is a constant (W0616). It emitted a fat pointer compared against
+-- NULL, which the C compiler rejects.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+func chk(p: *P, q: ?*P) -> Int {
+    var n = 0
+    if p != null {
+        n += 1
+    }
+    if p == null {
+        n += 1000
+    }
+    if q != null {
+        n += 10
+    }
+    if q == null {
+        n += 100
+    }
+    return n
+}
+
+func main() {
+    val x = P(1)
+    println("{chk(&x, &x)} {chk(&x, null)}")
+}

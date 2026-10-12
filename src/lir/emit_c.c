@@ -9180,7 +9180,14 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
         bool target_is_heap_fp = emit_val_is_heap_fat_ptr(fn, instr->addr_of.target);
-        if (target_is_heap_fp) {
+        if (fn->is_mut_receiver_method && instr->addr_of.target == 1) {
+            /* `&self` (or self handed to a pointer parameter) in a
+             * pointer-receiver method: the receiver parameter already is the
+             * address; `&_v1` pointed at the parameter slot of this frame. */
+            iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)");
+            emit_val(sb, instr->addr_of.target);
+            iron_strbuf_appendf(sb, ", .gen = %s };\n", emit_self_gen(fn));
+        } else if (target_is_heap_fp) {
             /* HEAP: Phase 21 migration — the ADDR_OF target is an Iron_FatPtr
              * (result of IRON_LIR_HEAP_ALLOC). &world means "pointer to the
              * heap-allocated data", NOT a pointer to the fat-ptr struct itself.

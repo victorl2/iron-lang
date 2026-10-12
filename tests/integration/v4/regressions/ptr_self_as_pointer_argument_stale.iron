@@ -1,0 +1,34 @@
+-- @expect-panic: stale pointer dereference
+-- `self` handed to a pointer parameter carries the receiver's generation:
+-- it is stale once the heap value the method was called on is freed.
+object Reg {
+    var c: ?*Counter
+    init() {
+        self.c = null
+    }
+}
+
+func store(r: *var Reg, c: *Counter) {
+    r.c = c
+}
+
+object Counter {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func reg(r: *var Reg) {
+        store(r, self)
+    }
+}
+
+func main() {
+    var r = Reg()
+    var h = heap Counter(8)
+    h.reg(&r)
+    free h
+    val q = r.c
+    if q != null {
+        println("{q.n}")
+    }
+}

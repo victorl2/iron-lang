@@ -4608,7 +4608,15 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                                                       init_val, type, span);
                     hmput(ctx->val_binding_map, vid, init_val);
                     hmput(ctx->var_scope_map, vid, cur_scope_id(ctx));
-                    hmput(ctx->current_func->val_scopes, init_val, cur_scope_id(ctx));
+                    /* The value belongs to the scope that first bound it: a
+                     * second name for it (`val b = a` in another block, a
+                     * name for a parameter) shares its storage, and tagging
+                     * it with the later block made `&a` carry the generation
+                     * of a block that may never be entered. */
+                    if (hmgeti(ctx->current_func->val_scopes, init_val) < 0 &&
+                        !(init_val >= 1 &&
+                          init_val <= (IronLIR_ValueId)ctx->current_func->param_count))
+                        hmput(ctx->current_func->val_scopes, init_val, cur_scope_id(ctx));
                     if (hmgeti(ctx->current_func->value_names, init_val) < 0) {
                         hmput(ctx->current_func->value_names, init_val,
                               iron_hir_var_name(ctx->hir, vid));

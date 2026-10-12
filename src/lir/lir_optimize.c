@@ -4569,6 +4569,23 @@ void lower_genchecks(IronLIR_Module *module) {
                         arrput(rebuilt, gencheck_new(fn, in, av, src));
                         inserted_any = true;
                     }
+                    /* A callee that is not a LIR function (an interface
+                     * dispatcher, a runtime method) and takes its receiver
+                     * by address reads it during the call: a receiver
+                     * reached through a checked pointer is checked here. */
+                    IronLIR_ValueId rv = in->call.arg_count > 0 ? in->call.args[0]
+                                                                : IRON_LIR_VALUE_INVALID;
+                    IronLIR_Instr *rd = (rv != IRON_LIR_VALUE_INVALID &&
+                                         rv < (IronLIR_ValueId)arrlen(fn->value_table))
+                                        ? fn->value_table[rv] : NULL;
+                    /* (a slot passed by address is the binding, not a pointer value) */
+                    if (!callee && cname && in->call.self_by_addr &&
+                        !(rd && rd->kind == IRON_LIR_ALLOCA) &&
+                        gencheck_is_checked_ptr(gencheck_value_type(fn, rv))) {
+                        arrput(rebuilt, gencheck_new(fn, in, in->call.args[0],
+                                                     gencheck_source_of(fn, in->call.args[0])));
+                        inserted_any = true;
+                    }
                 }
 
                 IronLIR_ValueId ptr = IRON_LIR_VALUE_INVALID;
@@ -6917,10 +6934,24 @@ static void mark_pinned_receivers(IronLIR_Module *module) {
  * private local slot, a return, a closure, spawn or parallel-for capture,
  * an object or list being built, a call whose parameter may escape (or an
  * unknown, indirect or external callee), or any use not listed here.
- * Dereferences, comparisons and checks are not escapes. Per-function
- * parameter summaries are computed to a fixpoint (optimistic start, so the
- * least fixpoint: an escape needs a finite chain of steps to a sink). */
+ * Dereferences, comparisons and checks are not escapes, but a pointer made
+ * from a place reached through the pointer (`&p.field`, `&p.arr[i]`)
+ * carries the same generation and is followed like the pointer itself, and
+ * a pointer-receiver method that takes `&self...` and is called on the
+ * pointee (or on a place inside it) may keep such a pointer anywhere, which
+ * counts as an escape. Per-function parameter summaries (pointer and
+ * nullable pointer parameters) are computed to a fixpoint (optimistic
+ * start, so the least fixpoint: an escape needs a finite chain of steps to
+ * a sink). */
 typedef struct { char *key; bool *value; } EscSummary;
+
+/* A parameter type that receives the pointer itself (`*T`, `?*T`); any
+ * other parameter type means the callee is handed the pointee. */
+static bool esc_type_carries_ptr(Iron_Type *t) {
+    if (!t) return true;
+    if (t->kind == IRON_TYPE_NULLABLE) t = t->nullable.inner;
+    return !t || t->kind == IRON_TYPE_PTR;
+}
 
 static IronLIR_Func *esc_callee(IronLIR_Module *module, IronLIR_Func *fn, IronLIR_Instr *call) {
     return gencheck_find_func(module, call_callee_name(fn, call));
@@ -6960,12 +6991,15 @@ static bool esc_private_slot(IronLIR_Func *fn, IronLIR_ValueId slot) {
 static bool esc_value_escapes_in(IronLIR_Module *module, IronLIR_Func *fn, IronLIR_ValueId root,
                                  EscSummary *sums, bool block) {
     IronLIR_ValueId *work = NULL;
+    /* seen: true for a pointer value, false for a place reached through one
+     * (a field or inline element of the pointee). */
     struct { IronLIR_ValueId key; bool value; } *seen = NULL;
     arrput(work, root);
     hmput(seen, root, true);
     bool esc = false;
     while (arrlen(work) > 0 && !esc) {
         IronLIR_ValueId d = arrpop(work);
+        bool d_is_place = !hmget(seen, d);
         for (int bi = 0; bi < fn->block_count && !esc; bi++) {
             IronLIR_Block *blk = fn->blocks[bi];
             for (int ii = 0; ii < blk->instr_count && !esc; ii++) {
@@ -6979,6 +7013,40 @@ static bool esc_value_escapes_in(IronLIR_Module *module, IronLIR_Func *fn, IronL
 #define ESC_FOLLOW(v) do { IronLIR_ValueId _f = (v); \
                 if (_f != IRON_LIR_VALUE_INVALID && hmgeti(seen, _f) < 0) { \
                     hmput(seen, _f, true); arrput(work, _f); } } while (0)
+#define ESC_PLACE(v) do { IronLIR_ValueId _f = (v); \
+                if (_f != IRON_LIR_VALUE_INVALID && hmgeti(seen, _f) < 0) { \
+                    hmput(seen, _f, false); arrput(work, _f); } } while (0)
+                if (d_is_place) {
+                    /* A place inside the pointee: reading it is harmless;
+                     * its address is a pointer with the same generation, and
+                     * so is the receiver of a method that takes &self. */
+                    switch ((int)in->kind) {
+                    case IRON_LIR_GET_FIELD:
+                        if (in->field.object == d) ESC_PLACE(in->id);
+                        break;
+                    case IRON_LIR_GET_INDEX:
+                        if (in->index.array == d) ESC_PLACE(in->id);
+                        break;
+                    case IRON_LIR_CAST:
+                        ESC_PLACE(in->id);
+                        break;
+                    case IRON_LIR_ADDR_OF:
+                        ESC_FOLLOW(in->id);
+                        break;
+                    case IRON_LIR_CALL:
+                        if (in->call.pass_self_gen && in->call.arg_count > 0 &&
+                            in->call.args[0] == d)
+                            esc = true;
+                        for (int ai = 0; ai < in->call.arg_count && !esc; ai++)
+                            if (in->call.args[ai] == d && in->call.args_by_addr &&
+                                in->call.args_by_addr[ai])
+                                esc = true;      /* a var parameter: by address */
+                        break;
+                    default:
+                        break;
+                    }
+                    continue;
+                }
                 switch ((int)in->kind) {
                 case IRON_LIR_PHI:
                     if (block) { esc = true; break; }
@@ -6999,6 +7067,7 @@ static bool esc_value_escapes_in(IronLIR_Module *module, IronLIR_Func *fn, IronL
                     break;
                 case IRON_LIR_GET_FIELD:
                     if (in->field.object != d) esc = true;
+                    else ESC_PLACE(in->id);
                     break;
                 case IRON_LIR_SET_FIELD:
                     if (in->field.value == d) esc = true;
@@ -7028,8 +7097,12 @@ static bool esc_value_escapes_in(IronLIR_Module *module, IronLIR_Func *fn, IronL
                     for (int ai = 0; ai < in->call.arg_count && !esc; ai++) {
                         if (in->call.args[ai] != d) continue;
                         if (ai >= cf->param_count) { esc = true; break; }
+                        /* The receiver of a method that takes &self: the
+                         * method can keep a pointer with this generation. */
+                        if (ai == 0 && in->call.pass_self_gen) { esc = true; break; }
+                        if (in->call.args_by_addr && in->call.args_by_addr[ai]) { esc = true; break; }
                         Iron_Type *pt = cf->params[ai].type;
-                        if (pt && pt->kind != IRON_TYPE_PTR) continue;   /* the callee derefs it */
+                        if (!esc_type_carries_ptr(pt)) continue;   /* the callee derefs it */
                         if (si < 0 || sums[si].value[ai]) esc = true;
                     }
                     break;
@@ -7039,6 +7112,7 @@ static bool esc_value_escapes_in(IronLIR_Module *module, IronLIR_Func *fn, IronL
                     break;
                 }
 #undef ESC_FOLLOW
+#undef ESC_PLACE
             }
         }
     }
@@ -7070,7 +7144,7 @@ static EscSummary *esc_param_summaries(IronLIR_Module *module) {
             for (int pi = 0; pi < fn->param_count; pi++) {
                 if (v[pi]) continue;
                 Iron_Type *pt = fn->params[pi].type;
-                if (!pt || pt->kind != IRON_TYPE_PTR) continue;
+                if (!pt || !esc_type_carries_ptr(pt)) continue;
                 if (esc_value_escapes(module, fn, (IronLIR_ValueId)(pi + 1), sums)) {
                     v[pi] = true;
                     changed = true;

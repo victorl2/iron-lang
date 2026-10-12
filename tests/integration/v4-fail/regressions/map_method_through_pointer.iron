@@ -1,0 +1,14 @@
+-- A Map method called through a pointer is E0220 (see
+-- list_method_through_pointer).
+object Bag {
+    var m: Map[String, Int]
+    init() {
+        self.m = Map[String, Int]()
+    }
+}
+
+func main() {
+    var b = Bag()
+    val q = &b.m
+    q.put("a", 1)
+}

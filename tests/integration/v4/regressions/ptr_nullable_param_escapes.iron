@@ -1,0 +1,42 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A pointer handed to a `?*T` parameter that the callee stores: the escape
+-- analysis only looked at `*T` parameters, so the caller's frame got no
+-- scope and the pointer kept a generation of the frame above it.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Hub {
+    var p: ?*P
+    init() {
+        self.p = null
+    }
+}
+
+func keep(h: *var Hub, p: ?*P) {
+    h.p = p
+}
+
+func g(h: *var Hub) {
+    val x = P(5)
+    keep(h, &x)
+}
+
+func clobber() -> Int {
+    val y = P(9)
+    val z = P(10)
+    return y.hp + z.hp
+}
+
+func main() {
+    var hub = Hub()
+    g(&hub)
+    println("{clobber()}")
+    val q = hub.p
+    if q != null {
+        println("{q.hp}")
+    }
+}

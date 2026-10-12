@@ -1,0 +1,34 @@
+-- @expect-panic: stale pointer dereference
+-- A method dispatched on an interface value reached through a checked
+-- pointer reads the value: the pointer is checked at the call. The
+-- dispatcher is not a function the check lowering knew, so the call ran on
+-- freed memory.
+interface Shape {
+    func area() -> Int
+}
+
+object Sq impl Shape {
+    var s: Int
+    init(s: Int) {
+        self.s = s
+    }
+    func area() -> Int {
+        return self.s * self.s
+    }
+}
+
+object Big {
+    var sh: Shape
+    init() {
+        val sq: Shape = Sq(3)
+        self.sh = sq
+    }
+}
+
+func main() {
+    var h = heap Big()
+    val q = &h.sh
+    println("{q.area()}")
+    free h
+    println("{q.area()}")
+}

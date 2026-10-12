@@ -4808,7 +4808,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                             (iron_type_is_integer(st) || iron_type_is_float(st) ||
                              st->kind == IRON_TYPE_BOOL || st->kind == IRON_TYPE_STRING ||
                              st->kind == IRON_TYPE_ENUM || st->kind == IRON_TYPE_OBJECT ||
-                             st->kind == IRON_TYPE_ARRAY)) {
+                             st->kind == IRON_TYPE_ARRAY ||
+                             (st->kind == IRON_TYPE_PTR && !st->ptr.is_unchecked))) {
                             char msg[512];
                             snprintf(msg, sizeof(msg),
                                      "comparison with null is always %s: '%s' is never null",
@@ -5944,6 +5945,19 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                        ce->args[i]->span, msg,
                                        "make the argument source mutable "
                                        "(declare as 'var')");
+                        } else if (fp->is_var && ce->args[i] &&
+                                   ce->args[i]->kind != IRON_NODE_IDENT) {
+                            /* The parameter takes the caller's binding by
+                             * address; a field or an element emitted C that
+                             * did not compile. */
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "'var' parameter '%s' needs a variable, not a field or an element",
+                                     fp->name ? fp->name : "<unnamed>");
+                            emit_error(ctx, IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT,
+                                       ce->args[i]->span, msg,
+                                       "copy the value into a 'var' binding, pass that, "
+                                       "and store it back; or take a pointer parameter");
                         }
                     }
 
@@ -6606,6 +6620,32 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_PTR &&
                 obj_type_mc->ptr.pointee &&
                 obj_type_mc->ptr.pointee->kind != IRON_TYPE_PTR) {
+                /* The methods of a list, a fixed array, a Map and a Set work
+                 * on the collection in place and are not lowered through a
+                 * pointer: such a call typed as Void, emitted C that did not
+                 * compile, or ran without the pointer check. */
+                Iron_Type *pte = obj_type_mc->ptr.pointee;
+                const char *coll = NULL;
+                if (pte->kind == IRON_TYPE_ARRAY) {
+                    coll = (pte->array.size < 0 && !pte->array.is_bounded) ? "list" : "array";
+                } else if (pte->kind == IRON_TYPE_OBJECT && pte->object.decl &&
+                           pte->object.decl->name &&
+                           (strcmp(pte->object.decl->name, "Map") == 0 ||
+                            strcmp(pte->object.decl->name, "Set") == 0)) {
+                    coll = pte->object.decl->name;
+                }
+                if (coll) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "method '%s' of a %s cannot be called through a pointer",
+                             mc->method ? mc->method : "?", coll);
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                               "reach the collection through a field of the value the pointer "
+                               "refers to (`p.items.len()`), or pass it to a `var` parameter");
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
                 obj_type_mc = obj_type_mc->ptr.pointee;
                 mc->is_auto_deref = true;
             }
@@ -7330,6 +7370,16 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                                mc->args[ai]->span, msg,
                                                "make the argument source mutable "
                                                "(declare as 'var')");
+                                } else if (mp->is_var && mc->args[ai] &&
+                                           mc->args[ai]->kind != IRON_NODE_IDENT) {
+                                    char msg[256];
+                                    snprintf(msg, sizeof(msg),
+                                             "'var' parameter '%s' needs a variable, not a field or an element",
+                                             mp->name ? mp->name : "<unnamed>");
+                                    emit_error(ctx, IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT,
+                                               mc->args[ai]->span, msg,
+                                               "copy the value into a 'var' binding, pass that, "
+                                               "and store it back; or take a pointer parameter");
                                 }
                                 /* Phase 20 PTR-07 (Plan 20-02a): auto-address
                                  * insertion at method call sites mirrors the
