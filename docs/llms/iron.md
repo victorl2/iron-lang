@@ -336,7 +336,9 @@ default: assign with `b.(f)`, check the first absent required field with
 `b.missing()`, and return `b.build()`. A zero-argument `init` is called when
 one exists; otherwise construction is field by field. `f.doc` and
 `f.tag("name")` are stable hooks for directive metadata, but return `null`
-until slash-comment directives are integrated. Reflection has no run-time
+until slash-comment directives are integrated. Object-level metadata uses
+`typeinfo(T).doc` and `typeinfo(T).tag("name")` with the same temporary null
+result. Reflection has no run-time
 field table, and it does not yet cover enums or generic object declarations.
 
 

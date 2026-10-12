@@ -2493,6 +2493,10 @@ compile-time properties:
 | `f.doc` | directive-provided documentation, currently always `null` |
 | `f.tag(name)` | directive value for `name`, currently always `null` |
 
+The corresponding object-level hooks are `typeinfo(T).doc` and
+`typeinfo(T).tag(name)`. They also return `null` until slash-comment
+directive metadata is integrated.
+
 `value.(f)` becomes a direct access to that field. It may appear on either
 side of assignment when the field and value are writable. A default method
 in an interface may read private fields after an object opts in with `impl`.
@@ -3349,6 +3353,7 @@ codes cited in this manual:
 | E0354 | static function, or method built from `Self`, called through an interface value |
 | E0355 | `T.f()` on a type parameter whose constraint declares no static function `f` |
 | E0356 | `__fields`, reserved for code the compiler generates |
+| E0357 to E0361 | reflection outside expansion; non-object reflection target; non-constant `comptime if`; unmatched `comptime match`; field builder cannot initialize a type |
 | E0331, E0332, E0333, E0334 | list extension with a body; refutable nested pattern; `Channel.new(4)` and the other `.new` constructor spellings; interpolating a value with no text form |
 | E0345 | initialization cycle between globals |
 | E0501 | `await` on the web target |

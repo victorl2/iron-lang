@@ -35,6 +35,7 @@ typedef struct {
     int              binding_count;
     BuilderState   **builders;
     bool             defer_unresolved;
+    bool             allow_fields_builder;
     int              changed;
 } ExpandCtx;
 
@@ -326,6 +327,13 @@ static Iron_ObjectDecl *fields_builder_target(ExpandCtx *ctx,
     return find_object(ctx->program, name);
 }
 
+static bool is_fields_builder_call(Iron_CallExpr *call) {
+    if (!call || call->arg_count != 0 || !call->callee ||
+        call->callee->kind != IRON_NODE_INDEX) return false;
+    Iron_IndexExpr *ix = (Iron_IndexExpr *)call->callee;
+    return ident_named(ix->object, "Fields");
+}
+
 static BuilderState *find_builder(ExpandCtx *ctx, const char *name) {
     if (!ctx->builders || !*ctx->builders || !name) return NULL;
     for (ptrdiff_t i = arrlen(*ctx->builders) - 1; i >= 0; i--)
@@ -605,26 +613,36 @@ static Iron_Node *expand_expr(ExpandCtx *ctx, Iron_Node *node) {
                            : make_null(ctx, mc->span);
             }
             if (mc->method && strcmp(mc->method, "build") == 0 &&
-                mc->arg_count == 0 && mc->object->kind == IRON_NODE_IDENT)
-                return mc->object;
+                mc->arg_count == 0 && mc->object->kind == IRON_NODE_IDENT) {
+                const char *name = ((Iron_Ident *)mc->object)->name;
+                if (find_builder(ctx, name)) return mc->object;
+            }
             return node;
         }
         case IRON_NODE_CALL: {
             Iron_CallExpr *c = (Iron_CallExpr *)node;
             Iron_ObjectDecl *builder = fields_builder_target(ctx, c);
+            if (!builder && is_fields_builder_call(c)) {
+                if (ctx->defer_unresolved) return node;
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_REFLECTION_TYPE, c->span,
+                               "Fields[T] requires a concrete object type",
+                               "use the opted-in object type of an interface default body");
+                return make_int(ctx, c->span, 0);
+            }
             if (builder) {
-                if (!ctx->current_type || !builder->name ||
-                    strcmp(ctx->current_type, builder->name) != 0 ||
-                    builder->implements_count == 0) {
+                Iron_Node *value = has_zero_init(ctx, builder->name)
+                    ? make_type_call(ctx, c->span, builder->name)
+                    : memberwise_default(ctx, builder, c->span, 0);
+                if (!ctx->allow_fields_builder || !ctx->current_type ||
+                    !builder->name ||
+                    strcmp(ctx->current_type, builder->name) != 0) {
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_REFLECTION_CONTEXT, c->span,
                                    "Fields[T] is only available in generated code for an opted-in T",
                                    "use it in an interface default body inherited through impl");
-                    return node;
+                    return value ? value : make_int(ctx, c->span, 0);
                 }
-                Iron_Node *value = has_zero_init(ctx, builder->name)
-                    ? make_type_call(ctx, c->span, builder->name)
-                    : memberwise_default(ctx, builder, c->span, 0);
                 if (!value) {
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_FIELDS_DEFAULT, c->span,
@@ -1162,6 +1180,8 @@ int iron_expand_reflection(Iron_Program *program, Iron_Arena *arena,
         ctx.diags = diags;
         ctx.current_type = current_type;
         ctx.defer_unresolved = iron_generics_is_template(program, d);
+        ctx.allow_fields_builder = d->kind == IRON_NODE_METHOD_DECL &&
+            ((Iron_MethodDecl *)d)->is_iface_default;
         BuilderState *builders = NULL;
         ctx.builders = &builders;
         expand_block(&ctx, body);

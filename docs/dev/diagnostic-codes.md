@@ -559,6 +559,11 @@ parser/typecheck sites land in Plan 27-02.
 | E0354 | `IRON_ERR_IFACE_VALUE_CALL` | 'f' is a static function of interface 'I' and cannot be called through an interface value | Calling a static function, a method with a `Self` parameter or a method returning a type built from `Self` (other than `-> Self`) through a value of interface type. |
 | E0355 | `IRON_ERR_CONSTRAINT_NO_STATIC` | constraint 'I' of type parameter 'T' declares no static function 'f' | `T.f()` in a generic body where T's constraint does not declare `static func f` (or T has no constraint). |
 | E0356 | `IRON_ERR_GENERATED_ONLY` | '__fields' is reserved for code the compiler generates | `T.__fields(...)` (memberwise construction without an init) or a member named `__fields` outside compiler-generated code. |
+| E0357 | `IRON_ERR_REFLECTION_CONTEXT` | reflection form is only valid during compile-time field expansion | A reflected field access or type survives outside a concrete `comptime for`, or `Fields[T]` is used outside an opted-in generated implementation. |
+| E0358 | `IRON_ERR_REFLECTION_TYPE` | fields(T) requires a concrete object type | `fields(T)` names a primitive, enum, unresolved type, or otherwise non-object type after monomorphization. |
+| E0359 | `IRON_ERR_COMPTIME_CONDITION` | comptime if condition is not a compile-time reflection constant | The condition cannot be reduced from reflected metadata, literals, supported comparisons and boolean operators. |
+| E0360 | `IRON_ERR_COMPTIME_MATCH` | no comptime match arm applies to this type | No exact, structural, nullable, list, interface or `else` arm matches the concrete subject type. |
+| E0361 | `IRON_ERR_FIELDS_DEFAULT` | Fields[T] cannot initialize every field before reflected writes | Field-by-field construction cannot produce safe placeholders, usually because a recursive required field has no zero-argument init. |
 
 ## Adding new codes
 

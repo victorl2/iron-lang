@@ -1,0 +1,12 @@
+object OrdinaryBuilder {
+    val value: Int
+
+    readonly func build() -> Int {
+        return self.value
+    }
+}
+
+func main() {
+    val builder = OrdinaryBuilder(7)
+    println("{builder.build()}")
+}
