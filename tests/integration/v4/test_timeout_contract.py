@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep sanitizer-heavy compile fixtures above their safe timeout."""
+"""Keep sanitizer-heavy tests above their safe timeout."""
 
 import json
 from pathlib import Path
@@ -14,6 +14,11 @@ FIXTURES = (
     "v4_4.3-unchecked-ptr_boundary_box_isnull",
     "v4_4.3-unchecked-ptr_panic_box_unwrap_null",
     "v4_8.1-composition-default_happy",
+    "v4_7.5-stdlib_list_drop_filehandle",
+    "v4_7.5-stdlib_rawptr_cast",
+    "lsp_phase24_smoke",
+    "lsp_phase25_smoke",
+    "lsp_phase28_smoke",
 )
 
 
@@ -42,7 +47,7 @@ def main() -> int:
     if failures:
         print("\n".join(failures), file=sys.stderr)
         return 1
-    print("sanitizer-heavy fixtures have at least 120 seconds")
+    print("sanitizer-heavy tests have at least 120 seconds")
     return 0
 
 

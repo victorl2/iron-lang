@@ -3025,7 +3025,7 @@ if(NOT WIN32)
             WORKING_DIRECTORY /tmp
         )
         set_tests_properties(v4_7.5-stdlib_${_fix} PROPERTIES
-            LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 60)
+            LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 120)
     endforeach()
 endif()
 
