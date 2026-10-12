@@ -222,6 +222,34 @@ static void *serve_websocket(void *pointer) {
                 test->error = close.error ? close.error : -31;
             Iron_websocketmessage_release(close);
         }
+    } else if (test->mode == 9) {
+        /* #607: a failed receive fails the connection. The next receive
+         * must not read the rest of the bad frame as a frame header. */
+        Iron_WebSocketMessage bad = Iron_websocket_receive(socket, 5000);
+        int64_t first = bad.error;
+        Iron_websocketmessage_release(bad);
+        bool open_after = Iron_websocket_is_open(socket);
+        Iron_WebSocketMessage next = Iron_websocket_receive(socket, 5000);
+        int64_t second = next.error;
+        Iron_websocketmessage_release(next);
+        int64_t sent = Iron_websocket_send_text(socket, istr("late"), 5000);
+        if (first != IRON_ERR_WS_PROTOCOL) test->error = first ? first : -50;
+        else if (open_after) test->error = -51;
+        else if (second != IRON_ERR_WS_CLOSED) test->error = second ? second : -52;
+        else if (sent != IRON_ERR_WS_CLOSED) test->error = sent ? sent : -53;
+    } else if (test->mode == 10) {
+        /* #607: no data frame after the close frame (RFC 6455 5.5.1). */
+        Iron_WebSocketMessage close = Iron_websocket_receive(socket, 5000);
+        if (close.error != 0 || close.kind != IRON_WEBSOCKET_CLOSE) {
+            test->error = close.error ? close.error : -60;
+        } else {
+            int64_t sent = Iron_websocket_send_text(socket, istr("late"), 5000);
+            int64_t ping = Iron_websocket_ping(socket, istr("p"), 5000);
+            if (Iron_websocket_is_open(socket)) test->error = -61;
+            else if (sent != IRON_ERR_WS_CLOSED) test->error = sent ? sent : -62;
+            else if (ping != IRON_ERR_WS_CLOSED) test->error = ping ? ping : -63;
+        }
+        Iron_websocketmessage_release(close);
     } else if (test->mode == 7) {
         Iron_WebSocketMessage close = Iron_websocket_receive(socket, 5000);
         if (close.error != 0 || close.kind != IRON_WEBSOCKET_CLOSE)
@@ -615,6 +643,104 @@ void test_websocket_64_bit_length_binary_roundtrip(void) {
     free(payload);
 }
 
+/* #607: close and abort free the session; a later call through the same
+ * value is a stale handle, not a read of freed memory. */
+void test_websocket_stale_handle_after_close_and_abort(void) {
+    for (int use_abort = 0; use_abort < 2; use_abort++) {
+        int64_t port = 0;
+        WsServerCase server;
+        WS_THREAD thread;
+        start_server_case(&server, &thread, 7, &port);
+        char url[128];
+        snprintf(url, sizeof(url), "ws://127.0.0.1:%lld/", (long long)port);
+        Iron_String offered[] = { istr("graphql-transport-ws") };
+        Iron_List_Iron_String protocols = { offered, 1, 1 };
+        Iron_WebSocketResult connected = Iron_websocket_connect_with_protocols(
+            istr(url), istr(""), protocols, 1024, 5000);
+        TEST_ASSERT_EQUAL_INT64(0, connected.error);
+        Iron_WebSocket socket = connected.socket;
+        TEST_ASSERT_TRUE(Iron_websocket_is_open(socket));
+        if (use_abort) {
+            TEST_ASSERT_EQUAL_INT64(0, Iron_websocket_send_text(socket, istr("x"), 5000));
+            Iron_websocket_abort(socket);
+        } else {
+            TEST_ASSERT_EQUAL_INT64(0, Iron_websocket_close(socket, 1000, istr(""), 5000));
+        }
+        TEST_ASSERT_FALSE(Iron_websocket_is_open(socket));
+        TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_CLOSED,
+            Iron_websocket_send_text(socket, istr("late"), 5000));
+        TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_CLOSED,
+            Iron_websocket_send_bytes(socket, istr("late"), 5000));
+        TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_CLOSED,
+            Iron_websocket_ping(socket, istr("p"), 5000));
+        Iron_WebSocketMessage late = Iron_websocket_receive(socket, 100);
+        TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_CLOSED, late.error);
+        Iron_websocketmessage_release(late);
+        TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_CLOSED,
+            Iron_websocket_close(socket, 1000, istr(""), 100));
+        Iron_websocket_abort(socket);
+        TEST_ASSERT_FALSE(Iron_websocket_is_open(socket));
+        /* never a handle: closed, not a crash */
+        Iron_WebSocket none = { 0 };
+        Iron_WebSocket junk = { 0x7fffffff00000001LL };
+        TEST_ASSERT_FALSE(Iron_websocket_is_open(none));
+        TEST_ASSERT_FALSE(Iron_websocket_is_open(junk));
+        TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_CLOSED,
+            Iron_websocket_send_text(junk, istr("x"), 100));
+        TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
+        if (!use_abort) TEST_ASSERT_EQUAL_INT64(0, server.error);
+        Iron_websocketresult_release(connected);
+        release_server_case(&server);
+        Iron_httpserver_close(server.server);
+    }
+}
+
+void test_websocket_failed_receive_fails_the_connection(void) {
+    int64_t port = 0;
+    WsServerCase server;
+    WS_THREAD thread;
+    start_server_case(&server, &thread, 9, &port);
+    Iron_TcpSocket raw = raw_upgrade(port);
+    /* an unmasked frame whose payload reads as a valid masked text frame:
+     * read from the middle, it would be accepted as a message */
+    const uint8_t frame[] = { 0x82, 0x07, 0x81, 0x81, 0, 0, 0, 0, 'x' };
+    Iron_Result_Int_Error sent = Iron_net_tcp_send_bytes(
+        raw, frame, sizeof(frame), 5000);
+    TEST_ASSERT_EQUAL_INT64(0, sent.v1.code);
+    TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
+    TEST_ASSERT_EQUAL_INT64(0, server.error);
+    release_server_case(&server);
+    Iron_tcpsocket_close(raw);
+    Iron_httpserver_close(server.server);
+}
+
+void test_websocket_sends_nothing_after_close_frame(void) {
+    int64_t port = 0;
+    WsServerCase server;
+    WS_THREAD thread;
+    start_server_case(&server, &thread, 10, &port);
+    Iron_TcpSocket raw = raw_upgrade(port);
+    const uint8_t code[2] = { 0x03, 0xe8 };
+    const uint8_t mask[4] = { 4, 3, 2, 1 };
+    raw_send_masked(raw, 0x88, code, sizeof(code), mask);
+    TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
+    TEST_ASSERT_EQUAL_INT64(0, server.error);
+    release_server_case(&server);
+    Iron_tcpsocket_close(raw);
+    Iron_httpserver_close(server.server);
+}
+
+/* #607: the last byte of a custom header line is validated too. */
+void test_websocket_rejects_control_byte_ending_a_header(void) {
+    const char bad[] = { 'X', ':', ' ', 'a', 0x01 };
+    Iron_String headers = istrn(bad, sizeof(bad));
+    Iron_WebSocketResult result = Iron_websocket_connect(
+        istr("ws://127.0.0.1:1/"), headers, 1024, 100);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_INVALID_ARGUMENT, result.error);
+    Iron_websocketresult_release(result);
+    iron_string_release(&headers);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_websocket_client_server_text_binary_ping_close);
@@ -629,5 +755,9 @@ int main(void) {
     RUN_TEST(test_websocket_rejects_noncanonical_client_key);
     RUN_TEST(test_websocket_serializes_concurrent_writers);
     RUN_TEST(test_websocket_64_bit_length_binary_roundtrip);
+    RUN_TEST(test_websocket_stale_handle_after_close_and_abort);
+    RUN_TEST(test_websocket_failed_receive_fails_the_connection);
+    RUN_TEST(test_websocket_sends_nothing_after_close_frame);
+    RUN_TEST(test_websocket_rejects_control_byte_ending_a_header);
     return UNITY_END();
 }
