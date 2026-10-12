@@ -27,6 +27,9 @@ def main() -> int:
     _units, string = coverage.syntax_coverage(manual, [("string.iron", multiline)])
     assert "func_decl/opt1" not in string, string
 
+    nested = '"{render("\\u{7b}//iron:fusible")}" trailing'
+    assert coverage.gc.scan_string(nested, 0, 1, 1) == nested.index(" trailing")
+
     units = {".fake": ("test", r"\.fake\(")}
     assert not coverage.library_coverage(units, [("slash.iron", "// x.fake()\n")])
     assert not coverage.library_coverage(units, [("dash.iron", "-- x.fake()\n")])
