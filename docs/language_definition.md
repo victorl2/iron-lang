@@ -1252,7 +1252,8 @@ Parameters are `val` by default: a parameter cannot be reassigned or
 mutated (`E0266`, `E0234`). A parameter declared `var` is a copy that the
 body may assign to and mutate; when the function returns, the final value
 is written back to the caller's `var` binding, so `var` parameters behave
-like in-out arguments. A list parameter is lent (never copied); a `var`
+like in-out arguments. The argument must be a `var` variable, not a field
+or an element (`E0267`). A list parameter is lent (never copied); a `var`
 list parameter lets the body grow or shrink the caller's list. Objects are
 passed by value. The result type follows `->`; omit it for a function that
 returns nothing. Argument count and types must match exactly (`E0216`,
@@ -1930,9 +1931,16 @@ drop Alice
 yields a checked pointer: `*T` when `x` is a `val` and `*var T` when `x`
 is a `var`. `?*T` is a nullable pointer that may hold `null`. Fields are
 read and, through `*var T`, written with `p.field`, and methods are called
-with `p.m()`, also a `String` or number method on a pointer to one; a
+with `p.m()`, also a `String` or number method on a pointer to one and a
+method of an interface value through a pointer to it; a
 pointer to a primitive prints its pointee when interpolated into a string,
-but there is no prefix `*` operator, so it cannot be assigned through.
+but there is no prefix `*` operator, so it cannot be assigned through. A
+pointer to a list, a fixed array, a `Map` or a `Set` can be stored and
+passed on, but the collection's methods, indexing and iteration are not
+available through it (`E0220`, `E0202`): reach the collection through a
+field of the value a pointer refers to (`p.items.push(x)`) or pass it to a
+`var` parameter. Inside a mutating method `self` may be passed to a
+pointer parameter, and `&self` is a pointer to the receiver.
 Passing a binding to a parameter of type `*T` takes its address
 automatically, and a generic parameter written `*T` infers `T` from the
 argument.
@@ -1947,7 +1955,8 @@ kind of storage:
 
 | The pointer was taken from | It stays valid while | Message after that |
 |---|---|---|
-| a local (`val`, `var`, a parameter, a pattern binding) | the block that declared the local has not ended | `dangling stack pointer to frame` |
+| a local (`val`, `var`, a parameter, a pattern binding) | the local has not been destroyed: its block has not ended, see below | `dangling stack pointer to frame` |
+| a `var` that a closure captured (section 3.7) | the variable's cell exists: the declaring block has not ended, or a closure that captured it is alive | `stale pointer dereference` |
 | a global | always | |
 | a `heap` value or a field of one | the value has not been freed | `stale pointer dereference` |
 | an arena value or a field of one | the arena was not reset, restored to a save point taken before the value, or destroyed (section 6.6) | `stale pointer dereference (arena)` |
@@ -1967,6 +1976,19 @@ is awaited inside the block that owns the local reads it normally. The
 check is exact for every program without data races; a program that frees
 or ends storage on one thread while another reads it races, and the race
 is not guaranteed to be detected.
+
+At the end of a block its `defer` statements run first, while every local
+is still alive, and then the locals are destroyed in reverse order of
+declaration (section 6.7). A `drop` block that runs then may dereference a
+pointer to a local declared before its own value, which is still alive (a
+guard holding a pointer to what it guards), and panics on a pointer to a
+local declared after it, which is already destroyed. A panic raised while
+a destructor runs is reported as `destructor panicked`, followed by the
+type, the `cause` (one of the messages above) and the site.
+
+Inside a lambda, a captured `val` is the closure's own copy: a pointer to
+it taken in the lambda ends when the lambda returns. A captured `var` is
+the variable itself (the table above).
 
 **List elements.** `&xs[i]` (and `&xs[i].field`) on a growable list is
 only allowed directly as a call argument (`E0330`), and so is passing an
@@ -1988,7 +2010,15 @@ such as `&make().field` (`E0270`); a pointer to a local cannot be returned
 directly (`E0271`; returning the address of a global or of a place reached
 through a pointer is fine); `&` on an `rc` handle is rejected (`E0296`;
 `&r.field` is allowed and checked as above); and `&list[i]` is restricted
-as described above (`E0330`).
+as described above (`E0330`). A checked pointer that is not `?*T` is never
+null: comparing it with `null` is a constant (`W0616`).
+
+**Limits.** A program can have 2^30 heap values, `rc` objects with a
+pointer into them and arena segments alive at once, 4095 running threads
+that have taken the address of a local, and scopes with addressed locals
+nested 1,048,575 deep; past any of them it aborts with a
+message naming the limit. No count of allocations, scope entries or
+threads over the life of the program makes a dead pointer valid again.
 
 ```iron
 object Player {

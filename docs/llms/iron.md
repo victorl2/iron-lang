@@ -333,7 +333,11 @@ element only during the call it is passed to (`f(&xs[i])`; `val p =
 dereference is checked at run time; a dead pointer aborts the program
 ("dangling stack pointer to frame", "stale pointer dereference"). Keep
 pointers short-lived: pass them down to calls, or store a value or an
-`rc` handle instead of a pointer to a local.
+`rc` handle instead of a pointer to a local. Locals die in reverse order
+of declaration, so a `drop` block may read a pointer to a local declared
+before its value, not after. A list or `Map` cannot be used through a
+pointer to it (E0220): go through a field (`p.items.push(x)`). A `var`
+parameter takes a variable, not a field or an element (E0267).
 
 ```iron
 object Player {
