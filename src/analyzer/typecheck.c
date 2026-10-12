@@ -3352,6 +3352,11 @@ static Iron_Type *resolve_array_builtin_method(const char *method,
 static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
                                     Iron_Node *receiver);
 
+static bool type_is_nocopy_element(const Iron_Type *t) {
+    return t && t->kind == IRON_TYPE_OBJECT && t->object.decl &&
+           t->object.decl->is_nocopy;
+}
+
 /* Type a builtin list method call: result type, arity and argument types.
  * `contains` needs element equality and `sort` an ordering, which only the
  * numeric, Bool (contains) and String element types have. */
@@ -3381,6 +3386,9 @@ static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc
                        "fixed-size arrays and bounded vectors are copied by value");
             return result;
         }
+        if (m[0] == 'c' && type_is_nocopy_element(arr_type->array.elem))
+            emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, mc->span,
+                       "cannot copy a list of nocopy elements", "use take() to transfer ownership");
         if (m[0] == 't') check_array_mutable(ctx, mc->object, mc->span, "take from");
     }
     /* A fixed-size array [T; N] keeps its length: push, pop, insert, remove
@@ -6050,6 +6058,13 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     check_expr_with_expected(ctx, mc->args[mc->arg_count - 1], lt->array.elem);
             }
 
+            if (mc->method && strcmp(mc->method, "filter") == 0 && mc->object) {
+                Iron_Type *ct = check_expr(ctx, mc->object);
+                if (ct && ct->kind == IRON_TYPE_ARRAY && type_is_nocopy_element(ct->array.elem))
+                    emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, mc->span,
+                               "cannot filter a list of nocopy elements", "filter copies the retained elements");
+            }
+
             /* `x.copy()` on an object: the explicit duplicate (#174). An
              * object that declares its own copy method (Image.copy) keeps
              * it; the `copy { }` hook is not callable and runs inside. */
@@ -8181,6 +8196,9 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             } else if (obj_type && obj_type->kind == IRON_TYPE_ARRAY && obj_type->array.elem &&
                 !obj_type->array.is_bounded &&
                 obj_type->array.elem->kind != IRON_TYPE_INTERFACE) {
+                if (type_is_nocopy_element(obj_type->array.elem))
+                    emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, se->span,
+                               "cannot slice a list of nocopy elements", "slicing copies its elements");
                 Iron_Type *lt = iron_type_make_array(ctx->arena, obj_type->array.elem, -1, false);
                 if (lt) result = lt;
             } else if (obj_type && obj_type->kind != IRON_TYPE_ERROR) {
@@ -9419,7 +9437,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (init_type && init_type->kind == IRON_TYPE_OBJECT &&
                 init_type->object.decl && init_type->object.decl->is_nocopy &&
                 (!decl_type || decl_type->kind == IRON_TYPE_OBJECT) &&
-                vd->init && vd->init->kind == IRON_NODE_IDENT) {
+                vd->init && (vd->init->kind == IRON_NODE_IDENT ||
+                             vd->init->kind == IRON_NODE_INDEX ||
+                             vd->init->kind == IRON_NODE_FIELD_ACCESS)) {
                 emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, vd->span,
                            "cannot copy nocopy type — assignment requires a copy operation",
                            "this type is nocopy: pass a pointer instead of a copy, `*T` to read it or `*var T` to change it");
@@ -9610,7 +9630,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (init_type && init_type->kind == IRON_TYPE_OBJECT &&
                 init_type->object.decl && init_type->object.decl->is_nocopy &&
                 (!decl_type || decl_type->kind == IRON_TYPE_OBJECT) &&
-                vd->init && vd->init->kind == IRON_NODE_IDENT) {
+                vd->init && (vd->init->kind == IRON_NODE_IDENT ||
+                             vd->init->kind == IRON_NODE_INDEX ||
+                             vd->init->kind == IRON_NODE_FIELD_ACCESS)) {
                 emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, vd->span,
                            "cannot copy nocopy type — assignment requires a copy operation",
                            "this type is nocopy: pass a pointer instead of a copy, `*T` to read it or `*var T` to change it");

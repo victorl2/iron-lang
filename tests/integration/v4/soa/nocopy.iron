@@ -1,0 +1,16 @@
+nocopy object D {
+    val n: Int
+    drop { println("drop {self.n}") }
+}
+func main() {
+    var ps: [D, layout: soa] = []
+    ps.push(D(1))
+    ps.push(D(2))
+    println("{ps.len()}")
+    {
+        val p = ps.pop()
+        println("{p.n}")
+    }
+    val moved = ps.take()
+    println("{moved.len()} {ps.len()}")
+}

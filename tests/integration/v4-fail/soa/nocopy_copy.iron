@@ -1,0 +1,5 @@
+nocopy object P { val x: Int }
+func main() {
+ var ps: [P, layout: soa] = []
+ val cp = ps.copy()
+}
