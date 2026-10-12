@@ -1572,6 +1572,11 @@ if(Python3_EXECUTABLE)
     set_tests_properties(prog_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
     # The same for numeric types, generics, pointers and Box, and comptime
     # (expected compile errors and panics included).
+    add_test(NAME prog_fuzz_soa
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            soa $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_soa 1 8 -j2
+            --cached-runtime ${CMAKE_BINARY_DIR}/prog_fuzz_soa_runtime)
+    set_tests_properties(prog_fuzz_soa PROPERTIES LABELS "codegen" TIMEOUT 180)
     add_test(NAME prog_fuzz_types
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_types
