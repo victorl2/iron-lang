@@ -110,6 +110,10 @@ object MysqlConfig {
     var multi_statements: Bool
     -- Largest packet the client accepts from the server, in bytes.
     var max_allowed_packet: Int
+    -- SQL run on every new connection right after it is established (and
+    -- again after a pooled connection is reset), for session settings such
+    -- as "SET time_zone = '+00:00'". A failure fails the connection.
+    var init_command: String
 
     init(host: String, port: Int, user: String, password: String, database: String) {
         self.host = host
@@ -127,6 +131,7 @@ object MysqlConfig {
         self.timeout = 0
         self.multi_statements = false
         self.max_allowed_packet = 1073741824
+        self.init_command = ""
     }
 }
 

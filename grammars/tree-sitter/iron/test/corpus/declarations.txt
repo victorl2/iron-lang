@@ -271,3 +271,24 @@ object Circle impl Shape { var radius: Int, }
       name: (identifier)
       type: (type_identifier
         (identifier)))))
+
+==========
+pub val and pub var globals
+==========
+
+pub val LIMIT = 10
+pub var counter: Int = 0
+
+---
+
+(source_file
+  (val_declaration
+    (visibility_modifier)
+    binding: (identifier)
+    value: (integer_literal))
+  (var_declaration
+    (visibility_modifier)
+    binding: (identifier)
+    type: (type_identifier
+      (identifier))
+    value: (integer_literal)))

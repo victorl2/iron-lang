@@ -49,6 +49,10 @@ double Iron_time_now(void) {
     return emscripten_date_now() / 1000.0;
 }
 
+int64_t Iron_time_unix_ms(void) {
+    return (int64_t)emscripten_date_now();
+}
+
 /* ── Monotonic time (milliseconds) ──────────────────────────────────────── */
 
 int64_t Iron_time_now_ms(void) {

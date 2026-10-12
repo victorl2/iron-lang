@@ -1728,8 +1728,10 @@ number 4 word hi end
 `val` and `var` declarations may appear at the top level. A global `val`
 is a constant initialized before `main` runs (its initializer may call
 functions); a global `var` is a mutable variable shared by the whole
-program (and by all threads, without synchronization). Globals cannot be
-`pub`. A `pure` method may not read a global `var` (`E0241`).
+program (and by all threads, without synchronization). Like every other
+top-level declaration a global is private to its file; `pub val` and
+`pub var` share it with the package's other files (`E0320` otherwise). A
+`pure` method may not read a global `var` (`E0241`).
 
 Globals are initialized before `main`, every one of them whether or not
 anything reads it, and each after the globals its initializer reads:
@@ -1804,7 +1806,7 @@ an unknown module is an error (`E0209`); an unused import warns (`W0611`).
 declarations are used by their own names.
 
 The modules that require an import are `math`, `io`, `time`, `log`,
-`hint`, `os`, `net`, `http`, `websocket`, `url`, `json`, `crypto`,
+`hint`, `os`, `atomic`, `net`, `http`, `websocket`, `url`, `json`, `crypto`,
 `encoding`, `mysql` and `raylib`; their functions are
 called on the capitalized module object (`import math`, then
 `Math.sqrt(x)`). Everything else in section 9 (strings, lists, `Box`,
@@ -1814,8 +1816,8 @@ is available without an import.
 ### 5.10 Visibility
 
 Every top-level declaration is private to its file unless marked `pub`.
-`pub` may prefix a function, object, patch, interface or enum (not a
-global binding). Using a private declaration from another file of the
+`pub` may prefix a function, object, patch, interface, enum or global
+binding (`pub val`, `pub var`). Using a private declaration from another file of the
 package is an error (`E0320`). Object members are private to the declaring
 file unless marked `pub` (section 5.3). The word `private` is not accepted
 (`E0101`). Visibility does not make names local: all files of a package
@@ -2266,12 +2268,19 @@ func main() {
 
 ### 7.1 `spawn` and `await`
 
-`spawn("name") { body }` runs the body on a new operating system thread and
-evaluates to a handle. The body is a block that must `return` a value, and
+`spawn("name") { body }` runs the body concurrently and evaluates to a
+handle. The body is a block that must `return` a value, and
 `await handle` blocks until the thread finishes and yields that value. A
 handle can be awaited once (`E0325`). A spawn expression may only appear as
 the initializer of a `val` or `var`, or as a statement (its result is then
-discarded and the thread is never awaited). The body may read `val` bindings of the enclosing
+discarded and the task is never awaited). A bound spawn (`val h = spawn`)
+runs on a new operating system thread. A spawn statement is a task for the
+runtime's worker pool, a fixed set of one thread per CPU core but one (the
+environment variable `IRON_WORKERS` sets another size): a
+task that blocks (on a socket, a sleep or a database call) holds a worker
+until it returns, and tasks beyond the pool's size wait their turn. Run
+long-lived loops as bound spawns, and see `Http.poller` (networking guide)
+for servers that keep many idle connections. The body may read `val` bindings of the enclosing
 function and use `Mutex`, `Channel` and `rc` values; a list captured by a
 spawn must be awaited in the same block (`E0328`). Writing a captured
 `var` from a thread is a data race and warns (`W0604`). A thread keeps what
@@ -2652,6 +2661,7 @@ Simple functions on `IO`:
 | `read_file(path) -> String`, `write_file(path, content)`, `append_file(path, content)` | whole-file text I/O (an unreadable file reads as `""`) |
 | `read_lines(path) -> [String]` | the lines of a file |
 | `read_line() -> String` | one line from standard input |
+| `write_stdout(s) -> Int`, `write_stderr(s) -> Int` | write all of `s` at once without buffering (lines from several threads do not interleave; println's buffer is flushed first); the bytes written, or -1 |
 | `file_exists(path) -> Bool`, `is_dir(path) -> Bool` | tests |
 | `create_dir(path)`, `delete_file(path)` | directories and deletion |
 | `list_files(dir) -> String` | the entries of a directory, one per line |
@@ -2696,8 +2706,10 @@ false
 
 ### 9.6 `time` (import)
 
-`Time.now() -> Float` (seconds since the Unix epoch), `Time.now_ms() -> Int`
-and `Time.now_ns() -> Int` (milliseconds and nanoseconds), `Time.sleep(ms:
+`Time.now() -> Float` (seconds since the Unix epoch), `Time.unix_ms() -> Int`
+(milliseconds since the Unix epoch), `Time.now_ms() -> Int`
+and `Time.now_ns() -> Int` (milliseconds and nanoseconds of a monotonic clock
+with an arbitrary origin, for measuring durations), `Time.sleep(ms:
 Int)`, `Time.since(start: Float) -> Float` (seconds elapsed since a
 `Time.now()` value), and `Time.Timer(seconds: Float) -> Timer` with the
 fields `elapsed_ms` and `duration_ms` and the methods `done() -> Bool`,
@@ -2727,6 +2739,16 @@ not set), `OS.env_or(name, fallback) -> String` returns `fallback` instead,
 and `OS.has_env(name) -> Bool` tests for it (an empty value counts as set).
 Names and values are UTF-8 on every platform.
 
+For long-running programs: `OS.trap_shutdown_signals()` makes SIGINT and
+SIGTERM (Ctrl+C, Ctrl+Break and closing the console on Windows) set a flag
+instead of ending the process, and `OS.shutdown_signal() -> Int` returns
+the first such signal received (2 or 15), or 0, for the program to poll and
+shut down cleanly; a second signal ends the process at once.
+`OS.exit(code)` ends the process with an exit status (after flushing
+standard output; drops, defers and other tasks do not run),
+`OS.pid() -> Int` is the process id and `OS.cpu_count() -> Int` the
+number of CPUs the process may run on (its affinity mask on Linux).
+
 ```iron
 import os
 
@@ -2742,6 +2764,39 @@ func main(args: [String]) {
 ```output
 unset
 default 0
+```
+
+### 9.6.2 `atomic` (import)
+
+`AtomicInt.new(v)` and `AtomicBool.new(b)` make a value that tasks share
+without a lock. Copies of the handle (a spawn's capture, a field, an
+argument) refer to the same value, freed with the last copy. `get()`,
+`set(v)`, `swap(v)` (returns the previous value) and
+`compare_and_set(expected, desired)` (whether it stored) work on both;
+`AtomicInt.add(d)` adds and returns the new value. Every operation is
+sequentially consistent.
+
+```iron
+import atomic
+
+func main() {
+    val hits = AtomicInt.new(0)
+    val t = spawn("worker") {
+        for i in range(1000) {
+            hits.add(1)
+        }
+        return 0
+    }
+    for i in range(1000) {
+        hits.add(1)
+    }
+    await t
+    println("{hits.get()} {hits.compare_and_set(2000, 1)} {hits.get()}")
+}
+```
+
+```output
+2000 true 1
 ```
 
 ### 9.7 `log` (import)
@@ -3112,7 +3167,11 @@ before the C compiler), `--dump-ir-passes`, `--report-compression`,
 compilation, section 10.6). `--no-strict-v3` accepts a few removed syntax forms for
 debugging old code. `--verbose` prints the generated C and the link line
 and `--version` prints the compiler version and the toolchain it compiles
-with.
+with. On Linux and macOS the environment variable `IRON_CFLAGS` adds C
+compiler flags (separated by spaces, at most 16) to the compilation of the
+program and of the runtime built into it, for example
+`IRON_CFLAGS="-g -fsanitize=address,undefined" iron build` for a sanitizer
+build.
 
 ### 10.5 The web target
 

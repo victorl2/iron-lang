@@ -6,6 +6,9 @@
  * that does: it forwards the memory calls to libc and implements the
  * threading handles over pthreads or Win32 inside the opaque storage the
  * header declares, with static assertions that the storage fits. */
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+  #define _GNU_SOURCE 1   /* sched_getaffinity / CPU_COUNT for OS.cpu_count */
+#endif
 #include "runtime/iron_runtime.h"
 
 #include <errno.h>
@@ -13,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <signal.h>
 
 #ifdef _WIN32
   #include <io.h>
@@ -29,6 +33,9 @@
 #ifdef __APPLE__
   #include <sys/types.h>
   #include <sys/sysctl.h>
+#endif
+#ifdef __linux__
+  #include <sched.h>
 #endif
 #include <stdarg.h>
 
@@ -391,4 +398,90 @@ Iron_String Iron_os_env_or(Iron_String name, Iron_String fallback) {
     Iron_String s = iron_string_from_cstr(v, (size_t)len);
     free(v);
     return s;
+}
+
+/* os.iron: OS.trap_shutdown_signals() and OS.shutdown_signal().
+ *
+ * After the trap is installed, SIGINT and SIGTERM (Ctrl+C, Ctrl+Break and
+ * console close on Windows) no longer end the process: the handler records
+ * the first signal and the program polls OS.shutdown_signal() to drain and
+ * exit on its own. A second signal of either kind ends the process at once,
+ * so a stuck shutdown can still be interrupted. */
+static volatile sig_atomic_t os_shutdown_signo = 0;
+
+#ifdef _WIN32
+static BOOL WINAPI os_console_handler(DWORD kind) {
+    switch (kind) {
+    case CTRL_C_EVENT: case CTRL_BREAK_EVENT: case CTRL_CLOSE_EVENT:
+    case CTRL_SHUTDOWN_EVENT:
+        if (os_shutdown_signo != 0) ExitProcess(130);
+        os_shutdown_signo = kind == CTRL_C_EVENT ? 2 : 15;
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
+void Iron_os_trap_shutdown_signals(void) {
+    SetConsoleCtrlHandler(os_console_handler, TRUE);
+}
+#else
+static void os_shutdown_handler(int signo) {
+    if (os_shutdown_signo != 0) {
+        signal(signo, SIG_DFL);
+        raise(signo);
+        return;
+    }
+    os_shutdown_signo = signo;
+}
+
+void Iron_os_trap_shutdown_signals(void) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = os_shutdown_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+}
+#endif
+
+int64_t Iron_os_shutdown_signal(void) { return (int64_t)os_shutdown_signo; }
+
+int64_t Iron_os_pid(void) {
+#ifdef _WIN32
+    return (int64_t)GetCurrentProcessId();
+#else
+    return (int64_t)getpid();
+#endif
+}
+
+/* os.iron: OS.exit(code). Flushes standard output and error and ends the
+ * process with the status (truncated to 0..255 on POSIX). Drops, defers and
+ * other tasks do not run: it is for fatal errors and command-line tools. */
+void Iron_os_exit(int64_t code) {
+    fflush(stdout);
+    fflush(stderr);
+    exit((int)code);
+}
+
+/* os.iron: OS.cpu_count(). The CPUs this process may run on: the affinity
+ * mask on Linux (so a container or taskset limit is respected), the online
+ * processors elsewhere. At least 1. */
+int64_t Iron_os_cpu_count(void) {
+#ifdef _WIN32
+    DWORD n = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    return n > 0 ? (int64_t)n : 1;
+#else
+  #ifdef __linux__
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    if (sched_getaffinity(0, sizeof(set), &set) == 0) {
+        int n = CPU_COUNT(&set);
+        if (n > 0) return n;
+    }
+  #endif
+    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    return n > 0 ? (int64_t)n : 1;
+#endif
 }

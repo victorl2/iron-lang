@@ -178,3 +178,125 @@ func Http.file_response(status: Int, path: String, content_type: String, max_bod
 
 -- Case-insensitive lookup in the raw `headers` field. Returns "" when absent.
 func Http.header(headers: String, name: String) -> String {}
+
+-- ── Readiness-driven serving: HttpPoller ─────────────────────────────────
+--
+-- A handler task per connection holds a worker for as long as the client
+-- keeps the connection open, so a keep-alive server can serve only as many
+-- clients as there are workers. An HttpPoller keeps idle connections away
+-- from the workers: it accepts from the listener itself and next() returns
+-- a connection only once a request has started to arrive on it. A worker
+-- reads and answers that one request, then gives the connection back with
+-- park() (keep-alive) or discard() (close):
+--
+--   val poller = Http.poller(server, 30000)
+--   while running {
+--       val ready = poller.next(1000)
+--       if ready.error == 0 {
+--           val c = ready.connection
+--           spawn("request") { return serve_one(poller, c) }
+--       }
+--   }
+--
+-- New connections are TCP_NODELAY and non-blocking. Connections waiting
+-- for a first request or parked between requests are closed after
+-- idle_timeout milliseconds (0: never). next() returns error 1004 when its
+-- timeout passes and 1013 once the poller is closed. close() closes every
+-- connection the poller holds and wakes next(); a connection handed out by
+-- next() stays its worker's, and parking it after close() closes it. The
+-- poller does not own the listener: close the HttpServer separately.
+-- Connections taken from next() should be given back with park() or
+-- discard() rather than HttpConnection.close.
+object HttpPollerCore {
+    val handle: Int
+
+    drop {
+        HttpPollerNative.free(self.handle)
+    }
+}
+
+object HttpPoller {
+    val core: rc HttpPollerCore
+    val error: Int
+    val error_message: String
+}
+
+-- Native entry points (iron_http.c). Not part of the public API.
+object HttpPollerNative {}
+func HttpPollerNative.open(listen_fd: Int, idle_timeout: Int) -> Int {}
+func HttpPollerNative.next(h: Int, timeout: Int) -> Int {}
+func HttpPollerNative.park(h: Int, fd: Int) {}
+func HttpPollerNative.discard(h: Int, fd: Int) {}
+func HttpPollerNative.close(h: Int) {}
+func HttpPollerNative.free(h: Int) {}
+func HttpPollerNative.count(h: Int, what: Int) -> Int {}
+func HttpPollerNative.error_message(code: Int) -> String {}
+func HttpPollerNative.closed(h: Int) -> Bool {}
+
+func Http.poller(server: HttpServer, idle_timeout: Int) -> HttpPoller {
+    val h = HttpPollerNative.open(server.fd, idle_timeout)
+    if h < 0 {
+        return HttpPoller(rc HttpPollerCore(0), 0 - h, HttpPollerNative.error_message(0 - h))
+    }
+    return HttpPoller(rc HttpPollerCore(h), 0, "")
+}
+
+patch object HttpPoller {
+    readonly func ok() -> Bool {
+        return self.error == 0
+    }
+
+    -- The next connection with request bytes waiting, within `timeout`
+    -- milliseconds (0 polls once).
+    readonly func next(timeout: Int) -> HttpConnectionResult {
+        val fd = HttpPollerNative.next(self.core.handle, timeout)
+        if fd < 0 {
+            return HttpConnectionResult(HttpConnection(-1), 0 - fd, HttpPollerNative.error_message(0 - fd))
+        }
+        return HttpConnectionResult(HttpConnection(fd), 0, "")
+    }
+
+    -- Hand a connection back after a keep-alive response; next() returns it
+    -- again when its next request arrives.
+    readonly func park(connection: HttpConnection) {
+        HttpPollerNative.park(self.core.handle, connection.fd)
+    }
+
+    -- Close a connection taken from next(). When the client is still sending
+    -- (a request rejected unread), the answer already written is protected
+    -- from a connection reset: input is drained for up to a second first.
+    readonly func discard(connection: HttpConnection) {
+        HttpPollerNative.discard(self.core.handle, connection.fd)
+    }
+
+    -- Close every held connection and make next() return 1013.
+    readonly func close() {
+        HttpPollerNative.close(self.core.handle)
+    }
+
+    -- Whether close() has run (a cheap check, for example to answer with
+    -- Connection: close while a server drains).
+    readonly func closed() -> Bool {
+        return HttpPollerNative.closed(self.core.handle)
+    }
+
+    -- Connections parked between requests.
+    readonly func parked() -> Int {
+        return HttpPollerNative.count(self.core.handle, 0)
+    }
+
+    -- Accepted connections that have not sent a first request yet.
+    readonly func waiting() -> Int {
+        return HttpPollerNative.count(self.core.handle, 1)
+    }
+
+    -- Connections accepted since the poller opened.
+    readonly func accepted() -> Int {
+        return HttpPollerNative.count(self.core.handle, 3)
+    }
+
+    -- Connections closed for idleness since the poller opened.
+    readonly func expired() -> Int {
+        return HttpPollerNative.count(self.core.handle, 4)
+    }
+}
