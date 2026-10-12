@@ -1,0 +1,5 @@
+-- `var` at the end of the file with no newline after it: error recovery
+-- turned the EOF token into a binding name and then read past the end of
+-- the token array (ironc check crashed). Keep the file without a final
+-- newline.
+Bool var

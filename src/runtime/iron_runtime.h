@@ -920,8 +920,23 @@ IRON_CHECK_FN void iron_check_arena_pointer_gen(Iron_FatPtr fp,
  * Every runtime thread (spawned tasks, the language server's workers) gets
  * the main thread's usual 8 MB stack: secondary threads otherwise get the
  * platform default (512 KB on macOS), where deep recursion overflowed. */
+/* Sanitizer builds give a stack frame many times its release size (the
+ * type checker's check_expr_impl is 2.5 KB in a release build and 66 KB
+ * under ASan at -O0), so nesting a release build handles overflowed 8 MB
+ * there (#590): their threads get 256 MB of (lazily committed) stack. */
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#define IRON_SANITIZED_BUILD 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+#define IRON_SANITIZED_BUILD 1
+#endif
+#endif
 #ifndef IRON_THREAD_STACK_SIZE
+#ifdef IRON_SANITIZED_BUILD
+#define IRON_THREAD_STACK_SIZE ((size_t)256 * 1024 * 1024)
+#else
 #define IRON_THREAD_STACK_SIZE ((size_t)8 * 1024 * 1024)
+#endif
 #endif
 typedef struct { _Alignas(16) unsigned char opaque[64];  } iron_mutex_t;
 typedef struct { _Alignas(16) unsigned char opaque[64];  } iron_cond_t;

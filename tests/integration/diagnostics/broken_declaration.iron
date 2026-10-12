@@ -1,0 +1,20 @@
+-- A declaration with a syntax error still binds its names: later uses
+-- are not reported as undefined, and a var whose assignment the broken
+-- text swallowed is not told to become a val.
+func main() {
+    val x: Int = 1 +* 2
+    println("{x}")
+    val (a, b) = (1, +)
+    println("{a} {b}")
+    var c = (1 +
+    c = 3
+    println("{c}")
+    val (d, 1) = (1, 2)
+    println("{d}")
+    val (, e) = (1, 2)
+    println("{e}")
+    val (f, = 3
+    println("{f}")
+    val (g) = 3
+    println("{g}")
+}
