@@ -15,6 +15,12 @@ CASES = [
     ('object P {\n    val x: Int\n    func moved(dx: Int, dy: Int) -> P { return P(self.x + dx) }\n}\n'
      'func main() {\n    val p = P(1)\n    val q = p.moved(1, |)\n}\n',
      "func P.moved(dx: Int, dy: Int) -> P", 1),
+    ('func main() {\n    val x = UInt32(7)\n    val y = x.rotate_left(|)\n}\n',
+     "func rotate_left(k: Int) -> UInt32", 0),
+    ('func main() {\n    val x = Float.from_bits(|)\n}\n',
+     "func from_bits(bits: UInt64) -> Float", 0),
+    ('func main() {\n    val x = Hint.unlikely(|)\n}\n',
+     "func unlikely(c: Bool) -> Bool", 0),
 ]
 
 

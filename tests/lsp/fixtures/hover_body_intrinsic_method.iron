@@ -1,0 +1,7 @@
+-- Hover on an intrinsic method shows its exact signature and documentation.
+--
+-- HOVER@6:18
+func main() {
+    val x = UInt32(7)
+    println("{x.rotate_left(3)}")
+}

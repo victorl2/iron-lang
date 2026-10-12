@@ -752,6 +752,20 @@ static void push_builtins(IronLsp_CompletionCandidate **out, Iron_Arena *arena,
     }
 }
 
+static void push_intrinsics(IronLsp_CompletionCandidate **out, Iron_Arena *arena,
+                            const Iron_Type *recv, unsigned recv_mask, bool on_type,
+                            const char *prefix) {
+    if (!recv_mask) recv_mask = ilsp_intrinsic_receiver(recv);
+    for (int i = 0; iron_intrinsic_table[i].name; i++) {
+        const Iron_IntrinsicInfo *info = &iron_intrinsic_table[i];
+        if (((info->recv & IRON_INTR_RECV_STATIC) != 0) != on_type) continue;
+        if (!(info->recv & recv_mask & ~(unsigned)IRON_INTR_RECV_STATIC)) continue;
+        maybe_push(out, arena, info->name, LSP_CK_METHOD, ILSP_COMPLETION_BUCKET_LOCAL,
+                   ilsp_intrinsic_signature(info, recv, arena), info->doc, info->name,
+                   false, false, prefix);
+    }
+}
+
 /* Methods declared for `type_name` (the file's and the stdlib's), or the
  * list extensions (`func [T].map`) when `list`. */
 static void push_declared_methods(IronLsp_CompletionCandidate **out, Iron_Arena *arena,
@@ -891,9 +905,25 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
         if (program->decls[i]) iron_ast_walk(program->decls[i], &v);
     }
     if (!f.best) f.best = f.by_field;
+    /* Static compiler intrinsics also exist on synthetic namespaces such
+     * as Hint, for which there is deliberately no declaration to find. */
+    const Iron_Type *rt = f.best ? ((Iron_ExprNode *)f.best)->resolved_type : NULL;
+    if (f.best && f.best->kind == IRON_NODE_IDENT) {
+        Iron_Ident *id = (Iron_Ident *)f.best;
+        Iron_Symbol *sym = id->resolved_sym;
+        unsigned mask = (!sym || sym->sym_kind == IRON_SYM_TYPE)
+                            ? ilsp_static_intrinsic_receiver(id->name) : 0;
+        if (mask) {
+            const Iron_Type *static_type = rt ? strip_handle(rt)
+                                              : ilsp_primitive_type_named(id->name);
+            push_intrinsics(out_arr, arena, static_type, mask, true, query_prefix);
+            Iron_Node *td = sym ? sym->decl_node : NULL;
+            if (!td || (td->kind != IRON_NODE_OBJECT_DECL && td->kind != IRON_NODE_ENUM_DECL))
+                return;
+        }
+    }
     /* No analyzed type (the program was only parsed, or the receiver
      * did not type): a binding written with its type still names it. */
-    const Iron_Type *rt = f.best ? ((Iron_ExprNode *)f.best)->resolved_type : NULL;
     if (!rt && !(f.best && f.best->kind == IRON_NODE_IDENT &&
                  ((Iron_Ident *)f.best)->resolved_sym)) {
         const char *type_name = annotated_type_of(program, doc->text, last);
@@ -930,8 +960,12 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
     if (!t || t->kind == IRON_TYPE_ERROR) return;
     switch ((int)t->kind) {
         case IRON_TYPE_ARRAY:
+            push_intrinsics(out_arr, arena, t, 0, false, query_prefix);
             push_builtins(out_arr, arena, ilsp_list_builtins, t, query_prefix);
             push_declared_methods(out_arr, arena, program, NULL, true, query_prefix);
+            return;
+        case IRON_TYPE_VIEW:
+            push_intrinsics(out_arr, arena, t, 0, false, query_prefix);
             return;
         case IRON_TYPE_OBJECT: {
             Iron_ObjectDecl *od = t->object.decl;
@@ -944,6 +978,7 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
                 push_builtins(out_arr, arena, ilsp_set_builtins, t, query_prefix);
                 return;
             }
+            push_intrinsics(out_arr, arena, t, 0, false, query_prefix);
             emit_object_members_by_name(out_arr, arena, server, doc, program, od->name,
                                         query_prefix);
             return;
@@ -967,6 +1002,7 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
             return;
         default: {
             /* String, Int, Float...: the stdlib's `patch object String`. */
+            push_intrinsics(out_arr, arena, t, 0, false, query_prefix);
             const char *name = type_str(t, arena);
             push_declared_methods(out_arr, arena, program, name, false, query_prefix);
             return;
