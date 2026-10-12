@@ -3118,9 +3118,20 @@ if(NOT WIN32)
         iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/${_fixrel}.iron")
         set_tests_properties(v4_${_fixname} PROPERTIES
             LABELS "integration;aggregate-parity;v4-acceptance"
-            TIMEOUT 60
+            TIMEOUT 180
             WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
+    # Every row compiles the full runtime. A 60-second loop-wide cap flakes
+    # when the compiler is descheduled on a loaded runner (#760).
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME test_v4_aggregate_fixture_timeout
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
+                ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
+                v4_3.1-stack_boundary_struct_field 180)
+        set_tests_properties(test_v4_aggregate_fixture_timeout PROPERTIES
+            LABELS "integration;aggregate-parity;unit")
+    endif()
 
     # ── @expect-panic rows (panic_after_reset machinery) ──
     set(_V4_AGGPARITY_PANIC_FIXTURES
