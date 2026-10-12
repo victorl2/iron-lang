@@ -9,6 +9,22 @@
     <StringView Condition="(heap.flags &amp; 1) != 0">heap.data,[heap.byte_length]s8</StringView>
     <StringView>sso.data,[sso.len]s8</StringView>
   </Type>
+  <!-- A list of an element type used with layout: soa has a `soa` flag;
+       when it is set, items points at one block of columns (capacity
+       values of each member in turn), not at elements. Lists without the
+       flag fail this entry's expressions and use the next one. -->
+  <Type Name="Iron_List_*" Priority="High">
+    <DisplayString Condition="soa">{{ size={count}, layout: soa }}</DisplayString>
+    <DisplayString>{{ size={count} }}</DisplayString>
+    <Expand>
+      <Item Name="[columns]" Condition="soa">(void *)items</Item>
+      <Item Name="[capacity]" Condition="soa">capacity</Item>
+      <ArrayItems Condition="!soa">
+        <Size>count</Size>
+        <ValuePointer>items</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
   <Type Name="Iron_List_*">
     <DisplayString>{{ size={count} }}</DisplayString>
     <Expand>

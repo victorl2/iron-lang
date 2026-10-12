@@ -1203,6 +1203,12 @@ if(NOT WIN32)
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_values_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
   set_tests_properties(debug_values_smoke PROPERTIES TIMEOUT 120)
+  # The list formatters gather the elements of a layout: soa list from its
+  # columns.
+  add_test(NAME debug_soa_smoke
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_soa_smoke.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_soa_smoke PROPERTIES TIMEOUT 120)
   # #388: the compiler's temporaries carry no debug info, so gdb and lldb
   # used directly list only Iron names (IRON_DEBUG_TEMPORARIES=1 keeps them).
   add_test(NAME debug_temporaries_smoke
