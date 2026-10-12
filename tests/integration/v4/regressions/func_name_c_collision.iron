@@ -1,0 +1,24 @@
+-- Free functions whose generated C names are already declared by runtime or
+-- standard-library headers keep distinct names, even without importing the
+-- corresponding modules (issue 524). A fresh name also avoids a user
+-- function that already has the first candidate name.
+func log_info(msg: String) -> Int {
+    return msg.len()
+}
+
+func http_get(n: Int) -> Int {
+    return n + 1
+}
+
+func time_now() -> Int {
+    return 7
+}
+
+func u_log_info(msg: String) -> Int {
+    return msg.len() + 10
+}
+
+func main() {
+    val f = log_info
+    println("{log_info("x")} {http_get(1)} {time_now()} {u_log_info("x")} {f("abc")}")
+}

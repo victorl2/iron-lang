@@ -16,9 +16,11 @@
 #include "util/os.h"
 #ifdef _WIN32
   #include <process.h>
+  #include <io.h>
 #else
   #include <spawn.h>
   #include <sys/wait.h>
+  #include <dirent.h>
 #endif
 #ifdef __APPLE__
   #include <mach-o/dyld.h>
@@ -240,6 +242,85 @@ static char *derive_output_name(const char *source_path) {
 #endif
 
     return out;
+}
+
+/* Every Iron_<name> identifier declared by the runtime and standard library
+ * headers. Generated C includes these headers even when the corresponding
+ * Iron module is not imported, so a program function must not reuse one of
+ * their identifiers (#524). */
+static void reserve_header_symbols_in(const char *dir) {
+    char **files = NULL;
+#ifdef _WIN32
+    char pattern[4200];
+    snprintf(pattern, sizeof(pattern), "%s\\*.h", dir);
+    struct _finddata_t entry;
+    intptr_t handle = _findfirst(pattern, &entry);
+    if (handle == -1) return;
+    do {
+        char *path = malloc(strlen(dir) + strlen(entry.name) + 2);
+        if (path) {
+            sprintf(path, "%s/%s", dir, entry.name);
+            arrput(files, path);
+        }
+    } while (_findnext(handle, &entry) == 0);
+    _findclose(handle);
+#else
+    DIR *stream = opendir(dir);
+    if (!stream) return;
+    struct dirent *entry;
+    while ((entry = readdir(stream)) != NULL) {
+        size_t name_len = strlen(entry->d_name);
+        if (name_len < 3 || strcmp(entry->d_name + name_len - 2, ".h") != 0)
+            continue;
+        char *path = malloc(strlen(dir) + name_len + 2);
+        if (path) {
+            sprintf(path, "%s/%s", dir, entry->d_name);
+            arrput(files, path);
+        }
+    }
+    closedir(stream);
+#endif
+
+    for (int i = 0; i < (int)arrlen(files); i++) {
+        FILE *header = fopen(files[i], "rb");
+        free(files[i]);
+        if (!header) continue;
+        char line[4096];
+        while (fgets(line, sizeof(line), header)) {
+            for (char *p = strstr(line, "Iron_"); p; p = strstr(p + 1, "Iron_")) {
+                if (p > line && (isalnum((unsigned char)p[-1]) || p[-1] == '_'))
+                    continue;
+                char identifier[256];
+                size_t len = 0;
+                while (len < sizeof(identifier) - 1 &&
+                       (isalnum((unsigned char)p[len]) || p[len] == '_')) {
+                    identifier[len] = p[len];
+                    len++;
+                }
+                identifier[len] = '\0';
+                if (len > strlen("Iron_"))
+                    iron_lir_emit_add_reserved_c_name(identifier);
+            }
+        }
+        fclose(header);
+    }
+    arrfree(files);
+}
+
+static void reserve_runtime_symbols(void) {
+    static bool done = false;
+    if (done) return;
+    done = true;
+
+    char *lib_dir = get_iron_lib_dir();
+    if (!lib_dir) return;
+    static const char *const subdirs[] = { "runtime", "stdlib", NULL };
+    for (int i = 0; subdirs[i]; i++) {
+        char path[4200];
+        snprintf(path, sizeof(path), "%s/%s", lib_dir, subdirs[i]);
+        reserve_header_symbols_in(path);
+    }
+    free(lib_dir);
 }
 
 /* ── Helper: write C source to a temp file ───────────────────────────────── */
@@ -2242,6 +2323,7 @@ int iron_build(const char *source_path, const char *output_path,
      * and synthesizes a main() wrapper + frame callback for the function whose
      * fn->web_frame_captures was populated by iron_lir_web_main_loop_split. */
     const char *c_src;
+    reserve_runtime_symbols();
     if (opts.target == IRON_TARGET_WEB) {
         c_src = emit_web_module(ir_module, &arena, &diags, &optimize_info,
                                 &analysis.iface_registry,

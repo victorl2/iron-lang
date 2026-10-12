@@ -59,7 +59,17 @@ const char *emit_object_type_name(const char *name, EmitCtx *ctx) {
  * - Built-in function names (println, print, len, etc.) map to Iron_XXX.
  * - All other user-defined functions map to Iron_XXX.
  * The returned string is arena-allocated or a static literal. */
-const char *emit_mangle_func_name(const char *name, Iron_Arena *arena) {
+static struct { char *key; bool value; } *g_reserved_c_names = NULL;
+static struct { char *key; char *value; } *g_func_c_renames = NULL;
+
+void iron_lir_emit_add_reserved_c_name(const char *name) {
+    if (!name) return;
+    if (!g_reserved_c_names) sh_new_strdup(g_reserved_c_names);
+    if (shgeti(g_reserved_c_names, name) >= 0) return;
+    shput(g_reserved_c_names, name, true);
+}
+
+static const char *emit_mangle_func_name_raw(const char *name, Iron_Arena *arena) {
     if (!name) return "NULL";
 
     /* Lifted functions are already internal C identifiers -- keep as-is.
@@ -84,6 +94,67 @@ const char *emit_mangle_func_name(const char *name, Iron_Arena *arena) {
 
     /* All other names: apply Iron_ prefix */
     return emit_mangle_name(name, arena);
+}
+
+void emit_plan_func_c_renames(IronLIR_Module *module, Iron_Arena *arena) {
+    for (ptrdiff_t i = 0; i < shlen(g_func_c_renames); i++)
+        free(g_func_c_renames[i].value);
+    shfree(g_func_c_renames);
+    g_func_c_renames = NULL;
+    if (!module || shlen(g_reserved_c_names) == 0) return;
+
+    struct { char *key; bool value; } *used = NULL;
+    sh_new_strdup(used);
+    for (ptrdiff_t i = 0; i < shlen(g_reserved_c_names); i++)
+        shput(used, g_reserved_c_names[i].key, true);
+    for (int i = 0; i < module->func_count; i++) {
+        IronLIR_Func *fn = module->funcs[i];
+        if (!fn || !fn->name) continue;
+        const char *c_name = fn->is_extern && fn->extern_c_name
+            ? fn->extern_c_name
+            : emit_mangle_func_name_raw(fn->name, arena);
+        if (shgeti(used, c_name) < 0) shput(used, c_name, true);
+    }
+
+    sh_new_strdup(g_func_c_renames);
+    for (int i = 0; i < module->func_count; i++) {
+        IronLIR_Func *fn = module->funcs[i];
+        if (!fn || !fn->name || fn->is_extern) continue;
+        const char *default_name = emit_mangle_func_name_raw(fn->name, arena);
+        if (shgeti(g_reserved_c_names, default_name) < 0) continue;
+
+        size_t name_len = strlen(fn->name);
+        char *candidate = NULL;
+        for (size_t prefix_len = 2; prefix_len < 66; prefix_len++) {
+            char *ir_name = malloc(prefix_len + name_len + 1);
+            if (!ir_name) iron_oom_abort("emit_helpers.c:emit_plan_func_c_renames");
+            memset(ir_name, 'u', prefix_len - 1);
+            ir_name[prefix_len - 1] = '_';
+            memcpy(ir_name + prefix_len, fn->name, name_len + 1);
+            const char *c_name = emit_mangle_func_name_raw(ir_name, arena);
+            if (shgeti(used, c_name) < 0) {
+                candidate = strdup(c_name);
+                free(ir_name);
+                if (!candidate)
+                    iron_oom_abort("emit_helpers.c:emit_plan_func_c_renames");
+                break;
+            }
+            free(ir_name);
+        }
+        if (!candidate)
+            iron_oom_abort("emit_helpers.c:emit_plan_func_c_renames exhausted names");
+        shput(used, candidate, true);
+        shput(g_func_c_renames, fn->name, candidate);
+    }
+    shfree(used);
+}
+
+const char *emit_mangle_func_name(const char *name, Iron_Arena *arena) {
+    if (name && g_func_c_renames) {
+        ptrdiff_t index = shgeti(g_func_c_renames, name);
+        if (index >= 0) return g_func_c_renames[index].value;
+    }
+    return emit_mangle_func_name_raw(name, arena);
 }
 
 /* Resolve a function IR name to its C symbol, honoring extern_c_name.

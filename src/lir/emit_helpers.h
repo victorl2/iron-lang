@@ -274,6 +274,8 @@ typedef struct {
 const char *emit_mangle_name(const char *name, Iron_Arena *arena);
 const char *emit_object_type_name(const char *name, EmitCtx *ctx);
 const char *emit_mangle_func_name(const char *name, Iron_Arena *arena);
+void iron_lir_emit_add_reserved_c_name(const char *name);
+void emit_plan_func_c_renames(IronLIR_Module *module, Iron_Arena *arena);
 const char *emit_resolve_func_c_name(EmitCtx *ctx, const char *ir_name);
 const char *emit_sanitize_label(const char *label, Iron_Arena *arena);
 
