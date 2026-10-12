@@ -111,14 +111,34 @@ def lex(src: str) -> List[Token]:
                 if not multiline and d == "\n":
                     raise LexError(f"{sl}:{sc}: unterminated string")
                 if depth > 0 and d == '"':
-                    # nested literal inside an interpolation expression
+                    # A nested literal may contain interpolations of its own,
+                    # including further string literals. Mirror the compiler
+                    # lexer's stack: 0 is a literal, and a positive value is
+                    # the brace depth of an interpolation inside that literal.
+                    nested = [0]
                     adv()
-                    while i < n and src[i] not in '"\n':
-                        if src[i] == "\\":
-                            adv()
+                    while nested:
+                        if i >= n or src[i] == "\n":
+                            break
+                        d = src[i]
                         adv()
-                    if i < n and src[i] == '"':
-                        adv()
+                        if d == "\\":
+                            if i < n and src[i] != "\n":
+                                adv()
+                            continue
+                        if nested[-1] == 0:
+                            if d == '"':
+                                nested.pop()
+                            elif d == "{":
+                                nested.append(1)
+                        elif d == '"':
+                            nested.append(0)
+                        elif d == "{":
+                            nested[-1] += 1
+                        elif d == "}":
+                            nested[-1] -= 1
+                            if nested[-1] == 0:
+                                nested.pop()
                     continue
                 if d == "\\":
                     adv(2)
