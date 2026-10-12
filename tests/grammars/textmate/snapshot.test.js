@@ -19,6 +19,8 @@ const TESTS_DIR = __dirname;
 const REPO_ROOT = path.resolve(TESTS_DIR, '..', '..', '..');
 const GRAMMAR_PATH = path.join(REPO_ROOT,
   'grammars', 'textmate', 'iron.tmLanguage.json');
+const LANGUAGE_CONFIG_PATH = path.join(REPO_ROOT,
+  'grammars', 'textmate', 'language-configuration.json');
 const FIXTURE_GLOB = path.join(TESTS_DIR, 'fixtures', '*.iron');
 const LEGACY_FIXTURE_GLOB = path.join(TESTS_DIR, 'fixtures', '*.iron-legacy');
 
@@ -33,6 +35,23 @@ function main() {
   if (!fs.existsSync(GRAMMAR_PATH)) {
     console.error(`error: grammar missing at ${GRAMMAR_PATH}`);
     process.exit(2);
+  }
+
+  const languageConfig = JSON.parse(fs.readFileSync(LANGUAGE_CONFIG_PATH, 'utf8'));
+  const continuations = new Map(languageConfig.onEnterRules.map((rule) => [
+    rule.beforeText,
+    rule.action && rule.action.appendText,
+  ]));
+  const expectedContinuations = new Map([
+    ['^\\s*//(?!/).*$', '// '],
+    ['^\\s*///.*$', '/// '],
+    ['^\\s*--.*$', '-- '],
+  ]);
+  for (const [pattern, prefix] of expectedContinuations) {
+    if (continuations.get(pattern) !== prefix) {
+      console.error(`error: language configuration must continue ${prefix.trim()} comments`);
+      process.exit(1);
+    }
   }
 
   const cli = resolveCli();
