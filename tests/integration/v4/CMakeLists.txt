@@ -24,6 +24,7 @@ endif()
 # tests/oracles/opt_parity.sh). The two pipelines implement one language, so a
 # difference is a compiler bug even when the optimized build matches .expected.
 if(NOT WIN32)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(
         NAME test_opt_parity
         COMMAND ${CMAKE_SOURCE_DIR}/tests/oracles/opt_parity.sh
@@ -32,11 +33,20 @@ if(NOT WIN32)
     )
     # Not in the v4-acceptance label: it builds every fixture twice, which
     # pushed that 30-minute gate over its limit. The full test jobs run it.
-    # Under ASan on a 4-core CI runner it takes about 25 minutes next to the
-    # other rows, so its own cap is an hour.
+    # This runs beside the acceptance, freestanding, and 12-worker leak
+    # aggregates. The expanded corpus can take a little over an hour on a
+    # 4-core runner under that contention, so keep a two-hour safety cap.
     set_tests_properties(test_opt_parity PROPERTIES
         LABELS "oracle"
-        TIMEOUT 3600)
+        TIMEOUT 7200)
+
+    add_test(
+        NAME test_opt_parity_timeout
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/check_aggregate_timeout.py
+                ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
+    )
+    set_tests_properties(test_opt_parity_timeout PROPERTIES LABELS "oracle;unit")
 endif()
 
 # Phase 35 MIG-09: migrated-from-v3/ subdir hosts the hand-migrated v3 corpus.
