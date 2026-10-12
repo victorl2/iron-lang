@@ -38,6 +38,16 @@ if(NOT WIN32)
     set_tests_properties(test_opt_parity PROPERTIES
         LABELS "oracle"
         TIMEOUT 7200)
+
+    add_test(
+        NAME test_opt_parity_timeout_marker
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/oracles/test_opt_parity_timeout.sh
+                ${CMAKE_SOURCE_DIR}/tests/oracles/opt_parity.sh
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(test_opt_parity_timeout_marker PROPERTIES
+        LABELS "oracle;unit"
+        TIMEOUT 15)
 endif()
 
 # Generated C of byte scanning loops and constant tables (#658): inline
