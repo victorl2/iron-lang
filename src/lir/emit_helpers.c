@@ -639,6 +639,9 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
         case IRON_TYPE_FUNC:
             return "Iron_Closure";
 
+        case IRON_TYPE_VIEW:
+            return emit_ensure_view(ctx, t->view.elem);
+
         case IRON_TYPE_ARRAY: {
             /* Phase 23 VEC-01: bounded vector [T; <=N] — emit Iron_BVec_T_N struct name.
              * emit_ensure_bvec MUST be called BEFORE returning the name (Pitfall 3:
@@ -1021,6 +1024,41 @@ void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
 /* Phase 33 STDLIB-07/08 (Plan 33-05): build the escaped element-C suffix shared
  * by the Mutex/Channel glue mangling (mirrors emit_ensure_box's name builder).
  * Returns an arena string like "int64_t" with space/`*` escaped to `_`. */
+/* View[T] / ViewMut[T] lower to `Iron_View_<elem>`: { T *ptr; int64_t len; },
+ * one struct per element type for both kinds (the checker keeps a View
+ * read-only). The runtime header defines the views of the scalar types
+ * (IRON_VIEW_TYPEDEF in iron_intrinsics.h); any other element type gets its
+ * typedef here, once. */
+const char *emit_ensure_view(EmitCtx *ctx, const Iron_Type *elem) {
+    const char *elem_c = emit_type_to_c(elem, ctx);
+    const char *esc = emit_elem_c_escaped(ctx, elem);
+    Iron_StrBuf sb = iron_strbuf_create(48);
+    iron_strbuf_appendf(&sb, "Iron_View_%s", esc ? esc : "void");
+    const char *name = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    if (!name) iron_oom_abort("emit_helpers.c:emit_ensure_view");
+    bool predefined = false;
+    switch ((int)(elem ? elem->kind : IRON_TYPE_ERROR)) {
+        case IRON_TYPE_INT:   case IRON_TYPE_INT8:   case IRON_TYPE_INT16:
+        case IRON_TYPE_INT32: case IRON_TYPE_INT64:
+        case IRON_TYPE_UINT:  case IRON_TYPE_UINT8:  case IRON_TYPE_UINT16:
+        case IRON_TYPE_UINT32: case IRON_TYPE_UINT64:
+        case IRON_TYPE_FLOAT: case IRON_TYPE_FLOAT32: case IRON_TYPE_FLOAT64:
+        case IRON_TYPE_BOOL:  case IRON_TYPE_STRING:
+            predefined = true;
+            break;
+        default:
+            break;
+    }
+    if (!predefined && shgeti(ctx->emitted_mono_list_types, name) < 0) {
+        shput(ctx->emitted_mono_list_types, name, true);
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "typedef struct %s { %s *ptr; int64_t len; } %s;\n",
+            name, elem_c, name);
+    }
+    return name;
+}
+
 const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem) {
     const char *elem_c = emit_type_to_c(elem, ctx);
     if (!elem_c) return NULL;

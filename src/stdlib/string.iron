@@ -38,3 +38,28 @@ patch object String {
 -- parsing and generic byte access. All three land in a single coherent
 -- edit; `from_byte` was previously slated for P05 but moved forward per
 -- checker warning #3 so the String primitive trio ships together.
+
+-- Builds a String piece by piece without a temporary String per piece
+-- and, given enough capacity up front, without reallocating: push bytes,
+-- strings and numbers, or write straight into spare(n) and commit(k).
+-- finish() moves the buffer into the String (no copy). A builder owns its
+-- buffer: it cannot be copied, and its methods that change it need a var
+-- binding. The methods are compiler intrinsics (manual 9.3).
+nocopy object StringBuilder {
+    var data: Int
+    var length: Int
+    var capacity: Int
+
+    -- An empty builder (the same as StringBuilder.new()).
+    init() {
+        self.data = 0
+        self.length = 0
+        self.capacity = 0
+    }
+
+    drop {
+        StringBuilder._release(self.data)
+    }
+}
+
+func StringBuilder._release(data: Int) {}

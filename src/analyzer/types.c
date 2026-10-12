@@ -154,6 +154,21 @@ Iron_Type *iron_type_make_ptr(Iron_Arena *a, Iron_Type *pointee, bool is_var, bo
     return t;
 }
 
+Iron_Type *iron_type_make_view(Iron_Arena *a, Iron_Type *elem, bool is_mut) {
+    Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
+    if (!t) return NULL;
+    memset(t, 0, sizeof(*t));
+    t->kind        = IRON_TYPE_VIEW;
+    t->view.elem   = elem;
+    t->view.is_mut = is_mut;
+    return t;
+}
+
+bool iron_type_is_bytes(const Iron_Type *t) {
+    return t && t->kind == IRON_TYPE_VIEW && !t->view.is_mut && t->view.elem &&
+           t->view.elem->kind == IRON_TYPE_UINT8;
+}
+
 Iron_Type *iron_type_make_func(Iron_Arena *a, Iron_Type **params, int count, Iron_Type *ret) {
     Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
     /* HARD-09 REPLACE (CR-02, types.c:iron_type_make_func). */
@@ -374,6 +389,10 @@ bool iron_type_equals(const Iron_Type *a, const Iron_Type *b) {
                    a->ptr.is_unchecked == b->ptr.is_unchecked &&
                    iron_type_equals(a->ptr.pointee, b->ptr.pointee);
 
+        case IRON_TYPE_VIEW:
+            return a->view.is_mut == b->view.is_mut &&
+                   iron_type_equals(a->view.elem, b->view.elem);
+
         case IRON_TYPE_ARRAY:
             /* Phase 23 VEC: [T; <=N] and [T; N] are DISJOINT types — is_bounded must match. */
             return a->array.size == b->array.size &&
@@ -519,6 +538,16 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
                      t->ptr.is_var       ? "var "       : "",
                      t->ptr.is_unchecked ? "unchecked " : "",
                      inner);
+            return buf;
+        }
+
+        case IRON_TYPE_VIEW: {
+            if (iron_type_is_bytes(t)) return "Bytes";
+            const char *elem = iron_type_to_string(t->view.elem, a);
+            size_t len = strlen(elem) + 12; /* "ViewMut[" + elem + "]" + NUL */
+            char *buf = (char *)iron_arena_alloc(a, len, 1);
+            if (!buf) return "<oom view>";
+            snprintf(buf, len, "%s[%s]", t->view.is_mut ? "ViewMut" : "View", elem);
             return buf;
         }
 

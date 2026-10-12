@@ -6046,6 +6046,15 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (dbg_list.method) dbg_list.call_at = sb->len;
                 iron_strbuf_appendf(sb, "%s(", c_name);
                 emitted_direct = true;
+                /* An intrinsic helper macro that builds a value of the
+                 * call's type (a view, list, optional, StringBuilder)
+                 * takes that C type first (runtime/iron_intrinsics.h). */
+                if (strncmp(c_name, "iron_t_", 7) == 0) {
+                    iron_strbuf_appendf(sb, "%s",
+                        (instr->type && instr->type->kind != IRON_TYPE_VOID)
+                            ? emit_type_to_c(instr->type, ctx) : "void");
+                    has_env_arg = true;
+                }
             }
             if (!emitted_direct) {
                 /* True indirect call through an Iron_Closure value.

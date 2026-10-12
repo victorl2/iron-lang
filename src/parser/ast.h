@@ -919,6 +919,11 @@ typedef struct {
      * container constructor (`Channel[Int](4)` becomes `Channel.new(4)`
      * internally). User code spelling the `.new` form is rejected. */
     bool               is_ctor_desugar;
+    /* Set by typecheck.c when the call is a compiler intrinsic
+     * (analyzer/intrinsics.h: Iron_Intrinsic, 0 = none): a bit operation,
+     * wide or overflow arithmetic, a bit cast, a branch hint or a view
+     * operation, lowered by hir_to_lir.c without a function call. */
+    uint16_t           intrinsic;
 } Iron_MethodCallExpr;
 
 typedef struct {

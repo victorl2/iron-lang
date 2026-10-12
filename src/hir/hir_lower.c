@@ -2456,9 +2456,11 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
          * that the HIR layer is aware of the analyzer's tag. */
         (void)mc->is_auto_deref;  /* read flag — explicit handling tracked in 20-03 */
         /* NOTE: args stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
-        return iron_hir_expr_method_call(mod, obj, mc->method,
-                                          args, arg_count,
-                                          mc->resolved_type, span);
+        IronHIR_Expr *mce = iron_hir_expr_method_call(mod, obj, mc->method,
+                                                      args, arg_count,
+                                                      mc->resolved_type, span);
+        mce->method_call.intrinsic = mc->intrinsic;
+        return mce;
     }
 
     /* ── Field access ────────────────────────────────────────────────────── */

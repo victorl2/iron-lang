@@ -2171,4 +2171,8 @@ Iron_String           Iron_string_byte_slice(Iron_String self, int64_t start, in
 int64_t               Iron_string_byte_len(Iron_String self);
 void                  Iron_string_release(Iron_String self);
 
+/* Compiler intrinsics: bit operations, wide and overflow arithmetic, bit
+ * casts, branch hints, views and StringBuilder (inline helpers). */
+#include "runtime/iron_intrinsics.h"
+
 #endif /* IRON_RUNTIME_H */

@@ -403,6 +403,7 @@ struct IronHIR_Expr {
             const char    *method;
             IronHIR_Expr **args;       /* stb_ds array */
             int            arg_count;
+            int            intrinsic;  /* Iron_Intrinsic (analyzer/intrinsics.h), 0 = none */
         } method_call;
 
         /* IRON_HIR_EXPR_FIELD_ACCESS */
