@@ -1642,7 +1642,9 @@ if(Python3_EXECUTABLE)
     add_test(NAME prog_fuzz_edges_types
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_edges_types genedge ptredge)
-    set_tests_properties(prog_fuzz_edges_types PROPERTIES LABELS "codegen" TIMEOUT 900)
+    # The two type-edge campaigns can exceed 15 minutes under the documented
+    # parallel ASan suite while other compiler-heavy fuzzers are running.
+    set_tests_properties(prog_fuzz_edges_types PROPERTIES LABELS "codegen" TIMEOUT 1800)
     add_test(NAME prog_fuzz_edges_mem
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_edges_mem ctedge dropord)
