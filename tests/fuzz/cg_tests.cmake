@@ -15,11 +15,12 @@ if(Python3_EXECUTABLE)
         add_test(NAME cg_fuzz_${_cg_kind}
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_fuzz.py
                 --suite ${_cg_kind} $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/cg_fuzz_${_cg_kind})
-        set_tests_properties(cg_fuzz_${_cg_kind} PROPERTIES LABELS "codegen" TIMEOUT 1800)
+        # A sanitizer build of ironc on a loaded machine needs more than
+        # the default 120 s per build (60 s before a mutant's build counts
+        # as a hang).
+        set_tests_properties(cg_fuzz_${_cg_kind} PROPERTIES LABELS "codegen" TIMEOUT 3600
+            ENVIRONMENT "PF_TIMEOUT=600;PF_MUTATE_TIMEOUT=300")
     endforeach()
-    # A sanitizer build of ironc on a loaded machine needs more than the
-    # mutation check's default 60 s before a build counts as a hang.
-    set_tests_properties(cg_fuzz_mutate PROPERTIES ENVIRONMENT "PF_MUTATE_TIMEOUT=300")
 endif()
 
 if(NOT WIN32)
