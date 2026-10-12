@@ -1206,25 +1206,25 @@ if(NOT WIN32)
   add_test(NAME debug_stepping_smoke
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_stepping_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
-  set_tests_properties(debug_stepping_smoke PROPERTIES TIMEOUT 120)
+  set_tests_properties(debug_stepping_smoke PROPERTIES PROCESSORS 2 TIMEOUT 120)
 endif()
 # #312: `ironc build --debug` maps debug info to the .iron source.
 if(NOT WIN32)
   add_test(NAME debug_info_smoke
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_info_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
-  set_tests_properties(debug_info_smoke PROPERTIES TIMEOUT 120)
+  set_tests_properties(debug_info_smoke PROPERTIES PROCESSORS 2 TIMEOUT 120)
   # lib/debug's gdb and LLDB value formatters.
   add_test(NAME debug_values_smoke
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_values_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
-  set_tests_properties(debug_values_smoke PROPERTIES TIMEOUT 120)
+  set_tests_properties(debug_values_smoke PROPERTIES PROCESSORS 2 TIMEOUT 120)
   # #388: the compiler's temporaries carry no debug info, so gdb and lldb
   # used directly list only Iron names (IRON_DEBUG_TEMPORARIES=1 keeps them).
   add_test(NAME debug_temporaries_smoke
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_temporaries_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
-  set_tests_properties(debug_temporaries_smoke PROPERTIES TIMEOUT 180)
+  set_tests_properties(debug_temporaries_smoke PROPERTIES PROCESSORS 2 TIMEOUT 180)
 endif()
 
 # `iron` started through a symlink (a bin/ link on PATH) still finds the
@@ -3179,21 +3179,24 @@ if(Python3_Interpreter_FOUND)
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/dap_client.py
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/stepping.iron
                    $<TARGET_FILE:iron> dap)
-  set_tests_properties(debug_dap_smoke PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+  set_tests_properties(debug_dap_smoke PROPERTIES
+      PROCESSORS 2 TIMEOUT 300 SKIP_RETURN_CODE 77)
   # Iron expressions in evaluate, conditional breakpoints, hit counts,
   # logpoints, and lists kept as C arrays shown as lists.
   add_test(NAME debug_dap_eval_smoke
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/dap_eval_client.py
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/conditions.iron
                    $<TARGET_FILE:iron> dap)
-  set_tests_properties(debug_dap_eval_smoke PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+  set_tests_properties(debug_dap_eval_smoke PROPERTIES
+      PROCESSORS 2 TIMEOUT 300 SKIP_RETURN_CODE 77)
   # #388: with the temporaries out of the debug info, iron dap still shows
   # a captured var (through _ref_<name>) and a C-array list (xs + xs_len).
   add_test(NAME debug_dap_temporaries
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/dap_temporaries_client.py
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/temporaries.iron
                    $<TARGET_FILE:iron> dap)
-  set_tests_properties(debug_dap_temporaries PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+  set_tests_properties(debug_dap_temporaries PROPERTIES
+      PROCESSORS 2 TIMEOUT 300 SKIP_RETURN_CODE 77)
 endif()
 if(NOT WIN32 AND Python3_Interpreter_FOUND)
   # What iron dap, iron debug and iron debug --check say when Python,
@@ -3229,7 +3232,7 @@ if(NOT WIN32)
   add_test(NAME debug_panic_smoke
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_panic_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
-  set_tests_properties(debug_panic_smoke PROPERTIES TIMEOUT 300)
+  set_tests_properties(debug_panic_smoke PROPERTIES PROCESSORS 2 TIMEOUT 300)
 endif()
 # #312: gdb, LLDB and Visual Studio (natvis) views of Iron values in
 # `--debug` programs.
