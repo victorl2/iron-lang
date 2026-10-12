@@ -1,0 +1,13 @@
+-- T.__fields(...) builds a value without its init: only code the compiler
+-- generates may use it (#455).
+object U {
+    val id: Int
+    init(id: Int) {
+        self.id = id * 2
+    }
+}
+
+func main() {
+    val u = U.__fields(3)
+    println("{u.id}")
+}

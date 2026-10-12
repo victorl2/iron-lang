@@ -68,50 +68,6 @@ class LexError(Exception):
     pass
 
 
-def scan_string(src: str, i: int, sl: int, sc: int) -> int:
-    """Index just past the string literal starting at src[i]. An
-    interpolation `{...}` may hold string literals, which may interpolate
-    in turn (tests/integration/v4/regressions/interp_nested_literal_braces)."""
-    n = len(src)
-    multiline = src.startswith('"""', i)
-    i += 3 if multiline else 1
-    while True:
-        if i >= n:
-            raise LexError(f"{sl}:{sc}: unterminated string")
-        d = src[i]
-        if not multiline and d == "\n":
-            raise LexError(f"{sl}:{sc}: unterminated string")
-        if d == "\\":
-            i += 2
-            continue
-        if multiline and src.startswith('"""', i):
-            return i + 3
-        if not multiline and d == '"':
-            return i + 1
-        if d == "{":
-            # The interpolation runs to its matching `}`; braces and quotes
-            # inside its nested literals do not count.
-            i += 1
-            depth = 1
-            while depth > 0:
-                if i >= n or (src[i] == "\n" and not multiline):
-                    raise LexError(f"{sl}:{sc}: unterminated string")
-                e = src[i]
-                if e == "\\":  # `\"old\"` inside an interpolation
-                    i += 2
-                    continue
-                if e == '"':
-                    i = scan_string(src, i, sl, sc)
-                    continue
-                if e == "{":
-                    depth += 1
-                elif e == "}":
-                    depth -= 1
-                i += 1
-            continue
-        i += 1
-
-
 def lex(src: str) -> List[Token]:
     """Tokenize Iron source the way src/lexer/lexer.c does, minus newlines
     (the parser skips them everywhere) and comments."""
@@ -129,6 +85,53 @@ def lex(src: str) -> List[Token]:
                 col += 1
             i += 1
 
+    def scan_escape(sl: int, sc: int) -> None:
+        """Skip one string escape without treating its braces as interpolation."""
+        adv()  # backslash
+        if i >= n:
+            raise LexError(f"{sl}:{sc}: unterminated string")
+        if src[i] == "u" and i + 1 < n and src[i + 1] == "{":
+            adv(2)
+            while i < n and src[i] != "}":
+                adv()
+            if i < n:
+                adv()
+            return
+        if src[i] == "x":
+            adv(min(3, n - i))
+            return
+        adv()
+
+    def scan_string(sl: int, sc: int) -> None:
+        """Skip a string, recursively including strings in interpolations."""
+        multiline = src.startswith('"""', i)
+        adv(3 if multiline else 1)
+        depth = 0
+        while True:
+            if i >= n:
+                raise LexError(f"{sl}:{sc}: unterminated string")
+            d = src[i]
+            if not multiline and d == "\n":
+                raise LexError(f"{sl}:{sc}: unterminated string")
+            if d == "\\":
+                scan_escape(sl, sc)
+                continue
+            if depth > 0 and d == '"':
+                scan_string(line, col)
+                continue
+            if depth == 0:
+                if multiline and src.startswith('"""', i):
+                    adv(3)
+                    return
+                if not multiline and d == '"':
+                    adv()
+                    return
+            if d == "{":
+                depth += 1
+            elif d == "}" and depth > 0:
+                depth -= 1
+            adv()
+
     while i < n:
         c = src[i]
         if c in " \t\r\n":
@@ -145,8 +148,7 @@ def lex(src: str) -> List[Token]:
         sl, sc = line, col
         if c == '"':
             start = i
-            end = scan_string(src, i, sl, sc)
-            adv(end - i)
+            scan_string(sl, sc)
             toks.append(Token("STRING", src[start:i], sl, sc))
             continue
         if c.isdigit():

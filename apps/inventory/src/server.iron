@@ -1,0 +1,159 @@
+-- The request path: read one request from a ready connection, dispatch it,
+-- answer, record metrics, and hand the connection back to the poller.
+import http
+import io
+import time
+
+func crlf() -> String {
+    return String.from_byte(13) + "\n"
+}
+
+-- Header blocks built once.
+val JSON_HEADERS = "Content-Type: application/json"
+val TEXT_HEADERS = "Content-Type: text/plain; version=0.0.4; charset=utf-8"
+val RETRY_HEADERS = JSON_HEADERS + crlf() + "Retry-After: 1"
+
+func build_response(reply: Reply) -> HttpResponse {
+    if reply.allow.len() > 0 {
+        return Http.response(reply.status, JSON_HEADERS + crlf() + "Allow: " + reply.allow, reply.body)
+    }
+    if reply.status == 503 {
+        return Http.response(reply.status, RETRY_HEADERS, reply.body)
+    }
+    if reply.text {
+        return Http.response(reply.status, TEXT_HEADERS, reply.body)
+    }
+    return Http.response(reply.status, JSON_HEADERS, reply.body)
+}
+
+-- Answer a request that could not be read, when the client can still
+-- hear it, and close.
+func reject_unreadable(wk: *Worker, connection: HttpConnection, error: Int) {
+    var status = 0
+    var message = ""
+    if error == 5004 {
+        status = 413
+        message = "request body too large"
+    } elif error == 5003 {
+        status = 431
+        message = "request headers too large"
+    } elif error == 5002 or error == 5005 or error == 5007 {
+        status = 400
+        message = "malformed request"
+    }
+    if status != 0 {
+        val reply = error_reply(Route.BadRequest, status, message)
+        HttpConnection.send_response(connection, build_response(reply), 1000)
+        wk.metrics.request_finished(Route.BadRequest, status, 0)
+    }
+}
+
+pub func serve_one(app: rc App, wk: *Worker, connection: HttpConnection) -> Int {
+    val request = HttpConnection.read_request(connection, wk.max_header_bytes, wk.max_body_bytes, wk.request_timeout_ms)
+    if request.error != 0 {
+        -- A peer that went away between requests (EOF, reset, timeout)
+        -- needs no answer.
+        reject_unreadable(wk, connection, request.error)
+        app.poller.discard(connection)
+        return 0
+    }
+    val started = Time.now_ns()
+    val reply = dispatch(app, wk, request)
+    -- While draining (the poller is closed) answers close the connection.
+    val keep = request.keep_alive and not app.poller.closed()
+    var sent = 0
+    if request.method == "HEAD" {
+        sent = HttpConnection.send_response_keep_alive(connection, Http.response(reply.status, JSON_HEADERS, ""), keep, wk.request_timeout_ms)
+    } else {
+        sent = HttpConnection.send_response_keep_alive(connection, build_response(reply), keep, wk.request_timeout_ms)
+    }
+    val us = (Time.now_ns() - started) / 1000
+    wk.metrics.request_finished(reply.route, reply.status, us)
+    if wk.log_requests {
+        logger_info("request").str("method", request.method).str("path", request.path)
+            .int("status", reply.status).int("duration_us", us).str("route", route_name(route_index(reply.route))).emit()
+    }
+    if sent == 0 and keep {
+        app.poller.park(connection)
+    } else {
+        app.poller.discard(connection)
+    }
+    return 0
+}
+
+-- One serving thread: take a connection whose request has arrived, serve
+-- it, repeat, until the poller closes. Several of these share the poller.
+func serve_loop(app: rc App) -> Int {
+    val cfg = app.cfg
+    val wk = Worker(app.metrics_set.new_shard(), cfg.max_header_bytes, cfg.max_body_bytes,
+        cfg.request_timeout_ms, cfg.log_requests)
+    val poller = app.poller
+    app.state.worker_started()
+    var served = 0
+    while true {
+        val ready = poller.next(1000)
+        if ready.error == 0 {
+            serve_one(app, wk, ready.connection)
+            served += 1
+        } elif ready.error == 1013 {
+            app.state.worker_stopped()
+            return served
+        } elif ready.error != 1004 {
+            logger_error("connection poller failed").int("code", ready.error).str("error", ready.error_message).emit()
+            Time.sleep(100)
+        }
+    }
+    return served
+}
+
+-- Run `n` serving threads and wait for all of them (they end when the
+-- poller is closed). Returns the requests they served.
+pub func run_workers(app: rc App, n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    val first = spawn("http-worker") {
+        return serve_loop(app)
+    }
+    val rest = run_workers(app, n - 1)
+    val mine = await first
+    return mine + rest
+}
+
+-- Open the database: wait for MySQL, apply migrations and load the stored
+-- exchange rates. Retries with backoff until it succeeds or shutdown.
+pub func init_database(app: rc App) -> Int {
+    var delay = 250
+    var attempt = 0
+    while OS.shutdown_signal() == 0 {
+        attempt += 1
+        val m = migrate(app.db)
+        if m.error.ok() {
+            app.state.set_db_ready(true)
+            val seeded = seed_rates(app.rates, load_rates(app.db, app.cfg.rates_base))
+            logger_info("database ready").int("schema_version", m.version).int("migrations_applied", m.applied)
+                .int("stored_rates", seeded).int("attempts", attempt).emit()
+            return 0
+        }
+        logger_warn("database not ready, retrying").int("code", m.error.code).str("error", m.error.message)
+            .int("retry_in_ms", delay).emit()
+        var slept = 0
+        while slept < delay and OS.shutdown_signal() == 0 {
+            Time.sleep(50)
+            slept += 50
+        }
+        delay = min(delay * 2, 5000)
+    }
+    return 1
+}
+
+-- Keep the exchange rate table fresh in the background.
+pub func refresh_loop(app: rc App) -> Int {
+    while OS.shutdown_signal() == 0 {
+        if refresh_due(app.rates) {
+            refresh_rates(app.rates, app.metrics, app.db)
+        }
+        Time.sleep(100)
+    }
+    return 0
+}

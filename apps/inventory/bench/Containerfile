@@ -1,0 +1,7 @@
+# Load generators, profilers and the Go toolchain for the baseline, on top of
+# the iron-dev image the CI uses (clang, cmake, ninja, OpenSSL, valgrind).
+#   podman build -t iron-service-bench -f apps/inventory/bench/Containerfile apps/inventory/bench
+FROM localhost/iron-dev:latest
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        wrk golang-go linux-tools-common linux-tools-generic procps psmisc \
+    && rm -rf /var/lib/apt/lists/*

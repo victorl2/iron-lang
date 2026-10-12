@@ -74,4 +74,34 @@ if ! (cd "${FMT_DIR}" && "${IRON}" fmt --check src/main.iron >/dev/null 2>&1); t
     exit 1
 fi
 
+# IRON_WORKERS sizes the task pool (#547): 8 tasks that each sleep 200 ms
+# overlap with 8 workers and run one after another with 1.
+cat > "${SANDBOX}/workers.iron" <<'IRONEOF'
+import atomic
+import time
+
+func nap(done: AtomicInt) -> Int {
+    Time.sleep(200)
+    done.add(1)
+    return 0
+}
+
+func main() {
+    val done = AtomicInt.new(0)
+    val t0 = Time.now_ms()
+    for i in range(8) {
+        spawn("nap") {
+            return nap(done)
+        }
+    }
+    while done.get() < 8 {
+        Time.sleep(5)
+    }
+    println("{Time.now_ms() - t0 < 700}")
+}
+IRONEOF
+"${IRONC}" build "${SANDBOX}/workers.iron" -o "${SANDBOX}/workers" >/dev/null 2>&1 || fail "build workers.iron"
+[ "$(IRON_WORKERS=8 "${SANDBOX}/workers")" = "true" ] || fail "IRON_WORKERS=8 did not run 8 tasks at once"
+[ "$(IRON_WORKERS=1 "${SANDBOX}/workers")" = "false" ] || fail "IRON_WORKERS=1 did not serialize the tasks"
+
 echo "cli_args_smoke OK"

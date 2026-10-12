@@ -555,7 +555,7 @@ static void emit_stdlib(IronLsp_CompletionCandidate **out_arr,
      * module stems from the stdlib surface files. Plan 04-03 may
      * introduce a true iteration API if the list grows. */
     static const char *const stdlib_modules[] = {
-        "math", "io", "time", "log", "hint", "os", "net", "http",
+        "math", "io", "time", "log", "hint", "os", "atomic", "net", "http",
         "websocket", "url", "json", "crypto", "encoding", "mysql", "string", "list", "raylib",
     };
     size_t n = sizeof(stdlib_modules) / sizeof(stdlib_modules[0]);
@@ -639,6 +639,7 @@ static bool emit_patch_member_field(Iron_MethodDecl *m,
     struct patch_member_emit_ctx *st = (struct patch_member_emit_ctx *)ud;
     (void)p;
     if (!st || !m || !m->method_name) return true;
+    if (m->is_static || m->is_init) return true;   /* called on the type */
     const char *tier_prefix = "func";
     if      (m->is_readonly) tier_prefix = "readonly func";
     else if (m->is_pure)     tier_prefix = "pure func";
@@ -713,6 +714,50 @@ static int all_decls(const Iron_Program *p) {
     return p->decl_count + p->prelude_decl_count;
 }
 
+/* Resolve the interface constraint for a generic type receiver such as
+ * `T.`. Generic templates are checked only after instantiation, so the
+ * receiver identifier deliberately has no analyzed type here. Completion
+ * must recover its constraint from the enclosing declaration's syntax. */
+static Iron_InterfaceDecl *generic_receiver_constraint(const Iron_Program *program,
+                                                       const char *name, size_t name_len,
+                                                       uint32_t line, uint32_t col) {
+    if (!program || !name || name_len == 0) return NULL;
+    const char *constraint_name = NULL;
+    for (int i = 0; i < program->decl_count && !constraint_name; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || !span_has(&d->span, line, col)) continue;
+        Iron_Node **gps = NULL;
+        int gp_count = 0;
+        if (d->kind == IRON_NODE_FUNC_DECL) {
+            Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+            gps = fd->generic_params;
+            gp_count = fd->generic_param_count;
+        } else if (d->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+            gps = md->generic_params;
+            gp_count = md->generic_param_count;
+        }
+        for (int j = 0; j < gp_count; j++) {
+            Iron_Node *gp_node = gps ? gps[j] : NULL;
+            if (!gp_node || gp_node->kind != IRON_NODE_IDENT) continue;
+            Iron_Ident *gp = (Iron_Ident *)gp_node;
+            if (gp->name && strlen(gp->name) == name_len &&
+                memcmp(gp->name, name, name_len) == 0) {
+                constraint_name = gp->constraint_name;
+                break;
+            }
+        }
+    }
+    if (!constraint_name) return NULL;
+    for (int i = 0; i < all_decls(program); i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_INTERFACE_DECL) continue;
+        Iron_InterfaceDecl *id = (Iron_InterfaceDecl *)d;
+        if (id->name && strcmp(id->name, constraint_name) == 0) return id;
+    }
+    return NULL;
+}
+
 static const char *type_str(const Iron_Type *t, Iron_Arena *arena) {
     const char *s = t ? iron_type_to_string(t, arena) : NULL;
     return s ? s : "?";
@@ -722,6 +767,7 @@ static const char *type_str(const Iron_Type *t, Iron_Arena *arena) {
 static const char *method_detail(Iron_MethodDecl *md, Iron_Arena *arena) {
     char buf[512];
     size_t n = (size_t)snprintf(buf, sizeof(buf), "%sfunc %s(",
+                                md->is_static ? "static " :
                                 md->is_readonly ? "readonly " : md->is_pure ? "pure " : "",
                                 md->method_name ? md->method_name : "?");
     bool first = true;
@@ -738,6 +784,19 @@ static const char *method_detail(Iron_MethodDecl *md, Iron_Arena *arena) {
         snprintf(buf + n, sizeof(buf) - n, " -> %s", type_str(md->resolved_return_type, arena));
     }
     return iron_arena_strdup(arena, buf, strlen(buf));
+}
+
+static void push_interface_sigs(IronLsp_CompletionCandidate **out, Iron_Arena *arena,
+                                Iron_InterfaceDecl *id, const char *prefix,
+                                bool static_only) {
+    for (int j = 0; id && j < id->method_count; j++) {
+        Iron_FuncDecl *sig = (Iron_FuncDecl *)id->method_sigs[j];
+        if (!sig || sig->kind != IRON_NODE_FUNC_DECL || !sig->name) continue;
+        if (static_only ? !sig->is_static : !iron_iface_sig_dispatchable(sig)) continue;
+        maybe_push(out, arena, sig->name, LSP_CK_METHOD,
+                   ILSP_COMPLETION_BUCKET_LOCAL, id->name ? id->name : "",
+                   "", sig->name, false, false, prefix);
+    }
 }
 
 /* Methods the compiler provides by name (builtin_members.h), with the
@@ -768,17 +827,30 @@ static void push_intrinsics(IronLsp_CompletionCandidate **out, Iron_Arena *arena
 
 /* Methods declared for `type_name` (the file's and the stdlib's), or the
  * list extensions (`func [T].map`) when `list`. */
+/* Which methods a receiver can call: a value calls methods (not static
+ * functions); a type name calls static functions and named inits, and the
+ * standard library's namespace functions (`Math.sqrt`), but not a
+ * program's own methods (E0351). */
+typedef enum { MEMBERS_OF_VALUE, MEMBERS_OF_TYPE } MemberMode;
+
 static void push_declared_methods(IronLsp_CompletionCandidate **out, Iron_Arena *arena,
                                   const Iron_Program *program, const char *type_name,
-                                  bool list, const char *prefix) {
+                                  bool list, const char *prefix, MemberMode mode) {
     for (int i = 0; i < all_decls(program); i++) {
         Iron_Node *d = program->decls[i];
         if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
         Iron_MethodDecl *md = (Iron_MethodDecl *)d;
-        if (!md->method_name || md->is_init || md->is_synth_accessor) continue;
+        if (!md->method_name || md->is_synth_accessor) continue;
         if (list ? !md->is_array_extension
                  : (md->is_array_extension || !md->type_name || !type_name ||
                     strcmp(md->type_name, type_name) != 0)) continue;
+        if (mode == MEMBERS_OF_VALUE && (md->is_init || md->is_static)) continue;
+        if (mode == MEMBERS_OF_TYPE) {
+            if (md->is_init && !md->init_name) continue;
+            bool user = i < program->decl_count;
+            if (user && !md->is_static && !md->is_init && iron_method_recv_count(md) == 1)
+                continue;
+        }
         maybe_push(out, arena, md->method_name, LSP_CK_METHOD, ILSP_COMPLETION_BUCKET_LOCAL,
                    method_detail(md, arena), "", md->method_name, false, false, prefix);
     }
@@ -821,7 +893,8 @@ static void emit_object_members_by_name(IronLsp_CompletionCandidate **out_arr,
         push_fields(out_arr, arena, od, query_prefix);
         break;
     }
-    push_declared_methods(out_arr, arena, program, type_name, false, query_prefix);
+    push_declared_methods(out_arr, arena, program, type_name, false, query_prefix,
+                          MEMBERS_OF_VALUE);
     struct patch_member_emit_ctx ctx_pms = {
         .out = out_arr, .arena = arena, .prefix = query_prefix,
     };
@@ -905,6 +978,13 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
         if (program->decls[i]) iron_ast_walk(program->decls[i], &v);
     }
     if (!f.best) f.best = f.by_field;
+    Iron_InterfaceDecl *generic_iface = generic_receiver_constraint(
+        program, doc->text + id_start, last + 1 - id_start, f.line, f.col);
+    if (generic_iface) {
+        push_interface_sigs(out_arr, arena, generic_iface, query_prefix, true);
+        return;
+    }
+
     /* Static compiler intrinsics also exist on synthetic namespaces such
      * as Hint, for which there is deliberately no declaration to find. */
     const Iron_Type *rt = f.best ? ((Iron_ExprNode *)f.best)->resolved_type : NULL;
@@ -939,7 +1019,8 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
         if (td && td->kind == IRON_NODE_OBJECT_DECL) {
             Iron_ObjectDecl *od = (Iron_ObjectDecl *)td;
             push_fields(out_arr, arena, od, query_prefix);
-            push_declared_methods(out_arr, arena, program, od->name, false, query_prefix);
+            push_declared_methods(out_arr, arena, program, od->name, false, query_prefix,
+                                  MEMBERS_OF_TYPE);
             return;
         }
         if (td && td->kind == IRON_NODE_ENUM_DECL) {
@@ -951,7 +1032,8 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
                            ILSP_COMPLETION_BUCKET_LOCAL, ed->name ? ed->name : "",
                            "", ev->name, false, false, query_prefix);
             }
-            push_declared_methods(out_arr, arena, program, ed->name, false, query_prefix);
+            push_declared_methods(out_arr, arena, program, ed->name, false, query_prefix,
+                                  MEMBERS_OF_TYPE);
             return;
         }
     }
@@ -962,7 +1044,8 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
         case IRON_TYPE_ARRAY:
             push_intrinsics(out_arr, arena, t, 0, false, query_prefix);
             push_builtins(out_arr, arena, ilsp_list_builtins, t, query_prefix);
-            push_declared_methods(out_arr, arena, program, NULL, true, query_prefix);
+            push_declared_methods(out_arr, arena, program, NULL, true, query_prefix,
+                                  MEMBERS_OF_VALUE);
             return;
         case IRON_TYPE_VIEW:
             push_intrinsics(out_arr, arena, t, 0, false, query_prefix);
@@ -985,26 +1068,22 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
         }
         case IRON_TYPE_INTERFACE: {
             Iron_InterfaceDecl *id = t->interface.decl;
-            for (int j = 0; id && j < id->method_count; j++) {
-                Iron_FuncDecl *sig = (Iron_FuncDecl *)id->method_sigs[j];
-                if (!sig || sig->kind != IRON_NODE_FUNC_DECL || !sig->name) continue;
-                maybe_push(out_arr, arena, sig->name, LSP_CK_METHOD,
-                           ILSP_COMPLETION_BUCKET_LOCAL, id->name ? id->name : "",
-                           "", sig->name, false, false, query_prefix);
-            }
+            /* Through an interface value only what it can dispatch (E0354). */
+            push_interface_sigs(out_arr, arena, id, query_prefix, false);
             return;
         }
         case IRON_TYPE_ENUM:
             if (t->enu.decl) {
                 push_declared_methods(out_arr, arena, program, t->enu.decl->name, false,
-                                      query_prefix);
+                                      query_prefix, MEMBERS_OF_VALUE);
             }
             return;
         default: {
             /* String, Int, Float...: the stdlib's `patch object String`. */
             push_intrinsics(out_arr, arena, t, 0, false, query_prefix);
             const char *name = type_str(t, arena);
-            push_declared_methods(out_arr, arena, program, name, false, query_prefix);
+            push_declared_methods(out_arr, arena, program, name, false, query_prefix,
+                                  MEMBERS_OF_VALUE);
             return;
         }
     }

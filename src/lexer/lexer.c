@@ -71,6 +71,7 @@ static const KeywordEntry kw_table[] = {
     { "return",     IRON_TOK_RETURN     },
     { "self",       IRON_TOK_SELF       },
     { "spawn",      IRON_TOK_SPAWN      },
+    { "static",     IRON_TOK_STATIC     },
     { "super",      IRON_TOK_SUPER      },
     { "true",       IRON_TOK_TRUE       },
     { "unchecked",  IRON_TOK_UNCHECKED  },  /* Phase 16: v4 unchecked pointer regime keyword */
@@ -140,6 +141,7 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_PURE]          = "IRON_TOK_PURE",
     [IRON_TOK_RC]            = "IRON_TOK_RC",
     [IRON_TOK_READONLY]      = "IRON_TOK_READONLY",
+    [IRON_TOK_STATIC]        = "IRON_TOK_STATIC",
     [IRON_TOK_RETURN]        = "IRON_TOK_RETURN",
     [IRON_TOK_SELF]          = "IRON_TOK_SELF",
     [IRON_TOK_SPAWN]         = "IRON_TOK_SPAWN",

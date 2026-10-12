@@ -109,6 +109,9 @@ iron_add_fuzz_target(fuzz_comments    fuzz_comments.c)
 # the stdlib prelude, broken buffers included) and the formatter's
 # idempotence. Seed it with the integration corpus.
 iron_add_fuzz_target(fuzz_check       fuzz_check.c)
+# Standard library parsers of untrusted input: numbers, IP addresses, case
+# mapping, WebSocket frames (see fuzz_stdlib.c).
+iron_add_fuzz_target(fuzz_stdlib      fuzz_stdlib.c)
 
 # Build-time helper (NOT a fuzz target — no -fsanitize=fuzzer).
 # Copies tests/integration/*.iron into corpus/parser/ and creates the

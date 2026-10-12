@@ -18,6 +18,11 @@
  * owned by a single type. arrput'd; arrfree'd at teardown. */
 typedef struct {
     Iron_MethodDecl **methods;
+    /* Parallel to methods: the object or patch declaration of the printed
+     * program each method is printed in (the one whose body contains it,
+     * else the type's own declaration). Printing a type and a patch of it
+     * printed every method in both (#455). */
+    Iron_ObjectDecl **owners;
 } MethodOwnerArr;
 
 /* stb_ds shmap entry shape: shput(t, k, v) writes (t)[i].key=k and
@@ -85,6 +90,31 @@ static MethodIndexEntry *method_index_build(Iron_Program *prog) {
         if (map) shfree(map);
         return NULL;
     }
+    for (ptrdiff_t b = 0; b < shlen(map); b++) {
+        MethodOwnerArr *slot = &map[b].value;
+        for (ptrdiff_t k = 0; k < arrlen(slot->methods); k++) {
+            Iron_MethodDecl *md = slot->methods[k];
+            Iron_ObjectDecl *own = NULL, *first = NULL, *first_obj = NULL;
+            for (int i = 0; i < prog->decl_count; i++) {
+                Iron_Node *d = prog->decls[i];
+                if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+                Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+                const char *key = od->is_patch && od->target_type_name
+                                      ? od->target_type_name : od->name;
+                if (!key || strcmp(key, md->type_name) != 0) continue;
+                if (!first) first = od;
+                if (!first_obj && !od->is_patch) first_obj = od;
+                bool same_file = od->span.filename == md->span.filename ||
+                    (od->span.filename && md->span.filename &&
+                     strcmp(od->span.filename, md->span.filename) == 0);
+                if (!own && same_file && md->span.line >= od->span.line &&
+                    md->span.line <= od->span.end_line &&
+                    md->is_patch_member == od->is_patch)
+                    own = od;
+            }
+            arrput(slot->owners, own ? own : (first_obj ? first_obj : first));
+        }
+    }
     return map;
 }
 
@@ -114,6 +144,7 @@ static void method_index_free(MethodIndexEntry *map) {
     if (!map) return;
     for (ptrdiff_t i = 0; i < shlen(map); i++) {
         arrfree(map[i].value.methods);
+        arrfree(map[i].value.owners);
     }
     shfree(map);
 }
@@ -485,13 +516,16 @@ static void print_method_in_block(PrintCtx *ctx, Iron_MethodDecl *m) {
      * the round-trip stable form drops `pub` on methods. The fixed-point
      * property still holds because both p1 and p2 in
      * iron_print_ast(parse(iron_print_ast(parse(src)))) drop the same bits. */
+    if (m->is_static)   iron_strbuf_appendf(ctx->sb, "static ");
     if (m->is_readonly) iron_strbuf_appendf(ctx->sb, "readonly ");
     if (m->is_pure)     iron_strbuf_appendf(ctx->sb, "pure ");
     iron_strbuf_appendf(ctx->sb, "func %s", m->method_name);
     print_generic_params(ctx, m->generic_params, m->generic_param_count);
     /* Skip implicit self at index 0; matches Phase 82 / 85 / 86 synthesis
-     * sites at parser.c:3297, :3409. */
-    if (m->param_count > 0) {
+     * sites at parser.c:3297, :3409. A static function has none. */
+    if (m->is_static) {
+        print_params(ctx, m->params, m->param_count);
+    } else if (m->param_count > 0) {
         print_params(ctx, m->params + 1, m->param_count - 1);
     } else {
         iron_strbuf_appendf(ctx->sb, "()");
@@ -610,6 +644,8 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                 MethodOwnerArr *slot = method_index_lookup(map, key);
                 if (slot) {
                     for (ptrdiff_t i = 0; i < arrlen(slot->methods); i++) {
+                        if (slot->owners && i < arrlen(slot->owners) &&
+                            slot->owners[i] && slot->owners[i] != n) continue;
                         print_indent(ctx);
                         print_method_in_block(ctx, slot->methods[i]);
                         iron_strbuf_appendf(ctx->sb, "\n");
@@ -631,15 +667,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             ctx->indent_level++;
             for (int i = 0; i < n->method_count; i++) {
                 print_indent(ctx);
-                Iron_FuncDecl *sig = (Iron_FuncDecl *)n->method_sigs[i];
-                print_leading_comments(ctx, sig->doc_comment, sig->directives, sig->directive_count);
-                iron_strbuf_appendf(ctx->sb, "func %s", sig->name);
-                print_params(ctx, sig->params, sig->param_count);
-                if (sig->return_type) {
-                    iron_strbuf_appendf(ctx->sb, " -> ");
-                    print_type_ann(ctx, sig->return_type);
-                }
-                print_trailing_directives(ctx, sig->directives, sig->directive_count);
+                print_node(ctx, n->method_sigs[i]);
                 iron_strbuf_appendf(ctx->sb, "\n");
             }
             ctx->indent_level--;
@@ -698,6 +726,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
              * Iron_FuncDecl (parser silently drops `pub` on object-block
              * methods at parser.c:3444 / :4385 and rejects it on top-level
              * func decls at parser.c:4937). */
+            if (n->is_static)   iron_strbuf_appendf(ctx->sb, "static ");
             if (n->is_readonly) iron_strbuf_appendf(ctx->sb, "readonly ");
             if (n->is_pure)     iron_strbuf_appendf(ctx->sb, "pure ");
             iron_strbuf_appendf(ctx->sb, "func %s", n->name);
@@ -738,7 +767,13 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
              * by the parity test that the merge satisfies. */
             if (n->is_readonly) iron_strbuf_appendf(ctx->sb, "readonly ");
             if (n->is_pure)     iron_strbuf_appendf(ctx->sb, "pure ");
-            if (n->is_receiver_form && n->param_count > 0) {
+            if (n->is_static) {
+                /* Outside its object body (a lone method printed by
+                 * itself): the in-body spelling. */
+                iron_strbuf_appendf(ctx->sb, "static func %s", n->method_name);
+                print_generic_params(ctx, n->generic_params, n->generic_param_count);
+                print_params(ctx, n->params, n->param_count);
+            } else if (n->is_receiver_form && n->param_count > 0) {
                 /* Receiver form: `func (recv: Type) method[G](rest...)`.
                  * By parser invariant, params[0] is the receiver. */
                 Iron_Param *recv = (Iron_Param *)n->params[0];
@@ -1172,6 +1207,20 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_ARRAY_LIT: {
             Iron_ArrayLit *n = (Iron_ArrayLit *)node;
+            /* A tuple literal shares the node, tagged by an is_tuple
+             * annotation: it printed as a list, so a generic body or an
+             * interface default returning `(a, b)` became `[a, b]`. */
+            if (n->type_ann && n->type_ann->kind == IRON_NODE_TYPE_ANNOTATION &&
+                ((Iron_TypeAnnotation *)n->type_ann)->is_tuple &&
+                !((Iron_TypeAnnotation *)n->type_ann)->tuple_elems) {
+                iron_strbuf_appendf(ctx->sb, "(");
+                for (int i = 0; i < n->element_count; i++) {
+                    if (i > 0) iron_strbuf_appendf(ctx->sb, ", ");
+                    print_node(ctx, n->elements[i]);
+                }
+                iron_strbuf_appendf(ctx->sb, ")");
+                break;
+            }
             iron_strbuf_appendf(ctx->sb, "[");
             if (n->type_ann && n->size) {
                 print_type_ann(ctx, n->type_ann);
@@ -1436,7 +1485,10 @@ static void stub_emit_generic_params(FILE *out, Iron_Node **gps, int count) {
     for (int i = 0; i < count; i++) {
         if (i > 0) fprintf(out, ", ");
         if (gps[i]->kind == IRON_NODE_IDENT) {
-            fprintf(out, "%s", ((Iron_Ident *)gps[i])->name);
+            Iron_Ident *id = (Iron_Ident *)gps[i];
+            fprintf(out, "%s", id->name);
+            if (id->constraint_name)
+                fprintf(out, ": %s", id->constraint_name);
         } else if (gps[i]->kind == IRON_NODE_TYPE_ANNOTATION) {
             stub_emit_type_ann(out, gps[i]);
         }
@@ -1503,6 +1555,9 @@ static void stub_emit_method(FILE *out, Iron_MethodDecl *md) {
             fprintf(out, "init");
         }
     } else {
+        if (md->is_static) fprintf(out, "static ");
+        else if (md->is_readonly) fprintf(out, "readonly ");
+        else if (md->is_pure) fprintf(out, "pure ");
         fprintf(out, "func %s", md->method_name ? md->method_name : "?");
     }
     stub_emit_generic_params(out, md->generic_params, md->generic_param_count);

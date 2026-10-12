@@ -439,6 +439,29 @@ void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et) {
     if (emit_type_is_container_elem(et)) { (void)emit_ensure_container_list(ctx, et); return; }
     const char *bare_type = et->object.decl->name;
     if (!bare_type) return;
+    /* A list of Box[T] is the list of the per-T cell type Iron_Box_<T>
+     * (emit_type_to_c), not of a generic Iron_Box (#576). */
+    if (strcmp(bare_type, "Box") == 0) {
+        if (!et->object.elem) return;
+        const char *box_c = emit_type_to_c(et, ctx);   /* emits the cell glue */
+        if (!box_c || shgeti(ctx->emitted_mono_list_types, box_c) >= 0) return;
+        shput(ctx->emitted_mono_list_types, box_c, true);
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "/* #576: Iron_List type for Box cells %s */\n"
+            "typedef struct Iron_List_%s {\n"
+            "    %s    *items;\n"
+            "    int64_t count;\n"
+            "    int64_t capacity;\n"
+            "} Iron_List_%s;\n"
+            "IRON_LIST_DECL(%s, %s)\n",
+            box_c, box_c, box_c, box_c, box_c, box_c);
+        /* each cell is freed with the list (its element dropped first) */
+        emit_list_impl_lifecycle(ctx, box_c, true, false);
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "static void %s_drop(%s *self) { %s_free(self); }\n\n",
+            box_c, box_c, box_c);
+        return;
+    }
 
     /* Mangle "Circle" -> "Iron_Circle".  Arena-allocated,
      * stable for the lifetime of the stb_ds dedup map. */

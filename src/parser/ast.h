@@ -394,6 +394,9 @@ typedef struct {
     bool               is_test;
     const char        *test_name;
     uint8_t            hints;     /* IRON_HINT_* from `//iron:` directives */
+    /* `static func` in an interface body: a function of the implementing
+     * type, called as `T.f(args)` (no receiver). */
+    bool               is_static;
 } Iron_FuncDecl;
 
 typedef struct {
@@ -485,7 +488,18 @@ typedef struct {
      * the iron_stack_gen prologue/epilogue injection. Default false. */
     bool               takes_local_addr;
     uint8_t            hints;     /* IRON_HINT_* from `//iron:` directives */
+    /* `static func` in an object, patch or interface default body: no
+     * receiver. is_receiver_form is true (it was declared in a body) but
+     * params[] holds only the declared parameters, there is no `self`. */
+    bool               is_static;
 } Iron_MethodDecl;
+
+/* Number of leading entries of md->params that are the receiver: 1 for a
+ * method declared in a body (`self`) or in receiver form, 0 for the
+ * standalone `func Type.m()` form and for a `static func`. */
+static inline int iron_method_recv_count(const Iron_MethodDecl *md) {
+    return (md && md->is_receiver_form && !md->is_static) ? 1 : 0;
+}
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
 
@@ -662,6 +676,10 @@ typedef struct {
     const char       **binding_names;
     int                binding_count;
     uint16_t           align;   /* `//iron:align=N` on the binding; 0 = none */
+    /* A top-level binding (a global), and whether it was declared `pub`:
+     * globals are private to their file unless pub (#547). */
+    bool               is_global;
+    bool               is_pub;
 } Iron_ValDecl;
 
 typedef struct {
@@ -680,6 +698,9 @@ typedef struct {
      * a counted cell the closure env shares (#210). */
     bool               is_boxed;
     uint16_t           align;   /* `//iron:align=N` on the binding; 0 = none */
+    /* A top-level binding (a global), and whether it was declared `pub`. */
+    bool               is_global;
+    bool               is_pub;
 } Iron_VarDecl;
 
 typedef struct {
@@ -931,10 +952,6 @@ typedef struct {
      * method named copy: an explicit duplicate (copy glue runs, list
      * fields are cloned, the user copy block runs). */
     bool               is_builtin_copy;
-    /* `x.m[A, B](args)`: explicit type arguments of a generic method
-     * (type annotations); NULL / 0 otherwise. */
-    Iron_Node        **generic_args;
-    int                generic_arg_count;
     /* Set by typecheck.c on the method call it synthesizes for a runtime
      * container constructor (`Channel[Int](4)` becomes `Channel.new(4)`
      * internally). User code spelling the `.new` form is rejected. */
@@ -944,6 +961,18 @@ typedef struct {
      * wide or overflow arithmetic, a bit cast, a branch hint or a view
      * operation, lowered by hir_to_lir.c without a function call. */
     uint16_t           intrinsic;
+    /* Parsed from compiler-generated source (an interface default body
+     * copied into an implementor): may use the generated-code forms such
+     * as `T.__fields(...)` (#455). */
+    bool               is_generated;
+    /* Set by typecheck.c on a generated `T.__fields(v1, ..., vn)`: built
+     * from its field values in declaration order, without any init. */
+    bool               is_memberwise;
+    /* Keep pointer-aligned fields after the compact flags above. Besides
+     * saving tail padding, this preserves the resolver's checked in-place
+     * rewrite from Iron_EnumConstruct as these nodes gain flags. */
+    int                generic_arg_count;
+    Iron_Node        **generic_args;
 } Iron_MethodCallExpr;
 
 typedef struct {
@@ -970,6 +999,9 @@ typedef struct {
      * f expects `*Int`). HIR lowering reads this bit at call sites to emit
      * the field-pointer fat-ptr literal. Default false. */
     bool               is_auto_address_target;
+    /* Parsed from compiler-generated source (see Iron_MethodCallExpr):
+     * may assign a `val` field of a local being built (#455). */
+    bool               is_generated;
 } Iron_FieldAccess;
 
 typedef struct {
@@ -1128,6 +1160,17 @@ typedef struct Iron_Visitor {
  * If visit_node returns true, children are visited recursively.
  * After children, v->post_visit is called (if non-NULL). */
 void iron_ast_walk(Iron_Node *root, Iron_Visitor *v);
+
+/* True when a type annotation names `Self` anywhere (`Self`, `Self?`,
+ * `[Self]`, `Map[String, Self]`, `func(Self) -> Int`, ...). */
+bool iron_type_ann_mentions_self(Iron_Node *n);
+
+/* True when interface signature `sig` can be called through a value of the
+ * interface type: not static, no parameter mentions `Self`, and the result
+ * is either free of `Self` or exactly `Self` (boxed back into the
+ * interface). Other signatures are only callable on a concrete type or a
+ * constrained type parameter, and get no run-time dispatcher. */
+bool iron_iface_sig_dispatchable(const Iron_FuncDecl *sig);
 
 /* Return a human-readable name for the node kind. */
 const char *iron_node_kind_str(Iron_NodeKind kind);

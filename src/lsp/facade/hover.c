@@ -99,8 +99,27 @@ static const char *render_type_ann(Iron_Node *n, Iron_Arena *arena) {
         Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)n;
         /* Minimal Path-style rendering: name + optional ? and array brackets. */
         SB tmp; sb_init(&tmp, arena);
+        /* Wrappers hold their type in an inner annotation and have no
+         * name of their own: `rc T`, `weak rc T`, `*T`, `[rc T]`. */
+        if (ta->is_pointer && ta->pointer_pointee) {
+            if (ta->is_nullable) sb_append(&tmp, "?");
+            sb_append(&tmp, ta->is_var_pointer ? "*var " : "*");
+            if (ta->is_unchecked) sb_append(&tmp, "unchecked ");
+            sb_append(&tmp, render_type_ann(ta->pointer_pointee, arena));
+            return tmp.buf ? tmp.buf : "Unknown";
+        }
         if (ta->is_array) sb_append(&tmp, "[");
-        sb_append(&tmp, ta->name ? ta->name : "Unknown");
+        if (ta->is_weak_rc && ta->weak_rc_inner) {
+            sb_append(&tmp, "weak rc ");
+            sb_append(&tmp, render_type_ann(ta->weak_rc_inner, arena));
+        } else if (ta->is_rc && ta->rc_inner) {
+            sb_append(&tmp, "rc ");
+            sb_append(&tmp, render_type_ann(ta->rc_inner, arena));
+        } else if (ta->is_array && !ta->name && ta->array_elem_ann) {
+            sb_append(&tmp, render_type_ann(ta->array_elem_ann, arena));
+        } else {
+            sb_append(&tmp, ta->name ? ta->name : "Unknown");
+        }
         if (ta->is_array) sb_append(&tmp, "]");
         if (ta->is_nullable) sb_append(&tmp, "?");
         return tmp.buf ? tmp.buf : "Unknown";
@@ -140,6 +159,7 @@ static const char *signature_func(Iron_FuncDecl *fd, Iron_Arena *arena) {
      * of readonly + pure is enforced by the parser at
      * src/parser/parser.c:3162-3180; both fields cannot be true at once,
      * so the order between them is academic for emission. */
+    if (fd->is_static)   sb_append(&sb, "static ");
     if (fd->is_readonly) sb_append(&sb, "readonly ");
     if (fd->is_pure)     sb_append(&sb, "pure ");
     sb_append(&sb, "func ");
@@ -185,6 +205,7 @@ static const char *signature_method(Iron_MethodDecl *md, Iron_Arena *arena) {
      * `pub init`. */
     if (ilsp_vis_is_public((const Iron_Node *)md)) sb_append(&sb, "pub ");
     /* Regular method form: pub -> readonly|pure -> func Type.method. */
+    if (md->is_static)   sb_append(&sb, "static ");
     if (md->is_readonly) sb_append(&sb, "readonly ");
     if (md->is_pure)     sb_append(&sb, "pure ");
     sb_append(&sb, "func ");

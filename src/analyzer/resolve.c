@@ -509,6 +509,24 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     id->resolved_sym = sym;
                     return;
                 }
+                if (ctx->current_method->is_static) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "'self' is not available in static function '%s'",
+                             ctx->current_method->method_name
+                                 ? ctx->current_method->method_name : "?");
+                    char help[256];
+                    snprintf(help, sizeof(help),
+                             "a static function has no receiver: take a '%s' "
+                             "parameter, or drop `static` to make it a method",
+                             ctx->current_method->type_name
+                                 ? ctx->current_method->type_name : "Self");
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_SELF_OUTSIDE_METHOD, id->span,
+                                   iron_arena_strdup(ctx->arena, msg, strlen(msg)),
+                                   iron_arena_strdup(ctx->arena, help, strlen(help)));
+                    return;
+                }
                 if (ctx->current_method->is_receiver_form) {
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_SELF_OUTSIDE_METHOD, id->span,
@@ -630,11 +648,17 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                  * excluded — `pub interface` is deferred per RESEARCH Open
                  * Question 3. Stdlib carve-out (line-offset based) makes
                  * stdlib decls implicitly pub. */
+                bool global_binding = sym->sym_kind == IRON_SYM_VARIABLE && sym->decl_node &&
+                    ((sym->decl_node->kind == IRON_NODE_VAL_DECL &&
+                      ((Iron_ValDecl *)sym->decl_node)->is_global) ||
+                     (sym->decl_node->kind == IRON_NODE_VAR_DECL &&
+                      ((Iron_VarDecl *)sym->decl_node)->is_global));
                 bool is_global =
                     sym->sym_kind == IRON_SYM_FUNCTION ||
                     sym->sym_kind == IRON_SYM_TYPE     ||
                     sym->sym_kind == IRON_SYM_ENUM     ||
-                    sym->sym_kind == IRON_SYM_ENUM_VARIANT;
+                    sym->sym_kind == IRON_SYM_ENUM_VARIANT ||
+                    global_binding;
                 if (is_global && !sym->is_pub &&
                     sym->span.filename && id->span.filename &&
                     !is_stdlib_decl(ctx, sym)) {
@@ -715,7 +739,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
              * Fires once per offending declaration. Gated on is_receiver_form
              * + params[0]->is_mut_receiver so it never hits classic
              * `func T.m()` form or non-mut receiver-form methods. */
-            if (md->is_receiver_form && md->param_count > 0) {
+            if (iron_method_recv_count(md) == 1 && md->param_count > 0) {
                 Iron_Param *recv = (Iron_Param *)md->params[0];
                 if (recv && recv->is_mut_receiver) {
                     bool owner_is_struct_like =
@@ -768,7 +792,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                  * receiver-form method — continue to use the existing is_var
                  * rule. Phase 79's parser guarantees is_mut_receiver is false
                  * on non-receiver params. */
-                if (md->is_receiver_form && i == 0) {
+                if (iron_method_recv_count(md) == 1 && i == 0) {
                     ps->is_mutable = p->is_mut_receiver;
                 } else {
                     ps->is_mutable = p->is_var;
@@ -802,6 +826,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             } else if (vd->name) {
                 define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
                            /*is_mutable=*/false, /*is_private=*/false);
+                if (vd->is_pub) {
+                    Iron_Symbol *ds = iron_scope_lookup_local(ctx->current_scope, vd->name);
+                    if (ds) ds->is_pub = true;
+                }
             }
             break;
         }
@@ -811,6 +839,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             if (vd->init) resolve_expr(ctx, vd->init);
             define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
                        /*is_mutable=*/true, /*is_private=*/false);
+            if (vd->is_pub) {
+                Iron_Symbol *ds = iron_scope_lookup_local(ctx->current_scope, vd->name);
+                if (ds) ds->is_pub = true;
+            }
             break;
         }
 
@@ -1295,6 +1327,11 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     mc_slot->arg_count     = ec_argc;
                     mc_slot->is_auto_deref        = false;
                     mc_slot->is_builtin_to_string = false;
+                    mc_slot->is_builtin_copy      = false;
+                    mc_slot->is_ctor_desugar      = false;
+                    mc_slot->intrinsic             = 0;
+                    mc_slot->is_generated          = false;
+                    mc_slot->is_memberwise         = false;
                     mc_slot->generic_args         = NULL;
                     mc_slot->generic_arg_count    = 0;
                     resolve_expr(ctx, (Iron_Node *)ec);
@@ -1592,7 +1629,7 @@ void iron_type_patch_registry_free(Iron_TypePatchRegistry *reg) {
 
 /* Stdlib modules an `import` may name (src/stdlib/<name>.iron). */
 static const char *const k_stdlib_modules[] = {
-    "arena", "box", "channel", "crypto", "encoding", "filehandle", "float",
+    "arena", "atomic", "box", "channel", "crypto", "encoding", "filehandle", "float",
     "hashable", "hint", "http", "int", "io", "json", "list", "log", "map", "math",
     "mutex", "mysql", "net", "os",
     "rawptr", "raylib", "rwlock", "set", "string", "time", "url",

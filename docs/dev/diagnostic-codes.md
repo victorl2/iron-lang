@@ -557,6 +557,18 @@ parser/typecheck sites land in Plan 27-02.
 |------|--------|---------|-------|
 | E0345 | `IRON_ERR_GLOBAL_INIT_CYCLE` | initialization cycle: global 'A' depends on 'B', which depends on 'A' | A global's initializer reads the global itself, directly or through the functions, methods and initializers it calls. Globals are otherwise initialized after the globals they read, whatever file declares them. |
 
+## Static functions and Self in interfaces (#455)
+
+| Code | Symbol | Message | When |
+|---|---|---|---|
+| E0350 | `IRON_ERR_STATIC_ON_VALUE` | 'f' is a static function of 'T', not a method | `v.f()` on a static function; it is called on the type, `T.f()`. |
+| E0351 | `IRON_ERR_METHOD_ON_TYPE` | 'm' is a method of 'T' and needs a value to call it on | `T.m()` on a method of a program's own type: there is no value for `self` (it used to run on an uninitialized one). |
+| E0352 | `IRON_ERR_IFACE_STATIC_MISMATCH` | 'T.f' implements static function 'I.f' but is not static (or the reverse) | The implementor's `static` differs from the interface signature. |
+| E0353 | `IRON_ERR_IFACE_SIGNATURE` | parameter N of 'T.f' is 'X' but 'I.f' declares 'Y' / 'T.f' returns 'X' but 'I.f' declares 'Y' | The implementor's parameters (types, `var`, count) or result differ from the interface signature, with `Self` standing for the implementor. |
+| E0354 | `IRON_ERR_IFACE_VALUE_CALL` | 'f' is a static function of interface 'I' and cannot be called through an interface value | Calling a static function, a method with a `Self` parameter or a method returning a type built from `Self` (other than `-> Self`) through a value of interface type. |
+| E0355 | `IRON_ERR_CONSTRAINT_NO_STATIC` | constraint 'I' of type parameter 'T' declares no static function 'f' | `T.f()` in a generic body where T's constraint does not declare `static func f` (or T has no constraint). |
+| E0356 | `IRON_ERR_GENERATED_ONLY` | '__fields' is reserved for code the compiler generates | `T.__fields(...)` (memberwise construction without an init) or a member named `__fields` outside compiler-generated code. |
+
 ## Adding new codes
 
 1. Allocate the next free slot in the appropriate range. Verify uniqueness

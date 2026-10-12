@@ -1,5 +1,6 @@
 #include "parser/ast.h"
 #include <stddef.h>
+#include <string.h>
 
 /* ── Node kind names ─────────────────────────────────────────────────────── */
 
@@ -386,4 +387,39 @@ bool iron_node_doc(const Iron_Node *n, const char **doc,
     if (dirs) *dirs = x;
     if (count) *count = c;
     return ok;
+}
+
+bool iron_type_ann_mentions_self(Iron_Node *n) {
+    if (!n || n->kind != IRON_NODE_TYPE_ANNOTATION) return false;
+    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)n;
+    if (ta->is_self_type || (ta->name && strcmp(ta->name, "Self") == 0)) return true;
+    for (int i = 0; i < ta->generic_arg_count; i++)
+        if (iron_type_ann_mentions_self(ta->generic_args[i])) return true;
+    for (int i = 0; i < ta->func_param_count; i++)
+        if (iron_type_ann_mentions_self(ta->func_params[i])) return true;
+    for (int i = 0; i < ta->tuple_elem_count; i++)
+        if (iron_type_ann_mentions_self(ta->tuple_elems[i])) return true;
+    return iron_type_ann_mentions_self(ta->func_return) ||
+           iron_type_ann_mentions_self(ta->pointer_pointee) ||
+           iron_type_ann_mentions_self(ta->weak_rc_inner) ||
+           iron_type_ann_mentions_self(ta->rc_inner) ||
+           iron_type_ann_mentions_self(ta->array_elem_ann);
+}
+
+bool iron_iface_sig_dispatchable(const Iron_FuncDecl *sig) {
+    if (!sig || sig->is_static) return false;
+    for (int i = 0; i < sig->param_count; i++) {
+        Iron_Param *p = (Iron_Param *)sig->params[i];
+        if (p && p->kind == IRON_NODE_PARAM && iron_type_ann_mentions_self(p->type_ann))
+            return false;
+    }
+    Iron_Node *rt = sig->return_type;
+    if (rt && rt->kind == IRON_NODE_TYPE_ANNOTATION && iron_type_ann_mentions_self(rt)) {
+        Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)rt;
+        bool plain = (ta->is_self_type || (ta->name && strcmp(ta->name, "Self") == 0)) &&
+                     !ta->is_nullable && !ta->is_array && !ta->is_pointer && !ta->is_rc &&
+                     !ta->is_weak_rc && ta->generic_arg_count == 0;
+        if (!plain) return false;
+    }
+    return true;
 }

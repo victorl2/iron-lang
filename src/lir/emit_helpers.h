@@ -442,7 +442,7 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type);
 /* Phase 33 STDLIB-09 (Plan 33-05): synthesize the (non-generic) FileHandle glue.
  *   - typedef struct { int fd; } Iron_FileHandle;
  *   - Iron_FileHandle_open(Iron_String path) -> Iron_FileHandle
- *   - Iron_FileHandle_close(Iron_FileHandle*) closes + prints "closed fd"
+ *   - Iron_FileHandle_close(Iron_FileHandle*) closes the fd once and sets -1
  *   - Iron_FileHandle_drop(Iron_FileHandle*) scope-exit close
  * Idempotent via emitted_filehandle. */
 void emit_ensure_filehandle(EmitCtx *ctx);

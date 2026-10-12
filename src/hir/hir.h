@@ -598,6 +598,9 @@ struct IronHIR_Func {
     /* True for an object's `init`: its fields start uninitialized, so field
      * writes there never release / drop a previous value. */
     bool               is_init;
+    /* The closing brace of the body: the location of the implicit return
+     * and of the scope-exit cleanup before it (--debug line mapping). */
+    Iron_Span          end_span;
     /* Phase 20 PTR-10 (Plan 20-02b): mirrors Iron_FuncDecl.takes_local_addr.
      * Propagated by hir_lower from the AST decl; further propagated by
      * hir_to_lir to IronLIR_Func.takes_local_addr so emit_c.c can inject

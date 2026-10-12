@@ -1,0 +1,5 @@
+hits 29900
+swap 29900 now 5
+cas true false 7
+flag true true true
+set -3
