@@ -36,6 +36,7 @@ extern char **environ;
 #include "project/color.h"
 #include "project/iron_project.h"
 #include "project/project_build.h"
+#include "cli/target.h"
 
 /* ── Platform timing ────────────────────────────────────────────────────── */
 
@@ -226,40 +227,46 @@ static void collect_vendor_dir(const char *dir, PathList *out) {
 
 /* ── Project sources ────────────────────────────────────────────────────── */
 
+/* The .iron files under `dir`, hidden directories skipped. At the top of src/, lib.iron and main.iron are left out: the
+ * caller places them. */
+static void collect_src_dir(const char *dir, bool top, PathList *out) {
+    PathList names = {0};
+    if (list_dir_sorted(dir, &names) != 0) return;
+    char path[4096];
+    for (int i = 0; i < names.count; i++) {
+        const char *n = names.items[i];
+        if (n[0] == '.') continue;
+        snprintf(path, sizeof(path), "%s/%s", dir, n);
+        if (is_dir(path)) {
+            collect_src_dir(path, false, out);
+            continue;
+        }
+        if (!has_iron_ext(n)) continue;
+        if (top && (strcmp(n, "lib.iron") == 0 || strcmp(n, "main.iron") == 0)) continue;
+        if (is_file(path)) path_list_add(out, path);
+    }
+    path_list_free(&names);
+}
+
 /*
- * Collect the project's own .iron files from src/ (top level only):
- * lib.iron first (if present), the rest alphabetically, main.iron last.
+ * Collect the project's own .iron files: every one under src/ (manual
+ * 10.2; subdirectories hold the modules `import a.b` names), lib.iron
+ * first (if present), the rest sorted by path, main.iron last.
  */
 static void collect_project_sources(const char *proj_dir, PathList *out) {
     char src_dir[4096];
     snprintf(src_dir, sizeof(src_dir), "%s/src", proj_dir);
 
-    PathList names = {0};
-    if (list_dir_sorted(src_dir, &names) != 0) return;
-
-    bool has_lib = false, has_main = false;
-    for (int i = 0; i < names.count; i++) {
-        if (strcmp(names.items[i], "lib.iron") == 0)  has_lib = true;
-        if (strcmp(names.items[i], "main.iron") == 0) has_main = true;
-    }
-
     char path[4096];
-    if (has_lib) {
-        snprintf(path, sizeof(path), "%s/lib.iron", src_dir);
-        path_list_add(out, path);
-    }
-    for (int i = 0; i < names.count; i++) {
-        const char *n = names.items[i];
-        if (!has_iron_ext(n)) continue;
-        if (strcmp(n, "lib.iron") == 0 || strcmp(n, "main.iron") == 0) continue;
-        snprintf(path, sizeof(path), "%s/%s", src_dir, n);
-        if (is_file(path)) path_list_add(out, path);
-    }
-    if (has_main) {
-        snprintf(path, sizeof(path), "%s/main.iron", src_dir);
-        path_list_add(out, path);
-    }
-    path_list_free(&names);
+    snprintf(path, sizeof(path), "%s/lib.iron", src_dir);
+    if (is_file(path)) path_list_add(out, path);
+    int first = out->count;
+    collect_src_dir(src_dir, true, out);
+    /* sorted by path (the manual's order), not directory by directory */
+    if (out->count - first > 1)
+        qsort(out->items + first, (size_t)(out->count - first), sizeof(char *), path_cmp);
+    snprintf(path, sizeof(path), "%s/main.iron", src_dir);
+    if (is_file(path)) path_list_add(out, path);
 }
 
 /* ── Source assembly ────────────────────────────────────────────────────── */
@@ -294,11 +301,64 @@ static int append_file(FILE *out, const char *path) {
 /* `-- @file: "<rel>" @line: 1` ahead of each file in combined.iron, so the
  * lexer tags that file's tokens with its own path and 1-based lines:
  * diagnostics point at src/lib.iron:2 instead of target/combined.iron:40,
- * and cross-file visibility sees distinct files. A path the marker cannot
- * quote is left unmarked. */
+ * and cross-file visibility sees distinct files. */
 static void write_file_marker(FILE *combined, const char *rel_path) {
-    if (strpbrk(rel_path, "\"\n\r")) return;
     fprintf(combined, "-- @file: \"%s\" @line: 1\n", rel_path);
+}
+
+/* A path the marker cannot quote would be compiled as part of the file
+ * before it (its visibility and diagnostics); refuse it instead. */
+static bool check_marker_path(const char *rel_path, bool colors) {
+    if (!strpbrk(rel_path, "\"\n\r")) return true;
+    char msg[4300];
+    snprintf(msg, sizeof(msg), "cannot compile '%s': a source file name may not contain "
+             "a double quote or a line break", rel_path);
+    iron_print_error(colors, msg);
+    return false;
+}
+
+/* The generated sources (target/combined.iron, target/tests.iron) are
+ * written to a file of this process and renamed into place, so builds of
+ * the same package running at the same time never read one another's half
+ * written file. */
+static FILE *open_generated(const char *final_path, char *tmp, size_t tmp_size) {
+    /* <name>.<pid>.iron: still a .iron file, which ironc test requires */
+    size_t stem = strlen(final_path);
+    if (stem > 5 && strcmp(final_path + stem - 5, ".iron") == 0) stem -= 5;
+#ifdef _WIN32
+    snprintf(tmp, tmp_size, "%.*s.%lu.iron", (int)stem, final_path,
+             (unsigned long)GetCurrentProcessId());
+#else
+    snprintf(tmp, tmp_size, "%.*s.%ld.iron", (int)stem, final_path, (long)getpid());
+#endif
+    return fopen(tmp, "w");
+}
+
+/* Puts tmp in place of final_path; source_out receives the file to
+ * compile (final_path, or tmp itself when Windows refuses to replace a
+ * file another build has open). Returns false when neither works. */
+static bool publish_generated(const char *tmp, const char *final_path,
+                              char *source_out, size_t source_out_size) {
+#ifdef _WIN32
+    if (MoveFileExA(tmp, final_path, MOVEFILE_REPLACE_EXISTING)) {
+        snprintf(source_out, source_out_size, "%s", final_path);
+        return true;
+    }
+    snprintf(source_out, source_out_size, "%s", tmp);
+    return true;
+#else
+    if (rename(tmp, final_path) == 0) {
+        snprintf(source_out, source_out_size, "%s", final_path);
+        return true;
+    }
+    remove(tmp);
+    return false;
+#endif
+}
+
+/* Removes the temporary file publish_generated left to compile, if any. */
+static void unpublish_generated(const char *source, const char *final_path) {
+    if (strcmp(source, final_path) != 0) remove(source);
 }
 
 static int assemble_sources(const IronProject *proj, const char *proj_dir,
@@ -319,6 +379,18 @@ static int assemble_sources(const IronProject *proj, const char *proj_dir,
         return 0;
     }
 
+    size_t proj_prefix = strlen(proj_dir) + 1;  /* strip "<proj_dir>/" */
+    for (int g = 0; g < 2; g++) {
+        PathList *l = g ? &project_files : &vendor_files;
+        for (int i = 0; i < l->count; i++) {
+            if (!check_marker_path(l->items[i] + proj_prefix, colors)) {
+                path_list_free(&vendor_files);
+                path_list_free(&project_files);
+                return 1;
+            }
+        }
+    }
+
     char target_dir[4096];
     snprintf(target_dir, sizeof(target_dir), "%s/target", proj_dir);
 #ifdef _WIN32
@@ -334,8 +406,9 @@ static int assemble_sources(const IronProject *proj, const char *proj_dir,
     }
 #endif
 
-    snprintf(source_out, source_out_size, "%s/target/combined.iron", proj_dir);
-    FILE *combined = fopen(source_out, "w");
+    char final_path[4096], tmp_path[4200];
+    snprintf(final_path, sizeof(final_path), "%s/target/combined.iron", proj_dir);
+    FILE *combined = open_generated(final_path, tmp_path, sizeof(tmp_path));
     if (!combined) {
         iron_print_error(colors, "cannot create target/combined.iron");
         path_list_free(&vendor_files);
@@ -343,7 +416,6 @@ static int assemble_sources(const IronProject *proj, const char *proj_dir,
         return 1;
     }
 
-    size_t proj_prefix = strlen(proj_dir) + 1;  /* strip "<proj_dir>/" */
     int ret = 0;
     for (int i = 0; i < vendor_files.count && ret == 0; i++) {
         fprintf(combined, "-- vendor: %s\n", vendor_files.items[i] + proj_prefix);
@@ -358,13 +430,27 @@ static int assemble_sources(const IronProject *proj, const char *proj_dir,
     }
     if (ret == 0) {
         fprintf(combined, "-- project: %s\n", proj->name);
-        for (int i = 0; i < project_files.count; i++) {
+        for (int i = 0; i < project_files.count && ret == 0; i++) {
             write_file_marker(combined, project_files.items[i] + proj_prefix);
-            append_file(combined, project_files.items[i]);
+            if (append_file(combined, project_files.items[i]) != 0) {
+                char msg[4200];
+                snprintf(msg, sizeof(msg), "cannot read %s: %s",
+                         project_files.items[i] + proj_prefix, strerror(errno));
+                iron_print_error(colors, msg);
+                ret = 1;
+            }
         }
     }
 
-    fclose(combined);
+    if (fclose(combined) != 0 && ret == 0) {
+        iron_print_error(colors, "cannot write target/combined.iron");
+        ret = 1;
+    }
+    if (ret == 0 && !publish_generated(tmp_path, final_path, source_out, source_out_size)) {
+        iron_print_error(colors, "cannot create target/combined.iron");
+        ret = 1;
+    }
+    if (ret != 0) remove(tmp_path);
     path_list_free(&vendor_files);
     path_list_free(&project_files);
     return ret;
@@ -475,13 +561,60 @@ static int check_iron_version(const IronProject *proj, bool colors,
     return 1;
 }
 
+/* What iron.toml must hold for iron to use it: well-formed [package]
+ * strings, a name that is a single path component (the binary is
+ * target/<name>, the archive target/lib<name>.a), and a known type.
+ * Returns false after reporting the problem. */
+static bool manifest_usable(const IronProject *proj, bool colors) {
+    char msg[1200];
+    if (proj->error) {
+        snprintf(msg, sizeof(msg), "invalid iron.toml: %s", proj->error);
+        iron_print_error(colors, msg);
+        return false;
+    }
+    const char *n = proj->name;
+    bool ok = n && n[0] && strcmp(n, ".") != 0 && strcmp(n, "..") != 0;
+    for (const char *c = n; ok && *c; c++)
+        ok = (unsigned char)*c >= 0x20 && *c != 0x7f && !strchr("/\\:\"<>|?*", *c);
+    if (!ok) {
+        snprintf(msg, sizeof(msg), "invalid package name '%.200s' in iron.toml: it names the "
+                 "output file, so it may not be empty, '.' or '..', or contain / \\ : \" < > | ? * "
+                 "or control characters", n ? n : "");
+        iron_print_error(colors, msg);
+        return false;
+    }
+    if (proj->type && strcmp(proj->type, "bin") != 0 && strcmp(proj->type, "lib") != 0) {
+        snprintf(msg, sizeof(msg), "invalid package type '%.200s' in iron.toml: use \"bin\" or \"lib\"",
+                 proj->type);
+        iron_print_error(colors, msg);
+        return false;
+    }
+    return true;
+}
+
 /* Reject any flag in argv[2..] (up to a `--` separator) that is not in
- * allowed[] (NULL-terminated). Unknown flags used to be ignored silently. */
-static int reject_unknown_flags(const char *cmd, int argc, char **argv,
-                                const char *const *allowed) {
+ * allowed[] (NULL-terminated), and more than max_positional arguments
+ * that are not flags. Both used to be ignored silently. */
+static int reject_unknown_args(const char *cmd, int argc, char **argv,
+                               const char *const *allowed, int max_positional) {
+    int positional = 0;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--") == 0) break;
-        if (argv[i][0] != '-') continue;
+        if (argv[i][0] != '-' || argv[i][1] == '\0') {
+            if (++positional > max_positional) {
+                fprintf(stderr, "error: unexpected argument '%s' for 'iron %s'\n", argv[i], cmd);
+                if (strcmp(cmd, "run") == 0)
+                    fprintf(stderr, "  = help: pass arguments to the program after --: "
+                                    "iron run -- %s\n", argv[i]);
+                else if (strcmp(cmd, "test") != 0)
+                    fprintf(stderr, "  = help: in a package, `iron %s` takes no file; "
+                                    "pass a .iron file to %s one file\n", cmd, cmd);
+                return 1;
+            }
+            continue;
+        }
+        bool takes_value = strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0 ||
+                           strcmp(argv[i], "--target") == 0;
         bool ok = false;
         for (int k = 0; allowed[k]; k++) {
             size_t al = strlen(allowed[k]);
@@ -492,6 +625,13 @@ static int reject_unknown_flags(const char *cmd, int argc, char **argv,
         if (!ok) {
             fprintf(stderr, "error: unknown flag '%s' for 'iron %s'\n", argv[i], cmd);
             return 1;
+        }
+        if (takes_value) {
+            if (i + 1 >= argc || strcmp(argv[i + 1], "--") == 0) {
+                fprintf(stderr, "error: %s requires a value\n", argv[i]);
+                return 1;
+            }
+            i++;
         }
     }
     return 0;
@@ -1050,19 +1190,43 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * Phase 94 LIB-04: --release is parsed at the iron build CLI layer and
      * forwarded to ironc below; the Finished status line differentiates
      * "release [optimized]" from "dev [unoptimized]" based on the same flag. */
-    static const char *const allowed[] = { "--verbose", "--release", "--debug", "--target=", NULL };
+    /* The flags `iron build --help` and `iron run --help` list (manual
+     * 10.4); the ones iron does not act on itself go to ironc as given. */
+    static const char *const allowed_build[] = {
+        "--verbose", "--release", "--debug", "--target=", "--target", "-o", "--output",
+        "--debug-build", "--emit-c", "--test", "--no-optimize", "--strict-v3", "--no-strict-v3",
+        "--force-comptime", "--dump-ir-passes", "--report-compression", "--warn-fusion-break", NULL };
+    static const char *const allowed_run[] = {
+        "--verbose", "--release", "--debug", "--target=", "--target", "-o", "--output",
+        "--debug-build", "--no-optimize", "--strict-v3", "--no-strict-v3",
+        "--force-comptime", "--dump-ir-passes", "--report-compression", "--warn-fusion-break", NULL };
     static const char *const allowed_debug[] = { "--verbose", "--gdb", "--lldb", NULL };
-    if (reject_unknown_flags(g_debug_session ? "debug" : run_after ? "run" : "build", argc, argv,
-                             g_debug_session ? allowed_debug : allowed) != 0)
+    if (reject_unknown_args(g_debug_session ? "debug" : run_after ? "run" : "build", argc, argv,
+                            g_debug_session ? allowed_debug : run_after ? allowed_run : allowed_build,
+                            0) != 0)
         return 1;
     bool verbose = false;
     bool release = false;
     bool debug = g_debug_session; /* --debug: debug info on Iron lines (#312) */
     const char *target = NULL;   /* --target=<name>: web or a cross target, forwarded to ironc */
+    const char *output_override = NULL;   /* -o / --output */
+    const char *passthrough[16];
+    int passthrough_count = 0;
     char **run_args = NULL;
     int run_arg_count = 0;
     for (int i = 2; i < argc; i++) {
-        if (strcmp(argv[i], "--verbose") == 0) {
+        if (strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) {
+            output_override = argv[++i];
+        } else if (strcmp(argv[i], "--target") == 0) {
+            target = argv[++i];
+            if (strcmp(target, "native") == 0) target = NULL;
+        } else if (argv[i][0] == '-' && argv[i][1] == '-' && strcmp(argv[i], "--") != 0 &&
+                   strcmp(argv[i], "--verbose") != 0 && strcmp(argv[i], "--release") != 0 &&
+                   strcmp(argv[i], "--debug") != 0 && strcmp(argv[i], "--gdb") != 0 &&
+                   strcmp(argv[i], "--lldb") != 0 && strncmp(argv[i], "--target=", 9) != 0) {
+            if (passthrough_count < (int)(sizeof(passthrough) / sizeof(passthrough[0])))
+                passthrough[passthrough_count++] = argv[i];
+        } else if (strcmp(argv[i], "--verbose") == 0) {
             verbose = true;
         } else if (strcmp(argv[i], "--release") == 0) {
             release = true;
@@ -1082,6 +1246,15 @@ static int cmd_build(bool run_after, int argc, char **argv) {
         }
     }
 
+    /* The target names a directory under target/: check it before any
+     * directory is made (`--target=../x` made one outside the package). */
+    if (target && iron_target_is_host(target)) target = NULL;
+    if (target && strcmp(target, "web") != 0 && !iron_target_lookup(target)) {
+        fprintf(stderr, "error: unknown target '%s'. valid targets: native, web, %s\n",
+                target, iron_target_names());
+        return 1;
+    }
+
     /* 1. Find iron.toml */
     char *toml_path = find_iron_toml();
     if (!toml_path) {
@@ -1092,10 +1265,21 @@ static int cmd_build(bool run_after, int argc, char **argv) {
 
     /* 2. Parse iron.toml */
     IronProject *proj = iron_toml_parse(toml_path);
+    if (proj && proj->error) {
+        manifest_usable(proj, colors);
+        free(toml_path);
+        iron_toml_free(proj);
+        return 1;
+    }
     if (!proj || !proj->name || !proj->version) {
         iron_print_error(colors, "invalid iron.toml: missing required fields (name, version)");
         free(toml_path);
         if (proj) iron_toml_free(proj);
+        return 1;
+    }
+    if (!manifest_usable(proj, colors)) {
+        free(toml_path);
+        iron_toml_free(proj);
         return 1;
     }
 
@@ -1261,6 +1445,7 @@ static int cmd_build(bool run_after, int argc, char **argv) {
         snprintf(output_path, sizeof(output_path), "%s/target/%s/%s%s", proj_dir, target, proj->name,
                  strncmp(target, "windows-", 8) == 0 ? ".exe" : "");
     }
+    if (output_override) snprintf(output_path, sizeof(output_path), "%s", output_override);
 
     /* 6. Assemble sources: vendored files + project files, or just the
      * entry point for a single-file project with nothing vendored. */
@@ -1280,12 +1465,15 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     path_list_add(&args, build_source);
     path_list_add(&args, "--output");
     path_list_add(&args, output_path);
+    path_list_add(&args, "--package-root");
+    path_list_add(&args, proj_dir);
     if (verbose) path_list_add(&args, "--verbose");
     /* Phase 94 LIB-04: forward --release from iron build CLI to ironc so
      * native -O2 (and web -Oz -flto) optimization tiers reach the underlying
      * clang -c invocation. Applies to both type=bin and type=lib builds. */
     if (release) path_list_add(&args, "--release");
     if (debug) path_list_add(&args, "--debug");
+    for (int i = 0; i < passthrough_count; i++) path_list_add(&args, passthrough[i]);
     if (target) {
         char tflag[160];
         snprintf(tflag, sizeof(tflag), "--target=%s", target);
@@ -1318,6 +1506,11 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     double t_start = get_time_sec();
     int ret = spawn_and_wait(ironc, spawn_argv);
     double elapsed = get_time_sec() - t_start;
+    {
+        char combined_final[4200];
+        snprintf(combined_final, sizeof(combined_final), "%s/target/combined.iron", proj_dir);
+        if (strcmp(build_source, entry_path) != 0) unpublish_generated(build_source, combined_final);
+    }
 
     free(spawn_argv);
     path_list_free(&args);
@@ -1369,7 +1562,7 @@ static int cmd_build(bool run_after, int argc, char **argv) {
 
 static int cmd_check(int argc, char **argv) {
     static const char *const allowed[] = { NULL };
-    if (reject_unknown_flags("check", argc, argv, allowed) != 0) return 1;
+    if (reject_unknown_args("check", argc, argv, allowed, 0) != 0) return 1;
     bool colors = iron_color_init();
 
     char *toml_path = find_iron_toml();
@@ -1379,10 +1572,15 @@ static int cmd_check(int argc, char **argv) {
     }
 
     IronProject *proj = iron_toml_parse(toml_path);
-    if (!proj || !proj->name) {
-        iron_print_error(colors, "invalid iron.toml");
+    if (!proj || (!proj->name && !proj->error)) {
+        iron_print_error(colors, "invalid iron.toml: missing required field (name)");
         free(toml_path);
         if (proj) iron_toml_free(proj);
+        return 1;
+    }
+    if (!manifest_usable(proj, colors)) {
+        free(toml_path);
+        iron_toml_free(proj);
         return 1;
     }
 
@@ -1420,8 +1618,13 @@ static int cmd_check(int argc, char **argv) {
     iron_print_status(colors, "Checking", detail);
 
     char *ironc = find_ironc();
-    char *spawn_argv[] = { ironc, "check", check_source, NULL };
+    char *spawn_argv[] = { ironc, "check", check_source, "--package-root", proj_dir, NULL };
     int ret = spawn_and_wait(ironc, spawn_argv);
+    {
+        char combined_final[4200];
+        snprintf(combined_final, sizeof(combined_final), "%s/target/combined.iron", proj_dir);
+        if (strcmp(check_source, entry_path) != 0) unpublish_generated(check_source, combined_final);
+    }
 
     if (ret == 0) {
         iron_print_status(colors, "Finished", "check completed");
@@ -1463,11 +1666,22 @@ static bool defines_main(const char *path) {
  */
 static int cmd_test(int argc, char **argv) {
     static const char *const allowed[] = { NULL };
-    if (reject_unknown_flags("test", argc, argv, allowed) != 0) return 1;
+    if (reject_unknown_args("test", argc, argv, allowed, 1) != 0) return 1;
     bool colors = iron_color_init();
+    /* `iron test [filter]`, or `iron test -- <filter>` for a filter that
+     * starts with '-'. */
     const char *filter = NULL;
-    for (int i = 2; i < argc; i++)
-        if (argv[i][0] != '-') { filter = argv[i]; break; }
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--") == 0) {
+            if (i + 1 < argc && !filter) filter = argv[i + 1];
+            if (i + 2 < argc) {
+                fprintf(stderr, "error: unexpected argument '%s' for 'iron test'\n", argv[i + 2]);
+                return 1;
+            }
+            break;
+        }
+        if ((argv[i][0] != '-' || argv[i][1] == '\0') && !filter) filter = argv[i];
+    }
 
     char *toml_path = find_iron_toml();
     if (!toml_path) {
@@ -1475,10 +1689,15 @@ static int cmd_test(int argc, char **argv) {
         return 1;
     }
     IronProject *proj = iron_toml_parse(toml_path);
-    if (!proj || !proj->name) {
-        iron_print_error(colors, "invalid iron.toml");
+    if (!proj || (!proj->name && !proj->error)) {
+        iron_print_error(colors, "invalid iron.toml: missing required field (name)");
         free(toml_path);
         if (proj) iron_toml_free(proj);
+        return 1;
+    }
+    if (!manifest_usable(proj, colors)) {
+        free(toml_path);
+        iron_toml_free(proj);
         return 1;
     }
     char *proj_dir = get_project_dir(toml_path);
@@ -1521,25 +1740,43 @@ static int cmd_test(int argc, char **argv) {
 #else
     mkdir(target_dir, 0755);
 #endif
-    snprintf(combined_path, sizeof(combined_path), "%s/target/tests.iron", proj_dir);
-    FILE *combined = fopen(combined_path, "w");
+    char tests_final[4096], tmp_path[4200];
+    snprintf(tests_final, sizeof(tests_final), "%s/target/tests.iron", proj_dir);
+    size_t proj_prefix = strlen(proj_dir) + 1;
+    PathList *groups[3] = { &vendor_files, &project_files, &test_files };
     int ret = 0;
+    for (int g = 0; g < 3 && ret == 0; g++)
+        for (int i = 0; i < groups[g]->count && ret == 0; i++)
+            if (!check_marker_path(groups[g]->items[i] + proj_prefix, colors)) ret = 1;
+    FILE *combined = ret ? NULL : open_generated(tests_final, tmp_path, sizeof(tmp_path));
     if (!combined) {
-        iron_print_error(colors, "cannot create target/tests.iron");
+        if (!ret) iron_print_error(colors, "cannot create target/tests.iron");
         ret = 1;
     } else {
-        size_t proj_prefix = strlen(proj_dir) + 1;
-        PathList *groups[3] = { &vendor_files, &project_files, &test_files };
-        for (int g = 0; g < 3; g++) {
-            for (int i = 0; i < groups[g]->count; i++) {
+        for (int g = 0; g < 3 && ret == 0; g++) {
+            for (int i = 0; i < groups[g]->count && ret == 0; i++) {
                 write_file_marker(combined, groups[g]->items[i] + proj_prefix);
-                append_file(combined, groups[g]->items[i]);
+                if (append_file(combined, groups[g]->items[i]) != 0) {
+                    char msg[4300];
+                    snprintf(msg, sizeof(msg), "cannot read %s: %s",
+                             groups[g]->items[i] + proj_prefix, strerror(errno));
+                    iron_print_error(colors, msg);
+                    ret = 1;
+                }
             }
         }
-        fclose(combined);
-
+        if (fclose(combined) != 0 && ret == 0) ret = 1;
+        if (ret == 0 && !publish_generated(tmp_path, tests_final, combined_path,
+                                           sizeof(combined_path))) {
+            iron_print_error(colors, "cannot create target/tests.iron");
+            ret = 1;
+        }
+        if (ret != 0) remove(tmp_path);
+    }
+    if (ret == 0) {
         char *ironc = find_ironc();
-        char *spawn_argv[] = { ironc, "test", combined_path, (char *)filter, NULL };
+        char *spawn_argv[] = { ironc, "test", combined_path, "--package-root", proj_dir,
+                               filter ? "--" : NULL, (char *)filter, NULL };
         ret = spawn_and_wait(ironc, spawn_argv);
         if (has_standalone) {
             /* Standalone programs run whole; the filter does not apply. */
@@ -1547,6 +1784,7 @@ static int cmd_test(int argc, char **argv) {
             int lret = spawn_and_wait(ironc, legacy_argv);
             if (ret == 0) ret = lret;
         }
+        unpublish_generated(combined_path, tests_final);
         free(ironc);
     }
 

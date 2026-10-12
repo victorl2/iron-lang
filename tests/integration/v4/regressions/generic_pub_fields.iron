@@ -1,0 +1,25 @@
+-- A generic object with pub fields: its instances got the accessors of
+-- the template printed as methods next to the synthesized ones (E0237,
+-- and E0245 for the getter's retrofitted tiers).
+object Pair[T] {
+    pub val left: T
+    pub val right: T
+}
+
+object Cell[T] {
+    pub var value: T
+
+    init(v: T) {
+        self.value = v
+    }
+}
+
+func main() {
+    val p = Pair[Int](3, 4)
+    println("{p.left} {p.right}")
+    val q = Pair[String]("a", "b")
+    println("{q.left}{q.right}")
+    var c = Cell[Int](1)
+    c.value = c.value + 41
+    println("{c.value}")
+}

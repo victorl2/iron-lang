@@ -301,6 +301,82 @@ static char *rewrite_template(const char *src, GenInst *gi, Iron_Arena *arena) {
     return result;
 }
 
+/* ── Instance spans (#594) ──────────────────────────────────────────────── */
+
+/* The instance is parsed from the printed template, laid out unlike the
+ * source, so its spans named lines of the template's file that hold other
+ * code. The printed tree has the template's shape: walk both in the same
+ * order and give each instance node its template node's span. Type
+ * annotations are left out of the walk (an argument such as Pair[Int, T]
+ * has more nodes than the parameter it replaces). */
+typedef struct { Iron_Node **nodes; } SpanCollect;
+
+static bool span_collect_visit(Iron_Visitor *v, Iron_Node *n) {
+    if (!n || n->kind == IRON_NODE_TYPE_ANNOTATION) return false;
+    SpanCollect *c = (SpanCollect *)v->ctx;
+    arrput(c->nodes, n);
+    return true;
+}
+
+static void collect_nodes(Iron_Node *root, SpanCollect *c) {
+    Iron_Visitor v = { .ctx = c, .visit_node = span_collect_visit, .post_visit = NULL };
+    iron_ast_walk(root, &v);
+}
+
+static void set_spans(Iron_Node *root, Iron_Span sp) {
+    SpanCollect c = { NULL };
+    collect_nodes(root, &c);
+    for (ptrdiff_t i = 0; i < arrlen(c.nodes); i++) c.nodes[i]->span = sp;
+    arrfree(c.nodes);
+}
+
+static void copy_spans(Iron_Node *inst, Iron_Node *tmpl) {
+    SpanCollect a = { NULL }, b = { NULL };
+    collect_nodes(inst, &a);
+    collect_nodes(tmpl, &b);
+    bool same = arrlen(a.nodes) == arrlen(b.nodes);
+    for (ptrdiff_t i = 0; same && i < arrlen(a.nodes); i++)
+        same = a.nodes[i]->kind == b.nodes[i]->kind;
+    if (same) {
+        for (ptrdiff_t i = 0; i < arrlen(a.nodes); i++) a.nodes[i]->span = b.nodes[i]->span;
+    } else {
+        /* the shapes differ: the declaration's own line is still right */
+        for (ptrdiff_t i = 0; i < arrlen(a.nodes); i++) a.nodes[i]->span = tmpl->span;
+    }
+    arrfree(a.nodes);
+    arrfree(b.nodes);
+}
+
+static bool same_member(Iron_MethodDecl *x, Iron_MethodDecl *y) {
+    if (x->is_init != y->is_init || x->is_drop != y->is_drop || x->is_copy != y->is_copy ||
+        x->is_synth_accessor != y->is_synth_accessor)
+        return false;
+    if (x->is_drop || x->is_copy) return true;
+    return x->method_name && y->method_name && strcmp(x->method_name, y->method_name) == 0;
+}
+
+/* The template declaration an instance declaration was printed from. */
+static Iron_Node *template_of(Iron_Program *program, GenInst *gi, Iron_Node *d) {
+    if (d->kind == IRON_NODE_FUNC_DECL && gi->decl->kind == IRON_NODE_FUNC_DECL) return gi->decl;
+    if (d->kind == IRON_NODE_OBJECT_DECL) {
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+        return (!od->is_patch && gi->decl->kind == IRON_NODE_OBJECT_DECL) ? gi->decl : NULL;
+    }
+    if (d->kind != IRON_NODE_METHOD_DECL) return NULL;
+    Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+    if (gi->decl->kind == IRON_NODE_METHOD_DECL)
+        return same_member(md, (Iron_MethodDecl *)gi->decl) ? gi->decl : NULL;
+    if (gi->decl->kind != IRON_NODE_OBJECT_DECL) return NULL;
+    const char *oname = ((Iron_ObjectDecl *)gi->decl)->name;
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *t = program->decls[i];
+        if (!t || t->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *tm = (Iron_MethodDecl *)t;
+        if (tm->type_name && strcmp(tm->type_name, oname) == 0 && same_member(md, tm)) return t;
+    }
+    return NULL;
+}
+
 static int materialize_one(Iron_Program *program, GenInst *gi, Iron_Arena *arena,
                            Iron_DiagList *diags) {
     /* Print the template (for an object, together with its methods and
@@ -316,6 +392,11 @@ static int materialize_one(Iron_Program *program, GenInst *gi, Iron_Arena *arena
             Iron_Node *d = program->decls[i];
             if (!d || d == gi->decl || d->kind != IRON_NODE_METHOD_DECL) continue;
             Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+            /* The accessors of pub fields are synthesized again when the
+             * instance is parsed: printed, they collided with those
+             * (E0237), and the getter's retrofitted tiers printed as
+             * `readonly pure` (E0245). */
+            if (md->is_synth_accessor) continue;
             if (md->type_name && strcmp(md->type_name, oname) == 0) arrput(decls, d);
         }
     }
@@ -366,6 +447,9 @@ static int materialize_one(Iron_Program *program, GenInst *gi, Iron_Arena *arena
     for (int i = 0; i < sub->decl_count; i++) {
         Iron_Node *d = sub->decls[i];
         if (!d) continue;
+        Iron_Node *t = template_of(program, gi, d);
+        if (t) copy_spans(d, t);
+        else set_spans(d, gi->decl->span);
         arrput(program->decls, d);
         program->decl_count++;
     }

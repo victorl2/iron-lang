@@ -1,0 +1,40 @@
+-- An init that assigns a `pub var` field went through the field's setter,
+-- which destroyed the uninitialized old value: a list field crashed.
+object Item {
+    pub val k: Int
+
+    drop {
+        println("drop {self.k}")
+    }
+}
+
+object Bag {
+    pub var items: [Item]
+    pub var label: String
+
+    init() {
+        self.items = []
+        self.label = "bag"
+    }
+}
+
+object GenericBag[T] {
+    pub var items: [T]
+
+    init() {
+        self.items = []
+    }
+
+    readonly func size() -> Int {
+        return len(self.items)
+    }
+}
+
+func main() {
+    var b = Bag()
+    b.items.push(Item(1))
+    b.label = "renamed"
+    var g = GenericBag[Item]()
+    g.items.push(Item(2))
+    println("{len(b.items)} {b.label} {g.size()}")
+}

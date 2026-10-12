@@ -3904,7 +3904,14 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 ? slot_in->alloca.alloc_type : NULL;
             bool deref_fat = slot_t && slot_t->kind == IRON_TYPE_OBJECT &&
                              emit_val_is_heap_fat_ptr(fn, instr->store.value);
-            if (vid_is_var_param(fn, instr->store.value)) {
+            bool deref_self = slot_t && slot_t->kind == IRON_TYPE_OBJECT &&
+                              fn->is_mut_receiver_method && instr->store.value == 1;
+            if (vid_is_var_param(fn, instr->store.value) || deref_self) {
+                /* (deref_self: the receiver of a mutating method or drop
+                 * is a T *; the inliner binds a by-value callee parameter,
+                 * a pub getter's self, to it. Later passes removed this
+                 * store; under --no-optimize it stayed and did not
+                 * compile.) */
                 iron_strbuf_appendf(sb, "*");
                 emit_val(sb, instr->store.value);
             } else if (needs_iface_wrap) {

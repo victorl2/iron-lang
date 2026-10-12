@@ -1,4 +1,4 @@
--- @expect-panic: assertion failed: assert_forms.iron:19
+-- @expect-panic: assert_forms.iron:19
 -- Regression: assert was unusable.
 --
 -- The builtin was registered as assert(Bool) while the runtime takes a

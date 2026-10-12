@@ -10,11 +10,37 @@
 static _Thread_local char *g_paths[IRON_STDLIB_ORIGIN_MAX];
 static _Thread_local int   g_count;
 static _Thread_local bool  g_unknown;
+/* Every name a `-- @file:` marker gave while lexing this compile. */
+static _Thread_local char **g_markers;
+static _Thread_local int    g_marker_count, g_marker_cap;
 
 void iron_stdlib_origin_reset(void) {
     for (int i = 0; i < g_count; i++) free(g_paths[i]);
     g_count = 0;
     g_unknown = false;
+    for (int i = 0; i < g_marker_count; i++) free(g_markers[i]);
+    free(g_markers);
+    g_markers = NULL;
+    g_marker_count = g_marker_cap = 0;
+}
+
+void iron_source_marker_add(const char *path) {
+    if (!path) return;
+    for (int i = 0; i < g_marker_count; i++)
+        if (strcmp(g_markers[i], path) == 0) return;
+    if (g_marker_count == g_marker_cap) {
+        int cap = g_marker_cap ? g_marker_cap * 2 : 16;
+        char **grown = (char **)realloc(g_markers, sizeof(char *) * (size_t)cap);
+        if (!grown) return;
+        g_markers = grown;
+        g_marker_cap = cap;
+    }
+    char *copy = strdup(path);
+    if (copy) g_markers[g_marker_count++] = copy;
+}
+
+const char *iron_source_marker_get(int i) {
+    return (i >= 0 && i < g_marker_count) ? g_markers[i] : NULL;
 }
 
 void iron_stdlib_origin_add(const char *path) {

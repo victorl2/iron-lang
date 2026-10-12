@@ -91,6 +91,12 @@ typedef struct {
  * Returns NULL on error (ctx->had_error will be true). */
 Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx, Iron_Node *node);
 
+/* The package directory the `-- @file:` paths of a combined package
+ * source are relative to (ironc --package-root); read_file resolves a
+ * relative path against the directory of the calling file. */
+void iron_comptime_set_package_root(const char *dir);
+const char *iron_comptime_package_root(void);   /* NULL outside a package */
+
 /* Convert a comptime value back to a literal AST node suitable for codegen.
  * The resolved_type is copied from the original COMPTIME node so codegen
  * type mapping works correctly. */
