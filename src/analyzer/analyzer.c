@@ -6,6 +6,7 @@
 #include "analyzer/iface_defaults.h"
 #include "analyzer/generics.h"
 #include "analyzer/init_check.h"
+#include "analyzer/global_order.h"
 #include "analyzer/list_ownership.h"
 #include "analyzer/effects.h"
 #include "analyzer/unused_var.h"
@@ -309,6 +310,11 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
                             source_text, source_len,
                             mode);
     }
+
+    /* Step 7: a global may not depend on itself through its initializer
+     * (E0345); comptime values have no dependencies left. */
+    if (diags->error_count == 0)
+        iron_global_init_order(program, arena, diags, NULL);
 
     result.has_errors = (diags->error_count > 0);
     /* Phase 3 NAV-15: mark the AST as sealed. Consumers outside the

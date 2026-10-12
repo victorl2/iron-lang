@@ -41,7 +41,9 @@ static char *trim(char *s) {
 static void strip_comment(char *s) {
     bool in_quote = false;
     for (char *p = s; *p; p++) {
-        if (*p == '"') {
+        if (in_quote && *p == '\\' && p[1]) {
+            p++;                      /* an escaped character, \" included */
+        } else if (*p == '"') {
             in_quote = !in_quote;
         } else if (*p == '#' && !in_quote) {
             *p = '\0';
@@ -51,22 +53,42 @@ static void strip_comment(char *s) {
 }
 
 /* ── Helper: extract string value from   key = "value"  or  key = bare ──── */
-
-static char *extract_value(const char *raw) {
+/*
+ * A quoted value is a TOML basic string: the escapes \" \\ \t \n and \r
+ * are decoded, and nothing but whitespace may follow the closing quote.
+ * On a malformed quoted value, returns NULL and points *err at the reason.
+ */
+static char *extract_value_err(const char *raw, const char **err) {
     /* raw points to the value portion (after '='), already stripped */
     const char *v = raw;
+    *err = NULL;
     while (*v && isspace((unsigned char)*v)) v++;
-
     if (*v == '"') {
-        /* Quoted string */
         v++;
-        const char *end = strchr(v, '"');
-        if (!end) return NULL;
-        size_t len = (size_t)(end - v);
-        char *result = (char *)malloc(len + 1);
+        char *result = (char *)malloc(strlen(v) + 1);
         if (!result) return NULL;
-        memcpy(result, v, len);
-        result[len] = '\0';
+        size_t n = 0;
+        for (;;) {
+            if (*v == '\0') { free(result); *err = "unterminated string"; return NULL; }
+            if (*v == '"') break;
+            if (*v == '\\') {
+                char c = v[1];
+                char out = c == '"' ? '"' : c == '\\' ? '\\' : c == 't' ? '\t' :
+                           c == 'n' ? '\n' : c == 'r' ? '\r' : 0;
+                if (!out) { free(result); *err = "unsupported escape in string"; return NULL; }
+                result[n++] = out;
+                v += 2;
+                continue;
+            }
+            if ((unsigned char)*v < 0x20 && *v != '\t') {
+                free(result); *err = "control character in string"; return NULL;
+            }
+            result[n++] = *v++;
+        }
+        result[n] = '\0';
+        v++;   /* closing quote */
+        while (*v && isspace((unsigned char)*v)) v++;
+        if (*v) { free(result); *err = "unexpected text after the closing quote"; return NULL; }
         return result;
     } else {
         /* Bare word */
@@ -78,6 +100,11 @@ static char *extract_value(const char *raw) {
         result[len] = '\0';
         return result;
     }
+}
+
+static char *extract_value(const char *raw) {
+    const char *err;
+    return extract_value_err(raw, &err);
 }
 
 /* ── Helper: Levenshtein distance for misspelled-section detection ──────── */
@@ -227,9 +254,24 @@ IronProject *iron_toml_parse(const char *path) {
     int section = 0;
 
     char line[1024];
+    int lineno = 0;
     while (fgets(line, sizeof(line), f)) {
-        /* Strip trailing newline */
+        lineno++;
         size_t len = strlen(line);
+        if (len == sizeof(line) - 1 && line[len - 1] != '\n' && !feof(f)) {
+            /* Longer than the buffer: the rest would read as lines of their
+             * own. Skip it and remember the error. */
+            int ch;
+            while ((ch = fgetc(f)) != EOF && ch != '\n') {}
+            if (!proj->error) {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "line %d is longer than %d bytes", lineno,
+                         (int)sizeof(line) - 2);
+                proj->error = strdup(msg);
+            }
+            continue;
+        }
+        /* Strip trailing newline */
         while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
             line[--len] = '\0';
         }
@@ -289,6 +331,17 @@ IronProject *iron_toml_parse(const char *path) {
         char *key = trim(s);
         char *val_str = trim(eq + 1);
 
+        if (section == 1 && !proj->error) {
+            /* A malformed string in [package] stops iron (proj->error). */
+            const char *verr = NULL;
+            char *probe = extract_value_err(val_str, &verr);
+            free(probe);
+            if (verr) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "line %d: %s in the value of '%s'", lineno, verr, key);
+                proj->error = strdup(msg);
+            }
+        }
         if (section == 1) {
             /* [package]/[project] section */
             if (strcmp(key, "name") == 0) {
@@ -449,5 +502,6 @@ void iron_toml_free(IronProject *proj) {
     }
     free(proj->web.assets);
     free(proj->toml_dir);
+    free(proj->error);
     free(proj);
 }

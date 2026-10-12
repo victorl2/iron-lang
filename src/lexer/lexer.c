@@ -1,4 +1,5 @@
 #include "lexer/lexer.h"
+#include "hir/stdlib_origin.h"
 #include "stb_ds.h"
 
 #include <stdio.h>
@@ -1044,6 +1045,7 @@ static Iron_Token iron_lex_line_comment(Iron_Lexer *l, uint32_t start_line,
             : NULL;
         if (new_filename) {
             l->filename = new_filename;
+            iron_source_marker_add(new_filename);
 
             /* 2026-07 diagnostics remediation: optional
              * `@line: <n>` suffix — `-- @file: <name> @line: <n>`

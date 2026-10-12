@@ -435,6 +435,10 @@ static void print_method_in_block(PrintCtx *ctx, Iron_MethodDecl *m) {
     print_leading_comments(ctx, m->doc_comment, m->directives, m->directive_count);
     print_fusible_hint(ctx, m->is_fusible, m->directives, m->directive_count);
     defer_trailing_directives(ctx, m->directives, m->directive_count, m->body != NULL);
+    /* `pub` on members is kept: a generic object is instantiated by
+     * printing it and parsing the text again, and its pub init and methods
+     * came back private (E0320 from every other file). */
+    if (m->is_pub && !m->is_drop && !m->is_copy) iron_strbuf_appendf(ctx->sb, "pub ");
     if (m->is_private) iron_strbuf_appendf(ctx->sb, "private ");
     /* Init form precedes any tier modifier; tier modifiers on init are
      * rejected at parse time (parser.c:3219-3228), so this branch never

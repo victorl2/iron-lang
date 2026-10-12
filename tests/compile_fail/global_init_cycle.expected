@@ -1,0 +1,1 @@
+initialization cycle: global 'A' depends on 'B', which depends on 'A'

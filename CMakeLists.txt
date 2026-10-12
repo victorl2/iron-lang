@@ -306,6 +306,7 @@ add_library(iron_compiler STATIC
     src/analyzer/web_await_check.c
     src/analyzer/web_top_level_loader_check.c
     src/analyzer/init_check.c
+    src/analyzer/global_order.c
     src/analyzer/list_ownership.c
     src/analyzer/unused_var.c
     src/analyzer/effects.c
@@ -1188,6 +1189,21 @@ set_tests_properties(diag_reported_once PROPERTIES
     PASS_REGULAR_EXPRESSION "E0228"
     FAIL_REGULAR_EXPRESSION "E0228.*E0228")
 
+# Under --no-optimize a pub getter inlined into a drop block or mutating
+# method stored the receiver pointer into a value slot (C did not compile).
+add_test(NAME no_optimize_getter_in_drop
+    COMMAND $<TARGET_FILE:ironc> run --no-optimize
+        ${CMAKE_SOURCE_DIR}/tests/integration/v4/regressions/no_optimize_getter_in_drop.iron)
+set_tests_properties(no_optimize_getter_in_drop PROPERTIES
+    PASS_REGULAR_EXPRESSION "bumped 4\n4\ndrop 4")
+
+# A diagnostic inside a generic instance names the template's line (#594).
+add_test(NAME diag_generic_instance_location
+    COMMAND $<TARGET_FILE:ironc> check
+        ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/generic_instance_location.iron)
+set_tests_properties(diag_generic_instance_location PROPERTIES
+    PASS_REGULAR_EXPRESSION "E0328[^\n]*\n[^\n]*generic_instance_location\\.iron:11:25")
+
 # An unknown command prints a short error and where to look, not the help.
 add_test(NAME iron_unknown_command COMMAND $<TARGET_FILE:iron> bogus)
 set_tests_properties(iron_unknown_command PROPERTIES
@@ -1515,6 +1531,24 @@ if(NOT WIN32)
         PASS_REGULAR_EXPRESSION "vendor_smoke OK"
         ENVIRONMENT "PATH=$<TARGET_FILE_DIR:iron>:$<TARGET_FILE_DIR:ironc>:$ENV{PATH}"
     )
+    # Packages: nested src/ modules, read_file and globals across files,
+    # concurrent builds (tests/fuzz/mod_fuzz.py found these).
+    add_test(
+        NAME test_iron_package_modules_smoke
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/package_modules_smoke.sh $<TARGET_FILE:iron>
+    )
+    set_tests_properties(test_iron_package_modules_smoke PROPERTIES
+        PASS_REGULAR_EXPRESSION "package_modules_smoke OK"
+        TIMEOUT 600
+    )
+    add_test(
+        NAME test_cli_strict_args_smoke
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/cli_strict_args_smoke.sh $<TARGET_FILE:iron>
+    )
+    set_tests_properties(test_cli_strict_args_smoke PROPERTIES
+        PASS_REGULAR_EXPRESSION "cli_strict_args_smoke OK"
+        TIMEOUT 300
+    )
 endif()
 
 # ── Benchmark rows (2026-07 realism split) ─────────────────────────────────
@@ -1640,6 +1674,27 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/comment_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/comment_fuzz)
     set_tests_properties(comment_fuzz PROPERTIES LABELS "unit" TIMEOUT 1800)
+    # Packages, the module system and the iron project tool
+    # (tests/fuzz/mod_fuzz.py), and the iron / ironc command lines
+    # (tests/fuzz/cli_fuzz.py). Fixed seeds.
+    if(NOT WIN32)
+        add_test(NAME mod_fuzz_pkg
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/mod_fuzz.py
+                --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/mod_fuzz_pkg pkg)
+        set_tests_properties(mod_fuzz_pkg PROPERTIES LABELS "tooling" TIMEOUT 900)
+        add_test(NAME mod_fuzz_incr
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/mod_fuzz.py
+                --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/mod_fuzz_incr incr)
+        set_tests_properties(mod_fuzz_incr PROPERTIES LABELS "tooling" TIMEOUT 900)
+        add_test(NAME mod_fuzz_tests
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/mod_fuzz.py
+                --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/mod_fuzz_tests tests)
+        set_tests_properties(mod_fuzz_tests PROPERTIES LABELS "tooling" TIMEOUT 900)
+        add_test(NAME cli_fuzz
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/cli_fuzz.py
+                --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/cli_fuzz)
+        set_tests_properties(cli_fuzz PROPERTIES LABELS "tooling" TIMEOUT 900)
+    endif()
 endif()
 # `ironc fmt --migrate-comments` golden files: rewrite, idempotence, same
 # program output, refusals (tests/fmt/migrate/run.sh).

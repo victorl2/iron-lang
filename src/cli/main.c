@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <sys/stat.h>
 #include "util/os.h"
 
 #include "cli/build.h"
@@ -12,6 +13,7 @@
 #include "cli/version.h"
 #include "cli/help_registry.h"
 #include "cli/toolchain.h"
+#include "comptime/comptime.h"
 
 #ifndef IRON_GIT_HASH
 #define IRON_GIT_HASH "unknown"
@@ -132,6 +134,21 @@ int main(int argc, char **argv) {
      * the existing -lm. */
     const char *extra_link_flags_buf[32];
     int extra_link_flag_count = 0;
+    bool fmt_migrate = false;
+
+    /* fmt takes a file and --check; the build flags meant nothing to it
+     * (`fmt -o x f.iron` formatted a file named -o). */
+    if (strcmp(cmd, "fmt") == 0) {
+        for (int i = 2; i < argc; i++) {
+            if (strcmp(argv[i], "--migrate-comments") == 0) fmt_migrate = true;
+            if (argv[i][0] == '-' && argv[i][1] != '\0' &&
+                strcmp(argv[i], "--check") != 0 &&
+                strcmp(argv[i], "--migrate-comments") != 0) {
+                fprintf(stderr, "error: unknown flag '%s' for command 'fmt'\n", argv[i]);
+                return 1;
+            }
+        }
+    }
 
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--verbose") == 0) {
@@ -198,6 +215,15 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "%s: --pkg-name requires a value\n", IRON_BINARY_NAME);
                 return 1;
             }
+        } else if (strcmp(argv[i], "--package-root") == 0) {
+            /* Internal (iron): the directory the `-- @file:` paths of a
+             * combined package source are relative to. */
+            if (i + 1 < argc) {
+                iron_comptime_set_package_root(argv[++i]);
+            } else {
+                fprintf(stderr, "%s: --package-root requires a value\n", IRON_BINARY_NAME);
+                return 1;
+            }
         } else if (strcmp(argv[i], "--pkg-version") == 0) {
             if (i + 1 < argc) {
                 pkg_version_arg = argv[++i];
@@ -237,11 +263,54 @@ int main(int argc, char **argv) {
             fprintf(stderr, "error: unknown flag '%s' for command '%s'\n",
                     argv[i], cmd);
             return 1;
+        } else if (strcmp(cmd, "fmt") == 0 &&
+                   (strcmp(argv[i], "--check") == 0 ||
+                    strcmp(argv[i], "--migrate-comments") == 0)) {
+            /* fmt's own flag, read by the fmt branch below */
+        } else if (strcmp(argv[i], "-") == 0) {
+            fprintf(stderr, "error: %s %s does not read source from standard input; "
+                            "pass a .iron file\n", IRON_BINARY_NAME, cmd);
+            return 1;
         } else if (!source_file && argv[i][0] != '-') {
             source_file = argv[i];
+        } else if (fmt_migrate && strcmp(cmd, "fmt") == 0 && argv[i][0] != '-') {
+            /* Migration accepts multiple file and directory paths. */
         } else if (strcmp(cmd, "test") == 0 && !test_filter && argv[i][0] != '-') {
             /* `test <file> <filter>`: run the tests whose name contains it. */
             test_filter = argv[i];
+        } else {
+            /* A second file was ignored without a word. */
+            fprintf(stderr, "error: unexpected argument '%s' for command '%s'\n", argv[i], cmd);
+            if (strcmp(cmd, "run") == 0)
+                fprintf(stderr, "  = help: pass arguments to the program after --: "
+                                "%s run %s -- %s\n", IRON_BINARY_NAME,
+                        source_file ? source_file : "file.iron", argv[i]);
+            else if (strcmp(cmd, "test") != 0)
+                fprintf(stderr, "  = help: %s %s takes one file\n", IRON_BINARY_NAME, cmd);
+            return 1;
+        }
+    }
+
+    /* `test <file> -- <filter>`: a filter that starts with '-'. */
+    if (strcmp(cmd, "test") == 0 && run_arg_count > 0) {
+        if (test_filter || run_arg_count > 1) {
+            fprintf(stderr, "error: unexpected argument '%s' for command 'test'\n",
+                    run_args[run_arg_count - 1]);
+            return 1;
+        }
+        test_filter = run_args[0];
+    }
+
+    /* A directory where a file is expected read as an empty program. */
+    if (source_file && (strcmp(cmd, "build") == 0 || strcmp(cmd, "run") == 0 ||
+                        strcmp(cmd, "check") == 0 ||
+                        (strcmp(cmd, "fmt") == 0 && !fmt_migrate))) {
+        struct stat sst;
+        if (stat(source_file, &sst) == 0 && S_ISDIR(sst.st_mode)) {
+            fprintf(stderr, "error: '%s' is a directory, not a .iron file\n", source_file);
+            if (strcmp(cmd, "fmt") != 0)
+                fprintf(stderr, "  = help: to build a package, run `iron %s` in its directory\n", cmd);
+            return 1;
         }
     }
 
@@ -332,11 +401,8 @@ int main(int argc, char **argv) {
          *   iron fmt <file> --check
          * Multi-file --check deferred to v1.x. */
         bool check_mode = false;
-        const char *file_arg = NULL;
-        bool migrate = false;
-        for (int i = 2; i < argc; i++)
-            if (strcmp(argv[i], "--migrate-comments") == 0) migrate = true;
-        if (migrate) {
+        const char *file_arg = source_file;
+        if (fmt_migrate) {
             /* `fmt --migrate-comments [--check] [paths...]` (fmt/migrate.h). */
             const char **paths = (const char **)calloc((size_t)argc, sizeof(char *));
             int np = 0;
@@ -348,16 +414,8 @@ int main(int argc, char **argv) {
             free(paths);
             return rc;
         }
-        for (int i = 2; i < argc; i++) {
-            if (strcmp(argv[i], "--check") == 0) {
-                check_mode = true;
-            } else if (strncmp(argv[i], "--", 2) == 0) {
-                /* Skip unrelated global flags already consumed above. */
-                continue;
-            } else if (file_arg == NULL) {
-                file_arg = argv[i];
-            }
-        }
+        for (int i = 2; i < argc; i++)
+            if (strcmp(argv[i], "--check") == 0) check_mode = true;
         if (!file_arg) {
             fprintf(stderr, "%s fmt: missing file argument\nUsage: %s fmt [--check] <file.iron>\n",
                     IRON_BINARY_NAME, IRON_BINARY_NAME);
@@ -376,7 +434,8 @@ int main(int argc, char **argv) {
         return iron_test(path);
     }
 
+    /* A short error, as iron gives: the whole help scrolled it away. */
     fprintf(stderr, "%s: unknown command '%s'\n", IRON_BINARY_NAME, cmd);
-    print_usage();
+    fprintf(stderr, "Run '%s --help' to see the commands.\n", IRON_BINARY_NAME);
     return 1;
 }
