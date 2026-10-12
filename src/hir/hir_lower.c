@@ -3748,9 +3748,15 @@ static bool const_scalar_expr(const IronHIR_Expr *e, const Iron_Type *t) {
     case IRON_HIR_EXPR_INT_LIT:
         return iron_type_is_integer(t) || t->kind == IRON_TYPE_FLOAT ||
                t->kind == IRON_TYPE_FLOAT32 || t->kind == IRON_TYPE_FLOAT64;
-    case IRON_HIR_EXPR_FLOAT_LIT:
+    case IRON_HIR_EXPR_FLOAT_LIT: {
+        /* A NaN or an infinity (a comptime result) keeps the run-time
+         * initializer, which spells them the way the rest of the C does. */
+        double f = e->float_lit.value;
+        if (f != f || f > 1.7976931348623157e308 || f < -1.7976931348623157e308)
+            return false;
         return t->kind == IRON_TYPE_FLOAT || t->kind == IRON_TYPE_FLOAT32 ||
                t->kind == IRON_TYPE_FLOAT64;
+    }
     case IRON_HIR_EXPR_BOOL_LIT:   return t->kind == IRON_TYPE_BOOL;
     case IRON_HIR_EXPR_STRING_LIT: return t->kind == IRON_TYPE_STRING && e->string_lit.value;
     default: return false;
