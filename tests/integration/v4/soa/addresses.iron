@@ -1,0 +1,44 @@
+-- layout: soa lists: addresses passed directly to a call reach the element,
+-- its fields, nested objects, fixed arrays and lists inside it (E0330 only
+-- rejects saving them).
+object Inner { var n: Int
+    init(n: Int) { self.n = n } }
+object P {
+    var x: Int
+    var inner: Inner
+    var fixed: [Int; 2]
+    var nums: [Int]
+    init(x: Int) {
+        self.x = x
+        self.inner = Inner(x)
+        self.fixed = [x, x]
+        self.nums = [x]
+    }
+}
+object H { var xs: [P, layout: soa]
+    init() { self.xs = [P(1)] } }
+object Keep { var p: *P
+    init(p: *P) { self.p = p } }
+func observe(p: *P) -> Int { return p.x }
+func edit(p: *var P) { p.x += 10 }
+func editn(p: *var Inner) { p.n += 5 }
+func obsi(p: *Int) -> String { return "{p}" }
+func main() {
+    var ps: [P, layout: soa] = [P(1), P(2)]
+    var h = H()
+    var shared: rc [P, layout: soa] = rc [P(3)]
+    var grid: [[P, layout: soa]] = [[P(4)]]
+    var arr: [P; 2] = [P(5), P(6)]
+    println("{observe(&ps[0])} {obsi(&ps[0].x)} {obsi(&ps[1].inner.n)} {obsi(&ps[0].fixed[1])} {obsi(&ps[1].nums[0])}")
+    println("{observe(&h.xs[0])} {observe(&shared[0])} {observe(&grid[0][0])} {observe(&arr[1])}")
+    edit(&ps[1])
+    edit(&h.xs[0])
+    edit(&shared[0])
+    edit(&grid[0][0])
+    edit(&arr[0])
+    editn(&ps[0].inner)
+    editn(&grid[0][0].inner)
+    println("{ps[1].x} {h.xs[0].x} {shared[0].x} {grid[0][0].x} {arr[0].x} {ps[0].inner.n} {grid[0][0].inner.n}")
+    val k = Keep(&ps[0])
+    println("{k.p.x}")
+}

@@ -1,0 +1,30 @@
+-- #680: an address rooted in a growable list cannot be saved, whatever the
+-- path to it and whatever the list's layout.
+object Inner { var n: Int
+    init(n: Int) { self.n = n } }
+object P {
+    var x: Int
+    var inner: Inner
+    var fixed: [Int; 2]
+    var nums: [Int]
+    init(x: Int) {
+        self.x = x
+        self.inner = Inner(x)
+        self.fixed = [x, x]
+        self.nums = [x]
+    }
+}
+object H { var xs: [P, layout: soa]
+    init() { self.xs = [P(1)] } }
+object Keep { var p: *P
+    init(p: *P) { self.p = p } }
+func observe(p: *P) -> Int { return p.x }
+func obsi(p: *Int) -> String { return "{p}" }
+func main() {
+    var ps: [P, layout: soa] = [P(1), P(2)]
+    var h = H()
+    var shared: rc [P, layout: soa] = rc [P(3)]
+    var grid: [[P, layout: soa]] = [[P(4)]]
+    var arr: [P; 2] = [P(5), P(6)]
+    val a = &ps[0].nums
+}
