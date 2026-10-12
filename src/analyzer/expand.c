@@ -1,4 +1,5 @@
 #include "analyzer/expand.h"
+#include "analyzer/generics.h"
 
 #include "lexer/lexer.h"
 #include "parser/parser.h"
@@ -33,6 +34,7 @@ typedef struct {
     TypeBinding     *bindings;
     int              binding_count;
     BuilderState   **builders;
+    bool             defer_unresolved;
     int              changed;
 } ExpandCtx;
 
@@ -457,7 +459,7 @@ static Iron_ObjectDecl *fields_target(ExpandCtx *ctx, Iron_Node *iterable,
     if (od) return od;
     /* A generic template is intentionally deferred until its clone has a
      * concrete type spelling. */
-    if (name && !ctx->current_type) return NULL;
+    if (name && ctx->defer_unresolved) return NULL;
 bad:
     if (report) {
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
@@ -838,7 +840,8 @@ static void expand_stmt(ExpandCtx *ctx, Iron_Node *stmt, Iron_Node ***out) {
     if (!stmt) return;
     if (stmt->kind == IRON_NODE_FOR && ((Iron_ForStmt *)stmt)->is_comptime) {
         Iron_ForStmt *f = (Iron_ForStmt *)stmt;
-        Iron_ObjectDecl *od = fields_target(ctx, f->iterable, ctx->current_type != NULL);
+        Iron_ObjectDecl *od = fields_target(ctx, f->iterable,
+                                            !ctx->defer_unresolved);
         if (!od) { arrput(*out, stmt); return; }
         for (int i = 0; i < od->field_count; i++) {
             Iron_Field *field = (Iron_Field *)od->fields[i];
@@ -1119,6 +1122,7 @@ int iron_expand_reflection(Iron_Program *program, Iron_Arena *arena,
         ctx.arena = arena;
         ctx.diags = diags;
         ctx.current_type = current_type;
+        ctx.defer_unresolved = iron_generics_is_template(program, d);
         BuilderState *builders = NULL;
         ctx.builders = &builders;
         expand_block(&ctx, body);

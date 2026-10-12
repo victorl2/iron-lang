@@ -2261,6 +2261,13 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
 
     Iron_TypeAnnotation *ann = (Iron_TypeAnnotation *)ann_node;
 
+    if (ann->reflected_field) {
+        emit_error(ctx, IRON_ERR_REFLECTION_CONTEXT, ann->span,
+                   "reflected field type is only valid during compile-time field expansion",
+                   "use f.type inside `comptime for f in fields(T)`");
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+
     /* Phase 27 POL-08 (Plan 27-02): lower `weak rc T` to IRON_TYPE_WEAK_RC.
      * Placement: BEFORE the pointer arm so `weak rc T` annotations never
      * dispatch through the pointer-lowering path. */
@@ -7975,6 +7982,14 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FIELD_ACCESS: {
             Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
+            if (fa->reflected_field) {
+                emit_error(ctx, IRON_ERR_REFLECTION_CONTEXT, fa->span,
+                           "reflected field access is only valid during compile-time field expansion",
+                           "use value.(f) inside `comptime for f in fields(T)`");
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                fa->resolved_type = result;
+                break;
+            }
             Iron_Type *obj_type = check_expr(ctx, fa->object);
 
             if (!obj_type || obj_type->kind == IRON_TYPE_ERROR) {
