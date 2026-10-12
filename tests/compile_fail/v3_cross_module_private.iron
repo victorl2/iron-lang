@@ -1,4 +1,5 @@
 -- VIS-03 negative lock: cross-module reference to a non-pub symbol.
+-- @multi-file
 -- Locks E0320 = IRON_ERR_CROSS_MODULE_PRIVATE.
 --
 -- Compile_fail category is NOT auto-discovered by tests/run_tests.sh

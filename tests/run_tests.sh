@@ -589,7 +589,14 @@ if [ "${CATEGORY}" = "v4-fail" ] || [ "${CATEGORY}" = "compile_fail" ]; then
 
         build_log="${WORK_DIR}/$(basename "${test_file}" .iron)_$$.log"
         set +e
-        (cd "${WORK_DIR}" && "${IRON_BIN}" check "${test_file}") > "${build_log}" 2>&1
+        # A fixture whose header says `@multi-file` holds several files
+        # under `@file:` comments: those are markers in multi-file test mode
+        # only (IRON_MULTI_FILE_TEST=1), and plain comments otherwise.
+        multi_file_mode=0
+        if grep -qE '^[[:space:]]*--[[:space:]]*@multi-file' <<< "$(head -n 10 "${test_file}")"; then
+            multi_file_mode=1
+        fi
+        (cd "${WORK_DIR}" && IRON_MULTI_FILE_TEST="${multi_file_mode}" "${IRON_BIN}" check "${test_file}") > "${build_log}" 2>&1
         build_rc=$?
         set -e
 
