@@ -7,7 +7,7 @@ import io
 import os
 
 func main() {
-    val dir = "/tmp/iron_zero_byte_paths_regression_dir"
+    val dir = IO.join_path(OS.env_or("TEMP", "/tmp"), "iron_zero_byte_paths_regression_dir")
     IO.create_dir(dir)
     val victim = dir + "/victim"
     IO.write_text(victim, "precious")
