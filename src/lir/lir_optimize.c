@@ -1029,6 +1029,11 @@ static bool apply_replacements(IronLIR_Instr *instr, ValueReplEntry *repl_map) {
     return changed;
 }
 
+static bool instr_uses_value(const IronLIR_Instr *instr, IronLIR_ValueId value);
+bool iron_lir_instr_uses_value(const IronLIR_Instr *instr, IronLIR_ValueId value) {
+    return instr_uses_value(instr, value);
+}
+
 /* Collect all ValueId operands of instr into out[].
  * Mirrors verify.c's collect_operands exactly. */
 static void opt_collect_operands(const IronLIR_Instr *instr,

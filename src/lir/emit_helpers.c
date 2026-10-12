@@ -2496,6 +2496,7 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
     shfree(ctx->iface_elem_assigned);
     shfree(ctx->soa_types);
     shfree(ctx->soa_object_types);
+    arrfree(ctx->soa_borrows);
 
     /* Fusion chain cleanup */
     if (ctx->fusion_chains) {

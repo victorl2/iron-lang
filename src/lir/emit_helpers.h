@@ -228,7 +228,20 @@ typedef struct {
      * so a set can move any element between the per-type arrays. */
     struct { char *key; bool value; } *iface_elem_assigned;
 
+    /* Mangled element types that have a list with layout: soa somewhere in
+     * the module: their Iron_List_<T> can hold columns (emit_structs.c). */
     struct { char *key; bool value; } *soa_object_types;
+    /* Whole elements of such lists lent to the instruction being emitted
+     * (a method receiver, `&ps[i]`): each was gathered into the temporary
+     * of its GET_INDEX value and is written back after the call it was
+     * lent to. `ptr` is the ADDR_OF value that carries the address until a
+     * call takes it (INVALID once the write back may follow at once). */
+    struct EmitSoaBorrow {
+        IronLIR_ValueId vid;    /* the GET_INDEX */
+        IronLIR_ValueId ptr;
+        const char     *list_c; /* Iron_List_<T> */
+        bool            read_only;
+    } *soa_borrows;             /* stb_ds array */
 
     /* Map of "iface_mangled:type_name" -> true for SoA types (Phase 48-02) */
     struct { char *key; bool value; } *soa_types;

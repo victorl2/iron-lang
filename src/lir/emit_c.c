@@ -1175,18 +1175,49 @@ static bool emit_is_optional_unwrap(IronLIR_Func *fn, IronLIR_Instr *in) {
     return src && src->kind == IRON_TYPE_NULLABLE;
 }
 
+/* The index of GET_INDEX `in` into a list with columns, checked like any
+ * other element access: `count_of` receives the list expression. */
+static void emit_column_index(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
+                              IronLIR_Instr *in, IronLIR_BlockId block,
+                              const char *count_expr) {
+    if (in->index.bounds_elide) {
+        emit_expr_to_buf(sb, in->index.index, fn, ctx, block, 0);
+        return;
+    }
+    iron_strbuf_appendf(sb, in->index.bounds_unchecked ? "IRON_UNCHECKED_IDX("
+                                                        : "iron_bounds_idx(");
+    emit_expr_to_buf(sb, in->index.index, fn, ctx, block, 0);
+    iron_strbuf_appendf(sb, ", ");
+    if (count_expr) {
+        iron_strbuf_appendf(sb, "%s", count_expr);
+    } else {
+        emit_expr_to_buf(sb, in->index.array, fn, ctx, block, 0);
+        iron_strbuf_appendf(sb, ".count");
+    }
+    iron_strbuf_appendf(sb, ", IRON_SITE)");
+}
+
+/* `&ps[i].field` for a list with columns: the address inside the field's
+ * column (or inside the element, for a list holding whole elements). A
+ * dotted name reaches into the member it starts with (`_base.x`). */
 static bool emit_column_field_addr(Iron_StrBuf *sb, IronLIR_Func *fn,
                                     EmitCtx *ctx, IronLIR_ValueId obj,
                                     const char *field, IronLIR_BlockId block) {
     IronLIR_Instr *in = emit_def_instr(fn, obj);
-    if (!in || in->kind != IRON_LIR_GET_INDEX || !field || strchr(field, '.')) return false;
+    if (!in || in->kind != IRON_LIR_GET_INDEX || !field) return false;
+    if (ctx->split_collection_ids &&
+        hmgeti(ctx->split_collection_ids, in->index.array) >= 0) return false;
     Iron_Type *at = emit_get_value_type(fn, in->index.array);
     if (!emit_list_has_columns(ctx, at)) return false;
-    iron_strbuf_appendf(sb, "%s_field_%s(", emit_type_to_c(at, ctx), field);
+    const char *dot = strchr(field, '.');
+    int head = dot ? (int)(dot - field) : (int)strlen(field);
+    if (dot) iron_strbuf_appendf(sb, "&((*");
+    iron_strbuf_appendf(sb, "%s_field_%.*s(", emit_type_to_c(at, ctx), head, field);
     emit_expr_to_buf(sb, in->index.array, fn, ctx, block, 0);
     iron_strbuf_appendf(sb, ", ");
-    emit_expr_to_buf(sb, in->index.index, fn, ctx, block, 0);
+    emit_column_index(sb, fn, ctx, in, block, NULL);
     iron_strbuf_appendf(sb, ")");
+    if (dot) iron_strbuf_appendf(sb, ")%s)", dot);
     return true;
 }
 
@@ -1335,11 +1366,22 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
          * inside the vector's own storage. */
         Iron_Type *at = emit_get_value_type(fn, in->index.array);
         if (emit_list_has_columns(ctx, at)) {
-            iron_strbuf_appendf(sb, "%s_at(", emit_type_to_c(at, ctx));
+            /* A whole element of a list that may hold columns has no
+             * address. Lend a gathered copy, held in the temporaries
+             * declared for this GET_INDEX at the top of the function;
+             * emit_instr writes it back after the call it is lent to. */
+            const char *lc = emit_type_to_c(at, ctx);
+            char b[32], cnt[64];
+            snprintf(b, sizeof(b), "_sb%u", (unsigned)in->id);
+            snprintf(cnt, sizeof(cnt), "%s_l->count", b);
+            iron_strbuf_appendf(sb, "(%s_l = ", b);
             emit_receiver_addr(sb, fn, ctx, in->index.array, use_block_id);
-            iron_strbuf_appendf(sb, ", ");
-            emit_expr_to_buf(sb, in->index.index, fn, ctx, use_block_id, 0);
-            iron_strbuf_appendf(sb, ")");
+            iron_strbuf_appendf(sb, ", %s_i = ", b);
+            emit_column_index(sb, fn, ctx, in, use_block_id, cnt);
+            iron_strbuf_appendf(sb, ", %s = %s_read(*%s_l, %s_i), &%s)",
+                                b, lc, b, b, b);
+            struct EmitSoaBorrow sbw = { in->id, IRON_LIR_VALUE_INVALID, lc, false };
+            arrput(ctx->soa_borrows, sbw);
             return;
         }
         if (at && at->kind == IRON_TYPE_ARRAY && at->array.is_bounded &&
@@ -3007,14 +3049,70 @@ static void emit_ff_spawn_call(Iron_StrBuf *out, EmitCtx *ctx, const char *func_
 static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx);
 
+/* Ends the loans of whole column list elements (see emit_receiver_addr)
+ * that `instr` settles: the ones it took as a method receiver, and the
+ * `&ps[i]` pointers it received as arguments. The gathered copy goes back
+ * into the list unless the borrower could only read it; the index is
+ * checked again, because the call may have shortened the list. A loan
+ * made by an ADDR_OF waits for the call that takes the pointer. */
+static void emit_soa_write_back(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                                IronLIR_Func *fn, EmitCtx *ctx, ptrdiff_t lent_before) {
+    (void)fn;
+    for (ptrdiff_t i = 0; i < arrlen(ctx->soa_borrows); ) {
+        struct EmitSoaBorrow *b = &ctx->soa_borrows[i];
+        bool settle = false;
+        if (i >= lent_before) {
+            /* lent while emitting this instruction */
+            if (instr->kind == IRON_LIR_ADDR_OF && instr->id != IRON_LIR_VALUE_INVALID) {
+                Iron_Type *pt = instr->type;
+                b->ptr = instr->id;
+                b->read_only = pt && pt->kind == IRON_TYPE_PTR && !pt->ptr.is_var;
+            } else {
+                if (instr->kind == IRON_LIR_CALL && instr->call.func_decl &&
+                    instr->call.func_decl->is_readonly && instr->call.arg_count > 0) {
+                    IronLIR_ValueId a0 = instr->call.args[0];
+                    if (a0 == b->vid) b->read_only = true;
+                }
+                settle = true;
+            }
+        } else if (b->ptr != IRON_LIR_VALUE_INVALID) {
+            bool used = false;
+            if (instr->kind == IRON_LIR_CALL) {
+                for (int a = 0; a < instr->call.arg_count; a++)
+                    if (instr->call.args[a] == b->ptr) used = true;
+                if (instr->call.func_ptr == b->ptr) used = true;
+                settle = used;
+            } else if (iron_lir_instr_uses_value(instr, b->ptr)) {
+                /* wrapped (`?*T`, a cast) on its way to the call */
+                if (instr->id != IRON_LIR_VALUE_INVALID) b->ptr = instr->id;
+                else settle = true;
+            }
+        } else {
+            settle = true;
+        }
+        if (!settle) { i++; continue; }
+        if (!b->read_only) {
+            char v[32];
+            snprintf(v, sizeof(v), "_sb%u", (unsigned)b->vid);
+            emit_indent(sb, ctx->indent);
+            iron_strbuf_appendf(sb,
+                "if ((uint64_t)%s_i < (uint64_t)%s_l->count) %s_write(%s_l, %s_i, %s);\n",
+                v, v, b->list_c, v, v, v);
+        }
+        arrdel(ctx->soa_borrows, i);
+    }
+}
+
 void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx) {
     bool list_site = emit_call_is_checked_list_method(fn, ctx, instr);
+    ptrdiff_t lent_before = arrlen(ctx->soa_borrows);
     emit_instr_inner(sb, instr, fn, ctx);  /* records the site after IRON_SITE */
     if (list_site) {
         emit_indent(sb, ctx->indent);
         iron_strbuf_appendf(sb, "iron_list_call_line = 0;\n");
     }
+    if (arrlen(ctx->soa_borrows) > 0) emit_soa_write_back(sb, instr, fn, ctx, lent_before);
     /* --debug: a local declared up front takes the function's first line
      * (below). What follows it outside any instruction, such as the phi
      * copies that end the entry block, belongs to the statement before
@@ -8875,6 +8973,19 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 bool obj_ptr = !obj_fat &&
                     (emit_val_is_heap_ptr(fn, obj) ||
                      emit_val_is_unchecked_ptr_typed(fn, obj));
+                if (!obj_fat && !obj_ptr) {
+                    Iron_StrBuf col = iron_strbuf_create(128);
+                    if (emit_column_field_addr(&col, fn, ctx, obj, tgt_def->field.field,
+                                               ctx->current_block_id)) {
+                        iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)%s, .gen = %s };\n",
+                            iron_strbuf_get(&col),
+                            emit_vid_roots_at_global(fn, obj, 0) ? "IRON_STACK_GEN_INIT"
+                                                                 : "iron_stack_gen");
+                        iron_strbuf_free(&col);
+                        break;
+                    }
+                    iron_strbuf_free(&col);
+                }
                 iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)&(");
                 if (obj_fat) {
                     const char *ot = emit_fat_ptr_pointee_type_c(fn, obj, ctx);
@@ -11142,6 +11253,30 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
      * but used in earlier blocks (backward gotos in loops) and pre-declare them. */
     hmfree(ctx->phi_hoisted);
     ctx->phi_hoisted = NULL;
+
+    /* A whole element of a list that may hold columns is lent as a
+     * gathered copy (emit_receiver_addr): the copy, the list it came from
+     * and its index live in function-scope temporaries, so a pointer to
+     * the copy is as good as a pointer to a local. */
+    arrfree(ctx->soa_borrows);
+    ctx->soa_borrows = NULL;
+    if (ctx->soa_object_types) {
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind != IRON_LIR_GET_INDEX || in->id == IRON_LIR_VALUE_INVALID) continue;
+                Iron_Type *lt = emit_get_value_type(fn, in->index.array);
+                if (!emit_list_has_columns(ctx, lt)) continue;
+                emit_indent(sb, 1);
+                iron_strbuf_appendf(sb,
+                    "%s _sb%u; %s *_sb%u_l; int64_t _sb%u_i; (void)_sb%u; (void)_sb%u_l; (void)_sb%u_i;\n",
+                    emit_type_to_c(lt->array.elem, ctx), (unsigned)in->id,
+                    emit_type_to_c(lt, ctx), (unsigned)in->id, (unsigned)in->id,
+                    (unsigned)in->id, (unsigned)in->id, (unsigned)in->id);
+            }
+        }
+    }
 
     /* A C while introduces a lexical scope that the label-only backend did
      * not have.  Predeclare loop-produced values at function scope so nested

@@ -428,9 +428,65 @@ static bool list_struct_predeclared(EmitCtx *ctx, const char *mangled) {
     return false;
 }
 
-/* Concrete SoA lists share the ordinary list ABI for each element type.
- * A non-null column table selects SoA. Ownership stays with the list; gather
- * and scatter move field bits and never run user copy or drop blocks. */
+/* layout: soa lists of a concrete object type (#679).
+ *
+ * Every list of an element type that is used with layout: soa somewhere in
+ * the module shares one C type, Iron_List_<T>, so a list of either layout
+ * can be passed, returned and stored wherever a [T] is expected. The
+ * layout travels with the value in the header's `soa` flag:
+ *
+ *   soa == false   items points at capacity whole elements
+ *   soa == true    items points at one block holding a column per member:
+ *                  capacity values of the first member, then capacity
+ *                  values of the next, and so on
+ *
+ * Columns are ordered by decreasing alignment (declaration order among
+ * equals), so column m starts at byte capacity * K_m of the block, where
+ * K_m is the total size of the members placed before it: a compile-time
+ * constant of the C program, and every column is aligned without padding.
+ * The header is a plain value like that of any other list: a copy of it
+ * (a borrowed parameter, a captured list) reads the same storage.
+ *
+ * Gathering and scattering move member bits only. Ownership stays with the
+ * list, exactly as for items[]: copy and drop glue run where the element
+ * array runs them (clone, clear, free), never on a gather.
+ *
+ * _read, _write and _field_<m> do not check the index: the emitter wraps
+ * it in iron_bounds_idx at the call site, so a panic names the Iron line.
+ * _get, _set, _remove and _insert check it and name themselves with line
+ * 0, like the runtime list bodies, so the panic shows the line the emitter
+ * recorded for the call. */
+static bool ir_has_subtype(IronLIR_Module *module, const char *type_name);
+
+typedef struct {
+    const char *name;      /* C member name */
+    bool        is_array;  /* a C array member: copied with memcpy */
+} SoaMember;
+
+/* The members of the element's C struct, in declaration order (see
+ * emit_object_struct_body): the hidden parent or type tag, then the
+ * fields. */
+static SoaMember *soa_members(EmitCtx *ctx, Iron_ObjectDecl *od, const char *bare) {
+    SoaMember *ms = NULL;
+    if (od->extends_name) {
+        SoaMember m = { "_base", false };
+        arrput(ms, m);
+    } else if (ir_has_subtype(ctx->module, bare)) {
+        SoaMember m = { "iron_type_tag", false };
+        arrput(ms, m);
+    }
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->name) continue;
+        Iron_Type *ft = f->resolved_type;
+        SoaMember m = { f->name, ft && ft->kind == IRON_TYPE_ARRAY &&
+                                 ft->array.size >= 0 && !ft->array.is_bounded };
+        arrput(ms, m);
+    }
+    return ms;
+}
+
+/* Appends `text` with @ replaced by the list type and $ by the element. */
 static void soa_template(Iron_StrBuf *sb, const char *text, const char *elem) {
     for (const char *p = text; *p; p++) {
         if (*p == '@') iron_strbuf_appendf(sb, "Iron_List_%s", elem);
@@ -438,120 +494,191 @@ static void soa_template(Iron_StrBuf *sb, const char *text, const char *elem) {
         else { char c[2] = {*p, 0}; iron_strbuf_appendf(sb, "%s", c); }
     }
 }
+
 static void emit_object_soa_impl(EmitCtx *ctx, const char *m, Iron_ObjectDecl *od,
-                                 bool drop, bool copy) {
+                                 const char *bare, bool drop, bool copy) {
     Iron_StrBuf *sb = &ctx->struct_bodies;
+    SoaMember *ms = soa_members(ctx, od, bare);
+    const int n = (int)arrlen(ms);
 #define SOA(text) soa_template(sb, text, m)
+#define EACH for (int f = 0; f < n; f++)
     if (drop) iron_strbuf_appendf(sb, "static void %s_drop(%s *);\n", m, m);
     if (copy) iron_strbuf_appendf(sb, "static void %s_copied(%s *);\n", m, m);
-    iron_strbuf_appendf(sb, "/* Column %d holds optional contiguous borrow storage. */\n", od->field_count);
+
+    /* Sizes, alignments and column offsets per element of capacity. */
+    iron_strbuf_appendf(sb, "enum {\n");
+    EACH iron_strbuf_appendf(sb,
+        "  Iron_List_%s_S%d = sizeof(((%s *)0)->%s),"
+        " Iron_List_%s_A%d = _Alignof(__typeof__(((%s *)0)->%s)),\n",
+        m, f, m, ms[f].name, m, f, m, ms[f].name);
+    iron_strbuf_appendf(sb, "  Iron_List_%s_ROW = 0", m);
+    EACH iron_strbuf_appendf(sb, " + Iron_List_%s_S%d", m, f);
+    iron_strbuf_appendf(sb, "\n};\nenum {\n");
+    EACH {
+        iron_strbuf_appendf(sb, "  Iron_List_%s_K%d = 0", m, f);
+        for (int g = 0; g < n; g++) {
+            if (g == f) continue;
+            iron_strbuf_appendf(sb, " + (Iron_List_%s_A%d %s Iron_List_%s_A%d ? Iron_List_%s_S%d : 0)",
+                                m, g, g < f ? ">=" : ">", m, f, m, g);
+        }
+        iron_strbuf_appendf(sb, ",\n");
+    }
+    iron_strbuf_appendf(sb, "  Iron_List_%s_NCOL = %d\n};\n", m, n);
+
+    /* Column m of a soa list. */
+    EACH iron_strbuf_appendf(sb,
+        "static inline __typeof__(((%s *)0)->%s) *Iron_List_%s_col%d(const Iron_List_%s *self) {\n"
+        "  return (__typeof__(((%s *)0)->%s) *)((char *)self->items +"
+        " (size_t)self->capacity * Iron_List_%s_K%d);\n}\n",
+        m, ms[f].name, m, f, m, m, ms[f].name, m, f);
+
+    /* Element access. */
     SOA("static inline $ @_read(@ self, int64_t i) {\n"
-        "  if (!self._soa_fields) return self.items[i];\n");
-    iron_strbuf_appendf(sb, "  if (self._soa_fields[%d]) return ((%s *)self._soa_fields[%d])[i];\n", od->field_count, m, od->field_count);
-    SOA("  $ out = {0};\n");
-    for (int f = 0; f < od->field_count; f++) {
-        Iron_Field *field = (Iron_Field *)od->fields[f];
-        iron_strbuf_appendf(sb, "  out.%s = ((__typeof__(out.%s) *)self._soa_fields[%d])[i];\n",
-                            field->name, field->name, f);
+        "  if (!self.soa) return self.items[i];\n"
+        "  $ out;\n  __builtin_memset(&out, 0, sizeof out);\n");
+    EACH {
+        if (ms[f].is_array)
+            iron_strbuf_appendf(sb, "  __builtin_memcpy(&out.%s, &Iron_List_%s_col%d(&self)[i], sizeof out.%s);\n",
+                                ms[f].name, m, f, ms[f].name);
+        else
+            iron_strbuf_appendf(sb, "  out.%s = Iron_List_%s_col%d(&self)[i];\n", ms[f].name, m, f);
     }
     SOA("  return out;\n}\n"
         "static inline void @_write(@ *self, int64_t i, $ v) {\n"
-        "  if (!self->_soa_fields) { self->items[i] = v; return; }\n");
-    iron_strbuf_appendf(sb, "  if (self->_soa_fields[%d]) { ((%s *)self->_soa_fields[%d])[i] = v; return; }\n", od->field_count, m, od->field_count);
-    for (int f = 0; f < od->field_count; f++) {
-        Iron_Field *field = (Iron_Field *)od->fields[f];
-        iron_strbuf_appendf(sb, "  ((__typeof__(v.%s) *)self->_soa_fields[%d])[i] = v.%s;\n",
-                            field->name, f, field->name);
+        "  if (!self->soa) { self->items[i] = v; return; }\n");
+    EACH {
+        if (ms[f].is_array)
+            iron_strbuf_appendf(sb, "  __builtin_memcpy(&Iron_List_%s_col%d(self)[i], &v.%s, sizeof v.%s);\n",
+                                m, f, ms[f].name, ms[f].name);
+        else
+            iron_strbuf_appendf(sb, "  Iron_List_%s_col%d(self)[i] = v.%s;\n", m, f, ms[f].name);
     }
-    SOA("}\n@ @_create(void) { return (@){0}; }\n"
-        "@ @_create_soa(void) { @ out = {0};\n");
-    iron_strbuf_appendf(sb, "  out._soa_fields = iron_mem_calloc(%d, sizeof(void *));\n",
-                        od->field_count + 1);
-    SOA("  if (!out._soa_fields) iron_oom_abort(\"SoA column table\");\n"
+    SOA("}\n");
+
+    /* The address of one member of an element: inside its column. */
+    EACH iron_strbuf_appendf(sb,
+        "static inline __typeof__(((%s *)0)->%s) *Iron_List_%s_field_%s(Iron_List_%s self, int64_t i) {\n"
+        "  return self.soa ? &Iron_List_%s_col%d(&self)[i] : &self.items[i].%s;\n}\n",
+        m, ms[f].name, m, ms[f].name, m, m, f, ms[f].name);
+
+    /* Moves count elements from index src to index dst inside the list's
+     * storage (the ranges may overlap): one memmove per column. */
+    SOA("static void @_move(@ *self, int64_t dst, int64_t src, int64_t count) {\n"
+        "  if (count <= 0) return;\n"
+        "  if (!self->soa) {\n"
+        "    iron_mem_move(&self->items[dst], &self->items[src], (size_t)count * sizeof($));\n"
+        "    return;\n  }\n");
+    EACH iron_strbuf_appendf(sb,
+        "  iron_mem_move(&Iron_List_%s_col%d(self)[dst], &Iron_List_%s_col%d(self)[src],"
+        " (size_t)count * Iron_List_%s_S%d);\n", m, f, m, f, m, f);
+    SOA("}\n");
+
+    /* Construction and capacity. Growing a soa list moves every column to
+     * its place in a block of the new capacity. */
+    SOA("@ @_create(void) {\n"
+        "  @ out;\n  out.items = NULL; out.count = 0; out.capacity = 0; out.soa = false;\n"
         "  return out;\n}\n"
-        "static void @_reserve_impl(@ *self, int64_t n) {\n"
-        "  if (n <= self->capacity) return;\n"
-        "  if (n < 0 || (uint64_t)n > SIZE_MAX / sizeof($)) iron_oom_abort(\"list capacity overflow\");\n"
-        "  if (!self->_soa_fields) {\n"
-        "    self->items = iron_mem_realloc(self->items, (size_t)n * sizeof($));\n"
-        "    if (!self->items) iron_oom_abort(\"list reserve\");\n"
-        "  } else {\n");
-    iron_strbuf_appendf(sb, "    if (self->_soa_fields[%d]) {\n      self->_soa_fields[%d] = iron_mem_realloc(self->_soa_fields[%d], (size_t)n * sizeof(%s));\n      if (!self->_soa_fields[%d]) iron_oom_abort(\"SoA borrow reserve\");\n    } else {\n", od->field_count, od->field_count, od->field_count, m, od->field_count);
-    for (int f = 0; f < od->field_count; f++) {
-        Iron_Field *field = (Iron_Field *)od->fields[f];
-        iron_strbuf_appendf(sb,
-            "    self->_soa_fields[%d] = iron_mem_realloc(self->_soa_fields[%d], (size_t)n * sizeof(((%s *)0)->%s));\n"
-            "    if (!self->_soa_fields[%d]) iron_oom_abort(\"SoA reserve\");\n", f, f, m, field->name, f);
-    }
-    SOA("    }\n  }\n  self->capacity = n;\n}\n"
-        "@ @_create_with_capacity(int64_t cap) { @ out = @_create(); @_reserve_impl(&out, cap); return out; }\n"
-        "void @_push(@ *self, $ v) {\n"
-        "  if (self->count == self->capacity) {\n"
-        "    if (self->capacity > INT64_MAX / 2) iron_oom_abort(\"list capacity overflow\");\n"
-        "    @_reserve_impl(self, self->capacity ? self->capacity * 2 : 8);\n"
-        "  }\n  @_write(self, self->count++, v);\n}\n"
+        "@ @_create_soa(void) {\n  @ out = @_create();\n  out.soa = true;\n  return out;\n}\n"
+        "static void @_reserve_impl(@ *self, int64_t cap) {\n"
+        "  if (cap <= self->capacity) return;\n"
+        "  if ((uint64_t)cap > SIZE_MAX / (sizeof($) ? sizeof($) : 1))\n"
+        "    iron_oom_abort(\"Iron_List_$_push: capacity overflow\");\n"
+        "  if (!self->soa) {\n"
+        "    $ *items = ($ *)iron_mem_realloc(self->items, (size_t)cap * sizeof($));\n"
+        "    if (!items) iron_oom_abort(\"Iron_List_$_push\");\n"
+        "    self->items = items;\n"
+        "    self->capacity = cap;\n"
+        "    return;\n  }\n"
+        "  @ grown = *self;\n"
+        "  grown.capacity = cap;\n"
+        "  grown.items = ($ *)iron_mem_alloc((size_t)cap * (@_ROW ? @_ROW : 1));\n"
+        "  if (!grown.items) iron_oom_abort(\"Iron_List_$_push\");\n"
+        "  if (self->count > 0) {\n");
+    EACH iron_strbuf_appendf(sb,
+        "    iron_mem_copy(Iron_List_%s_col%d(&grown), Iron_List_%s_col%d(self),"
+        " (size_t)self->count * Iron_List_%s_S%d);\n", m, f, m, f, m, f);
+    SOA("  }\n"
+        "  iron_mem_free(self->items);\n"
+        "  *self = grown;\n}\n"
+        "@ @_create_with_capacity(int64_t cap) {\n"
+        "  @ out = @_create();\n  if (cap > 0) @_reserve_impl(&out, cap);\n  return out;\n}\n");
+
+    /* Mutation. */
+    SOA("void @_push(@ *self, $ v) {\n"
+        "  if (self->count >= self->capacity) {\n"
+        "    int64_t cap = self->capacity ? self->capacity * 2 : 8;\n"
+        "    if (cap < self->capacity) iron_oom_abort(\"Iron_List_$_push: capacity overflow\");\n"
+        "    @_reserve_impl(self, cap);\n"
+        "  }\n"
+        "  @_write(self, self->count++, v);\n}\n"
         "$ @_get(const @ *self, int64_t i) {\n"
-        "  i = iron_bounds_idx(i, self->count, IRON_SITE); return @_read(*self, i);\n}\n"
+        "  if ((uint64_t)i >= (uint64_t)self->count)\n"
+        "    iron_panic_index_oob(\"Iron_List_$_get\", 0, i, self->count);\n"
+        "  return @_read(*self, i);\n}\n"
         "void @_set(@ *self, int64_t i, $ v) {\n"
-        "  i = iron_bounds_idx(i, self->count, IRON_SITE); @_write(self, i, v);\n}\n"
+        "  if ((uint64_t)i >= (uint64_t)self->count)\n"
+        "    iron_panic_index_oob(\"Iron_List_$_set\", 0, i, self->count);\n"
+        "  @_write(self, i, v);\n}\n"
         "$ @_pop(@ *self) {\n"
-        "  if (!self->count) iron_panic_index_oob(\"Iron_List_$_pop\", 0, -1, self->count);\n"
+        "  if (self->count <= 0) iron_panic_index_oob(\"Iron_List_$_pop\", 0, -1, self->count);\n"
         "  return @_read(*self, --self->count);\n}\n"
         "$ @_remove(@ *self, int64_t i) {\n"
-        "  i = iron_bounds_idx(i, self->count, IRON_SITE); $ out = @_read(*self, i);\n"
-        "  for (int64_t j = i; j + 1 < self->count; j++) @_write(self, j, @_read(*self, j + 1));\n"
-        "  self->count--; return out;\n}\n"
+        "  if ((uint64_t)i >= (uint64_t)self->count)\n"
+        "    iron_panic_index_oob(\"Iron_List_$_remove\", 0, i, self->count);\n"
+        "  $ out = @_read(*self, i);\n"
+        "  @_move(self, i, i + 1, self->count - i - 1);\n"
+        "  self->count--;\n  return out;\n}\n"
         "void @_insert(@ *self, int64_t i, $ v) {\n"
-        "  if ((uint64_t)i > (uint64_t)self->count) iron_panic_index_oob(IRON_SITE, i, self->count + 1);\n"
+        "  if ((uint64_t)i > (uint64_t)self->count)\n"
+        "    iron_panic_index_oob(\"Iron_List_$_insert\", 0, i, self->count + 1);\n"
         "  @_push(self, v);\n"
-        "  for (int64_t j = self->count - 1; j > i; j--) @_write(self, j, @_read(*self, j - 1));\n"
+        "  @_move(self, i + 1, i, self->count - 1 - i);\n"
         "  @_write(self, i, v);\n}\n"
         "void @_reverse(@ *self) {\n"
         "  for (int64_t i = 0, j = self->count - 1; i < j; i++, j--) {\n"
-        "    $ tmp = @_read(*self, i); @_write(self, i, @_read(*self, j)); @_write(self, j, tmp);\n"
+        "    $ t = @_read(*self, i);\n"
+        "    @_write(self, i, @_read(*self, j));\n"
+        "    @_write(self, j, t);\n"
         "  }\n}\n"
-        "int64_t @_len(const @ *self) { return self->count; }\n"
-        "void @_clear(@ *self) {\n");
-    if (drop) SOA("  for (int64_t i = 0; i < self->count; i++) { $ v = @_read(*self, i); $_drop(&v); }\n");
+        "int64_t @_len(const @ *self) { return self->count; }\n");
+
+    /* Ownership: clear and free drop each element once, clone copies each
+     * one into a list of the same layout, take leaves an empty list of the
+     * same layout behind. */
+    SOA("void @_clear(@ *self) {\n");
+    if (drop)
+        SOA("  for (int64_t i = 0; i < self->count; i++) { $ v = @_read(*self, i); $_drop(&v); }\n");
     SOA("  self->count = 0;\n}\n"
-        "static void @_release_storage(@ *self) {\n"
-        "  if (self->_soa_fields) {\n");
-    for (int f = 0; f <= od->field_count; f++)
-        iron_strbuf_appendf(sb, "    iron_mem_free(self->_soa_fields[%d]);\n", f);
-    SOA("    iron_mem_free(self->_soa_fields); self->_soa_fields = NULL;\n"
-        "  }\n  iron_mem_free(self->items); self->items = NULL; self->capacity = 0;\n}\n"
-        "void @_free(@ *self) { @_clear(self); @_release_storage(self); }\n"
-        "@ @_take(@ *self) { @ out = *self; *self = self->_soa_fields ? @_create_soa() : @_create(); return out; }\n"
+        "void @_free(@ *self) {\n"
+        "  @_clear(self);\n"
+        "  iron_mem_free(self->items);\n"
+        "  self->items = NULL; self->capacity = 0;\n}\n"
+        "@ @_take(@ *self) {\n"
+        "  @ out = *self;\n"
+        "  self->items = NULL; self->count = 0; self->capacity = 0;\n"
+        "  return out;\n}\n"
         "@ @_clone(const @ *self) {\n"
-        "  @ out = self->_soa_fields ? @_create_soa() : @_create();\n"
+        "  @ out = @_create();\n"
+        "  out.soa = self->soa;\n"
+        "  if (self->count <= 0) return out;\n"
         "  @_reserve_impl(&out, self->count);\n"
-        "  for (int64_t i = 0; i < self->count; i++) { $ v = @_read(*self, i);\n");
-    if (copy) SOA("    $_copied(&v);\n");
-    SOA("    @_push(&out, v);\n  }\n  return out;\n}\n"
-        "/* Header copies used by borrowed parameters share this table.\n"
-        " * Materializing updates the table, never a temporary header. */\n"
-        "static inline $ *@_at(@ *self, int64_t i) {\n"
-        "  i = iron_bounds_idx(i, self->count, IRON_SITE);\n"
-        "  if (!self->_soa_fields) return &self->items[i];\n");
-    iron_strbuf_appendf(sb, "  if (!self->_soa_fields[%d]) {\n", od->field_count);
-    SOA("    $ *items = iron_mem_alloc((size_t)self->capacity * sizeof($));\n"
-        "    if (!items) iron_oom_abort(\"SoA element borrow\");\n"
-        "    for (int64_t j = 0; j < self->count; j++) items[j] = @_read(*self, j);\n");
-    for (int f = 0; f < od->field_count; f++)
-        iron_strbuf_appendf(sb, "    iron_mem_free(self->_soa_fields[%d]); self->_soa_fields[%d] = NULL;\n", f, f);
-    iron_strbuf_appendf(sb, "    self->_soa_fields[%d] = items;\n  }\n  return &((%s *)self->_soa_fields[%d])[i];\n}\n", od->field_count, m, od->field_count);
-    for (int f = 0; f < od->field_count; f++) {
-        Iron_Field *field = (Iron_Field *)od->fields[f];
-        iron_strbuf_appendf(sb,
-            "static inline __typeof__(((%s *)0)->%s) *Iron_List_%s_field_%s(Iron_List_%s self, int64_t i) {\n"
-            "  i = iron_bounds_idx(i, self.count, IRON_SITE);\n"
-            "  if (!self._soa_fields) return &self.items[i].%s;\n"
-            "  if (self._soa_fields[%d]) return &((%s *)self._soa_fields[%d])[i].%s;\n"
-            "  return &((__typeof__(((%s *)0)->%s) *)self._soa_fields[%d])[i];\n}\n",
-            m, field->name, m, field->name, m, field->name,
-            od->field_count, m, od->field_count, field->name, m, field->name, f);
-    }
+        "  out.count = self->count;\n"
+        "  if (!self->soa) {\n"
+        "    iron_mem_copy(out.items, self->items, (size_t)self->count * sizeof($));\n"
+        "  } else {\n");
+    EACH iron_strbuf_appendf(sb,
+        "    iron_mem_copy(Iron_List_%s_col%d(&out), Iron_List_%s_col%d(self),"
+        " (size_t)self->count * Iron_List_%s_S%d);\n", m, f, m, f, m, f);
+    SOA("  }\n");
+    if (copy)
+        SOA("  for (int64_t i = 0; i < out.count; i++) {\n"
+            "    $ v = @_read(out, i);\n"
+            "    $_copied(&v);\n"
+            "    @_write(&out, i, v);\n  }\n");
+    SOA("  return out;\n}\n");
+#undef EACH
 #undef SOA
+    arrfree(ms);
 }
 
 /* The Iron_List_<Obj> typedef, prototypes and implementation for a list
@@ -605,8 +732,11 @@ void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et) {
         "    %s    *items;\n"
         "    int64_t count;\n"
         "    int64_t capacity;\n"
+        "%s"
         "} Iron_List_%s;\n",
-        mangled, mangled, mangled, mangled);
+        mangled, mangled, mangled,
+        shgeti(ctx->soa_object_types, mangled) >= 0 ? "    bool soa;\n" : "",
+        mangled);
 
     /* Emit IRON_LIST_DECL(T, suffix) — function prototypes. */
     iron_strbuf_appendf(&ctx->struct_bodies,
@@ -618,7 +748,7 @@ void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et) {
      * (Pitfall 5).  Safe at TU level: each mangled name is unique
      * per compilation unit. */
     if (shgeti(ctx->soa_object_types, mangled) >= 0)
-        emit_object_soa_impl(ctx, mangled, et->object.decl, elem_has_drop, elem_has_copy);
+        emit_object_soa_impl(ctx, mangled, et->object.decl, bare_type, elem_has_drop, elem_has_copy);
     else
         emit_list_impl_lifecycle(ctx, mangled, elem_has_drop, elem_has_copy);
 }
@@ -1473,7 +1603,7 @@ void emit_type_decls(EmitCtx *ctx) {
                     "%s"
                     "} Iron_List_%s;\n",
                     type_name, type_name,
-                    shgeti(ctx->soa_object_types, type_name) >= 0 ? "    void **_soa_fields;\n" : "",
+                    shgeti(ctx->soa_object_types, type_name) >= 0 ? "    bool soa;\n" : "",
                     type_name);
         }
     }
