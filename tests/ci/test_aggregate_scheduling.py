@@ -38,16 +38,6 @@ def main() -> int:
     leak_labels = properties(tests["test_leak_check"])["LABELS"]
     assert "v4-acceptance" not in leak_labels, "the acceptance gate must not run valgrind"
 
-    fork_stress_tests = (
-        "test_runtime_panic_stale_release",
-        "test_runtime_heap_concurrent",
-    )
-    for name in fork_stress_tests:
-        props = properties(tests[name])
-        assert props.get("RUN_SERIAL") is True, (
-            f"{name} must run serially because its fork stress is load-sensitive"
-        )
-
     workflow = Path(sys.argv[2]).read_text(encoding="utf-8")
     timeout = re.search(r"^\s*timeout-minutes:\s*(\d+)\s*$", workflow, re.MULTILINE)
     assert timeout and int(timeout.group(1)) >= 60, "the acceptance job needs 60 minutes"

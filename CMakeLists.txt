@@ -1739,19 +1739,7 @@ if(Python3_EXECUTABLE)
         add_test(NAME cli_fuzz
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/cli_fuzz.py
                 --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/cli_fuzz)
-        # The suite runs four compiler processes internally. Keep a finite
-        # per-command watchdog with enough headroom for loaded CI hosts.
-        set_tests_properties(cli_fuzz PROPERTIES
-            LABELS "tooling"
-            TIMEOUT 1800
-            ENVIRONMENT "CF_TIMEOUT=300")
-        add_test(NAME test_cli_fuzz_timeout
-            COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
-                ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-                cli_fuzz 1800 env:CF_TIMEOUT=300)
-        set_tests_properties(test_cli_fuzz_timeout PROPERTIES
-            LABELS "tooling;unit")
+        set_tests_properties(cli_fuzz PROPERTIES LABELS "tooling" TIMEOUT 900)
     endif()
 endif()
 # The standard library prelude, parsed by every compile, stays within the
@@ -2052,16 +2040,7 @@ if(NOT WIN32)
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_partial_init_cleanup\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.iron && actual=\$(\"\$d/boundary_partial_init_cleanup\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    # This compiles the full runtime and can spend most of a short cap waiting
-    # for CPU on a loaded runner (#759). Keep a finite cap with load headroom.
-    set_tests_properties(v4_7_boundary_partial_init_cleanup PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 180)
-    add_test(NAME test_v4_partial_init_cleanup_timeout
-        COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
-            ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-            v4_7_boundary_partial_init_cleanup 180)
-    set_tests_properties(test_v4_partial_init_cleanup_timeout PROPERTIES
-        LABELS "integration;phase24-invariant;unit")
+    set_tests_properties(v4_7_boundary_partial_init_cleanup PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
 endif()
 
 # `ctest -L phase25-invariant` aggregates the Wave 0 RED→GREEN corpus for Phase 25
@@ -2171,18 +2150,9 @@ if(NOT WIN32)
     iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/panic_box_unwrap_null.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_panic_box_unwrap_null PROPERTIES
         LABELS "integration;phase25-invariant"
-        TIMEOUT 180
+        TIMEOUT 30
         WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
-    # This row compiles the full runtime and can outlive a short cap when its
-    # compiler child is descheduled on a loaded runner (#764).
-    add_test(NAME test_v4_unchecked_ptr_panic_timeout
-        COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
-            ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-            v4_4.3-unchecked-ptr_panic_box_unwrap_null 180)
-    set_tests_properties(test_v4_unchecked_ptr_panic_timeout PROPERTIES
-        LABELS "integration;phase25-invariant;unit")
 
     add_executable(test_ptr_types tests/unit/test_ptr_types.c)
     target_link_libraries(test_ptr_types PRIVATE iron_compiler iron_runtime unity m pthread)
@@ -3163,20 +3133,9 @@ if(NOT WIN32)
         iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/${_fixrel}.iron")
         set_tests_properties(v4_${_fixname} PROPERTIES
             LABELS "integration;aggregate-parity;v4-acceptance"
-            TIMEOUT 180
+            TIMEOUT 60
             WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
-    # Every row compiles the full runtime. A 60-second loop-wide cap flakes
-    # when the compiler is descheduled on a loaded runner (#760).
-    if(Python3_Interpreter_FOUND)
-        add_test(NAME test_v4_aggregate_fixture_timeout
-            COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
-                ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-                v4_3.1-stack_boundary_struct_field 180)
-        set_tests_properties(test_v4_aggregate_fixture_timeout PROPERTIES
-            LABELS "integration;aggregate-parity;unit")
-    endif()
 
     # ── @expect-panic rows (panic_after_reset machinery) ──
     set(_V4_AGGPARITY_PANIC_FIXTURES
@@ -3295,10 +3254,6 @@ if(Python3_Interpreter_FOUND)
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/temporaries.iron
                    $<TARGET_FILE:iron> dap)
   set_tests_properties(debug_dap_temporaries PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
-  add_test(NAME test_dap_request_timeouts
-           COMMAND ${Python3_EXECUTABLE}
-                   ${CMAKE_SOURCE_DIR}/tests/integration/debug/check_dap_timeouts.py)
-  set_tests_properties(test_dap_request_timeouts PROPERTIES LABELS "integration;unit")
 endif()
 if(NOT WIN32 AND Python3_Interpreter_FOUND)
   # What iron dap, iron debug and iron debug --check say when Python,

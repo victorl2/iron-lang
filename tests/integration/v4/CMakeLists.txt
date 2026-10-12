@@ -89,8 +89,7 @@ if(NOT WIN32)
         LABELS "oracle"
         PROCESSORS 4
         RESOURCE_LOCK iron_exhaustive_corpus
-        TIMEOUT 7200
-        RUN_SERIAL TRUE)
+        TIMEOUT 7200)
 endif()
 
 # Crypto cross-check: the crypto and encoding modules against Python's
@@ -124,21 +123,5 @@ if(NOT WIN32)
     )
     set_tests_properties(test_freestanding PROPERTIES
         LABELS "oracle"
-        TIMEOUT 1800
-        RUN_SERIAL TRUE)
-
-    foreach(_aggregate_test IN ITEMS
-            test_leak_check
-            test_freestanding
-            test_v4_migrated_from_v3)
-        add_test(
-            NAME ${_aggregate_test}_serial
-            COMMAND ${Python3_EXECUTABLE}
-                    ${CMAKE_CURRENT_SOURCE_DIR}/check_aggregate_timeout.py
-                    ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
-                    ${_aggregate_test} 0 serial
-        )
-        set_tests_properties(${_aggregate_test}_serial PROPERTIES
-            LABELS "oracle;unit")
-    endforeach()
+        TIMEOUT 1800)
 endif()

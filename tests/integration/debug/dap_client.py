@@ -36,10 +36,6 @@ class StepTimeout(queue.Empty):
 # from the preceding smoke case. Keep initialization above the ordinary
 # request deadline; the shell-level session watchdog remains the hard cap.
 INITIALIZE_TIMEOUT = 120
-# Compiling and launching the debuggee can also delay the first ordinary
-# request on a loaded runner (#762). Keep every protocol wait bounded while
-# giving it the same scheduler headroom as initialization.
-REQUEST_TIMEOUT = 120
 
 
 def frame(msg):
@@ -95,7 +91,7 @@ class Client:
         self.p.stdin.flush()
         return self.seq
 
-    def wait(self, pred, timeout=REQUEST_TIMEOUT, what=None):
+    def wait(self, pred, timeout=60, what=None):
         # Messages seen earlier while waiting for something else.
         for m in self.seen:
             if pred(m):
@@ -125,17 +121,17 @@ class Client:
                 return m
             self.seen.append(m)
 
-    def response(self, seq, command, timeout=REQUEST_TIMEOUT):
+    def response(self, seq, command, timeout=60):
         return self.wait(lambda m: m.get("type") == "response" and m.get("request_seq") == seq,
                          timeout, "response to %s" % command)
 
-    def call(self, command, args=None, timeout=REQUEST_TIMEOUT):
+    def call(self, command, args=None, timeout=60):
         r = self.response(self.send(command, args), command, timeout)
         if not r.get("success"):
             raise RuntimeError("%s failed: %s" % (command, r.get("message")))
         return r.get("body") or {}
 
-    def event(self, name, timeout=REQUEST_TIMEOUT):
+    def event(self, name, timeout=60):
         return self.wait(lambda m: m.get("type") == "event" and m.get("event") == name,
                          timeout, "%s event" % name)
 

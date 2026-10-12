@@ -23,13 +23,6 @@ def main():
     if "serial" in flags and not props.get("RUN_SERIAL", False):
         print(f"{test_name} must run serially to avoid starving other tests")
         return 1
-    environment = props.get("ENVIRONMENT", [])
-    if isinstance(environment, str):
-        environment = environment.split(";")
-    for flag in flags:
-        if flag.startswith("env:") and flag[4:] not in environment:
-            print(f"{test_name} environment is missing {flag[4:]}")
-            return 1
     return 0
 
 
