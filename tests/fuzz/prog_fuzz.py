@@ -116,6 +116,9 @@ def expected_of(g, cached=False):
                  panic=getattr(m, 'panic', None) or getattr(g, 'expect_panic', None))
     e.leaks_ok = bool(getattr(m, 'leaks_ok', False) or getattr(g, 'leaks_ok', False)
                       or e.panic)
+    # output the model does not predict (pf_soa: copy and drop hooks); the
+    # program is checked by comparing its two layouts
+    e.any_output = bool(getattr(g, 'any_output', False))
     # files the program reads (comptime read_file), written next to it
     e.files = dict(getattr(g, 'files', None) or {})
     return e
@@ -203,7 +206,7 @@ def check(ironc, outdir, area, seed, mode='plain', rtlib=None):
         # Keep the same source basename and lines, so panic sites compare
         # exactly after replacing only the differing absolute directory.
         aos = os.path.join(d, 'aos')
-        aos_text = src_text.replace(', layout: soa', '')
+        aos_text = src_text.replace(', layout: soa]', ']')
         st, msg, _ = check_text(ironc, aos, f'{area}_{seed}', aos_text, expected, mode, rtlib)
         if st == 'ok':
             def outcome(path):
@@ -312,7 +315,7 @@ def run_once(cmd, env, expected, panic, d, mode):
         # release allocator has the block back); AddressSanitizer stops
         # there, before the panic. Expected for a program that panics so.
         return 'ok', '', ('ok',)
-    if got != expected:
+    if got != expected and not getattr(expected, 'any_output', False):
         sig = ('wrong',) + sig
         for i, (x, y) in enumerate(zip(expected, got)):
             if x != y:
