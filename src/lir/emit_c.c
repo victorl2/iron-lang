@@ -1131,8 +1131,9 @@ void emit_module_global_decl(Iron_StrBuf *sb, EmitCtx *ctx, const IronLIR_Global
     }
     const Iron_Type *et = t->array.elem;
     const char *ect = emit_type_to_c(et, ctx);
-    if (t->array.size >= 0) {
-        /* Fixed array / bounded vector: Iron_BVec { len, data[N] }. */
+    if (t->array.is_bounded && t->array.size >= 0) {
+        /* Fixed array / bounded vector in its inline form (emit_type_to_c's
+         * test): Iron_BVec { len, data[N] }. */
         iron_strbuf_appendf(sb, "static const %s %s = { .len = %d, .data = {", ct, nm,
                             g->const_count);
         for (int i = 0; i < g->const_count; i++) {
