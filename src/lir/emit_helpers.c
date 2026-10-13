@@ -59,8 +59,44 @@ const char *emit_object_type_name(const char *name, EmitCtx *ctx) {
  * - Built-in function names (println, print, len, etc.) map to Iron_XXX.
  * - All other user-defined functions map to Iron_XXX.
  * The returned string is arena-allocated or a static literal. */
+/* C symbols the runtime and standard library headers declare (Iron_log_info,
+ * Iron_time_now, ...), set by the build before emission, and the C names
+ * of the program's free functions that would collide with one (#524):
+ * those get an Iron_u_ prefix instead of Iron_. */
+static struct { char *key; bool value; } *g_reserved_c_names = NULL;
+static struct { char *key; char *value; } *g_func_renames = NULL;
+
+void iron_lir_emit_add_reserved_c_name(const char *name) {
+    if (!name || shgeti(g_reserved_c_names, name) >= 0) return;
+    char *k = strdup(name);
+    if (k) shput(g_reserved_c_names, k, true);
+}
+
+void emit_plan_func_renames(IronLIR_Module *module) {
+    for (ptrdiff_t i = 0; i < shlen(g_func_renames); i++) free(g_func_renames[i].value);
+    shfree(g_func_renames);
+    g_func_renames = NULL;
+    if (!module || shlen(g_reserved_c_names) == 0) return;
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *f = module->funcs[fi];
+        if (!f || !f->name || !f->is_user_func || f->is_extern) continue;
+        if (strcmp(f->name, "main") == 0) continue;
+        char cname[512];
+        snprintf(cname, sizeof(cname), "Iron_%s", f->name);
+        if (shgeti(g_reserved_c_names, cname) < 0) continue;
+        char *rn = (char *)malloc(strlen(f->name) + 8);
+        if (!rn) continue;
+        snprintf(rn, strlen(f->name) + 8, "Iron_u_%s", f->name);
+        shput(g_func_renames, (char *)f->name, rn);
+    }
+}
+
 const char *emit_mangle_func_name(const char *name, Iron_Arena *arena) {
     if (!name) return "NULL";
+    if (g_func_renames) {
+        ptrdiff_t ri = shgeti(g_func_renames, name);
+        if (ri >= 0) return g_func_renames[ri].value;
+    }
 
     /* Lifted functions are already internal C identifiers -- keep as-is.
      * Lifted names start with __ (e.g. __pfor_0, __spawn_task1_0, __lambda_0)
@@ -804,12 +840,17 @@ void emit_ensure_tuple(EmitCtx *ctx, const Iron_Type *tuple_ty) {
         }
     }
 
-    iron_strbuf_appendf(&ctx->struct_bodies, "typedef struct { ");
+    /* The element C names first: emit_type_to_c may append the typedef of
+     * an element (an optional, a list) to struct_bodies, which landed in
+     * the middle of this struct (a `T?` component). */
+    Iron_StrBuf fields = iron_strbuf_create(128);
     for (int i = 0; i < tuple_ty->tuple.elem_count; i++) {
         const char *c_elem = emit_type_to_c(tuple_ty->tuple.elem_types[i], ctx);
-        iron_strbuf_appendf(&ctx->struct_bodies, "%s v%d; ", c_elem, i);
+        iron_strbuf_appendf(&fields, "%s v%d; ", c_elem, i);
     }
-    iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n", struct_name);
+    iron_strbuf_appendf(&ctx->struct_bodies, "typedef struct { %s} %s;\n",
+                        iron_strbuf_get(&fields), struct_name);
+    iron_strbuf_free(&fields);
 }
 
 /* Phase 23 VEC-01: synthesise a C typedef for a bounded vector on demand.
@@ -1458,6 +1499,9 @@ const char *emit_annotation_to_c(const char *name, EmitCtx *ctx) {
 /* Look up the ArrayParamMode for a given function + param index. */
 ArrayParamMode emit_get_array_param_mode(EmitCtx *ctx, const char *func_name,
                                           int param_index) {
+    IronLIR_Func *fn = emit_find_ir_func(ctx, func_name);
+    if (fn && param_index >= 0 && param_index < fn->param_count &&
+        emit_list_has_columns(ctx, fn->params[param_index].type)) return ARRAY_PARAM_LIST;
     return iron_lir_get_array_param_mode(ctx->opt_info, func_name, param_index,
                                          ctx->arena);
 }
@@ -2526,6 +2570,11 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
     shfree(ctx->reduced_storage_types);
     shfree(ctx->iface_elem_assigned);
     shfree(ctx->soa_types);
+    shfree(ctx->soa_object_types);
+    arrfree(ctx->soa_borrows);
+    for (ptrdiff_t wi = 0; wi < shlen(ctx->soa_self_writes); wi++)
+        arrfree(ctx->soa_self_writes[wi].value->members);
+    shfree(ctx->soa_self_writes);
 
     /* Fusion chain cleanup */
     if (ctx->fusion_chains) {
@@ -2811,5 +2860,57 @@ void emit_resolve_hash_calls(EmitCtx *ctx) {
             snprintf(out, n, "%s_%s", tc, method);
             ref->func_ref.func_name = out;
         }
+    }
+}
+
+/* Layout travels with the value, while lists of one element type keep a
+ * common C ABI so parameters and nested containers can accept either mode. */
+bool emit_list_has_columns(EmitCtx *ctx, const Iron_Type *t) {
+    if (!t || t->kind != IRON_TYPE_ARRAY || t->array.size >= 0 ||
+        t->array.is_bounded || !t->array.elem ||
+        t->array.elem->kind != IRON_TYPE_OBJECT || !t->array.elem->object.decl)
+        return false;
+    const char *name = emit_mangle_name(t->array.elem->object.decl->name, ctx->arena);
+    return shgeti(ctx->soa_object_types, name) >= 0;
+}
+static void prescan_soa_type(EmitCtx *ctx, Iron_Type *t, int depth) {
+    if (!t || depth > 32) return;
+    if (t->kind == IRON_TYPE_ARRAY) {
+        Iron_Type *e = t->array.elem;
+        if (t->array.layout_hint == 1 && t->array.size < 0 &&
+            !t->array.is_bounded && e && e->kind == IRON_TYPE_OBJECT &&
+            e->object.decl && !ir_is_runtime_provided_type(e->object.decl->name) &&
+            !emit_type_is_container_elem(e)) {
+            shput(ctx->soa_object_types,
+                  emit_mangle_name(e->object.decl->name, ctx->arena), true);
+        }
+        prescan_soa_type(ctx, e, depth + 1);
+    } else if (t->kind == IRON_TYPE_RC || t->kind == IRON_TYPE_WEAK_RC) {
+        prescan_soa_type(ctx, t->rc.inner, depth + 1);
+    } else if (t->kind == IRON_TYPE_OBJECT && t->object.decl && depth < 4) {
+        Iron_ObjectDecl *od = t->object.decl;
+        for (int i = 0; i < od->field_count; i++) {
+            Iron_Field *f = (Iron_Field *)od->fields[i];
+            if (f) prescan_soa_type(ctx, f->resolved_type, depth + 1);
+        }
+    } else if (t->kind == IRON_TYPE_NULLABLE) {
+        prescan_soa_type(ctx, t->nullable.inner, depth + 1);
+    }
+}
+void emit_prescan_object_soa(EmitCtx *ctx) {
+    for (int i = 0; i < ctx->module->type_decl_count; i++)
+        prescan_soa_type(ctx, ctx->module->type_decls[i]->type, 0);
+    for (int i = 0; i < ctx->module->func_count; i++) {
+        IronLIR_Func *fn = ctx->module->funcs[i];
+        prescan_soa_type(ctx, fn->return_type, 0);
+        for (int j = 0; j < fn->param_count; j++)
+            prescan_soa_type(ctx, fn->params[j].type, 0);
+        for (int b = 0; b < fn->block_count; b++)
+            for (int j = 0; j < fn->blocks[b]->instr_count; j++) {
+                IronLIR_Instr *in = fn->blocks[b]->instrs[j];
+                prescan_soa_type(ctx, in->type, 0);
+                if (in->kind == IRON_LIR_ALLOCA)
+                    prescan_soa_type(ctx, in->alloca.alloc_type, 0);
+            }
     }
 }

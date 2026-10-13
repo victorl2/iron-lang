@@ -1,0 +1,10 @@
+-- Destructuring a tuple parameter that holds a list is E0328 (#670): the
+-- binding freed the caller's list.
+func sh(x: (String, [Bool])) -> String {
+    val (a, b) = x
+    return "{a} {len(b)}"
+}
+
+func main() {
+    println(sh(("a", [true])))
+}

@@ -1,0 +1,20 @@
+-- layout attributes on lists whose elements are not objects are accepted
+-- and change nothing; an interface list keeps working with either.
+interface Drawable { readonly func draw() -> String }
+object Dot impl Drawable { val id: Int
+    readonly func draw() -> String { return "dot{self.id}" } }
+enum Tok { Num(Int), Nothing }
+func main() {
+    var a: [Int, layout: soa] = [1, 2]
+    var b: [String, layout: soa] = ["x"]
+    var c: [Tok, layout: soa] = [Tok.Num(1)]
+    var d: [Drawable, layout: soa] = [Dot(1)]
+    var e: [Dot, layout: aos] = [Dot(2)]
+    var g: [Int?, layout: soa] = [1, null]
+    a.push(3)
+    b.push("y")
+    c.push(Tok.Nothing)
+    d.push(Dot(3))
+    e.push(Dot(4))
+    println("{a.len()} {b.len()} {c.len()} {d.len()} {e.len()} {g.len()} {d[1].draw()}")
+}

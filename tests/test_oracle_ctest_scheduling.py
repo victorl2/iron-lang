@@ -39,6 +39,9 @@ def main() -> int:
         if props.get("PROCESSORS", 0) < 4:
             print(f"{name}: PROCESSORS must be at least 4", file=sys.stderr)
             failed = True
+        if props.get("TIMEOUT", 0) < 1800:
+            print(f"{name}: TIMEOUT must be at least 1800 seconds", file=sys.stderr)
+            failed = True
         if props.get("RESOURCE_LOCK") != ["iron_exhaustive_corpus"]:
             print(f"{name}: must lock iron_exhaustive_corpus", file=sys.stderr)
             failed = True
@@ -56,15 +59,24 @@ def main() -> int:
         "prog_fuzz_edges_num",
         "prog_fuzz_edges_types",
         "prog_fuzz_edges_mem",
+        "cg_fuzz_modes",
+        "cg_fuzz_meta",
+        "cg_fuzz_mutate",
+        "cg_fuzz_shapes",
     )
     for name in parallel_fuzz:
         props = properties(tests[name])
         if props.get("PROCESSORS", 0) < 4:
             print(f"{name}: PROCESSORS must be at least 4", file=sys.stderr)
             failed = True
-        if props.get("TIMEOUT", 0) < 1800:
-            print(f"{name}: TIMEOUT must be at least 1800 seconds", file=sys.stderr)
-            failed = True
+
+    soa_fuzz = properties(tests["prog_fuzz_soa"])
+    if soa_fuzz.get("PROCESSORS", 0) < 2:
+        print("prog_fuzz_soa: PROCESSORS must be at least 2", file=sys.stderr)
+        failed = True
+    if soa_fuzz.get("TIMEOUT", 0) < 1800:
+        print("prog_fuzz_soa: TIMEOUT must be at least 1800 seconds", file=sys.stderr)
+        failed = True
 
     four_worker_tests = (
         "mod_fuzz_pkg",

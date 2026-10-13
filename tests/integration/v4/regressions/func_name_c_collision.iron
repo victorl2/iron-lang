@@ -1,0 +1,32 @@
+-- Free functions named like runtime C symbols (Iron_log_info,
+-- Iron_time_now) or like a method's lowered name (Pt.area is pt_area)
+-- keep their own C names (#524).
+object Pt {
+    val x: Int
+    readonly func area() -> Int {
+        return self.x * 10
+    }
+}
+
+func log_info(msg: String) -> Int {
+    return msg.len()
+}
+
+func http_get(n: Int) -> Int {
+    return n + 1
+}
+
+func time_now() -> Int {
+    return 7
+}
+
+func pt_area(p: Pt) -> Int {
+    return p.x + 1
+}
+
+func main() {
+    val f = log_info
+    println("{log_info("x")} {http_get(1)} {time_now()} {f("abc")}")
+    val p = Pt(4)
+    println("{p.area()} {pt_area(p)}")
+}

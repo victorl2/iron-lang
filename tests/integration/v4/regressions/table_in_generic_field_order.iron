@@ -1,0 +1,37 @@
+-- A generic instance whose field holds a Map of lists of another instance,
+-- or a list of Maps of an enum declared further down: the table was written
+-- before the list's prototypes and before the enum's struct.
+object Gb[T] {
+    val v: T
+}
+
+func count_all(x: Gb[Map[String, [Gb[Int]]]]) -> Int {
+    var n = 0
+    for k in x.v.keys() {
+        n += len(x.v.get(k))
+    }
+    return n
+}
+
+func first_len(x: Gb[[Map[String, E1]]]) -> Int {
+    return x.v[0].len()
+}
+
+enum E1 {
+    V3(String, String),
+    V4,
+}
+
+func main() {
+    var m = Map[String, [Gb[Int]]]()
+    m.put("a", [Gb[Int](1), Gb[Int](2)])
+    m.put("b", [Gb[Int](3)])
+    val g = Gb[Map[String, [Gb[Int]]]](m.take())
+    println("{count_all(g)}")
+
+    var e = Map[String, E1]()
+    e.put("x", E1.V3("p", "q"))
+    e.put("y", E1.V4)
+    val h = Gb[[Map[String, E1]]]([e.take()])
+    println("{first_len(h)}")
+}

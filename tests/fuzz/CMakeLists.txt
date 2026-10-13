@@ -103,6 +103,8 @@ endfunction()
 iron_add_fuzz_target(fuzz_parser      fuzz_parser.c)
 iron_add_fuzz_target(fuzz_typecheck   fuzz_typecheck.c)
 iron_add_fuzz_target(fuzz_hir_to_lir  fuzz_hir_to_lir.c)
+# LIR optimization and C emission (seeds: corpus/hir_to_lir)
+iron_add_fuzz_target(fuzz_emit        fuzz_emit.c)
 # Source in, analysis as `ironc check` and the language server run it (with
 # the stdlib prelude, broken buffers included) and the formatter's
 # idempotence. Seed it with the integration corpus.

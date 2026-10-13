@@ -1,0 +1,11 @@
+-- await on an Int is a type error (E0202, #623), not C that fails to compile.
+func f(a: Int) -> Int {
+    if a > 0 {
+        await 1
+    }
+    return a
+}
+
+func main() {
+    println("{f(1)}")
+}
