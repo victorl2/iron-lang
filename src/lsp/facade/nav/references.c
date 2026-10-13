@@ -117,6 +117,111 @@ static void push_site(IronLsp_RefSite **arr, size_t *n, size_t *cap, Iron_Arena 
     (*n)++;
 }
 
+/* The canonical file system path of a span's file: a document's
+ * declarations carry its URI, the other files' their canonical path. */
+static const char *canonical_file(const char *fn, char *buf, Iron_Arena *arena) {
+    if (!fn) return NULL;
+    if (strncmp(fn, "file://", 7) == 0) {
+        const char *fs = ilsp_nav_uri_to_path(fn, arena);
+        if (!fs) return fn;
+        if (realpath(fs, buf) != NULL) {
+            for (char *c = buf; *c; c++) if (*c == '\\') *c = '/';
+            return buf;
+        }
+        return fs;
+    }
+    return fn;
+}
+
+static bool has_word(const char *text, size_t len, const char *word) {
+    size_t wl = strlen(word);
+    if (wl == 0 || !text) return false;
+    for (size_t i = 0; i + wl <= len; i++) {
+        if (text[i] == word[0] && memcmp(text + i, word, wl) == 0) return true;
+    }
+    return false;
+}
+
+void ilsp_nav_package_occurrences(struct IronLsp_Server    *server,
+                                  struct IronLsp_Document  *doc,
+                                  const Iron_Node          *key_decl,
+                                  const char               *key_name,
+                                  _Atomic bool             *cancel,
+                                  Iron_Arena               *arena,
+                                  IronLsp_RefSite         **out_sites,
+                                  bool                    **out_is_decl,
+                                  size_t                   *out_n) {
+    if (out_sites) *out_sites = NULL;
+    if (out_is_decl) *out_is_decl = NULL;
+    if (out_n) *out_n = 0;
+    if (!server || !doc || !key_decl || !key_name || !arena || !out_sites || !out_n) return;
+    IronLsp_WorkspaceIndex *wi = server->workspace_index;
+    if (!wi) return;
+    IronLsp_PositionEncoding enc = server->position_encoding;
+
+    Iron_Arena scratch = iron_arena_create(64 * 1024);
+    char key_buf[PATH_MAX], doc_buf[PATH_MAX];
+    const char *key_file = canonical_file(
+        key_decl->span.filename ? key_decl->span.filename : doc->uri, key_buf, &scratch);
+    const char *doc_file = canonical_file(doc->uri, doc_buf, &scratch);
+    if (!key_file || ilsp_nav_path_is_stdlib(key_file)) { iron_arena_free(&scratch); return; }
+
+    size_t path_n = 0;
+    char **paths = ilsp_workspace_index_snapshot_paths(wi, &path_n);
+    IronLsp_RefSite *sites = NULL;
+    bool *is_decl = NULL;
+    size_t n = 0, cap = 0;
+    for (size_t pi = 0; paths && pi < path_n; pi++) {
+        if (cancel && atomic_load(cancel)) break;
+        const char *path = paths[pi];
+        if (!path || ilsp_nav_path_is_stdlib(path)) continue;
+        if (strncmp(path, "dep://", 6) == 0 || strstr(path, "/.iron/deps/") != NULL) continue;
+        if (doc_file && strcmp(path, doc_file) == 0) continue;
+        IronLsp_IndexEntry *e = ilsp_workspace_index_lookup(wi, path);
+        if (!e || !e->source_bytes || !has_word(e->source_bytes, e->source_len, key_name)) continue;
+        Iron_Program *prog = ilsp_workspace_index_analyze_lazy(wi, e, cancel);
+        if (!prog) continue;
+
+        IronLsp_Document edoc = {0};
+        edoc.text     = e->source_bytes;
+        edoc.text_len = e->source_len;
+        edoc.uri      = e->canonical_path;
+        edoc.line_idx = e->line_idx;   /* borrowed: names are found by line */
+        size_t occ_n = 0;
+        IronLsp_NameOcc *occs = ilsp_nav_name_occurrences(&edoc, prog, &scratch, &occ_n);
+        const char *uri = NULL;
+        for (size_t i = 0; i < occ_n; i++) {
+            const Iron_Node *d = occs[i].decl;
+            if (!d || !occs[i].name || strcmp(occs[i].name, key_name) != 0) continue;
+            if (d->kind != key_decl->kind || d->span.line != key_decl->span.line ||
+                d->span.col != key_decl->span.col) continue;
+            const char *df = d->span.filename ? d->span.filename : e->canonical_path;
+            if (strcmp(df, key_file) != 0) continue;
+            if (n == cap) {
+                size_t ncap = cap ? cap * 2 : 16;
+                IronLsp_RefSite *ns = (IronLsp_RefSite *)iron_arena_alloc(
+                    arena, ncap * sizeof(*ns), _Alignof(IronLsp_RefSite));
+                bool *nd = (bool *)iron_arena_alloc(arena, ncap * sizeof(*nd), _Alignof(bool));
+                if (!ns || !nd) break;
+                if (n) { memcpy(ns, sites, n * sizeof(*ns)); memcpy(nd, is_decl, n * sizeof(*nd)); }
+                sites = ns; is_decl = nd; cap = ncap;
+            }
+            if (!uri) uri = ilsp_nav_path_to_uri(e->canonical_path, arena);
+            if (!uri) break;
+            sites[n].uri   = uri;
+            sites[n].range = ilsp_nav_entry_span_to_range(e, occs[i].span, enc);
+            is_decl[n]     = occs[i].is_decl;
+            n++;
+        }
+    }
+    for (size_t i = 0; paths && i < path_n; i++) free(paths[i]);
+    free(paths);
+    iron_arena_free(&scratch);
+    *out_sites = sites;
+    if (out_is_decl) *out_is_decl = is_decl;
+    *out_n = n;
+}
+
 void ilsp_facade_nav_references(struct IronLsp_Server         *server,
                                   struct IronLsp_Document       *doc,
                                   IronLsp_Position               pos,
@@ -243,6 +348,22 @@ void ilsp_facade_nav_references(struct IronLsp_Server         *server,
                     continue;
                 push_site(&final, &fn, &fcap, arena, raw[i].uri, raw[i].range);
             }
+        }
+    }
+
+    /* Step 6: the names in the other files that the reverse-ref index
+     * does not hold: a type in an annotation, a field or a method in a
+     * member access (and the declaration itself, when it is in another
+     * file and no symbol led to it). push_site drops what step 5 found. */
+    {
+        IronLsp_RefSite *pkg = NULL;
+        bool *pkg_is_decl = NULL;
+        size_t pkg_n = 0;
+        ilsp_nav_package_occurrences(server, doc, key_decl, key_name, cancel, arena,
+                                     &pkg, &pkg_is_decl, &pkg_n);
+        for (size_t i = 0; i < pkg_n; i++) {
+            if (pkg_is_decl[i] && !include_declaration) continue;
+            push_site(&final, &fn, &fcap, arena, pkg[i].uri, pkg[i].range);
         }
     }
 

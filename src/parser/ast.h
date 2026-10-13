@@ -162,8 +162,8 @@ typedef int Iron_OpKind;  /* stores Iron_TokenKind values for operators */
 /* ── Documentation and directive comments ────────────────────────────────
  *
  * Every node that can be documented (import, object, interface, enum,
- * func, method, object field, enum variant, interface method signature)
- * carries:
+ * func, method, top-level val/var, object field, enum variant, interface
+ * method signature) carries:
  *
  *   doc_comment      the documentation text, or NULL: the run of `//`
  *                    comment lines directly above the node (no blank line
@@ -177,7 +177,7 @@ typedef int Iron_OpKind;  /* stores Iron_TokenKind values for operators */
  * A directive is a comment written `//key:value`: no space after `//`, a
  * key matching [a-z][a-z0-9_]* and then ':' (Go's `//go:embed` style). It
  * belongs to a node when it sits in the comment run directly above it
- * (own line) or at the end of the line the node starts on (trailing):
+ * (own line), or to a field when it ends the field's line (trailing):
  *
  *     object Item {
  *         //db:primary_key
@@ -675,6 +675,11 @@ typedef struct {
      * NULL entries in binding_names[] mean wildcard (`_`). */
     const char       **binding_names;
     int                binding_count;
+    /* Documentation and directives are populated for top-level bindings;
+     * local bindings leave these empty. See Iron_Directive. */
+    const char        *doc_comment;
+    Iron_Directive    *directives;
+    int                directive_count;
     uint16_t           align;   /* `//iron:align=N` on the binding; 0 = none */
     /* A top-level binding (a global), and whether it was declared `pub`:
      * globals are private to their file unless pub (#547). */
@@ -697,6 +702,11 @@ typedef struct {
     /* Set by capture analysis: a closure captures this var, so it lives in
      * a counted cell the closure env shares (#210). */
     bool               is_boxed;
+    /* Documentation and directives are populated for top-level bindings;
+     * local bindings leave these empty. See Iron_Directive. */
+    const char        *doc_comment;
+    Iron_Directive    *directives;
+    int                directive_count;
     uint16_t           align;   /* `//iron:align=N` on the binding; 0 = none */
     /* A top-level binding (a global), and whether it was declared `pub`. */
     bool               is_global;

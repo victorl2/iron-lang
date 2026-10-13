@@ -18,6 +18,7 @@
 #include "cli/help_registry.h"
 #include "cli/toolchain.h"
 #include "comptime/comptime.h"
+#include "diagnostics/diagnostics.h"
 
 #ifndef IRON_GIT_HASH
 #define IRON_GIT_HASH "unknown"
@@ -102,6 +103,14 @@ static int ironc_main(int argc, char **argv) {
 
     const char *cmd = argv[1];
 
+    /* Multi-file test mode: the test harness packs the files of a fixture
+     * into one source, with a file marker comment ahead of each. Only in
+     * this mode is such a comment in the user's source a marker. */
+    const char *multi_file_test = getenv("IRON_MULTI_FILE_TEST");
+    if (multi_file_test && strcmp(multi_file_test, "1") == 0) {
+        iron_file_markers_set_test_mode(true);
+    }
+
     if (strcmp(cmd, "--version") == 0 || strcmp(cmd, "-v") == 0) {
         print_version();
         return 0;
@@ -173,33 +182,19 @@ static int ironc_main(int argc, char **argv) {
      * the existing -lm. */
     const char *extra_link_flags_buf[32];
     int extra_link_flag_count = 0;
+    bool fmt_migrate = false;
 
     /* fmt takes a file and --check; the build flags meant nothing to it
-     * (`fmt -o x f.iron` formatted a file named -o). Comment migration is
-     * the one multi-path form and is dispatched before single-file parsing. */
+     * (`fmt -o x f.iron` formatted a file named -o). */
     if (strcmp(cmd, "fmt") == 0) {
-        bool migrate = false;
-        bool check_mode = false;
         for (int i = 2; i < argc; i++) {
-            if (strcmp(argv[i], "--migrate-comments") == 0) migrate = true;
-            else if (strcmp(argv[i], "--check") == 0) check_mode = true;
-            else if (argv[i][0] == '-' && argv[i][1] != '\0') {
+            if (strcmp(argv[i], "--migrate-comments") == 0) fmt_migrate = true;
+            if (argv[i][0] == '-' && argv[i][1] != '\0' &&
+                strcmp(argv[i], "--check") != 0 &&
+                strcmp(argv[i], "--migrate-comments") != 0) {
                 fprintf(stderr, "error: unknown flag '%s' for command 'fmt'\n", argv[i]);
                 return 1;
             }
-        }
-        if (migrate) {
-            const char **paths = (const char **)calloc((size_t)argc, sizeof(char *));
-            int path_count = 0;
-            for (int i = 2; i < argc; i++) {
-                if (strcmp(argv[i], "--migrate-comments") != 0 &&
-                    strcmp(argv[i], "--check") != 0 && paths) {
-                    paths[path_count++] = argv[i];
-                }
-            }
-            int rc = iron_fmt_migrate_comments(paths, path_count, check_mode);
-            free(paths);
-            return rc;
         }
     }
 
@@ -270,6 +265,11 @@ static int ironc_main(int argc, char **argv) {
                 fprintf(stderr, "%s: --pkg-name requires a value\n", IRON_BINARY_NAME);
                 return 1;
             }
+        } else if (strcmp(argv[i], "--packed-source") == 0) {
+            /* Internal (iron): the source is a package packed into one
+             * file (target/combined.iron, target/tests.iron), whose files
+             * are told apart by the file markers iron wrote between them. */
+            iron_file_markers_set_packed_source(true);
         } else if (strcmp(argv[i], "--package-root") == 0) {
             /* Internal (iron): the directory the `-- @file:` paths of a
              * combined package source are relative to. */
@@ -318,7 +318,9 @@ static int ironc_main(int argc, char **argv) {
             fprintf(stderr, "error: unknown flag '%s' for command '%s'\n",
                     argv[i], cmd);
             return 1;
-        } else if (strcmp(cmd, "fmt") == 0 && strcmp(argv[i], "--check") == 0) {
+        } else if (strcmp(cmd, "fmt") == 0 &&
+                   (strcmp(argv[i], "--check") == 0 ||
+                    strcmp(argv[i], "--migrate-comments") == 0)) {
             /* fmt's own flag, read by the fmt branch below */
         } else if (strcmp(argv[i], "-") == 0) {
             fprintf(stderr, "error: %s %s does not read source from standard input; "
@@ -326,6 +328,8 @@ static int ironc_main(int argc, char **argv) {
             return 1;
         } else if (!source_file && argv[i][0] != '-') {
             source_file = argv[i];
+        } else if (fmt_migrate && strcmp(cmd, "fmt") == 0 && argv[i][0] != '-') {
+            /* Migration accepts multiple file and directory paths. */
         } else if (strcmp(cmd, "test") == 0 && !test_filter && argv[i][0] != '-') {
             /* `test <file> <filter>`: run the tests whose name contains it. */
             test_filter = argv[i];
@@ -354,7 +358,8 @@ static int ironc_main(int argc, char **argv) {
 
     /* A directory where a file is expected read as an empty program. */
     if (source_file && (strcmp(cmd, "build") == 0 || strcmp(cmd, "run") == 0 ||
-                        strcmp(cmd, "check") == 0 || strcmp(cmd, "fmt") == 0)) {
+                        strcmp(cmd, "check") == 0 ||
+                        (strcmp(cmd, "fmt") == 0 && !fmt_migrate))) {
         struct stat sst;
         if (stat(source_file, &sst) == 0 && S_ISDIR(sst.st_mode)) {
             fprintf(stderr, "error: '%s' is a directory, not a .iron file\n", source_file);
@@ -454,6 +459,18 @@ static int ironc_main(int argc, char **argv) {
          * Multi-file --check deferred to v1.x. */
         bool check_mode = false;
         const char *file_arg = source_file;
+        if (fmt_migrate) {
+            /* `fmt --migrate-comments [--check] [paths...]` (fmt/migrate.h). */
+            const char **paths = (const char **)calloc((size_t)argc, sizeof(char *));
+            int np = 0;
+            for (int i = 2; i < argc; i++) {
+                if (strcmp(argv[i], "--check") == 0) check_mode = true;
+                else if (strncmp(argv[i], "--", 2) != 0 && paths) paths[np++] = argv[i];
+            }
+            int rc = iron_fmt_migrate_comments(paths, np, check_mode);
+            free(paths);
+            return rc;
+        }
         for (int i = 2; i < argc; i++)
             if (strcmp(argv[i], "--check") == 0) check_mode = true;
         if (!file_arg) {

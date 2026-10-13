@@ -378,6 +378,8 @@ bool iron_node_doc(const Iron_Node *n, const char **doc,
         case IRON_NODE_ENUM_DECL:      TAKE(Iron_EnumDecl)
         case IRON_NODE_FUNC_DECL:      TAKE(Iron_FuncDecl)
         case IRON_NODE_METHOD_DECL:    TAKE(Iron_MethodDecl)
+        case IRON_NODE_VAL_DECL:       TAKE(Iron_ValDecl)
+        case IRON_NODE_VAR_DECL:       TAKE(Iron_VarDecl)
         case IRON_NODE_FIELD:          TAKE(Iron_Field)
         case IRON_NODE_ENUM_VARIANT:   TAKE(Iron_EnumVariant)
 #undef TAKE

@@ -158,6 +158,7 @@ static void test_hover_nocopy_object(void)      { test_hover_fixture("hover_noco
 /* Inside function bodies: calls, parameters, stdlib and builtin methods. */
 static void test_hover_body_user_call(void)       { test_hover_fixture("hover_body_user_call"); }
 static void test_hover_doc_directives(void)      { test_hover_fixture("hover_doc_directives"); }
+static void test_hover_binding_doc_directives(void) { test_hover_fixture("hover_binding_doc_directives"); }
 static void test_hover_body_param(void)           { test_hover_fixture("hover_body_param"); }
 static void test_hover_body_stdlib_method(void)   { test_hover_fixture("hover_body_stdlib_method"); }
 static void test_hover_body_builtin_method(void)  { test_hover_fixture("hover_body_builtin_method"); }
@@ -175,6 +176,7 @@ int main(void) {
     RUN_TEST(test_hover_nocopy_object);
     RUN_TEST(test_hover_body_user_call);
     RUN_TEST(test_hover_doc_directives);
+    RUN_TEST(test_hover_binding_doc_directives);
     RUN_TEST(test_hover_body_param);
     RUN_TEST(test_hover_body_stdlib_method);
     RUN_TEST(test_hover_body_builtin_method);

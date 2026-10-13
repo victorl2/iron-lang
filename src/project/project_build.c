@@ -36,6 +36,7 @@ extern char **environ;
 #include "project/color.h"
 #include "project/iron_project.h"
 #include "project/project_build.h"
+#include "diagnostics/diagnostics.h"   /* IRON_FILE_MARKER_OPEN */
 #include "cli/target.h"
 
 /* ── Platform timing ────────────────────────────────────────────────────── */
@@ -272,19 +273,52 @@ static void collect_project_sources(const char *proj_dir, PathList *out) {
 /* ── Source assembly ────────────────────────────────────────────────────── */
 
 /*
- * Append contents of a file to the combined output.
+ * Append one source file to a packed source (target/combined.iron,
+ * target/tests.iron), under its file marker:
+ *
+ *     -- @file: "<rel_path>" @line: 1 @lines: <n>
+ *
+ * The lexer tags the file's tokens with its own path and 1-based lines, so
+ * diagnostics point at src/lib.iron:2 instead of target/combined.iron:40,
+ * and cross-file visibility sees distinct files. `@lines:` is the number of
+ * physical lines the file takes below the marker (its own, and the line
+ * break added after it): ironc, run with --packed-source, honors a marker
+ * only between files, so a comment inside a file that looks like a marker
+ * stays a comment.
+ *
  * Returns 0 on success, -1 on failure.
  */
-static int append_file(FILE *out, const char *path) {
+static int append_marked_file(FILE *out, const char *rel_path, const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) return -1;
-    char buf[4096];
+    size_t cap = 8192, len = 0;
+    char *text = (char *)malloc(cap);
+    if (!text) { fclose(f); return -1; }
     size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
-        fwrite(buf, 1, n, out);
+    while ((n = fread(text + len, 1, cap - len, f)) > 0) {
+        len += n;
+        if (len == cap) {
+            char *grown = (char *)realloc(text, cap * 2);
+            if (!grown) { free(text); fclose(f); return -1; }
+            text = grown;
+            cap *= 2;
+        }
     }
+    int read_failed = ferror(f);
     fclose(f);
+    if (read_failed) { free(text); return -1; }
+
+    /* ironc reads the packed source as a C string: nothing after a NUL byte
+     * is compiled, so nothing after it counts as a line either. */
+    size_t text_len = strnlen(text, len);
+    unsigned long lines = 1; /* the line break written after the file */
+    for (size_t i = 0; i < text_len; i++) {
+        if (text[i] == '\n') lines++;
+    }
+    fprintf(out, IRON_FILE_MARKER_OPEN "%s\" @line: 1 @lines: %lu\n", rel_path, lines);
+    fwrite(text, 1, text_len, out);
     fprintf(out, "\n");
+    free(text);
     return 0;
 }
 
@@ -298,14 +332,6 @@ static int append_file(FILE *out, const char *path) {
  * Writes the chosen path into source_out. Returns 0 on success, 1 on error
  * (already reported).
  */
-/* `-- @file: "<rel>" @line: 1` ahead of each file in combined.iron, so the
- * lexer tags that file's tokens with its own path and 1-based lines:
- * diagnostics point at src/lib.iron:2 instead of target/combined.iron:40,
- * and cross-file visibility sees distinct files. */
-static void write_file_marker(FILE *combined, const char *rel_path) {
-    fprintf(combined, "-- @file: \"%s\" @line: 1\n", rel_path);
-}
-
 /* A path the marker cannot quote would be compiled as part of the file
  * before it (its visibility and diagnostics); refuse it instead. */
 static bool check_marker_path(const char *rel_path, bool colors) {
@@ -419,8 +445,8 @@ static int assemble_sources(const IronProject *proj, const char *proj_dir,
     int ret = 0;
     for (int i = 0; i < vendor_files.count && ret == 0; i++) {
         fprintf(combined, "-- vendor: %s\n", vendor_files.items[i] + proj_prefix);
-        write_file_marker(combined, vendor_files.items[i] + proj_prefix);
-        if (append_file(combined, vendor_files.items[i]) != 0) {
+        if (append_marked_file(combined, vendor_files.items[i] + proj_prefix,
+                               vendor_files.items[i]) != 0) {
             char msg[4200];
             snprintf(msg, sizeof(msg), "cannot read vendored file %s",
                      vendor_files.items[i] + proj_prefix);
@@ -431,8 +457,8 @@ static int assemble_sources(const IronProject *proj, const char *proj_dir,
     if (ret == 0) {
         fprintf(combined, "-- project: %s\n", proj->name);
         for (int i = 0; i < project_files.count && ret == 0; i++) {
-            write_file_marker(combined, project_files.items[i] + proj_prefix);
-            if (append_file(combined, project_files.items[i]) != 0) {
+            if (append_marked_file(combined, project_files.items[i] + proj_prefix,
+                                   project_files.items[i]) != 0) {
                 char msg[4200];
                 snprintf(msg, sizeof(msg), "cannot read %s: %s",
                          project_files.items[i] + proj_prefix, strerror(errno));
@@ -1469,6 +1495,8 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     path_list_add(&args, output_path);
     path_list_add(&args, "--package-root");
     path_list_add(&args, proj_dir);
+    /* A packed source: its file markers are iron's, and are honored. */
+    if (strcmp(build_source, entry_path) != 0) path_list_add(&args, "--packed-source");
     if (verbose) path_list_add(&args, "--verbose");
     /* Phase 94 LIB-04: forward --release from iron build CLI to ironc so
      * native -O2 (and web -Oz -flto) optimization tiers reach the underlying
@@ -1620,7 +1648,10 @@ static int cmd_check(int argc, char **argv) {
     iron_print_status(colors, "Checking", detail);
 
     char *ironc = find_ironc();
-    char *spawn_argv[] = { ironc, "check", check_source, "--package-root", proj_dir, NULL };
+    /* A packed source: its file markers are iron's, and are honored. */
+    bool check_packed = strcmp(check_source, entry_path) != 0;
+    char *spawn_argv[] = { ironc, "check", check_source, "--package-root", proj_dir,
+                           check_packed ? "--packed-source" : NULL, NULL };
     int ret = spawn_and_wait(ironc, spawn_argv);
     {
         char combined_final[4200];
@@ -1757,8 +1788,8 @@ static int cmd_test(int argc, char **argv) {
     } else {
         for (int g = 0; g < 3 && ret == 0; g++) {
             for (int i = 0; i < groups[g]->count && ret == 0; i++) {
-                write_file_marker(combined, groups[g]->items[i] + proj_prefix);
-                if (append_file(combined, groups[g]->items[i]) != 0) {
+                if (append_marked_file(combined, groups[g]->items[i] + proj_prefix,
+                                       groups[g]->items[i]) != 0) {
                     char msg[4300];
                     snprintf(msg, sizeof(msg), "cannot read %s: %s",
                              groups[g]->items[i] + proj_prefix, strerror(errno));
@@ -1778,6 +1809,7 @@ static int cmd_test(int argc, char **argv) {
     if (ret == 0) {
         char *ironc = find_ironc();
         char *spawn_argv[] = { ironc, "test", combined_path, "--package-root", proj_dir,
+                               "--packed-source",
                                filter ? "--" : NULL, (char *)filter, NULL };
         ret = spawn_and_wait(ironc, spawn_argv);
         if (has_standalone) {

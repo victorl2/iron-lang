@@ -102,7 +102,15 @@ static void test_lex_markers_inside_strings_stay_text(void) {
 static void test_lex_slash_file_marker(void) {
     int n;
     const char *src = "// @file: other.iron\nval x = 1\n";
+    /* A file marker is honored in multi-file test mode; in user source it
+     * is a comment like any other. */
+    Iron_Token *plain = lex(src, &n);
+    TEST_ASSERT_FALSE(plain[0].comment & IRON_COMMENT_MARKER);
+    TEST_ASSERT_TRUE(plain[0].comment & IRON_COMMENT_PRESENT);
+    arrfree(plain);
+    iron_file_markers_set_test_mode(true);
     Iron_Token *t = lex(src, &n);
+    iron_file_markers_set_test_mode(false);
     TEST_ASSERT_TRUE(t[0].comment & IRON_COMMENT_MARKER);
     TEST_ASSERT_EQUAL_STRING("other.iron", t[1].filename);
     arrfree(t);
@@ -147,6 +155,21 @@ static void test_doc_pub_decl_and_field(void) {
     TEST_ASSERT_EQUAL_STRING("the y", ((Iron_Field *)o->fields[1])->doc_comment);
 }
 
+/* #689: top-level bindings are declarations too; their collected run used
+ * to be discarded because the AST had no documentation slots for them. */
+static void test_doc_and_directives_on_top_level_bindings(void) {
+    Iron_Program *p = parse("// The port.\n//config:env\nval port = 8080 //json:port\n"
+                            "// Mutable state.\nvar state = 0\n");
+    Iron_ValDecl *v = (Iron_ValDecl *)p->decls[0];
+    TEST_ASSERT_EQUAL_STRING("The port.", v->doc_comment);
+    TEST_ASSERT_EQUAL_INT(1, v->directive_count);
+    TEST_ASSERT_EQUAL_STRING("config", v->directives[0].key);
+    TEST_ASSERT_EQUAL_STRING("env", v->directives[0].value);
+    TEST_ASSERT_FALSE(v->directives[0].trailing);
+    Iron_VarDecl *w = (Iron_VarDecl *)p->decls[1];
+    TEST_ASSERT_EQUAL_STRING("Mutable state.", w->doc_comment);
+}
+
 /* ── Directives ──────────────────────────────────────────────────────────── */
 
 static void test_directives_above_and_trailing(void) {
@@ -174,22 +197,29 @@ static void test_directives_above_and_trailing(void) {
     const char *doc; const Iron_Directive *d; int nd;
     TEST_ASSERT_TRUE(iron_node_doc((Iron_Node *)f, &doc, &d, &nd));
     TEST_ASSERT_EQUAL_INT(2, nd);
+
+    Iron_Program *inline_p = parse("object Inline { val x: Int //json:x\n}\n");
+    Iron_ObjectDecl *inline_o = (Iron_ObjectDecl *)inline_p->decls[0];
+    Iron_Field *inline_f = (Iron_Field *)inline_o->fields[0];
+    TEST_ASSERT_EQUAL_INT(1, inline_f->directive_count);
+    TEST_ASSERT_TRUE(inline_f->directives[0].trailing);
 }
 
 static void test_directives_on_variants_sigs_and_decls(void) {
     Iron_Program *p = parse("//rpc:service\ninterface S {\n    //rpc:name\n    func m() -> Int\n}\n"
-                            "enum E {\n    A, //tag:a\n    B\n}\n"
-                            "func f() { //inline:never\n}\n");
+                            "enum E {\n    //tag:a\n    A,\n    B //tag:not_attached\n}\n"
+                            "//inline:never\nfunc f() {} //inline:not_attached\n");
     Iron_InterfaceDecl *s = (Iron_InterfaceDecl *)p->decls[0];
     TEST_ASSERT_EQUAL_INT(1, s->directive_count);
     TEST_ASSERT_EQUAL_INT(1, ((Iron_FuncDecl *)s->method_sigs[0])->directive_count);
     Iron_EnumDecl *e = (Iron_EnumDecl *)p->decls[1];
     TEST_ASSERT_EQUAL_INT(1, ((Iron_EnumVariant *)e->variants[0])->directive_count);
-    TEST_ASSERT_TRUE(((Iron_EnumVariant *)e->variants[0])->directives[0].trailing);
+    TEST_ASSERT_FALSE(((Iron_EnumVariant *)e->variants[0])->directives[0].trailing);
     TEST_ASSERT_EQUAL_INT(0, ((Iron_EnumVariant *)e->variants[1])->directive_count);
     Iron_FuncDecl *f = (Iron_FuncDecl *)p->decls[2];
     TEST_ASSERT_EQUAL_INT(1, f->directive_count);
     TEST_ASSERT_EQUAL_STRING("never", f->directives[0].value);
+    TEST_ASSERT_FALSE(f->directives[0].trailing);
 }
 
 /* ── Compiler hints ──────────────────────────────────────────────────────── */
@@ -203,29 +233,40 @@ static void test_iron_fusible_hint(void) {
 }
 
 static void test_unknown_or_misplaced_hint_warns(void) {
-    (void)parse("//iron:fusable\nfunc f() {}\n//iron:fusible\nobject O {}\n//iron:fusible\nval x = 1\n");
-    TEST_ASSERT_EQUAL_INT(3, count_code(IRON_WARN_UNKNOWN_IRON_HINT));
+    Iron_Program *p = parse("//iron:fusable\nfunc f() {}\n"
+                            "//iron:fusible\nobject O {}\n"
+                            "//iron:fusible\nval x = 1\n"
+                            "func trailing() {} //iron:fusible\n");
+    TEST_ASSERT_EQUAL_INT(4, count_code(IRON_WARN_UNKNOWN_IRON_HINT));
+    Iron_FuncDecl *trailing = NULL;
+    for (int i = 0; i < p->decl_count; i++) {
+        if (p->decls[i]->kind != IRON_NODE_FUNC_DECL) continue;
+        Iron_FuncDecl *f = (Iron_FuncDecl *)p->decls[i];
+        if (f->name && strcmp(f->name, "trailing") == 0) trailing = f;
+    }
+    TEST_ASSERT_NOT_NULL(trailing);
+    TEST_ASSERT_FALSE(trailing->is_fusible);
     TEST_ASSERT_EQUAL_INT(0, diags.error_count);
 }
 
 /* ── Printer ─────────────────────────────────────────────────────────────── */
 
 static void test_printer_round_trips_docs_and_directives(void) {
-    const char *src = "// doc\n//k:v\nfunc f() { //t:x\n}\n"
+    const char *src = "// doc\n//k:v\nfunc f() {} //t:not_attached\n"
                       "object O {\n    // field doc\n    val a: Int  //json:a\n}\n";
     Iron_Program *p = parse(src);
     char *out = iron_print_ast((Iron_Node *)p, NULL, &arena);
-    TEST_ASSERT_NOT_NULL(strstr(out, "// doc\n//k:v\nfunc f() {  //t:x\n"));
+    TEST_ASSERT_NOT_NULL(strstr(out, "// doc\n//k:v\nfunc f() {\n"));
     TEST_ASSERT_NOT_NULL(strstr(out, "  // field doc\n  val a: Int  //json:a\n"));
     Iron_Program *q = parse(out);
     Iron_FuncDecl *f = (Iron_FuncDecl *)q->decls[0];
     TEST_ASSERT_EQUAL_STRING("doc", f->doc_comment);
-    TEST_ASSERT_EQUAL_INT(2, f->directive_count);
-    TEST_ASSERT_TRUE(f->directives[1].trailing);
+    TEST_ASSERT_EQUAL_INT(1, f->directive_count);
+    TEST_ASSERT_FALSE(f->directives[0].trailing);
 }
 
 static void test_stubs_carry_docs_and_directives(void) {
-    Iron_Program *p = parse("// Adds.\npub func add(a: Int) -> Int { return a } //k:v\n"
+    Iron_Program *p = parse("// Adds.\n//k:v\npub func add(a: Int) -> Int { return a }\n"
                             "pub object P {\n    // x doc\n    //json:x\n    pub val x: Int\n}\n");
     FILE *f = tmpfile();
     TEST_ASSERT_NOT_NULL(f);
@@ -235,7 +276,7 @@ static void test_stubs_carry_docs_and_directives(void) {
     size_t n = fread(buf, 1, sizeof buf - 1, f);
     buf[n] = '\0';
     fclose(f);
-    TEST_ASSERT_NOT_NULL(strstr(buf, "// Adds.\npub func add(a: Int) -> Int {  //k:v\n"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "// Adds.\n//k:v\npub func add(a: Int) -> Int {\n"));
     TEST_ASSERT_NOT_NULL(strstr(buf, "    // x doc\n    //json:x\n    val x: Int\n"));
 }
 
@@ -263,11 +304,6 @@ static void test_migrate_keeps_meaning_of_odd_bodies(void) {
                    "// json:x\n//-/\n// /x\n// /q\n// k:v\nval a = 1\n");
 }
 
-static void test_migrate_doc_comment_with_trailing_space(void) {
-    expect_migrate("/// doc \nfunc f() {}\n",
-                   "// doc \nfunc f() {}\n");
-}
-
 static void test_migrate_fusible(void) {
     expect_migrate("@fusible\nfunc f() {}\n    @fusible func g() {}\n",
                    "//iron:fusible\nfunc f() {}\n    //iron:fusible\n    func g() {}\n");
@@ -279,6 +315,16 @@ static void test_migrate_fusible(void) {
 static void test_migrate_aligned_trailing_comments(void) {
     expect_migrate("object Q {\n    val a: Int   -- one\n    val bb: Int  -- two\n}\n",
                    "object Q {\n    val a: Int   // one\n    val bb: Int  // two\n}\n");
+}
+
+/* Found by comment_fuzz: a `///` body kept its trailing whitespace while a
+ * `//` comment drops it, so the migrated text looked like a different doc
+ * and the migration refused the file. */
+static void test_migrate_triple_with_trailing_whitespace(void) {
+    expect_migrate("val a = 1 ////q\t \n/// doc  \nfunc f() {}\n",
+                   "val a = 1 // /q\t \n// doc  \nfunc f() {}\n");
+    Iron_Program *p = parse("/// doc \t\nfunc f() {}\n");
+    TEST_ASSERT_EQUAL_STRING("doc", ((Iron_FuncDecl *)p->decls[0])->doc_comment);
 }
 
 static void test_migrate_file_with_errors(void) {
@@ -306,6 +352,7 @@ int main(void) {
     RUN_TEST(test_doc_trailing_comment_is_not_doc);
     RUN_TEST(test_doc_mixed_spellings);
     RUN_TEST(test_doc_pub_decl_and_field);
+    RUN_TEST(test_doc_and_directives_on_top_level_bindings);
     RUN_TEST(test_directives_above_and_trailing);
     RUN_TEST(test_directives_on_variants_sigs_and_decls);
     RUN_TEST(test_iron_fusible_hint);
@@ -314,9 +361,9 @@ int main(void) {
     RUN_TEST(test_stubs_carry_docs_and_directives);
     RUN_TEST(test_migrate_rewrites_comment_tokens_only);
     RUN_TEST(test_migrate_keeps_meaning_of_odd_bodies);
-    RUN_TEST(test_migrate_doc_comment_with_trailing_space);
     RUN_TEST(test_migrate_fusible);
     RUN_TEST(test_migrate_aligned_trailing_comments);
+    RUN_TEST(test_migrate_triple_with_trailing_whitespace);
     RUN_TEST(test_migrate_file_with_errors);
     RUN_TEST(test_formatter_keeps_comment_forms);
     return UNITY_END();

@@ -25,6 +25,7 @@
 #include "unity.h"
 
 #include "lsp/facade/edit/codeaction/organize_imports.h"
+#include "lsp/store/document.h"
 #include "lsp/store/stdlib_cache.h"
 #include "lsp/store/workspace_index.h"
 
@@ -302,27 +303,31 @@ static void test_doc_comment_preserved(void) {
 }
 
 /* Test 8b: a `//` documentation run with a directive above an import, and
- * a trailing directive, move with the import; the range starts at the
- * first comment line. */
+ * trailing source comments, including directive-shaped comments, move with
+ * their imports; the range starts at the first comment line. */
 static void test_doc_and_directives_preserved(void) {
     Iron_Arena     arena = iron_arena_create(64 * 1024);
     Iron_DiagList  diags = iron_diaglist_create();
     const char    *src   = "// doc for math\n"
                             "//dep:core\n"
                             "import math  //pin:1\n"
-                            "import io\n"
+                            "import io -- keep io\n"
                             "\n"
                             "func main() {}\n";
     Iron_Program  *prog  = parse_source(src, &arena, &diags);
     TEST_ASSERT_NOT_NULL(prog);
 
     IronLsp_WorkspaceIndex *wi = make_wi(/*bulk_done=*/true);
+    IronLsp_Document doc = {
+        .text = (char *)src,
+        .text_len = strlen(src),
+    };
     IronLsp_OrganizeImportsResult out = {0};
-    ilsp_organize_imports(prog, NULL, &diags, wi, NULL, &arena, &out);
+    ilsp_organize_imports(prog, &doc, &diags, wi, NULL, &arena, &out);
 
     TEST_ASSERT_NOT_NULL(out.new_text);
     TEST_ASSERT_EQUAL_STRING(
-        "import io\n"
+        "import io -- keep io\n"
         "// doc for math\n"
         "//dep:core\n"
         "import math  //pin:1\n",

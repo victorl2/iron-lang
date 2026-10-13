@@ -249,7 +249,7 @@ def syntax_coverage(manual_path: str, sources) -> Tuple[List[str], Dict[str, str
     covered: Dict[str, str] = {}
     for path, src in sources:
         try:
-            toks = gc.lex(src)
+            toks = gc.lex(coverage_syntax_source(src))
         except gc.LexError:
             continue
         ok, _ = rec.run(toks)
@@ -261,6 +261,46 @@ def syntax_coverage(manual_path: str, sources) -> Tuple[List[str], Dict[str, str
         for u in d.used:
             covered.setdefault(u, rel(path))
     return units, covered
+
+
+def coverage_syntax_source(src: str) -> str:
+    """Expose comment-based fusible hints to the transitional EBNF.
+
+    Section 13 still spells the backwards-compatible form as ``@fusible``.
+    An own-line ``//iron:fusible`` has exactly the same compiler meaning, so
+    substitute it before deriving syntax coverage.  Scan strings rather than
+    using a line regexp because multiline strings may contain a line that
+    looks like a directive.
+    """
+    out: List[str] = []
+    copied = 0
+    i, n = 0, len(src)
+    while i < n:
+        if src[i] == '"':
+            try:
+                i = gc.scan_string(src, i, 1, 1)
+            except gc.LexError:
+                i += 1
+            continue
+        if src.startswith("//", i):
+            end = src.find("\n", i)
+            if end < 0:
+                end = n
+            line_start = src.rfind("\n", 0, i) + 1
+            own_line = all(c in " \t\r\ufeff" for c in src[line_start:i])
+            if own_line and src[i:end].rstrip(" \t\r") == "//iron:fusible":
+                out.append(src[copied:i])
+                out.append("@fusible")
+                copied = end
+            i = end
+            continue
+        if src.startswith("--", i):
+            end = src.find("\n", i)
+            i = n if end < 0 else end
+            continue
+        i += 1
+    out.append(src[copied:])
+    return "".join(out)
 
 
 # ---------------------------------------------------------- diagnostics --
@@ -347,7 +387,23 @@ def library_units(manual: str, index) -> Dict[str, Tuple[str, str]]:
 
 
 def strip_comments(src: str) -> str:
-    return re.sub(r"--[^\n]*", "", src)
+    """Blank line comments while preserving strings and source positions."""
+    out = list(src)
+    i, n = 0, len(src)
+    while i < n:
+        if src[i] == '"':
+            try:
+                i = gc.scan_string(src, i, 1, 1)
+            except gc.LexError:
+                i += 1
+            continue
+        if src.startswith("--", i) or src.startswith("//", i):
+            while i < n and src[i] != "\n":
+                out[i] = " "
+                i += 1
+            continue
+        i += 1
+    return "".join(out)
 
 
 def library_coverage(units, sources) -> Dict[str, str]:

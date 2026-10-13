@@ -813,6 +813,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
         /* ── Statements ── */
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *n = (Iron_ValDecl *)node;
+            print_leading_comments(ctx, n->doc_comment, n->directives, n->directive_count);
             iron_strbuf_appendf(ctx->sb, "val %s", n->name);
             if (n->type_ann) {
                 iron_strbuf_appendf(ctx->sb, ": ");
@@ -822,11 +823,13 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                 iron_strbuf_appendf(ctx->sb, " = ");
                 print_node(ctx, n->init);
             }
+            print_trailing_directives(ctx, n->directives, n->directive_count);
             break;
         }
 
         case IRON_NODE_VAR_DECL: {
             Iron_VarDecl *n = (Iron_VarDecl *)node;
+            print_leading_comments(ctx, n->doc_comment, n->directives, n->directive_count);
             iron_strbuf_appendf(ctx->sb, "var %s", n->name);
             if (n->type_ann) {
                 iron_strbuf_appendf(ctx->sb, ": ");
@@ -836,6 +839,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                 iron_strbuf_appendf(ctx->sb, " = ");
                 print_node(ctx, n->init);
             }
+            print_trailing_directives(ctx, n->directives, n->directive_count);
             break;
         }
 

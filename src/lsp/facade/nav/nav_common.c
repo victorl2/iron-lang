@@ -617,7 +617,15 @@ static void occ_push(OccCtx *c, size_t off, const Iron_Node *decl, const char *n
 static size_t occ_member(const IronLsp_Document *doc, const Iron_Node *object,
                          const char *name) {
     if (!object || object->span.line == 0 || !name) return SIZE_MAX;
-    size_t i = occ_offset(doc, object->span.end_line, object->span.end_col);
+    size_t i = SIZE_MAX;
+    if (object->kind == IRON_NODE_FIELD_ACCESS) {
+        /* `a.b.c`: the object `a.b` ends with its own member name (its span
+         * does not always reach it). */
+        const Iron_FieldAccess *inner = (const Iron_FieldAccess *)object;
+        size_t m = inner->field ? occ_member(doc, inner->object, inner->field) : SIZE_MAX;
+        if (m != SIZE_MAX) i = m + strlen(inner->field) - 1;
+    }
+    if (i == SIZE_MAX) i = occ_offset(doc, object->span.end_line, object->span.end_col);
     if (i == SIZE_MAX) return SIZE_MAX;
     i++;
     while (i < doc->text_len && (doc->text[i] == ' ' || doc->text[i] == '\t' ||

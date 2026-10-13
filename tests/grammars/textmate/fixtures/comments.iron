@@ -1,10 +1,6 @@
 // SYNTAX TEST "source.iron" "comments.iron"
 // a plain line comment
 // <- comment.line.double-slash.iron
--- a transitional dash comment
-// <- comment.line.double-dash.iron
-/// a doc comment
-// <- comment.block.documentation.iron
 //json:id
 // <- punctuation.definition.comment.iron
 //^^^^ keyword.other.directive.iron

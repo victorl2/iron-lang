@@ -470,6 +470,11 @@ Iron_AnalyzeResult iron_analyze_buffer_for_target(const char         *source,
 
     Iron_Lexer lexer = iron_lexer_create(source, filename, arena, diags);
     iron_lexer_set_cancel_flag(&lexer, cancel_flag); /* HARD-05 */
+    /* The lines above the caller's own source are the prelude it prepended:
+     * the file markers there are honored, an `@file:` comment in the
+     * caller's source is not (see diagnostics.h). */
+    iron_lexer_set_user_start_line(
+        &lexer, user_source_start_line > 1 ? (uint32_t)user_source_start_line : 1);
     Iron_Token *tokens = iron_lex_all(&lexer);
 
     /* HARD-05: pipeline-stage boundary check between lex and parse. */

@@ -58,6 +58,14 @@ signature help, with one leading space removed from each line. A blank line
 breaks the association, and a comment at the end of a line of code is never
 documentation. The compiler otherwise ignores comments.
 
+A comment never changes what a program means. One comment has a meaning to
+the compiler's own tests: a comment whose text starts with `@file:` (a
+*file marker*) tells the test harness's multi-file mode that the source
+after it belongs to another file. Only that mode
+(`IRON_MULTI_FILE_TEST=1`) honors it; in any other compile it is an
+ordinary comment, and diagnostics after it still name the file it is
+written in.
+
 ```iron
 // Doubles its argument.
 // Attached to `twice` because no blank line separates them.
@@ -79,10 +87,10 @@ func main() {
 **Directives.** A comment written `//key:value`, with no space after `//`,
 a key of lowercase letters, digits and `_` starting with a letter, and a
 `:` right after the key, is a directive. A directive belongs to the
-declaration or field it sits directly above, as part of its comment run, or
-to the one whose line it ends. Directive lines are not part of the
-documentation. The value is the rest of the line. `// json:id`, with a
-space, is an ordinary comment.
+declaration or field it sits directly above, as part of its comment run. It
+may instead trail an object field on that field's line. Directive lines are
+not part of the documentation. The value is the rest of the line.
+`// json:id`, with a space, is an ordinary comment.
 
 ```iron
 object Item {
@@ -102,10 +110,14 @@ func main() {
 7 lamp
 ```
 
-The compiler keeps directives on the declarations they belong to and gives
-them no meaning of their own, except the `iron` key: `//iron:<hint>` is a
-compiler hint. A hint changes only how the compiler represents or optimizes
-a declaration (a function, object or field), never what the program does;
+The compiler keeps this metadata on each relevant AST node as its
+`doc_comment` text and a source-ordered `directives` list. Each directive is
+`(key, value, line, trailing)`; `line` is one-based and `trailing` can be true
+only for an object field. This is the representation available to the later
+compile-time reflection work in issue #455. Directives have no meaning of
+their own, except the `iron` key: `//iron:<hint>` is a compiler hint. A hint
+changes only how the compiler represents or optimizes a declaration (a
+function, object or field), never what the program does;
 anything that is part of a type or changes what type checks, such as
 `[T, layout: soa]` or `[I, unordered]`, is language syntax instead. The
 hints are:
@@ -3454,16 +3466,15 @@ every `.iron` file under `src/` and `vendor/` into `target/`, `iron run`
 builds and runs it, `iron check` type-checks the same sources, `iron test`
 runs the package's `test "name" { ... }` blocks (section 10.2.1) and every
 `tests/test_*.iron` program, and `iron fmt file.iron` reformats a file
-(`--check` only reports). `iron fmt --migrate-comments [paths]` rewrites
+(`--check` only reports, and exits with 0 when the file is formatted, 1
+when it would change, 2 when it does not parse and 3 when it cannot be
+read). `iron fmt --migrate-comments [paths]` rewrites
 the transitional `--` comments, `///` documentation lines and `@fusible`
 in every `.iron` file under the given files or directories (the current
 directory by default) to `//` and `//iron:fusible` (section 1.2); it
 changes only comments as the lexer reads them, checks that every rewritten
 file still lexes, parses and documents the same, and with `--check` only
-lists the files it would change. `iron fmt --check` exits with 0 when the
-file is formatted, 1
-when it would change, 2 when it does not parse and 3 when it cannot be
-read. In a package, `iron build`, `iron run` and `iron
+lists the files it would change. In a package, `iron build`, `iron run` and `iron
 check` take no file argument (program arguments follow `--` in `iron
 run`), and `iron test` takes one, a name filter (`iron test -- -name` for
 a filter that starts with `-`); any other argument is an error, as is a
@@ -3893,7 +3904,7 @@ type           ::= 'weak' 'rc' type
                  | named_type
 ptr_type       ::= '*' [ 'var' ] [ 'unchecked' ] type
 tuple_type     ::= '(' type ',' type { ',' type } ')'
-list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']'
+list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']' [ '?' ]
 elem_type      ::= func_type | 'rc' type | 'weak' 'rc' type | list_type | ptr_type | tuple_type | named_type
 list_attr      ::= 'layout' ':' ( 'soa' | 'aos' ) | 'unordered'
 func_type      ::= 'func' [ '(' [ type { ',' type } ] ')' ] [ '->' type ]

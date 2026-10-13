@@ -967,11 +967,13 @@ void ilsp_facade_hover(struct IronLsp_Server   *server,
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)decl;
             sig = signature_val(vd, sym, arena);
+            dc  = vd->doc_comment;
             break;
         }
         case IRON_NODE_VAR_DECL: {
             Iron_VarDecl *vd = (Iron_VarDecl *)decl;
             sig = signature_var(vd, sym, arena);
+            dc  = vd->doc_comment;
             break;
         }
         case IRON_NODE_FIELD: {

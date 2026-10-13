@@ -8,6 +8,8 @@ import asyncio
 import pytest
 from lsprotocol import types
 
+from request_timeout import REQUEST_TIMEOUT_SECONDS
+
 CASES = [
     # (source with `|` at the cursor, labels that must appear, labels that must not)
     ('func main() {\n    val s = "abc"\n    val t = s.|\n}\n', {"upper", "len", "split"}, {"push"}),
@@ -49,7 +51,8 @@ async def test_member_completion(client, tmp_path, src, want, unwanted):
         text_document=types.TextDocumentIdentifier(uri=uri),
         position=types.Position(line=line, character=character),
         context=types.CompletionContext(trigger_kind=types.CompletionTriggerKind.TriggerCharacter,
-                                        trigger_character="."))), timeout=10.0)
+                                        trigger_character="."))),
+        timeout=REQUEST_TIMEOUT_SECONDS)
     items = result.items if hasattr(result, "items") else (result or [])
     labels = {i.label for i in items}
     assert want <= labels, f"missing {sorted(want - labels)}; got {sorted(labels)}"

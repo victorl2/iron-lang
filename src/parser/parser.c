@@ -278,8 +278,7 @@ static void iron_skip_newlines(Iron_Parser *p) {
  * ends the run. Directive lines become directives; every other line is a
  * documentation line (one leading space removed; `///` bodies come
  * stripped from the lexer). A trailing `//key:value` at the end of the
- * line the node starts on is a directive of the node too, when the node is
- * the first thing on that line. */
+ * line a field starts on is a directive of that field too. */
 typedef struct {
     const char     *text;       /* documentation, NULL if none */
     Iron_Directive *dirs;       /* own-line directives, source order */
@@ -390,6 +389,8 @@ static bool iron_doc_slots(Iron_Node *n, const char ***doc,
         case IRON_NODE_ENUM_DECL:      SLOTS(Iron_EnumDecl)
         case IRON_NODE_FUNC_DECL:      SLOTS(Iron_FuncDecl)
         case IRON_NODE_METHOD_DECL:    SLOTS(Iron_MethodDecl)
+        case IRON_NODE_VAL_DECL:       SLOTS(Iron_ValDecl)
+        case IRON_NODE_VAR_DECL:       SLOTS(Iron_VarDecl)
         case IRON_NODE_FIELD:          SLOTS(Iron_Field)
         case IRON_NODE_ENUM_VARIANT:   SLOTS(Iron_EnumVariant)
 #undef SLOTS
@@ -418,18 +419,20 @@ static void iron_apply_iron_hints(Iron_Parser *p, Iron_Node *n,
         if (n->span.filename) sp.filename = n->span.filename;
         char msg[256];
         if (vl == 7 && memcmp(v, "fusible", 7) == 0) {
-            if (n->kind == IRON_NODE_FUNC_DECL) {
+            if (!dirs[i].trailing && n->kind == IRON_NODE_FUNC_DECL) {
                 ((Iron_FuncDecl *)n)->is_fusible = true;
                 continue;
             }
-            if (n->kind == IRON_NODE_METHOD_DECL) {
+            if (!dirs[i].trailing && n->kind == IRON_NODE_METHOD_DECL) {
                 ((Iron_MethodDecl *)n)->is_fusible = true;
                 continue;
             }
             if (p->quiet_hints) continue;
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_WARNING,
                            IRON_WARN_UNKNOWN_IRON_HINT, sp,
-                           "`//iron:fusible` applies to a function or method",
+                           dirs[i].trailing
+                               ? "`//iron:fusible` must be above a function or method"
+                               : "`//iron:fusible` applies to a function or method",
                            "move it directly above the `func` it is for");
             continue;
         }
@@ -440,7 +443,7 @@ static void iron_apply_iron_hints(Iron_Parser *p, Iron_Node *n,
             uint8_t *hp = n->kind == IRON_NODE_FUNC_DECL ? &((Iron_FuncDecl *)n)->hints
                         : n->kind == IRON_NODE_METHOD_DECL ? &((Iron_MethodDecl *)n)->hints
                         : NULL;
-            if (hp) {
+            if (hp && !dirs[i].trailing) {
                 *hp |= fhint;
                 if ((*hp & IRON_HINT_INLINE) && (*hp & IRON_HINT_NOINLINE) && !p->quiet_hints)
                     iron_diag_emit(p->diags, p->arena, IRON_DIAG_WARNING,
@@ -486,7 +489,10 @@ static void iron_apply_iron_hints(Iron_Parser *p, Iron_Node *n,
                                "for example //iron:align=64 or //iron:align=cacheline");
                 continue;
             }
-            if (ap) { *ap = (uint16_t)val; continue; }
+            if (ap && (!dirs[i].trailing || n->kind == IRON_NODE_FIELD)) {
+                *ap = (uint16_t)val;
+                continue;
+            }
             if (p->quiet_hints) continue;
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_WARNING,
                            IRON_WARN_UNKNOWN_IRON_HINT, sp,
@@ -518,11 +524,14 @@ static void iron_apply_doc_run(Iron_Parser *p, Iron_Node *n, Iron_DocRun run) {
     if (!*doc && run.text) *doc = run.text;
     if (*count > 0) return;
 
-    /* Trailing directive: the node must begin its line. */
+    /* A field accepts a trailing directive even in a compact one-line object.
+     * Other declarations are scanned only from the first token on their line,
+     * solely so a misplaced trailing `//iron:` can be diagnosed. */
     const Iron_Token *trail = NULL;
     int a = run.anchor;
     if (a >= 0 && a < p->token_count &&
-        (a == 0 || p->tokens[a - 1].kind == IRON_TOK_NEWLINE)) {
+        (n->kind == IRON_NODE_FIELD || a == 0 ||
+         p->tokens[a - 1].kind == IRON_TOK_NEWLINE)) {
         for (int j = a; j < p->token_count; j++) {
             Iron_TokenKind k = p->tokens[j].kind;
             if (k == IRON_TOK_EOF) break;
@@ -533,13 +542,25 @@ static void iron_apply_doc_run(Iron_Parser *p, Iron_Node *n, Iron_DocRun run) {
             break;
         }
     }
-    int total = run.dir_count + (trail ? 1 : 0);
+    /* Only fields accept a trailing directive. Other declarations accept
+     * directives from the own-line run above them. A trailing `//iron:` on
+     * a non-field is still diagnosed as a misplaced compiler hint, but is
+     * not stored on the declaration (#690, #691). */
+    bool attach_trail = trail && n->kind == IRON_NODE_FIELD;
+    int total = run.dir_count + (attach_trail ? 1 : 0);
+    if (trail && !attach_trail && trail->value &&
+        strncmp(trail->value, "iron:", 5) == 0) {
+        Iron_Directive misplaced;
+        iron_directive_from_text(p->arena, trail->value, trail->line, true,
+                                 &misplaced);
+        iron_apply_iron_hints(p, n, &misplaced, 1);
+    }
     if (total == 0) return;
     Iron_Directive *all = (Iron_Directive *)iron_arena_alloc(
         p->arena, sizeof(Iron_Directive) * (size_t)total, _Alignof(Iron_Directive));
     if (!all) return;
     for (int i = 0; i < run.dir_count; i++) all[i] = run.dirs[i];
-    if (trail) {
+    if (attach_trail) {
         iron_directive_from_text(p->arena, trail->value ? trail->value : "",
                                  trail->line, true, &all[run.dir_count]);
     }
@@ -6696,8 +6717,8 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         /* Phase 87 IFACE-01: tier modifier bits from the pre-func consumption above. */
         sig->is_readonly          = member_is_readonly;
         sig->is_pure              = member_is_pure;
-        iron_apply_doc_run(p, (Iron_Node *)sig, sig_doc);
         sig->is_static            = member_is_static;
+        iron_apply_doc_run(p, (Iron_Node *)sig, sig_doc);
         arrput(method_sigs, (Iron_Node *)sig);
         method_count++;
         iron_skip_newlines(p);
