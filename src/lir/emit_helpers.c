@@ -195,6 +195,17 @@ void iron_lir_emit_add_reserved_c_name(const char *name) {
     if (k) shput(g_reserved_c_names, k, true);
 }
 
+const char *emit_c_static_member_identifier(const char *type_c,
+                                             const char *member,
+                                             Iron_Arena *arena) {
+    Iron_StrBuf full = iron_strbuf_create(strlen(type_c) + strlen(member) + 2);
+    iron_strbuf_appendf(&full, "%s_%s", type_c, member);
+    bool runtime_owned = g_reserved_c_names &&
+                         shgeti(g_reserved_c_names, iron_strbuf_get(&full)) >= 0;
+    iron_strbuf_free(&full);
+    return runtime_owned ? member : emit_c_user_identifier(member, arena);
+}
+
 void emit_plan_func_renames(IronLIR_Module *module) {
     for (ptrdiff_t i = 0; i < shlen(g_func_renames); i++) free(g_func_renames[i].value);
     shfree(g_func_renames);

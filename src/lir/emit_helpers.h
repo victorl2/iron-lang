@@ -306,6 +306,10 @@ const char *emit_c_lower_user_identifier(const char *name, Iron_Arena *arena);
 /* The same operation for a dot-separated member path such as
  * `data.SomeVariant._0`. */
 const char *emit_c_user_member_path(const char *path, Iron_Arena *arena);
+/* A static object member, preserving a runtime header's fixed full C symbol. */
+const char *emit_c_static_member_identifier(const char *type_c,
+                                             const char *member,
+                                             Iron_Arena *arena);
 const char *emit_mangle_name(const char *name, Iron_Arena *arena);
 const char *emit_object_type_name(const char *name, EmitCtx *ctx);
 const char *emit_mangle_func_name(const char *name, Iron_Arena *arena);

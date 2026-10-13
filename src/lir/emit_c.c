@@ -2642,7 +2642,9 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         if (emit_val_is_type_ref(fn, instr->field.object)) {
             IronLIR_Instr *ref = fn->value_table[instr->field.object];
             const char *type_c = emit_resolve_func_c_name(ctx, ref->func_ref.func_name);
-            iron_strbuf_appendf(sb, "%s_%s", type_c, field_c);
+            const char *static_field_c = emit_c_static_member_identifier(
+                type_c, instr->field.field, ctx->arena);
+            iron_strbuf_appendf(sb, "%s_%s", type_c, static_field_c);
             break;
         }
         bool obj_is_fat_ptr = emit_val_is_any_fat_ptr(fn, instr->field.object);
@@ -4496,10 +4498,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (emit_val_is_type_ref(fn, instr->field.object)) {
             IronLIR_Instr *ref = fn->value_table[instr->field.object];
             const char *type_c = emit_resolve_func_c_name(ctx, ref->func_ref.func_name);
+            const char *static_field_c = emit_c_static_member_identifier(
+                type_c, instr->field.field, ctx->arena);
             emit_indent(sb, ind);
             if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
             emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = %s_%s;\n", type_c, field_c);
+            iron_strbuf_appendf(sb, " = %s_%s;\n", type_c, static_field_c);
             break;
         }
         /* object.field or object->field for heap/rc pointers.
