@@ -546,7 +546,8 @@ static SoaMember *soa_members(EmitCtx *ctx, Iron_ObjectDecl *od, const char *bar
         Iron_Field *f = (Iron_Field *)od->fields[i];
         if (!f || !f->name) continue;
         Iron_Type *ft = f->resolved_type;
-        SoaMember m = { f->name, ft && ft->kind == IRON_TYPE_ARRAY &&
+        SoaMember m = { emit_c_user_identifier(f->name, ctx->arena),
+                        ft && ft->kind == IRON_TYPE_ARRAY &&
                                  ft->array.size >= 0 && !ft->array.is_bounded };
         arrput(ms, m);
     }
@@ -1369,6 +1370,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
             assert(i >= 0 && i < od->field_count);
             assert(od->fields[i] != NULL);
             Iron_Field *f = (Iron_Field *)od->fields[i];
+            const char *field_c = emit_c_user_identifier(f->name, ctx->arena);
             const char *c_type = "int64_t";
             if (f->type_ann) {
                 /* PROT-03 row 29b (AUDIT-01 M-severity): assert kind on
@@ -1409,7 +1411,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                     iron_strbuf_free(&opt_sb);
                     /* Emit the optional struct if not already done */
                     iron_strbuf_appendf(&ctx->struct_bodies,
-                                         "    %s %s;\n", c_type, f->name);
+                                         "    %s %s;\n", c_type, field_c);
                     continue;
                 } else if (ta->is_array) {
                     /* Array field: emit Iron_List_<elem_c_type> */
@@ -1433,7 +1435,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                 }
             }
             iron_strbuf_appendf(&ctx->struct_bodies,
-                                 "    %s %s;\n", c_type, f->name);
+                                 "    %s %s;\n", c_type, field_c);
         }
     }
 
@@ -1520,8 +1522,9 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
         iron_strbuf_appendf(&ctx->struct_bodies, "typedef enum {\n");
         for (int j = 0; j < ed->variant_count; j++) {
             Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            const char *variant_c = emit_c_user_identifier(ev->name, ctx->arena);
             iron_strbuf_appendf(&ctx->struct_bodies,
-                                 "    %s_TAG_%s = %d,\n", mangled, ev->name, j);
+                                 "    %s_TAG_%s = %d,\n", mangled, variant_c, j);
         }
         iron_strbuf_appendf(&ctx->struct_bodies, "} %s_Tag;\n\n", mangled);
 
@@ -1571,6 +1574,7 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
         for (int j = 0; j < ed->variant_count; j++) {
             Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
             if (ev->payload_count <= 0) continue;
+            const char *variant_c = emit_c_user_identifier(ev->name, ctx->arena);
             /* Spelling a payload type may emit its definition (a Map's
              * table, a cell's glue) into struct_bodies: do it before the
              * struct is opened, or it lands inside `typedef struct { `. */
@@ -1615,7 +1619,7 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
                 iron_strbuf_appendf(&ctx->struct_bodies, "char _dummy;");
             }
             iron_strbuf_appendf(&ctx->struct_bodies,
-                                 " } %s_%s_data;\n", mangled, ev->name);
+                                 " } %s_%s_data;\n", mangled, variant_c);
         }
         iron_strbuf_appendf(&ctx->struct_bodies, "\n");
 
@@ -1625,9 +1629,10 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
         for (int j = 0; j < ed->variant_count; j++) {
             Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
             if (ev->payload_count <= 0) continue;
+            const char *variant_c = emit_c_user_identifier(ev->name, ctx->arena);
             iron_strbuf_appendf(&ctx->struct_bodies,
                                  "    %s_%s_data %s;\n",
-                                 mangled, ev->name, ev->name);
+                                 mangled, variant_c, variant_c);
         }
         iron_strbuf_appendf(&ctx->struct_bodies,
                              "} %s_data_t;\n\n", mangled);
@@ -1657,8 +1662,9 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
                 for (int j = 0; j < ed->variant_count; j++) {
                     Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
                     if (ev->payload_count <= 0) continue;
+                    const char *variant_c = emit_c_user_identifier(ev->name, ctx->arena);
                     iron_strbuf_appendf(&eq, "    case %s_TAG_%s:\n        return true",
-                                        mangled, ev->name);
+                                        mangled, variant_c);
                     for (int k = 0; k < ev->payload_count; k++) {
                         Iron_Type *pt = (vpt && vpt[j]) ? vpt[j][k] : NULL;
                         if (!pt || pt->kind == IRON_TYPE_VOID) continue;
@@ -1670,14 +1676,14 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
                         if (pt->kind == IRON_TYPE_STRING) {
                             iron_strbuf_appendf(&eq,
                                 " && iron_string_equals(&a.data.%s._%d, &b.data.%s._%d)",
-                                ev->name, k, ev->name, k);
+                                variant_c, k, variant_c, k);
                         } else if (pt->kind == IRON_TYPE_ENUM && pt->enu.decl &&
                                    pt->enu.decl->has_payloads) {
                             iron_strbuf_appendf(&eq, " && %s_eq(%sa.data.%s._%d, %sb.data.%s._%d)",
-                                                pc, star, ev->name, k, star, ev->name, k);
+                                                pc, star, variant_c, k, star, variant_c, k);
                         } else {
                             iron_strbuf_appendf(&eq, " && %sa.data.%s._%d == %sb.data.%s._%d",
-                                                star, ev->name, k, star, ev->name, k);
+                                                star, variant_c, k, star, variant_c, k);
                         }
                     }
                     iron_strbuf_appendf(&eq, ";\n");
@@ -1718,6 +1724,7 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
             Iron_StrBuf protos = iron_strbuf_create(64);
             for (int j2 = 0; j2 < ed->variant_count; j2++) {
                 Iron_EnumVariant *ev2 = (Iron_EnumVariant *)ed->variants[j2];
+                const char *variant_c = emit_c_user_identifier(ev2->name, ctx->arena);
                 Iron_StrBuf arm = iron_strbuf_create(64);
                 for (int k2 = 0; k2 < ev2->payload_count; k2++) {
                     bool boxed = td->type->enu.payload_is_boxed &&
@@ -1728,7 +1735,7 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
                             iron_strbuf_appendf(&arm,
                                 "        %s_free(v->data.%s._%d);\n"
                                 "        iron_mem_free(v->data.%s._%d);\n",
-                                mangled, ev2->name, k2, ev2->name, k2);
+                                mangled, variant_c, k2, variant_c, k2);
                         } else {
                             /* A copy owns its own boxes: the copy of a
                              * recursive value shared them with the original
@@ -1737,15 +1744,15 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
                                 "        { %s *nb = (%s *)iron_mem_alloc(sizeof(%s));\n"
                                 "          if (!nb) iron_oom_abort(\"enum copy\");\n"
                                 "          *nb = *v->data.%s._%d; %s_copied(nb); v->data.%s._%d = nb; }\n",
-                                mangled, mangled, mangled, ev2->name, k2, mangled,
-                                ev2->name, k2);
+                                mangled, mangled, mangled, variant_c, k2, mangled,
+                                variant_c, k2);
                         }
                         continue;
                     }
                     Iron_Type *pt = (vpt && vpt[j2]) ? vpt[j2][k2] : NULL;
                     if (!pt || pt->kind == IRON_TYPE_VOID) continue;
                     char lv[200];
-                    snprintf(lv, sizeof(lv), "v->data.%s._%d", ev2->name, k2);
+                    snprintf(lv, sizeof(lv), "v->data.%s._%d", variant_c, k2);
                     size_t before = arm.len;
                     emit_elem_lifecycle_stmt(ctx, &arm, pt, lv, drop);
                     if (arm.len > before &&
@@ -1773,7 +1780,7 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
                 }
                 if (arm.len > 0) {
                     iron_strbuf_appendf(&body, "    case %s_TAG_%s:\n%s        break;\n",
-                                        mangled, ev2->name, iron_strbuf_get(&arm));
+                                        mangled, variant_c, iron_strbuf_get(&arm));
                 }
                 iron_strbuf_free(&arm);
             }
@@ -1802,12 +1809,13 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
         iron_strbuf_appendf(&ctx->enum_defs, "typedef enum {\n");
         for (int j = 0; j < ed->variant_count; j++) {
             Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            const char *variant_c = emit_c_user_identifier(ev->name, ctx->arena);
             if (ev->has_explicit_value) {
                 iron_strbuf_appendf(&ctx->enum_defs, "    %s_%s = %d",
-                                     mangled, ev->name, ev->explicit_value);
+                                     mangled, variant_c, ev->explicit_value);
             } else {
                 iron_strbuf_appendf(&ctx->enum_defs, "    %s_%s",
-                                     mangled, ev->name);
+                                     mangled, variant_c);
             }
             if (j < ed->variant_count - 1) {
                 iron_strbuf_appendf(&ctx->enum_defs, ",");
@@ -1826,8 +1834,9 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
                             mangled, mangled, ed->has_payloads ? "_Tag" : "");
         for (int j = 0; j < ed->variant_count; j++) {
             Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            const char *variant_c = emit_c_user_identifier(ev->name, ctx->arena);
             iron_strbuf_appendf(nsb, "    case %s_%s%s: return \"%s\";\n",
-                                mangled, ed->has_payloads ? "TAG_" : "", ev->name, ev->name);
+                                mangled, ed->has_payloads ? "TAG_" : "", variant_c, ev->name);
         }
         iron_strbuf_appendf(nsb, "    default: return \"?\";\n    }\n}\n\n");
     }
@@ -2026,8 +2035,9 @@ void emit_type_decls(EmitCtx *ctx) {
             for (int j = 0; j < entry->impl_count; j++) {
                 Iron_IfaceImpl *impl = &entry->impls[j];
                 if (!impl->is_alive) continue;
+                const char *impl_c = emit_c_user_identifier(impl->type_name, ctx->arena);
                 iron_strbuf_appendf(sb, "    %s_TAG_%s = %d,\n",
-                                     iface_mangled, impl->type_name, impl->tag);
+                                     iface_mangled, impl_c, impl->tag);
             }
             if (entry->alive_count == 0)
                 iron_strbuf_appendf(sb, "    %s_TAG__NONE = 0,\n", iface_mangled);
@@ -2053,6 +2063,7 @@ void emit_type_decls(EmitCtx *ctx) {
                 Iron_IfaceImpl *impl = &entry->impls[j];
                 if (!impl->is_alive) continue;
                 const char *impl_mangled = emit_mangle_name(impl->type_name, ctx->arena);
+                const char *impl_c = emit_c_user_identifier(impl->type_name, ctx->arena);
                 bool is_indirect = false;
                 if (has_indirect && impl->decl) {
                     int sz = emit_estimate_type_size(impl->decl);
@@ -2067,9 +2078,9 @@ void emit_type_decls(EmitCtx *ctx) {
                     }
                 }
                 if (is_indirect) {
-                    iron_strbuf_appendf(sb, "    %s *%s;\n", impl_mangled, impl->type_name);
+                    iron_strbuf_appendf(sb, "    %s *%s;\n", impl_mangled, impl_c);
                 } else {
-                    iron_strbuf_appendf(sb, "    %s %s;\n", impl_mangled, impl->type_name);
+                    iron_strbuf_appendf(sb, "    %s %s;\n", impl_mangled, impl_c);
                 }
             }
             iron_strbuf_appendf(sb, "} %s_data_t;\n\n", iface_mangled);
@@ -2085,6 +2096,7 @@ void emit_type_decls(EmitCtx *ctx) {
                 Iron_IfaceImpl *impl = &entry->impls[j];
                 if (!impl->is_alive) continue;
                 const char *impl_mangled = emit_mangle_name(impl->type_name, ctx->arena);
+                const char *impl_c = emit_c_user_identifier(impl->type_name, ctx->arena);
 
                 /* Check if this variant uses pointer indirection */
                 char ikey[512];
@@ -2103,9 +2115,9 @@ void emit_type_decls(EmitCtx *ctx) {
                         "}\n\n",
                         iface_mangled, iface_mangled, impl->type_name, impl_mangled,
                         iface_mangled,
-                        iface_mangled, impl->type_name,
-                        impl->type_name, impl_mangled, impl_mangled,
-                        impl->type_name);
+                        iface_mangled, impl_c,
+                        impl_c, impl_mangled, impl_mangled,
+                        impl_c);
                 } else {
                     /* Small variant: inline storage (original behavior) */
                     iron_strbuf_appendf(sb,
@@ -2117,8 +2129,8 @@ void emit_type_decls(EmitCtx *ctx) {
                         "}\n\n",
                         iface_mangled, iface_mangled, impl->type_name, impl_mangled,
                         iface_mangled,
-                        iface_mangled, impl->type_name,
-                        impl->type_name);
+                        iface_mangled, impl_c,
+                        impl_c);
                 }
 
             }
@@ -2198,6 +2210,8 @@ void emit_type_decls(EmitCtx *ctx) {
 
                     const char *impl_mangled57 = emit_mangle_name(
                         impl57->type_name, ctx->arena);
+                    const char *impl_c57 = emit_c_user_identifier(impl57->type_name,
+                                                                  ctx->arena);
 
                     /* Skip pointer-indirect variants: no reduced storage exists. */
                     char ikey57[512];
@@ -2227,7 +2241,7 @@ void emit_type_decls(EmitCtx *ctx) {
                         iface_mangled, iface_mangled, impl57->type_name,
                         impl_mangled57,
                         iface_mangled,
-                        iface_mangled, impl57->type_name);
+                        iface_mangled, impl_c57);
 
                     for (int fi = 0; fi < od57->field_count; fi++) {
                         /* PROT-03 unenumerated bonus (AUDIT-01 M-severity sibling
@@ -2262,17 +2276,22 @@ void emit_type_decls(EmitCtx *ctx) {
                             if (narrowed57) {
                                 iron_strbuf_appendf(sb,
                                     "    u.data.%s.%s = (int64_t)val.%s;\n",
-                                    impl57->type_name, f57->name, f57->name);
+                                    emit_c_user_identifier(impl57->type_name, ctx->arena),
+                                    emit_c_user_identifier(f57->name, ctx->arena),
+                                    emit_c_user_identifier(f57->name, ctx->arena));
                             } else {
                                 iron_strbuf_appendf(sb,
                                     "    u.data.%s.%s = val.%s;\n",
-                                    impl57->type_name, f57->name, f57->name);
+                                    emit_c_user_identifier(impl57->type_name, ctx->arena),
+                                    emit_c_user_identifier(f57->name, ctx->arena),
+                                    emit_c_user_identifier(f57->name, ctx->arena));
                             }
                         } else {
                             /* Dead field: zero-init (safe per Phase 48 elimination) */
                             iron_strbuf_appendf(sb,
                                 "    u.data.%s.%s = 0;\n",
-                                impl57->type_name, f57->name);
+                                emit_c_user_identifier(impl57->type_name, ctx->arena),
+                                emit_c_user_identifier(f57->name, ctx->arena));
                         }
                     }
 
@@ -2477,7 +2496,7 @@ void emit_foreign_method_prototypes(EmitCtx *ctx) {
                 if (p > 0) iron_strbuf_appendf(&ctx->prototypes, ", ");
                 const char *pt_c = emit_type_to_c(fn->params[p].type, ctx);
                 const char *pname = fn->params[p].name
-                    ? fn->params[p].name
+                    ? emit_c_user_identifier(fn->params[p].name, ctx->arena)
                     : "";
                 iron_strbuf_appendf(&ctx->prototypes, "%s %s", pt_c, pname);
             }

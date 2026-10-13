@@ -49,7 +49,18 @@ static bool emit_c_name_is_reserved(const char *name) {
         "NAN", "NULL", "RAND_MAX", "SEEK_CUR", "SEEK_END", "SEEK_SET",
         "SIG_ATOMIC_MAX", "SIG_ATOMIC_MIN", "SIG_DFL", "SIG_ERR", "SIG_IGN",
         "WCHAR_MAX", "WCHAR_MIN", "errno", "environ", "stderr", "stdin",
-        "stdout",
+        "stdout", "main", "assert", "offsetof", "va_arg", "va_copy",
+        "va_end", "va_start", "complex", "imaginary", "I", "isfinite",
+        "isinf", "isnan", "isnormal", "signbit", "fpclassify",
+        "memchr", "memcmp", "memcpy", "memmove", "memset", "strcat",
+        "strchr", "strcmp", "strcoll", "strcpy", "strcspn", "strerror",
+        "strlen", "strncat", "strncmp", "strncpy", "strpbrk", "strrchr",
+        "strspn", "strstr", "strtok", "strxfrm", "malloc", "calloc",
+        "realloc", "free", "abort", "exit", "atexit", "quick_exit",
+        "printf", "fprintf", "sprintf", "snprintf", "scanf", "fscanf",
+        "sscanf", "getchar", "putchar", "puts", "perror", "setjmp",
+        "longjmp", "sqrt", "pow", "floor", "ceil", "fabs", "fmod",
+        "sin", "cos", "tan", "exp", "log", "round", "trunc",
         "APIENTRY", "CALLBACK", "DELETE", "ERROR", "IN", "OUT", "OPTIONAL",
         "RGB", "STRICT", "TRUE", "FALSE", "interface", "small", "near",
         "far", "min", "max", NULL
@@ -59,6 +70,12 @@ static bool emit_c_name_is_reserved(const char *name) {
         "_Sp", "_iron_", "lambda_", "spawn_", "parallel_", NULL
     };
     if (!name || !*name) return true;
+    /* C reserves every identifier beginning with an underscore followed by
+     * either another underscore or an uppercase letter. This also covers
+     * platform macros consumed by the runtime, such as _WIN32. */
+    if (name[0] == '_' && (name[1] == '_' ||
+                           (name[1] >= 'A' && name[1] <= 'Z')))
+        return true;
     for (int i = 0; prefixes[i]; i++) {
         size_t n = strlen(prefixes[i]);
         if (strncmp(name, prefixes[i], n) == 0) return true;
@@ -1613,7 +1630,7 @@ IronLIR_Func *emit_find_ir_func(EmitCtx *ctx, const char *ir_name) {
 const char *emit_make_block_label(IronLIR_BlockId id, const char *raw_label,
                                    Iron_Arena *arena) {
     /* Sanitize dots first */
-    const char *san = emit_sanitize_label(raw_label, arena);
+    const char *san = emit_c_user_identifier(emit_sanitize_label(raw_label, arena), arena);
     /* Allocate "label_b<id>\0" */
     size_t san_len = strlen(san);
     /* Max digits for a 32-bit int = 10 + "b" prefix + "_" + NUL = 14 extra */
@@ -1964,20 +1981,21 @@ void emit_ensure_iface_glue(EmitCtx *ctx, const Iron_Type *it, bool drop) {
         Iron_IfaceImpl *im = &e->impls[j];
         if (!im->is_alive || !im->decl) continue;
         const char *tc = emit_mangle_name(im->type_name, ctx->arena);
+        const char *impl_c = emit_c_user_identifier(im->type_name, ctx->arena);
         bool ind = iface_variant_indirect(ctx, ic, im->type_name);
         bool need = drop ? od_needs_drop(ctx, im->decl) : od_needs_copy_fixup(ctx, im->decl);
         if (!ind && !need) continue;
-        iron_strbuf_appendf(sb, "    case %s_TAG_%s:\n", ic, im->type_name);
+        iron_strbuf_appendf(sb, "    case %s_TAG_%s:\n", ic, impl_c);
         if (drop) {
             if (ind) {
-                iron_strbuf_appendf(sb, "        if (self->data.%s) {\n", im->type_name);
+                iron_strbuf_appendf(sb, "        if (self->data.%s) {\n", impl_c);
                 if (need) iron_strbuf_appendf(sb, "            %s_drop(self->data.%s);\n",
-                                              tc, im->type_name);
+                                              tc, impl_c);
                 iron_strbuf_appendf(sb, "            iron_mem_free(self->data.%s);\n"
                                         "            self->data.%s = NULL;\n        }\n",
-                                    im->type_name, im->type_name);
+                                    impl_c, impl_c);
             } else {
-                iron_strbuf_appendf(sb, "        %s_drop(&self->data.%s);\n", tc, im->type_name);
+                iron_strbuf_appendf(sb, "        %s_drop(&self->data.%s);\n", tc, impl_c);
             }
         } else {
             if (ind) {
@@ -1986,12 +2004,12 @@ void emit_ensure_iface_glue(EmitCtx *ctx, const Iron_Type *it, bool drop) {
                     "            %s *cell = (%s *)iron_mem_alloc(sizeof(%s));\n"
                     "            if (!cell) iron_oom_abort(\"%s copy\");\n"
                     "            *cell = *self->data.%s;\n",
-                    im->type_name, tc, tc, tc, ic, im->type_name);
+                    impl_c, tc, tc, tc, ic, impl_c);
                 if (need) iron_strbuf_appendf(sb, "            %s_copied(cell);\n", tc);
                 iron_strbuf_appendf(sb, "            self->data.%s = cell;\n        }\n",
-                                    im->type_name);
+                                    impl_c);
             } else {
-                iron_strbuf_appendf(sb, "        %s_copied(&self->data.%s);\n", tc, im->type_name);
+                iron_strbuf_appendf(sb, "        %s_copied(&self->data.%s);\n", tc, impl_c);
             }
         }
         iron_strbuf_appendf(sb, "        break;\n");
@@ -2320,37 +2338,38 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
         Iron_Field *f = (Iron_Field *)od->fields[i];
         Iron_Type *ft = emit_field_type(f);
         if (!ft || !f->name) continue;
+        const char *field_name_c = emit_c_user_identifier(f->name, ctx->arena);
         if (emit_type_is_rc_like(ft)) {
-            emit_rc_field_op(sb, ft, f->name, false);
+            emit_rc_field_op(sb, ft, field_name_c, false);
         } else if (emit_type_is_string_like(ft)) {
-            emit_string_field_op(sb, ft, f->name, false);
+            emit_string_field_op(sb, ft, field_name_c, false);
         } else if (ft->kind == IRON_TYPE_FUNC) {
-            iron_strbuf_appendf(sb, "    iron_closure_retain(self->%s);\n", f->name);
+            iron_strbuf_appendf(sb, "    iron_closure_retain(self->%s);\n", field_name_c);
         } else if (ft->kind == IRON_TYPE_INTERFACE) {
             if (iface_needs_glue(ctx, ft, true))
                 iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
         } else if (emit_type_is_bvec(ft)) {
             if (bvec_needs_glue(ctx, ft, true))
                 iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
         } else if (ft->kind == IRON_TYPE_NULLABLE && !emit_type_is_string_like(ft) &&
                    !emit_type_is_rc_like(ft)) {
             if (optional_needs_glue(ctx, ft, true))
                 iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
         } else if (ft->kind == IRON_TYPE_ENUM) {
             if (enum_needs_glue(ctx, ft, true))
                 iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
         } else if (emit_field_is_owned_list(ft)) {
             const char *lt = emit_type_to_c(ft, ctx);
             iron_strbuf_appendf(sb, "    self->%s = %s_clone(&self->%s);\n",
-                                f->name, lt, f->name);
+                                field_name_c, lt, field_name_c);
         } else if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
                    od_needs_copy_fixup(ctx, ft->object.decl)) {
             iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
-                                emit_type_to_c(ft, ctx), f->name);
+                                emit_type_to_c(ft, ctx), field_name_c);
         }
     }
     char lir_name[256];
@@ -2442,58 +2461,59 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
         Iron_Field *f = (Iron_Field *)od->fields[i];
         Iron_Type *ft = emit_field_type(f);
         if (!ft || !f->name) continue;
+        const char *field_name_c = emit_c_user_identifier(f->name, ctx->arena);
         if (emit_type_is_rc_like(ft)) {
-            emit_rc_field_op(&ctx->lifted_funcs, ft, f->name, true);
+            emit_rc_field_op(&ctx->lifted_funcs, ft, field_name_c, true);
             continue;
         }
         if (emit_type_is_string_like(ft)) {
-            emit_string_field_op(&ctx->lifted_funcs, ft, f->name, true);
+            emit_string_field_op(&ctx->lifted_funcs, ft, field_name_c, true);
             continue;
         }
         if (ft->kind == IRON_TYPE_FUNC) {
-            iron_strbuf_appendf(&ctx->lifted_funcs, "    iron_closure_release(self->%s);\n", f->name);
+            iron_strbuf_appendf(&ctx->lifted_funcs, "    iron_closure_release(self->%s);\n", field_name_c);
             continue;
         }
         if (emit_field_is_owned_list(ft)) {
             iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_free(&self->%s);\n",
-                                emit_type_to_c(ft, ctx), f->name);
+                                emit_type_to_c(ft, ctx), field_name_c);
             continue;
         }
         if (emit_field_is_box(ft)) {
             emit_ensure_box(ctx, ft->object.elem);
             iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_free(&self->%s);\n",
-                                emit_type_to_c(ft, ctx), f->name);
+                                emit_type_to_c(ft, ctx), field_name_c);
             continue;
         }
         if (ft->kind == IRON_TYPE_INTERFACE) {
             if (iface_needs_glue(ctx, ft, false))
                 iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
             continue;
         }
         if (emit_type_is_bvec(ft)) {
             if (bvec_needs_glue(ctx, ft, false))
                 iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
             continue;
         }
         if (ft->kind == IRON_TYPE_NULLABLE) {
             if (optional_needs_glue(ctx, ft, false))
                 iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
             continue;
         }
         if (ft->kind == IRON_TYPE_ENUM) {
             if (enum_needs_glue(ctx, ft, false))
                 iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
             continue;
         }
         const char *resource = emit_resource_field_kind(ft);
         if (resource) {
             (void)emit_type_to_c(ft, ctx);   /* seats the resource's helpers */
             iron_strbuf_appendf(&ctx->lifted_funcs, "    Iron_%s_%s_destroy(&self->%s);\n",
-                                resource, emit_elem_c_escaped(ctx, ft->object.elem), f->name);
+                                resource, emit_elem_c_escaped(ctx, ft->object.elem), field_name_c);
             continue;
         }
         if (ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;
@@ -2505,7 +2525,7 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
              * No call-site wrap needed — just invoke the synthesized drop. */
             iron_strbuf_appendf(&ctx->lifted_funcs,
                 "    %s_drop(&self->%s);\n",
-                field_c_name, f->name);
+                field_c_name, field_name_c);
         }
     }
     iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
@@ -2613,9 +2633,10 @@ void emit_ensure_copy(EmitCtx *ctx, const char *obj_c_name,
         Iron_Type *ft = f->field_type_cached;
         if (!ft->has_user_copy_cached || !ft->has_user_copy_transitive) continue;
         const char *field_c_name = emit_type_to_c(ft, ctx);
+        const char *field_name_c = emit_c_user_identifier(f->name, ctx->arena);
         iron_strbuf_appendf(&ctx->lifted_funcs,
             "    %s_copy(&dest->%s, &src->%s);\n",
-            field_c_name, f->name, f->name);
+            field_c_name, field_name_c, field_name_c);
     }
     iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
 }

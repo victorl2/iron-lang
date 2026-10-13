@@ -264,14 +264,15 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive) continue;
+        const char *impl_c = emit_c_user_identifier(impl2->type_name, ctx->arena);
         if (iface_variant_is_boxed(ctx, iface_mangled, impl2->type_name))
             iron_strbuf_appendf(sb,
                 "    case %d: Iron_SplitList_%s_push_%s(_sl, *_val.data.%s); iron_mem_free(_val.data.%s); return true;\n",
-                impl2->tag, iface_mangled, impl2->type_name, impl2->type_name, impl2->type_name);
+                impl2->tag, iface_mangled, impl2->type_name, impl_c, impl_c);
         else
             iron_strbuf_appendf(sb,
                 "    case %d: Iron_SplitList_%s_push_%s(_sl, _val.data.%s); return true;\n",
-                impl2->tag, iface_mangled, impl2->type_name, impl2->type_name);
+                impl2->tag, iface_mangled, impl2->type_name, impl_c);
     }
     iron_strbuf_appendf(sb, "    default: return false;\n    }\n}\n\n");
 
@@ -341,16 +342,17 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive) continue;
+        const char *impl_c = emit_c_user_identifier(impl2->type_name, ctx->arena);
         char ln[256];
         lower_impl_name(ln, sizeof(ln), impl2->type_name);
         if (iface_variant_is_boxed(ctx, iface_mangled, impl2->type_name))
             iron_strbuf_appendf(sb,
                 "        case %d: _sl->%s_items[_oi] = *_val.data.%s; iron_mem_free(_val.data.%s); break;\n",
-                impl2->tag, ln, impl2->type_name, impl2->type_name);
+                impl2->tag, ln, impl_c, impl_c);
         else
             iron_strbuf_appendf(sb,
                 "        case %d: _sl->%s_items[_oi] = _val.data.%s; break;\n",
-                impl2->tag, ln, impl2->type_name);
+                impl2->tag, ln, impl_c);
     }
     iron_strbuf_appendf(sb,
         "        default: break;\n"
@@ -487,7 +489,8 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                             impl2->type_name, f->name, narrowed);
                     }
                 }
-                iron_strbuf_appendf(sb, "    %s %s;\n", c_type, f->name);
+                iron_strbuf_appendf(sb, "    %s %s;\n", c_type,
+                                    emit_c_user_identifier(f->name, ctx->arena));
             }
             iron_strbuf_appendf(sb, "} %s_Stor;\n\n", im);
             /* Record this type uses reduced storage */
@@ -539,8 +542,9 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
         for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
             iron_strbuf_appendf(sb, "    %s *%s_%s;\n",
                 common_fields[cfi].c_type, iface_lower,
-                common_fields[cfi].name);
-            SL_MEMBER("%s_%s|%s_common_cap", iface_lower, common_fields[cfi].name, iface_lower);
+                emit_c_user_identifier(common_fields[cfi].name, ctx->arena));
+            SL_MEMBER("%s_%s|%s_common_cap", iface_lower,
+                      emit_c_user_identifier(common_fields[cfi].name, ctx->arena), iface_lower);
         }
         iron_strbuf_appendf(sb, "    int64_t %s_common_count;\n", iface_lower);
         iron_strbuf_appendf(sb, "    int64_t %s_common_cap;\n", iface_lower);
@@ -647,8 +651,9 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                     &ctx->value_range, impl2->type_name, f->name);
                 if (narrowed_soa) c_type = narrowed_soa;
                 iron_strbuf_appendf(sb, "    %s *%s_%s;\n",
-                    c_type, lower_name, f->name);
-                SL_MEMBER("%s_%s|%s_cap", lower_name, f->name, lower_name);
+                    c_type, lower_name, emit_c_user_identifier(f->name, ctx->arena));
+                SL_MEMBER("%s_%s|%s_cap", lower_name,
+                          emit_c_user_identifier(f->name, ctx->arena), lower_name);
             }
             iron_strbuf_appendf(sb, "    int64_t %s_count;\n", lower_name);
             iron_strbuf_appendf(sb, "    int64_t %s_cap;\n", lower_name);
@@ -766,8 +771,8 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                     "        _sl->%s_%s = (%s *)_iron_sl_realloc_tracked("
                     "&_sl->_tracked, &_sl->_tracked_count, &_sl->_tracked_cap, "
                     "_sl->%s_%s, (size_t)_sl->%s_cap * sizeof(%s));\n",
-                    lower_name, f->name, c_type,
-                    lower_name, f->name,
+                    lower_name, emit_c_user_identifier(f->name, ctx->arena), c_type,
+                    lower_name, emit_c_user_identifier(f->name, ctx->arena),
                     lower_name, c_type);
             }
             iron_strbuf_appendf(sb, "    }\n");
@@ -810,11 +815,14 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                 if (narrowed_sf) {
                     iron_strbuf_appendf(sb,
                         "    _sl->%s_%s[_sl->%s_count] = (%s)_val.%s;\n",
-                        lower_name, f->name, lower_name, narrowed_sf, f->name);
+                        lower_name, emit_c_user_identifier(f->name, ctx->arena),
+                        lower_name, narrowed_sf,
+                        emit_c_user_identifier(f->name, ctx->arena));
                 } else {
                     iron_strbuf_appendf(sb,
                         "    _sl->%s_%s[_sl->%s_count] = _val.%s;\n",
-                        lower_name, f->name, lower_name, f->name);
+                        lower_name, emit_c_user_identifier(f->name, ctx->arena),
+                        lower_name, emit_c_user_identifier(f->name, ctx->arena));
                 }
             }
 
@@ -830,16 +838,18 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                         "        _sl->%s_%s = (%s *)_iron_sl_realloc_tracked("
                         "&_sl->_tracked, &_sl->_tracked_count, &_sl->_tracked_cap, "
                         "_sl->%s_%s, (size_t)_sl->%s_common_cap * sizeof(%s));\n",
-                        iface_lower, common_fields[cfi].name, common_fields[cfi].c_type,
-                        iface_lower, common_fields[cfi].name,
+                        iface_lower,
+                        emit_c_user_identifier(common_fields[cfi].name, ctx->arena),
+                        common_fields[cfi].c_type,
+                        iface_lower, emit_c_user_identifier(common_fields[cfi].name, ctx->arena),
                         iface_lower, common_fields[cfi].c_type);
                 }
                 iron_strbuf_appendf(sb, "    }\n");
                 for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
                     iron_strbuf_appendf(sb,
                         "    _sl->%s_%s[_sl->%s_common_count] = _val.%s;\n",
-                        iface_lower, common_fields[cfi].name,
-                        iface_lower, common_fields[cfi].name);
+                        iface_lower, emit_c_user_identifier(common_fields[cfi].name, ctx->arena),
+                        iface_lower, emit_c_user_identifier(common_fields[cfi].name, ctx->arena));
                 }
                 iron_strbuf_appendf(sb,
                     "    _sl->%s_common_count++;\n", iface_lower);
@@ -888,11 +898,15 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                     if (narrowed_af) {
                         iron_strbuf_appendf(sb,
                             "    _sl->%s_items[_sl->%s_count].%s = (%s)_val.%s;\n",
-                            lower_name, lower_name, f->name, narrowed_af, f->name);
+                            lower_name, lower_name,
+                            emit_c_user_identifier(f->name, ctx->arena), narrowed_af,
+                            emit_c_user_identifier(f->name, ctx->arena));
                     } else {
                         iron_strbuf_appendf(sb,
                             "    _sl->%s_items[_sl->%s_count].%s = _val.%s;\n",
-                            lower_name, lower_name, f->name, f->name);
+                            lower_name, lower_name,
+                            emit_c_user_identifier(f->name, ctx->arena),
+                            emit_c_user_identifier(f->name, ctx->arena));
                     }
                 }
             } else {
