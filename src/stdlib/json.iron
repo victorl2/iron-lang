@@ -772,97 +772,141 @@ patch object Json {
     -- ── Copying and comparison ─────────────────────────────────────────────
 
     /// An independent deep copy: no container is shared with this value.
+    /// Works without recursion, so a tree of any depth can be copied.
     readonly func clone() -> Json {
-        match self.node {
-            JsonNode.Arr(xs) -> {
-                val out = Json.array()
-                for x in xs {
-                    out.push(x.clone())
-                }
-                return out
-            }
-            JsonNode.Obj(o) -> {
-                val out = Json.obj()
-                for i in range(o.keys.len()) {
-                    out.attach(o.keys[i], o.values[i].clone())
-                }
-                return out
-            }
-            else -> return self
+        if not self.is_array() and not self.is_object() {
+            return self
         }
-        return self
+        val root = Json.empty_like(self)
+        var srcs: [Json] = [self]
+        var dsts: [Json] = [root]
+        var pos: [Int] = [0]
+        while srcs.len() > 0 {
+            val d = srcs.len() - 1
+            val src = srcs[d]
+            val i = pos[d]
+            if i >= src.len() {
+                srcs.pop()
+                dsts.pop()
+                pos.pop()
+                continue
+            }
+            pos[d] = i + 1
+            val child = src.value_at(i)
+            var dup = child
+            if child.is_array() or child.is_object() {
+                dup = Json.empty_like(child)
+                srcs.push(child)
+                dsts.push(dup)
+                pos.push(0)
+            }
+            dsts[d].attach(src.key_at(i), dup)
+        }
+        return root
     }
 
     /// Deep equality. Objects are equal when they have the same members
-    /// regardless of order; an Int and a Float are equal when they have the
-    /// same numeric value.
+    /// regardless of order (with duplicate keys, the last member counts,
+    /// as for lookups); an Int and a Float are equal when they have exactly
+    /// the same numeric value. Works without recursion.
     readonly func equals(other: Json) -> Bool {
-        match self.node {
-            JsonNode.Null -> return other.is_null()
-            JsonNode.Bool(b) -> {
-                val ob = other.as_bool()
-                return ob != null and ob == b
-            }
-            JsonNode.Int(i) -> {
-                val oi = other.as_int()
-                if oi != null {
-                    return oi == i
-                }
-                val of = other.as_float()
-                return of != null and of == Float(i)
-            }
-            JsonNode.Float(f) -> {
-                val of = other.as_float()
-                return of != null and of == f
-            }
-            JsonNode.Str(s) -> {
-                val os = other.as_string()
-                return os != null and os == s
-            }
-            JsonNode.Arr(xs) -> {
-                if not other.is_array() or other.len() != xs.len() {
-                    return false
-                }
-                for i in range(xs.len()) {
-                    if not xs[i].equals(other.at(i)) {
+        var xs: [Json] = [self]
+        var ys: [Json] = [other]
+        while xs.len() > 0 {
+            val a = xs.pop()
+            val b = ys.pop()
+            match a.node {
+                JsonNode.Null -> {
+                    if not b.is_null() {
                         return false
                     }
                 }
-                return true
-            }
-            JsonNode.Obj(o) -> {
-                if not other.is_object() or other.distinct_keys() != self.distinct_keys() {
-                    return false
-                }
-                for i in range(o.keys.len()) {
-                    if Json.index_of_key(o.keys, o.keys[i]) != i {
-                        continue
-                    }
-                    val ov = other.find(o.keys[i])
-                    if ov == null {
-                        return false
-                    }
-                    if not o.values[i].equals(ov) {
+                JsonNode.Bool(x) -> {
+                    val y = b.as_bool()
+                    if y == null or y != x {
                         return false
                     }
                 }
-                return true
+                JsonNode.Int(i) -> {
+                    match b.node {
+                        JsonNode.Int(j) -> {
+                            if i != j {
+                                return false
+                            }
+                        }
+                        JsonNode.Float(f) -> {
+                            if not Json.int_equals_float(i, f) {
+                                return false
+                            }
+                        }
+                        else -> return false
+                    }
+                }
+                JsonNode.Float(f) -> {
+                    match b.node {
+                        JsonNode.Int(j) -> {
+                            if not Json.int_equals_float(j, f) {
+                                return false
+                            }
+                        }
+                        JsonNode.Float(g) -> {
+                            if f != g {
+                                return false
+                            }
+                        }
+                        else -> return false
+                    }
+                }
+                JsonNode.Str(s) -> {
+                    val t = b.as_string()
+                    if t == null or t != s {
+                        return false
+                    }
+                }
+                JsonNode.Arr(ax) -> {
+                    match b.node {
+                        JsonNode.Arr(bx) -> {
+                            if ax.len() != bx.len() {
+                                return false
+                            }
+                            for i in range(ax.len()) {
+                                xs.push(ax[i])
+                                ys.push(bx[i])
+                            }
+                        }
+                        else -> return false
+                    }
+                }
+                JsonNode.Obj(ao) -> {
+                    match b.node {
+                        JsonNode.Obj(bo) -> {
+                            val am = Json.last_indexes(ao.keys)
+                            val bm = Json.last_indexes(bo.keys)
+                            if am.len() != bm.len() {
+                                return false
+                            }
+                            for (k, i) in am {
+                                if not bm.has(k) {
+                                    return false
+                                }
+                                xs.push(ao.values[i])
+                                ys.push(bo.values[bm.get(k)])
+                            }
+                        }
+                        else -> return false
+                    }
+                }
             }
         }
-        return false
+        return true
     }
 
     /// The number of distinct keys of an object (duplicates count once).
     readonly func distinct_keys() -> Int {
         match self.node {
             JsonNode.Obj(o) -> {
-                var n = 0
-                for i in range(o.keys.len()) {
-                    if Json.index_of_key(o.keys, o.keys[i]) == i {
-                        n += 1
-                    }
-                }
-                return n
+                val last = Json.last_indexes(o.keys)
+                return last.len()
             }
             else -> return 0
         }
@@ -933,42 +977,124 @@ func Json.misuse(method: String, type_name: String) {
     assert(false, "Json.{method}() on a JSON {type_name}")
 }
 
-/// Encode `v` into writer handle `h`.
-func Json.write_value(h: Int, v: Json, sort_keys: Bool) {
-    match v.node {
-        JsonNode.Null -> JsonNative.w_null(h)
-        JsonNode.Bool(b) -> JsonNative.w_bool(h, b)
-        JsonNode.Int(i) -> JsonNative.w_int(h, i)
-        JsonNode.Float(f) -> JsonNative.w_float(h, f)
-        JsonNode.Str(s) -> JsonNative.w_string(h, s)
-        JsonNode.Arr(xs) -> {
-            JsonNative.w_begin_array(h)
-            for x in xs {
-                Json.write_value(h, x, sort_keys)
-            }
-            JsonNative.w_end_array(h)
+/// An empty array or object of the same kind as `v`.
+func Json.empty_like(v: Json) -> Json {
+    if v.is_object() {
+        return Json.obj()
+    }
+    return Json.array()
+}
+
+/// Whether Int `i` and Float `f` are exactly the same number (no rounding:
+/// 9007199254740993 is not 9007199254740992.0, and INT64_MAX is not 2^63).
+func Json.int_equals_float(i: Int, f: Float) -> Bool {
+    if Float(i) != f {
+        return false
+    }
+    if f >= 9223372036854775808.0 or f < -9223372036854775808.0 {
+        return false
+    }
+    return Int(f) == i
+}
+
+/// Key -> index of its last member, for each distinct key.
+func Json.last_indexes(keys: [String]) -> Map[String, Int] {
+    var m = Map[String, Int]()
+    for i in range(keys.len()) {
+        m.put(keys[i], i)
+    }
+    return m
+}
+
+/// Member indexes of an object in key order, one per distinct key (its
+/// last member), for sorted output.
+func Json.sorted_members(keys: [String]) -> [Int] {
+    val last = Json.last_indexes(keys)
+    var order = keys.copy()
+    order.sort()
+    var out: [Int] = []
+    for i in range(order.len()) {
+        if i == 0 or order[i] != order[i - 1] {
+            out.push(last.get(order[i]))
         }
-        JsonNode.Obj(o) -> {
-            JsonNative.w_begin_object(h)
-            if sort_keys {
-                var order = o.keys.copy()
-                order.sort()
-                var last = ""
-                for i in range(order.len()) {
-                    val k = order[i]
-                    if i == 0 or k != last {
-                        JsonNative.w_key(h, k)
-                        Json.write_value(h, o.values[Json.index_of_key(o.keys, k)], sort_keys)
-                    }
-                    last = k
+    }
+    return out
+}
+
+/// Encode `v` into writer handle `h`. Works without recursion (an explicit
+/// stack of open containers), so a tree of any depth can be written.
+func Json.write_value(h: Int, v: Json, sort_keys: Bool) {
+    var stack: [Json] = []
+    var pos: [Int] = []
+    var orders: [[Int]] = []
+    var cur = v
+    var pending = true
+    while true {
+        if pending {
+            match cur.node {
+                JsonNode.Null -> JsonNative.w_null(h)
+                JsonNode.Bool(b) -> JsonNative.w_bool(h, b)
+                JsonNode.Int(i) -> JsonNative.w_int(h, i)
+                JsonNode.Float(f) -> JsonNative.w_float(h, f)
+                JsonNode.Str(s) -> JsonNative.w_string(h, s)
+                JsonNode.Arr(_) -> {
+                    JsonNative.w_begin_array(h)
+                    stack.push(cur)
+                    pos.push(0)
+                    orders.push([])
                 }
-            } else {
-                for i in range(o.keys.len()) {
-                    JsonNative.w_key(h, o.keys[i])
-                    Json.write_value(h, o.values[i], sort_keys)
+                JsonNode.Obj(o) -> {
+                    JsonNative.w_begin_object(h)
+                    stack.push(cur)
+                    pos.push(0)
+                    if sort_keys {
+                        orders.push(Json.sorted_members(o.keys))
+                    } else {
+                        orders.push([])
+                    }
                 }
             }
-            JsonNative.w_end_object(h)
+        }
+        val d = stack.len() - 1
+        if d < 0 {
+            return
+        }
+        val i = pos[d]
+        pending = false
+        match stack[d].node {
+            JsonNode.Arr(xs) -> {
+                if i < xs.len() {
+                    pos[d] = i + 1
+                    cur = xs[i]
+                    pending = true
+                } else {
+                    JsonNative.w_end_array(h)
+                }
+            }
+            JsonNode.Obj(o) -> {
+                var n = o.keys.len()
+                if sort_keys {
+                    n = orders[d].len()
+                }
+                if i < n {
+                    var k = i
+                    if sort_keys {
+                        k = orders[d][i]
+                    }
+                    pos[d] = i + 1
+                    JsonNative.w_key(h, o.keys[k])
+                    cur = o.values[k]
+                    pending = true
+                } else {
+                    JsonNative.w_end_object(h)
+                }
+            }
+            else -> {}
+        }
+        if not pending {
+            stack.pop()
+            pos.pop()
+            orders.pop()
         }
     }
 }

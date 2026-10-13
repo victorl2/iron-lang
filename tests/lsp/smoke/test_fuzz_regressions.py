@@ -101,6 +101,19 @@ async def _utf16_client(lsp_binary):
     return c
 
 
+async def _utf16_workspace_client(lsp_binary, root):
+    from pytest_lsp import ClientServerConfig
+    c = await ClientServerConfig(server_command=[lsp_binary]).start()
+    _install_register_capability_handler(c)
+    params = _default_init_params()
+    params.capabilities.general.position_encodings = [types.PositionEncodingKind.Utf16]
+    params.root_uri = root.as_uri()
+    params.workspace_folders = [
+        types.WorkspaceFolder(uri=root.as_uri(), name="range-regression")]
+    await c.initialize_session(params)
+    return c
+
+
 async def _stop(c):
     try:
         await asyncio.wait_for(c.shutdown_session(), timeout=3.0)
@@ -135,6 +148,36 @@ async def test_selection_range_stays_in_the_document(lsp_binary, tmp_path):
         # `t` on line 2 sits after no wide character; `s` in the string
         # line is after two surrogate pairs: its rung starts at their end.
         assert res[1].range.start == types.Position(line=2, character=12)
+    finally:
+        await _stop(c)
+
+
+@pytest.mark.asyncio
+async def test_workspace_symbol_uses_current_open_buffer(lsp_binary, tmp_path):
+    # The workspace index used the file as warm-seeded from disk after an
+    # open buffer changed. Its stale symbol range could then point past the
+    # end of a shorter current line (#812).
+    path = tmp_path / "symbols.iron"
+    disk_text = "pub func a_very_long_name() {}\n"
+    path.write_text(disk_text, encoding="utf-8")
+    c = await _utf16_workspace_client(lsp_binary, tmp_path)
+    try:
+        uri = path.as_uri()
+        _open(c, uri, disk_text)
+        await _diagnostics_for_version(c, uri, 1)
+
+        current = "pub func x() {}\n"
+        c.text_document_did_change(types.DidChangeTextDocumentParams(
+            text_document=types.VersionedTextDocumentIdentifier(uri=uri, version=2),
+            content_changes=[types.TextDocumentContentChangeWholeDocument(text=current)]))
+        await _diagnostics_for_version(c, uri, 2)
+
+        result = await asyncio.wait_for(c.workspace_symbol_async(
+            types.WorkspaceSymbolParams(query="")), timeout=10.0)
+        own = [s for s in result or [] if s.location.uri == uri]
+        assert [s.name for s in own] == ["x"], own
+        for symbol in own:
+            _assert_in_document(current, symbol.location.range, "utf-16")
     finally:
         await _stop(c)
 

@@ -1217,10 +1217,10 @@ class Session:
 
     def parity(self, doc):
         diags = self.settle(doc)
-        # comptime file access and imports differ by design; `-- @file:` is
-        # the test harness's file marker (it moves the diagnostics after it
-        # to another file, outside the comparison)
-        if 'comptime' in doc.text or 'import' in doc.text or '@file:' in doc.text:
+        # comptime file access and imports differ by design. (`-- @file:`,
+        # the test harness's file marker, is a plain comment in both: the
+        # server and ironc must agree on documents that contain it.)
+        if 'comptime' in doc.text or 'import' in doc.text:
             self.stats['parity_skipped'] += 1
             return
         why = parity_check(doc, diags, self.args.ironc, self.env)
