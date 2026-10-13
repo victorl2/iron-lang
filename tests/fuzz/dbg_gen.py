@@ -22,7 +22,10 @@ MASK64 = (1 << 64) - 1
 # ── Iron text forms ──────────────────────────────────────────────────────────
 
 def f32(x):
-    return struct.unpack("f", struct.pack("f", x))[0]
+    try:
+        return struct.unpack("f", struct.pack("f", x))[0]
+    except OverflowError:   # past Float32's range: it rounds to infinity
+        return math.copysign(math.inf, x)
 
 
 def float_text(v, is_f32=False):
