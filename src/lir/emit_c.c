@@ -10550,6 +10550,87 @@ static void emit_func_body_named(EmitCtx *ctx, IronLIR_Func *fn) {
     iron_strbuf_free(&body);
 }
 
+/* Fusion changes stage-at-a-time execution into element-at-a-time execution.
+ * That is observable when a callback performs I/O, writes shared state, or
+ * traps. Only callbacks whose lifted bodies and complete static call graph
+ * are proven pure and non-trapping may take part. Unknown and recursive
+ * callees are rejected conservatively. */
+static IronLIR_Func *fusion_find_func(EmitCtx *ctx, const char *name) {
+    if (!ctx || !ctx->module || !name) return NULL;
+    for (int i = 0; i < ctx->module->func_count; i++) {
+        IronLIR_Func *candidate = ctx->module->funcs[i];
+        if (candidate && candidate->name && strcmp(candidate->name, name) == 0)
+            return candidate;
+    }
+    return NULL;
+}
+
+static const char *fusion_call_name(IronLIR_Func *fn, IronLIR_Instr *call) {
+    if (!fn || !call || call->kind != IRON_LIR_CALL) return NULL;
+    if (call->call.func_decl) return call->call.func_decl->name;
+    IronLIR_ValueId fptr = call->call.func_ptr;
+    if (fptr == IRON_LIR_VALUE_INVALID ||
+        fptr >= (IronLIR_ValueId)arrlen(fn->value_table) ||
+        !fn->value_table[fptr] ||
+        fn->value_table[fptr]->kind != IRON_LIR_FUNC_REF)
+        return NULL;
+    return fn->value_table[fptr]->func_ref.func_name;
+}
+
+static bool fusion_func_is_safe(EmitCtx *ctx, IronLIR_Func *fn,
+                                const char **active, int depth) {
+    if (!ctx || !ctx->opt_info || !fn || !fn->name || depth >= 64) return false;
+    if (!ctx->opt_info->func_purity ||
+        hmgeti(ctx->opt_info->func_purity, (char *)fn->name) < 0)
+        return false;
+    for (int i = 0; i < depth; i++)
+        if (strcmp(active[i], fn->name) == 0) return false;
+    active[depth] = fn->name;
+
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *block = fn->blocks[bi];
+        for (int ii = 0; ii < block->instr_count; ii++) {
+            IronLIR_Instr *in = block->instrs[ii];
+            if (iron_lir_instr_may_trap(fn, in)) return false;
+            if (in->kind == IRON_LIR_STORE) {
+                IronLIR_ValueId ptr = in->store.ptr;
+                if (ptr < (IronLIR_ValueId)arrlen(fn->value_table)) {
+                    IronLIR_Instr *slot = fn->value_table[ptr];
+                    if (slot && slot->kind == IRON_LIR_ALLOCA &&
+                        slot->alloca.global_name)
+                        return false;
+                }
+            }
+            if (in->kind == IRON_LIR_CALL) {
+                const char *callee_name = fusion_call_name(fn, in);
+                IronLIR_Func *callee = fusion_find_func(ctx, callee_name);
+                if (!callee || !fusion_func_is_safe(ctx, callee, active, depth + 1))
+                    return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool fusion_callback_is_safe(EmitCtx *ctx, IronLIR_Func *owner,
+                                    IronLIR_ValueId value) {
+    if (!owner || value == IRON_LIR_VALUE_INVALID ||
+        value >= (IronLIR_ValueId)arrlen(owner->value_table))
+        return false;
+    IronLIR_Instr *closure = owner->value_table[value];
+    if (!closure || closure->kind != IRON_LIR_MAKE_CLOSURE ||
+        !closure->make_closure.lifted_func_name)
+        return false;
+    for (int i = 0; i < closure->make_closure.capture_count; i++) {
+        if (!closure->make_closure.capture_metadata ||
+            closure->make_closure.capture_metadata[i].is_mutable)
+            return false;
+    }
+    const char *active[64];
+    IronLIR_Func *lifted = fusion_find_func(ctx, closure->make_closure.lifted_func_name);
+    return lifted && fusion_func_is_safe(ctx, lifted, active, 0);
+}
+
 static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb) {
     emit_build_def_instrs(fn);
 
@@ -11080,6 +11161,18 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                     for (int ai = 1; ai < instr->call.arg_count; ai++)
                         arrput(fci.lambda_args, instr->call.args[ai]);
                     fci.lambda_arg_count = instr->call.arg_count - 1;
+                }
+
+                bool callbacks_safe = true;
+                for (int ai = 0; ai < fci.lambda_arg_count; ai++) {
+                    if (!fusion_callback_is_safe(ctx, fn, fci.lambda_args[ai])) {
+                        callbacks_safe = false;
+                        break;
+                    }
+                }
+                if (!callbacks_safe) {
+                    arrfree(fci.lambda_args);
+                    continue;
                 }
 
                 arrput(fusible_calls, fci);

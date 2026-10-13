@@ -1,4 +1,4 @@
-// @fusion-loops: 8
+// @fusion-loops: 6
 // Numeric pipelines cover every built-in stage, direct and named callbacks,
 // captured closures, bindings between stages, and a nested pipeline.
 
