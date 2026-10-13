@@ -21,6 +21,7 @@
 #include "lsp/facade/nav/fuzzy.h"
 #include "lsp/facade/nav/symbol_id.h"
 #include "lsp/facade/nav/visibility.h"
+#include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h"
 #include "lsp/server/server.h"
 #include "analyzer/analyzer.h"
@@ -162,6 +163,36 @@ static bool path_contains_prefix(const char *canonical_path,
     return false;
 }
 
+static uint64_t document_hash_prefix(const IronLsp_Document *doc) {
+    uint64_t hash = 0;
+    if (!doc) return 0;
+    for (int i = 0; i < 8; i++) {
+        hash = (hash << 8) | (uint64_t)doc->sha256[i];
+    }
+    return hash;
+}
+
+/* The workspace index describes the last bytes read from disk. An open
+ * document can have newer, unsaved bytes, so its indexed AST and spans are
+ * invalid until the hashes match again. Suppress that entry instead of
+ * returning stale symbols or ranges outside the current buffer (#825). */
+static bool entry_is_stale_open_document(IronLsp_Server *server,
+                                          IronLsp_IndexEntry *entry,
+                                          Iron_Arena *arena) {
+    if (!server || !server->documents || !entry || !entry->canonical_path) {
+        return false;
+    }
+
+    const char *uri = ilsp_nav_path_to_uri(entry->canonical_path, arena);
+    if (!uri) return false;
+
+    ptrdiff_t idx = shgeti(server->documents, uri);
+    if (idx < 0) return false;
+
+    IronLsp_Document *doc = server->documents[idx].value;
+    return doc && document_hash_prefix(doc) != entry->content_hash;
+}
+
 /* Score one decl against (name_needle, prefix/rest) and, if a match,
  * push a candidate row onto `*out_arr` (stb_ds). */
 static void score_decl(IronLsp_Server *server,
@@ -296,6 +327,7 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
         if (cancel && atomic_load(cancel)) break;
         IronLsp_IndexEntry *entry = wi->entries[i].value;
         if (!entry || !entry->program) continue;
+        if (entry_is_stale_open_document(server, entry, arena)) continue;
         score_program(server, entry, entry->program, rest,
                        prefix, prefix_len, arena, &cands);
     }
