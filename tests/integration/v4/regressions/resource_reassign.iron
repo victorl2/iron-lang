@@ -1,0 +1,14 @@
+-- Reassigning a Channel, Mutex or RWLock var destroys the one it replaces
+-- (#632): it leaked, with the items still queued in it.
+func main() {
+    var c: Channel[Int] = Channel[Int](1)
+    c.send(1)
+    c = Channel[Int](2)
+    c.send(5)
+    val n: Int = c.recv()
+    var m = Mutex([1, 2])
+    m = Mutex([3])
+    var rw: RWLock[String] = RWLock("a")
+    rw = RWLock("b")
+    println("{n}")
+}

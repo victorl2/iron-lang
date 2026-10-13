@@ -1,0 +1,17 @@
+-- A generic call with value arguments can still leave a type parameter for
+-- the expected method parameter type to supply (#688).
+object Sink {
+    readonly func take(xs: [Int]) -> Int {
+        return len(xs)
+    }
+}
+
+func make[T](n: Int) -> [T] {
+    println("make {n}")
+    return []
+}
+
+func main() {
+    val s = Sink()
+    println("{s.take(make(1))}")
+}
