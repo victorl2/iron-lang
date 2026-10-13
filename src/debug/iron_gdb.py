@@ -358,13 +358,7 @@ class ObjectPrinter:
         self.val = val
 
     def to_string(self):
-        fields = _fields(self.val.type.strip_typedefs())
-        parts = ["%s = %s" % (_iron_name(field.name),
-                              self.val[field.name].format_string())
-                 for field in fields[:8]]
-        name = _short(self.val.type.tag or self.val.type.name or str(self.val.type))
-        return "%s {%s%s}" % (name, ", ".join(parts),
-                               ", ..." if len(fields) > 8 else "")
+        return None
 
     def children(self):
         for field in _fields(self.val.type.strip_typedefs()):
