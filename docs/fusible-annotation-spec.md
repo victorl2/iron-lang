@@ -205,7 +205,7 @@ The `--warn-fusion-break` flag enables diagnostic output at each point where a p
 
 ### Usage
 
-```
+```sh
 ironc build --warn-fusion-break myfile.iron -o myfile
 ```
 
@@ -213,7 +213,7 @@ ironc build --warn-fusion-break myfile.iron -o myfile
 
 The flag emits notes to stderr at each chain break point:
 
-```
+```text
 note: --warn-fusion-break: fusion chain broken: non-fusible call after .map() in function main
 note: --warn-fusion-break: fusion chain broken: intermediate result of .map() used elsewhere in function main
 ```
@@ -258,6 +258,7 @@ for (int64_t _i = 0; _i < arr_count; _i++) {
 
 ### Example 2: Split Collection with Reduce
 
+<!-- doctest-skip: fragment relies on the Shape, Circle and Square declarations discussed above -->
 ```iron
 val shapes: [Shape] = [Circle(5.0), Square(3.0), Circle(2.0)]
 val total = shapes.map(func(s: Shape) -> Float { s.area() })
@@ -282,6 +283,7 @@ double total = _acc;
 
 ### Example 3: Broken Chain with Sub-Chains
 
+<!-- doctest-skip: illustrative fragment intentionally uses a placeholder non-fusible transform -->
 ```iron
 val arr = [1, 2, 3, 4, 5]
 val mapped = arr.map(func(x: Int) -> Int { x * 2 })
