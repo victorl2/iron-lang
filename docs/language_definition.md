@@ -1,7 +1,7 @@
 # Iron Reference Manual
 
 This manual describes the Iron programming language as implemented by the
-`iron` compiler that ships with this repository (version 4.5). It is a
+`iron` compiler that ships with this repository (version 5.0). It is a
 reference, not a tutorial: each section states what the compiler accepts and
 what the program does, with a small complete example. Every `iron` code block
 in this document is compiled and executed by `scripts/test_doc_examples.sh`,
@@ -912,7 +912,9 @@ clicked 3
 lifecycle; they are described in section 6. `heap` and `rc` may only
 appear in front of an allocation expression, not in a type annotation, a
 parameter or a binding keyword position (`E0273`, `E0297`); the reserved
-`pool` keyword is rejected with `E0298`.
+`pool` keyword is rejected with `E0298`. `heap` requires an object or
+collection allocation; `heap` of a number or `Bool` is a type mismatch
+(`E0202`).
 
 ### 3.9 Type tests
 
@@ -1353,8 +1355,13 @@ mutated (`E0266`, `E0234`). A parameter declared `var` is a copy that the
 body may assign to and mutate; when the function returns, the final value
 is written back to the caller's `var` binding, so `var` parameters behave
 like in-out arguments. A list parameter is lent (never copied); a `var`
-list parameter lets the body grow or shrink the caller's list. Objects are
-passed by value. The result type follows `->`; omit it for a function that
+list parameter lets the body grow or shrink the caller's list. An object
+parameter is lent for the call; it is not copied and its `copy` or `drop`
+block does not run in the callee. A `var` parameter may receive a caller's
+`var` binding, mutable field, or mutable list element. The original place
+stays valid for the call and receives the final value, even if keeping it
+valid requires pinning a list or an allocation. The result type follows
+`->`; omit it for a function that
 returns nothing. Argument count and types must match exactly (`E0216`,
 `E0217`). Functions cannot be overloaded (`E0201`) and there are no default
 or named arguments. Type parameters are written after the name (section
@@ -1407,6 +1414,8 @@ func main() {
 
 A top-level function name is a function value: `val f = twice`,
 `apply(twice, 4)` and `[twice]` work like the equivalent lambdas.
+Compiler built-ins such as `print`, `println`, `len`, `range` and `fill`
+are calls, not values: naming one without calling it is `E0202`.
 
 `@fusible` before a `func` marks it as eligible for loop fusion of chained
 list operations; it changes nothing else about the function.
@@ -1950,8 +1959,10 @@ value, dereferencing a stale checked pointer.
 ### 6.1 Stack values
 
 A binding initialized with a plain expression holds its value directly.
-Objects are copied on assignment, when passed by value and when stored in
-lists or fields; each copy is destroyed independently. A value is destroyed
+Objects are copied on assignment and when stored in lists or fields; each
+copy is destroyed independently. Passing an object to an ordinary parameter
+lends it for the call, while a `var` parameter writes back to its original
+place (section 5.2). A value is destroyed
 when its block exits (in reverse declaration order) or, for a temporary,
 as soon as the expression that used it is done: a field read off a
 temporary (`make().name`) copies the field out and then drops the
@@ -2217,6 +2228,10 @@ pointers are distinct types (`E0289`, `E0294`) and `&` never produces an
 unchecked pointer. `RawPtr.of(x)` produces a type-erased `RawPtr` and
 `Ptr.cast[T](raw)` turns it back into a `*unchecked T`.
 
+A pointer to a collection does not expose that collection's methods or
+indexing. Calling a list, map, set, channel or lock operation through a
+pointer is `E0220`; pass or retain the collection value itself instead.
+
 ```iron
 object Config {
     var width: Int
@@ -2311,6 +2326,12 @@ objects moves its elements (`take()`, `pop()`, `remove()`) and lends them
 field (`val p = ps[i]`). Each object has at most
 one `drop` and one `copy` block (`E0284`, `E0285`); `drop` may not be
 `readonly` (`E0287`) and may not `return` early (`E0288`).
+
+A closure may capture a `nocopy` value only as a borrow: the lambda must be
+passed directly as a call argument and the callee must not keep it. A spawn
+may borrow one only when it is awaited in the same block. Binding, returning
+or storing such a closure, passing it to a callee that keeps it, or letting
+the spawn escape is `E0286`; the diagnostic names `rc` as the ownership fix.
 
 ```iron
 object Point {
@@ -3672,7 +3693,7 @@ type           ::= 'weak' 'rc' type
                  | named_type
 ptr_type       ::= '*' [ 'var' ] [ 'unchecked' ] type
 tuple_type     ::= '(' type ',' type { ',' type } ')'
-list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']'
+list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']' [ '?' ]
 elem_type      ::= func_type | 'rc' type | 'weak' 'rc' type | list_type | ptr_type | tuple_type | named_type
 list_attr      ::= 'layout' ':' ( 'soa' | 'aos' ) | 'unordered'
 func_type      ::= 'func' [ '(' [ type { ',' type } ] ')' ] [ '->' type ]

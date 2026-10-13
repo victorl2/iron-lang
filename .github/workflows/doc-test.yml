@@ -21,6 +21,7 @@ on:
       - 'scripts/templates/**'
       - 'scripts/test_doc_examples.sh'
       - 'scripts/check_doc_examples.sh'
+      - 'scripts/check_doc_links.py'
       - 'scripts/grammar_check.py'
       - 'tests/integration/v4/**'
       - 'tests/integration/v4-fail/**'
@@ -39,6 +40,7 @@ on:
       - 'scripts/templates/**'
       - 'scripts/test_doc_examples.sh'
       - 'scripts/check_doc_examples.sh'
+      - 'scripts/check_doc_links.py'
       - 'scripts/grammar_check.py'
       - 'tests/integration/v4/**'
       - 'tests/integration/v4-fail/**'
@@ -89,6 +91,9 @@ jobs:
           chmod +x scripts/test_doc_examples.sh
           chmod +x scripts/check_doc_examples.sh
           bash scripts/check_doc_examples.sh ./build/iron
+
+      - name: Check relative documentation links and anchors
+        run: python3 scripts/check_doc_links.py
 
       - name: Check the manual's grammar against the fixture corpus
         run: python3 scripts/grammar_check.py --negative tests/integration/v4-fail
