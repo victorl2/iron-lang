@@ -487,6 +487,46 @@ is used the same way. `[I, unordered]`, for an interface type `I`, keeps
 the elements grouped by concrete type instead of in insertion order and
 cannot be indexed (`E0329`); iteration visits every element.
 
+A `layout: soa` list of an object type keeps one column per field, all in
+one allocation: the values of the first field of every element, then those
+of the next field, and so on. Every list operation gives the same result,
+and the same panic at the same line, as for the default layout; what
+changes is where the bytes are:
+
+- `ps[i].x` reads or writes one value of the `x` column and touches no
+  other field, so a loop over one or two fields of a long list reads
+  contiguous memory and can be vectorized. `&ps[i].x` passed to a pointer
+  parameter points into the column.
+- A whole element (`ps[i]`, `for p in ps`, `pop`, `remove`) is gathered
+  from the columns into a value; `push`, `insert` and `ps[i] = v` scatter
+  one. `insert` and `remove` move the tail of every column.
+- A whole element has no address. A method called on `ps[i]`, `&ps[i]`
+  passed to a pointer parameter and `ps[i]` passed to a `var` parameter
+  lend a gathered copy for the duration of the call; when the call
+  returns, what it may have changed is stored back (for a method, the
+  fields its body can write; nothing for a `readonly` method or a `*T`
+  parameter). During such a call the element read again through the list
+  itself still has its value from before the call.
+- The layout belongs to the list value and is chosen where the list is
+  made. A list literal, `[]` included, takes the layout of the type it is
+  checked against: the annotation of the binding, field, parameter or
+  return type it initializes. `copy()`, `take()`, a slice and `filter` give
+  a list of the same layout as their source; any other new list (`map`, a
+  literal with no annotated type) has the default layout.
+- A list keeps its layout wherever it goes. `[T]` and `[T, layout: soa]`
+  are the same type: a parameter, binding or field of either accepts a
+  list of either layout, and passing, returning or storing a list never
+  converts it.
+- Copy and drop hooks run exactly as for the default layout, once per
+  element copied or destroyed.
+
+For an element type that is not an object (numbers, `String`, enums) the
+attribute is accepted and changes nothing; fixed arrays and bounded
+vectors take no attributes. Traversing every field of every element is
+not faster in a `layout: soa` list; use it for lists whose hot loops read
+a few fields of many elements. The debugger formatters show the elements
+of either layout.
+
 ```iron
 object Particle {
     var x: Float
@@ -2120,9 +2160,12 @@ after that (kept in a closure or an object that outlived the call) it
 aborts with a "dangling stack pointer to frame" message. Checked pointers
 support no arithmetic (`E0268`, `E0295`); `&` cannot be applied to a
 temporary (`E0270`), a pointer to a local cannot be returned (`E0271`), `&`
-on an `rc` handle is rejected (`E0296`), and `&list[i]` on a growable list
-is rejected (`E0330`) unless it is written directly as a call argument,
-because the list may move its elements when it grows.
+on an `rc` handle is rejected (`E0296`), and the address of an element of
+a growable list, or of anything stored inside one (`&list[i]`,
+`&list[i].field`, `&list[i].inner.field`, `&list[i].fixed[0]`), is
+rejected (`E0330`) unless it is written directly as a call argument,
+because the list may move its elements when it grows. This holds for
+either list layout (section 2.3).
 
 ```iron
 object Player {
@@ -2272,7 +2315,11 @@ list cleared), with `self` bound to the dying value. It may contain a
 cloning its list fields). An object declared `nocopy object` cannot be
 copied at all: assigning it to another binding, passing it by value or
 storing it is an error (`E0286`), which is how `Box`, `Channel`, `Mutex`,
-`RWLock` and `FileHandle` guarantee a single owner. Each object has at most
+`RWLock` and `FileHandle` guarantee a single owner. A list of `nocopy`
+objects moves its elements (`take()`, `pop()`, `remove()`) and lends them
+(field reads, `for`, methods), but anything that would duplicate one is
+`E0286` too: `copy()`, a slice, `filter`, and binding an element or a
+field (`val p = ps[i]`). Each object has at most
 one `drop` and one `copy` block (`E0284`, `E0285`); `drop` may not be
 `readonly` (`E0287`) and may not `return` early (`E0288`).
 
@@ -3494,7 +3541,7 @@ codes cited in this manual:
 | E0314 | possibly uninitialized `var` |
 | E0320, E0321 | private declaration used from another file; standalone `func Type.method` form |
 | E0322, E0323, E0324, E0325, E0326 | unsupported `is`; unsupported match subject; lambda parameter type; awaited twice; thread pools |
-| E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element |
+| E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element or of a field inside one |
 | E0335 | `break` / `continue` outside a loop, in a lambda, `defer` or `spawn` body inside one, or in a `parallel` loop |
 | E0336 | `return` inside a `defer` body |
 | E0350, E0351 | static function called on a value; method called through the type name |

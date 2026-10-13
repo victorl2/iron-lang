@@ -2561,13 +2561,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
              * alloca; emit_c renders it "&_vN". E0267 already guarantees
              * the source is mutable. IDENT sources (var local or var
              * param) own an alloca slot and get full reference semantics.
-             * KNOWN GAP: E0267's other accepted shape — a `var` FIELD of a
-             * mutable object (arg_source_is_mutable FIELD_ACCESS arm) —
-             * falls back to by-value lowering below, so callee mutations
-             * do not write back to the field. No fixture exercises it;
-             * fixing it needs a raw field-address arg form (the ADDR_OF
-             * machinery produces fat pointers, not the bare `T *` the
-             * var-param ABI takes). */
+             * A `var` field or an element (`f(obj.field)`, `f(xs[i])`,
+             * the other shapes E0267 accepts) is lowered as the place's
+             * value chain and flagged by address too: emit_c addresses
+             * the field or element in its own storage, so the callee's
+             * writes land there (passed by value it was invalid C, a
+             * struct handed to a pointer parameter). */
             if (by_addr_flags && i < callee_hf->param_count &&
                 callee_hf->param_is_var[i] &&
                 expr->call.args[i] &&
@@ -2582,6 +2581,15 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 }
             }
             IronLIR_ValueId av = lower_expr(ctx, expr->call.args[i]);
+            if (by_addr_flags && i < callee_hf->param_count &&
+                callee_hf->param_is_var[i] && expr->call.args[i] &&
+                (expr->call.args[i]->kind == IRON_HIR_EXPR_FIELD_ACCESS ||
+                 expr->call.args[i]->kind == IRON_HIR_EXPR_INDEX)) {
+                arrput(args, av);
+                by_addr_flags[i] = true;
+                any_by_addr = true;
+                continue;
+            }
             /* An owned temporary is noted with its own type, before it is
              * wrapped for a T? parameter: the drop slot was typed T and
              * stored the optional (C type error for an object argument). */
@@ -3230,6 +3238,29 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                  * call never reaches lowering (check errors stop the build),
                  * the guard here only keeps malformed IR out of the fallback
                  * Iron_List_* name path. */
+                /* `xs.set(i, v)` on a list is `xs[i] = v`: the list owns
+                 * the stored value from then on and the element it replaces
+                 * is dropped. As a plain method call the argument was
+                 * released after the call while the list kept its bits (a
+                 * use after free for any element owning memory) and the old
+                 * element leaked. set_unchecked takes the same road unless
+                 * the element is a plain number or Bool, which owns nothing. */
+                {
+                    const char *sm = expr->method_call.method;
+                    Iron_Type *se = obj_type->array.elem;
+                    bool is_set = sm && strcmp(sm, "set") == 0;
+                    bool is_setu = sm && strcmp(sm, "set_unchecked") == 0 && se &&
+                                   !iron_type_is_numeric(se) && se->kind != IRON_TYPE_BOOL;
+                    if ((is_set || is_setu) && expr->method_call.arg_count == 2 &&
+                        obj_type->array.size < 0 && !obj_type->array.is_bounded &&
+                        se && se->kind != IRON_TYPE_INTERFACE) {
+                        IronHIR_Expr *tgt = iron_hir_expr_index(ctx->hir,
+                            expr->method_call.object, expr->method_call.args[0], se, span);
+                        lower_stmt(ctx, iron_hir_stmt_assign(ctx->hir, tgt,
+                            expr->method_call.args[1], span));
+                        return IRON_LIR_VALUE_INVALID;
+                    }
+                }
                 if (expr->method_call.method &&
                     strcmp(expr->method_call.method, "get_unchecked") == 0 &&
                     expr->method_call.arg_count == 1) {
