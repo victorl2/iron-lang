@@ -1,7 +1,9 @@
 -- Builtin nocopy types borrowed by a lambda passed directly and by an
--- awaited spawn (#512): a Hasher's native state and a FileHandle's
--- descriptor and a Box allocation are released once, by their bindings (it
--- was a double free and a double close). The builtin reference-counted
+-- awaited spawn (#512): a Hasher's native state, a FileHandle's descriptor,
+-- and a Box allocation are released once by their bindings (it was a double
+-- free and a double close). FileHandle close is intentionally silent (#814),
+-- so ASan, Valgrind, and the descriptor-reuse fixture verify that release.
+-- The builtin reference-counted
 -- handles remain valid stored captures, including their nocopy guard types.
 -- rc Mutex / rc Channel / rc RWLock destroy the handle and its value with
 -- the last reference (#636), and a match arm reads a nocopy payload without
