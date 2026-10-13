@@ -68,7 +68,7 @@ def main() -> int:
                                    env=env, check=True, text=True, stdout=subprocess.PIPE).stdout
         with tempfile.TemporaryDirectory(prefix="iron-mysql-diff-") as work:
             binary = pathlib.Path(work) / "differential"
-            subprocess.run([ironc, "build", str(ROOT / "tests/mysql/differential.iron"),
+            subprocess.run([ironc, "build", str(ROOT / "tests/mysql/support/differential.iron"),
                             "-o", str(binary)], cwd=work, check=True)
             actual_run = subprocess.run([str(binary)], env=env, text=True,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
