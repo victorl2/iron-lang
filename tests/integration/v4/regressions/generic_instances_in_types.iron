@@ -1,0 +1,35 @@
+-- Generic enum instances named only in types are declared, with their list
+-- functions, before the structs that hold them (#630).
+object Gp[A, B] {
+    val a: A
+    val b: B
+}
+
+object Gb[T] {
+    val v: T
+}
+
+enum Mb[T] {
+    So(T),
+}
+
+enum W2 {
+    B(Gp[[Mb[String]], (Bool, Int?)], Int),
+}
+
+func sh(x: Gp[[Mb[String]], Int]) -> String {
+    return "{x.b}"
+}
+
+func sh2(x: Gb[[Mb[Bool]?]]) -> String {
+    return "{len(x.v)}"
+}
+
+func main() {
+    println("{sh(Gp[[Mb[String]], Int]([Mb.So("a")], 2))}")
+    println(sh2(Gb[[Mb[Bool]?]]([Mb.So(true), null])))
+    val w = W2.B(Gp[[Mb[String]], (Bool, Int?)]([], (true, null)), 3)
+    match w {
+        W2.B(g, n) -> println("{len(g.a)} {n}")
+    }
+}

@@ -730,7 +730,7 @@ static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
                 char msg[256];
                 snprintf(msg, sizeof(msg),
                          "spawn block '%s' mutates outer variable '%s'; "
-                         "potential data race (E0604)",
+                         "potential data race",
                          ss->name ? ss->name : "<anonymous>",
                          ctx->spawn_writes[w]);
                 emit_warn(ctx, IRON_WARN_SPAWN_DATA_RACE, ss->span, msg);
@@ -741,6 +741,18 @@ static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
             arrsetlen(ctx->spawn_writes, saved_write_count);
             arrsetlen(ctx->spawn_reads,  saved_read_count);
             ctx->in_spawn = prev_in_spawn;
+            break;
+        }
+        /* `val h = spawn(...) { }`: the spawn is the initializer. Without
+         * this the commonest form of spawn was never checked (no W0604). */
+        case IRON_NODE_VAL_DECL: {
+            Iron_Node *init = ((Iron_ValDecl *)node)->init;
+            if (init && init->kind == IRON_NODE_SPAWN) walk_stmt(ctx, init);
+            break;
+        }
+        case IRON_NODE_VAR_DECL: {
+            Iron_Node *init = ((Iron_VarDecl *)node)->init;
+            if (init && init->kind == IRON_NODE_SPAWN) walk_stmt(ctx, init);
             break;
         }
         /* -Wswitch-enum opt-out: top-level walker only recurses into control

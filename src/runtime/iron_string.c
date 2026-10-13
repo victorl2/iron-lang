@@ -231,6 +231,9 @@ Iron_String iron_string_concat(const Iron_String *a, const Iron_String *b) {
         return s;
     }
 
+    /* The length is 32 bits: a longer result would be cut silently. */
+    if (total >= (size_t)UINT32_MAX)
+        iron_oom_abort("iron_string_concat: string longer than 4 GiB");
     /* FIX-02: replace Phase 65 silent empty-string fallback with iron_oom_abort. */
     char *buf = iron__str_alloc(total, "iron_string.c:iron_string_concat");
     memcpy(buf,      iron_string_cstr(a), la);
@@ -242,6 +245,97 @@ Iron_String iron_string_concat(const Iron_String *a, const Iron_String *b) {
     s.heap.data            = buf;
     s.heap.byte_length     = (uint32_t)total;
     s.heap.codepoint_count = (uint32_t)count_codepoints(buf, total);
+    s.heap.flags           = 0x01; /* is_heap */
+    return s;
+}
+
+/* ── Appending ───────────────────────────────────────────────────────────
+ * `s += t` (#597). iron_string_concat allocates exactly and copies both
+ * sides, so building a string piece by piece was quadratic. The appended
+ * result here is allocated with room to grow (the capacity is kept in the
+ * header's spare word), and when the left side is the only reference to
+ * its buffer and the new bytes fit, they are written in place: the result
+ * shares the buffer (one more reference), and the caller's release of the
+ * old value then leaves the result as the buffer's only owner. The old
+ * value's view is unchanged (its length did not change); nothing else can
+ * see the buffer.
+ *
+ * The character count stays exact and incremental: count_codepoints steps
+ * over a whole sequence from each lead byte, so a string whose last
+ * sequence is cut short makes the walk end past its last byte. The heap
+ * string's spare byte _padding[0] records that overshoot (0x80 | bytes)
+ * for strings made here; for any other string it is computed once. */
+static void walk_codepoints(const char *d, size_t n, size_t start,
+                            size_t *count, size_t *over) {
+    size_t c = 0, i = start;
+    while (i < n) {
+        unsigned char ch = (unsigned char)d[i];
+        if      ((ch & 0x80) == 0x00) i += 1;
+        else if ((ch & 0xE0) == 0xC0) i += 2;
+        else if ((ch & 0xF0) == 0xE0) i += 3;
+        else                          i += 4;
+        c++;
+    }
+    *count = c;
+    *over = i > n ? i - n : 0;
+}
+
+Iron_String iron_string_concat_append(const Iron_String *a, const Iron_String *b) {
+    static const Iron_String empty_const;
+    if (!a) a = &empty_const;
+    if (!b) b = &empty_const;
+    size_t la = iron_string_byte_len(a), lb = iron_string_byte_len(b);
+    size_t total = la + lb;
+    if (total <= IRON_STRING_SSO_MAX) return iron_string_concat(a, b);
+    if (total >= (size_t)UINT32_MAX)
+        iron_oom_abort("iron_string_concat_append: string longer than 4 GiB");
+    const char *ad = iron_string_cstr(a);
+    const char *bd = iron_string_cstr(b);
+
+    /* characters of the result: those of a, then b walked from where a's
+     * last step ended */
+    size_t ca, over;
+    bool a_heap = (a->heap.flags & 0x01) != 0;
+    if (a_heap && a->heap.codepoint_count != IRON_STRING_COUNT_UNKNOWN &&
+        (a->heap._padding[0] & 0x80)) {
+        ca = a->heap.codepoint_count;
+        over = a->heap._padding[0] & 0x7f;
+    } else {
+        walk_codepoints(ad, la, 0, &ca, &over);
+    }
+    size_t cb, over2;
+    if (over >= lb) { cb = 0; over2 = over - lb; }
+    else walk_codepoints(bd, lb, over, &cb, &over2);
+    size_t count = ca + cb;
+
+    Iron_String s;
+    if (iron__str_counted(a)) {
+        IronStrHdr *h = iron__str_hdr(a);
+        size_t cap = h->_pad ? (size_t)h->_pad : la;
+        if (atomic_load_explicit(&h->rc, memory_order_acquire) == 1 && cap >= total) {
+            memcpy(a->heap.data + la, bd, lb);
+            a->heap.data[total] = '\0';
+            atomic_fetch_add_explicit(&h->rc, 1, memory_order_relaxed);
+            s = *a;
+            s.heap.byte_length     = (uint32_t)total;
+            s.heap.codepoint_count = (uint32_t)count;
+            s.heap._padding[0]     = (uint8_t)(0x80 | over2);
+            return s;
+        }
+    }
+    size_t cap = total < 2 * la ? 2 * la : total;
+    if (cap < 64) cap = 64;
+    if (cap >= (size_t)UINT32_MAX) cap = total;
+    char *buf = iron__str_alloc(cap, "iron_string.c:iron_string_concat_append");
+    (((IronStrHdr *)buf) - 1)->_pad = cap;
+    memcpy(buf, ad, la);
+    memcpy(buf + la, bd, lb);
+    buf[total] = '\0';
+    memset(&s, 0, sizeof(s));
+    s.heap.data            = buf;
+    s.heap.byte_length     = (uint32_t)total;
+    s.heap.codepoint_count = (uint32_t)count;
+    s.heap._padding[0]     = (uint8_t)(0x80 | over2);
     s.heap.flags           = 0x01; /* is_heap */
     return s;
 }
@@ -597,47 +691,43 @@ static const char *iron__memfind(const char *hay, size_t hlen,
     return NULL;
 }
 
-static uint32_t cp_to_upper(uint32_t c) {
-    if (c >= 'a' && c <= 'z') return c - 32;
-    if (c < 0x80) return c;
-    if ((c >= 0xE0 && c <= 0xFE && c != 0xF7)) return c - 0x20;
-    if (c == 0xFF) return 0x178;
-    if (c >= 0x100 && c <= 0x17F) {
-        if ((c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E))
-            return (c % 2 == 0) ? c - 1 : c;
-        if (c == 0x131 || c == 0x138 || c == 0x149 || c == 0x17F) return c;
-        return (c % 2 == 1) ? c - 1 : c;
+/* Simple Unicode case mapping (#637): the generated tables cover every
+ * character with a one-to-one upper or lower case form (the old tables
+ * stopped at Latin Extended-A and the unaccented Greek and Cyrillic
+ * letters, so "\u03ac".upper() kept its case). Characters whose case form
+ * is several characters keep theirs. */
+#include "runtime/iron_casemap.h"
+
+static uint32_t case_lookup(const IronCaseRun *runs, size_t n, uint32_t c) {
+    size_t lo = 0, hi = n;
+    while (lo < hi) {
+        size_t mid = (lo + hi) / 2;
+        if (c < runs[mid].first) hi = mid;
+        else if (c > runs[mid].last) lo = mid + 1;
+        else {
+            if ((c - runs[mid].first) % runs[mid].step != 0) return c;
+            return (uint32_t)((int64_t)c + runs[mid].delta);
+        }
     }
-    if (c >= 0x3B1 && c <= 0x3C9 && c != 0x3C2) return c - 0x20;
-    if (c == 0x3C2) return 0x3A3;
-    if (c >= 0x430 && c <= 0x44F) return c - 0x20;
-    if (c >= 0x450 && c <= 0x45F) return c - 0x50;
     return c;
 }
 
+static uint32_t cp_to_upper(uint32_t c) {
+    if (c < 0x80) return (c >= 'a' && c <= 'z') ? c - 32 : c;
+    return case_lookup(iron_case_upper, sizeof(iron_case_upper) / sizeof(iron_case_upper[0]), c);
+}
+
 static uint32_t cp_to_lower(uint32_t c) {
-    if (c >= 'A' && c <= 'Z') return c + 32;
-    if (c < 0x80) return c;
-    if (c >= 0xC0 && c <= 0xDE && c != 0xD7) return c + 0x20;
-    if (c == 0x178) return 0xFF;
-    if (c >= 0x100 && c <= 0x17F) {
-        if ((c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E))
-            return (c % 2 == 1) ? c + 1 : c;
-        if (c == 0x130 || c == 0x131 || c == 0x138 || c == 0x149 || c == 0x17F) return c;
-        return (c % 2 == 0) ? c + 1 : c;
-    }
-    if (c >= 0x391 && c <= 0x3A9 && c != 0x3A2) return c + 0x20;
-    if (c >= 0x410 && c <= 0x42F) return c + 0x20;
-    if (c >= 0x400 && c <= 0x40F) return c + 0x50;
-    return c;
+    if (c < 0x80) return (c >= 'A' && c <= 'Z') ? c + 32 : c;
+    return case_lookup(iron_case_lower, sizeof(iron_case_lower) / sizeof(iron_case_lower[0]), c);
 }
 
 static Iron_String map_case(Iron_String self, uint32_t (*map)(uint32_t),
                             const char *who) {
     const char *s   = iron_string_cstr(&self);
     size_t      len = iron_string_byte_len(&self);
-    /* Mapped characters in these blocks keep their UTF-8 length, except
-     * y-diaeresis (1 -> 2 bytes); 2x plus 4 bounds every case. */
+    /* A mapped character grows by at most half (2 -> 3 UTF-8 bytes, an
+     * ASCII letter stays ASCII): 2x plus 4 bounds every case. */
     char *buf = (char *)malloc(len * 2 + 4);
     if (!buf) iron_oom_abort(who);
     size_t b = 0, o = 0;
@@ -884,8 +974,41 @@ int64_t Iron_string_to_int(Iron_String self) {
     return v;
 }
 
+/* Whether [p, end) is a decimal number: an optional sign, digits with an
+ * optional fraction (or a fraction alone), an optional exponent. strtod
+ * also takes hexadecimal floats, "inf", "infinity" and "nan(...)", which
+ * are not numbers in Iron's text form. */
+static bool iron_decimal_number(const char *p, const char *end) {
+    if (p < end && (*p == '+' || *p == '-')) p++;
+    const char *digits = p;
+    while (p < end && *p >= '0' && *p <= '9') p++;
+    bool int_digits = p > digits;
+    bool frac_digits = false;
+    if (p < end && *p == '.') {
+        p++;
+        const char *f = p;
+        while (p < end && *p >= '0' && *p <= '9') p++;
+        frac_digits = p > f;
+    }
+    if (!int_digits && !frac_digits) return false;
+    if (p < end && (*p == 'e' || *p == 'E')) {
+        p++;
+        if (p < end && (*p == '+' || *p == '-')) p++;
+        const char *e = p;
+        while (p < end && *p >= '0' && *p <= '9') p++;
+        if (p == e) return false;
+    }
+    return p == end;
+}
+
 double Iron_string_to_float(Iron_String self) {
     const char *s = iron_string_cstr(&self);
+    const char *stop = s + iron_string_byte_len(&self);
+    const char *a = s;
+    while (a < stop && (*a == ' ' || *a == '\t' || *a == '\n' || *a == '\r' || *a == '\v' || *a == '\f')) a++;
+    const char *b = stop;
+    while (b > a && (b[-1] == ' ' || b[-1] == '\t' || b[-1] == '\n' || b[-1] == '\r' || b[-1] == '\v' || b[-1] == '\f')) b--;
+    if (!iron_decimal_number(a, b)) return 0.0;
     char *end;
     double v = strtod(s, &end);
     if (end == s || !iron_rest_is_space(end, s + iron_string_byte_len(&self))) return 0.0;
@@ -993,10 +1116,12 @@ Iron_String Iron_string_byte_slice(Iron_String self, int64_t start, int64_t end_
     return iron_string_from_cstr(iron_string_cstr(&self) + start, (size_t)(end_idx - start));
 }
 
-/* Build a 1-byte string from the low 8 bits of `b`. Caller is responsible
- * for any UTF-8 validity concerns — this is a byte constructor, not a
- * codepoint constructor. */
+/* Build a 1-byte string from `b` (0..255). Caller is responsible for any
+ * UTF-8 validity concerns — this is a byte constructor, not a codepoint
+ * constructor. A value outside 0..255 is no byte: "" (it used to keep the
+ * low 8 bits, so from_byte(256) was a zero byte and from_byte(-1) 0xFF). */
 Iron_String Iron_string_from_byte(int64_t b) {
+    if (b < 0 || b > 255) return iron_string_from_cstr("", 0);
     char buf[1];
     buf[0] = (char)(b & 0xff);
     return iron_string_from_cstr(buf, 1);

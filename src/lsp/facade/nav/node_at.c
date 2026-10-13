@@ -153,6 +153,7 @@ static bool innermost_visit(Iron_Visitor *v, Iron_Node *n) {
         (!c->best || span_within(&n->span, &c->best->span))) {
         c->best = n;
     }
+    if (n->kind == IRON_NODE_TYPE_ANNOTATION) ilsp_nav_walk_type_inner(n, v);
     return true;
 }
 

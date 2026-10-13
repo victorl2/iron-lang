@@ -122,6 +122,10 @@ typedef struct {
      *                      filtered lambda/spawn capture, or transitively
      *                      from another active global's initializer). */
     struct { char *key; Iron_Node *value; } *global_decls_map;
+    /* A free function of the program whose name is a method's lowered name
+     * (`log_info` and the standard library's Log.info, a user object Log
+     * with a method info): it is lowered as u_<name> (#524). */
+    struct { Iron_Node *key; const char *value; } *func_renames;
     const char                             **global_decl_order; /* stb_ds array */
     struct { char *key; int value; }        *global_active_set;
 
@@ -246,6 +250,12 @@ static void hir_block_insert_stmt_at(IronHIR_Block *block, int pos,
         block->stmts[i] = block->stmts[i - 1];
     block->stmts[pos] = stmt;
     block->stmt_count = (int)arrlen(block->stmts);
+}
+
+/* The HIR name of a free function (see func_renames). */
+static const char *func_hir_name(IronHIR_LowerCtx *ctx, Iron_FuncDecl *fd) {
+    ptrdiff_t i = hmgeti(ctx->func_renames, (Iron_Node *)fd);
+    return i >= 0 ? ctx->func_renames[i].value : fd->name;
 }
 
 /* Mark a module-level binding as referenced. Only active globals get a
@@ -454,13 +464,17 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
         }
     }
 
-    if (ta->is_nullable && base) {
+    /* On a list annotation (`[Int]?`) the `?` is the list's (the parser
+     * routes `[Int?]` through array_elem_ann). */
+    if (ta->is_nullable && !ta->is_array && base) {
         base = iron_type_make_nullable(ctx->module->arena, base);
     }
     if (ta->is_array && base) {
         int size = -1;
         /* size node not used here for simplicity */
         base = iron_type_make_array(ctx->module->arena, base, size, false);
+        if (ta->is_nullable && base)
+            base = iron_type_make_nullable(ctx->module->arena, base);
     }
     return base;
 }
@@ -1193,8 +1207,10 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 IronHIR_Expr **cargs = NULL;
                 arrput(cargs, target_read);
                 arrput(cargs, value);
+                /* (the appending form grows the buffer geometrically:
+                 * repeated += is linear, not quadratic, #597) */
                 binop = iron_hir_expr_call(
-                    mod, iron_hir_expr_func_ref(mod, "iron_string_concat", ty, span),
+                    mod, iron_hir_expr_func_ref(mod, "iron_string_concat_append", ty, span),
                     cargs, 2, ty, span);
             } else {
                 binop = iron_hir_expr_binop(mod, hop, target_read, value, ty, span);
@@ -2166,13 +2182,17 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         }
 
         /* 4. Function reference: check module funcs */
+        const char *fname = id->name;
+        if (id->resolved_sym && id->resolved_sym->decl_node &&
+            id->resolved_sym->decl_node->kind == IRON_NODE_FUNC_DECL)
+            fname = func_hir_name(ctx, (Iron_FuncDecl *)id->resolved_sym->decl_node);
         for (int i = 0; i < mod->func_count; i++) {
-            if (strcmp(mod->funcs[i]->name, id->name) == 0) {
+            if (strcmp(mod->funcs[i]->name, fname) == 0) {
                 if (!ctx->lowering_callee && id->resolved_type &&
                     id->resolved_type->kind == IRON_TYPE_FUNC &&
                     !mod->funcs[i]->is_extern)
-                    return make_func_value(ctx, id->name, id->resolved_type, span);
-                return iron_hir_expr_func_ref(mod, id->name,
+                    return make_func_value(ctx, fname, id->resolved_type, span);
+                return iron_hir_expr_func_ref(mod, fname,
                                               id->resolved_type, span);
             }
         }
@@ -2470,6 +2490,19 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
          * full DEREF semantics by-value). The flag-read here documents
          * that the HIR layer is aware of the analyzer's tag. */
         (void)mc->is_auto_deref;  /* read flag — explicit handling tracked in 20-03 */
+        /* A String / Int / Int32 / Float method through a pointer (#575):
+         * the method takes the value, so read it through the pointer (a
+         * generation checked load for a checked pointer). Object methods
+         * take the pointer itself and are left as they were. */
+        if (mc->is_auto_deref && obj && obj->type && obj->type->kind == IRON_TYPE_PTR &&
+            obj->type->ptr.pointee &&
+            (obj->type->ptr.pointee->kind == IRON_TYPE_STRING ||
+             obj->type->ptr.pointee->kind == IRON_TYPE_INT ||
+             obj->type->ptr.pointee->kind == IRON_TYPE_INT32 ||
+             obj->type->ptr.pointee->kind == IRON_TYPE_FLOAT)) {
+            obj = iron_hir_expr_deref(mod, obj, ptr_gen_source(mc->object),
+                                      obj->type->ptr.pointee, span);
+        }
         /* NOTE: args stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
         return iron_hir_expr_method_call(mod, obj, mc->method,
                                           args, arg_count,
@@ -2494,12 +2527,14 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         bool list_field = fa->resolved_type &&
             fa->resolved_type->kind == IRON_TYPE_ARRAY &&
             fa->resolved_type->array.size < 0 && !fa->resolved_type->array.is_bounded;
-        if (fa->is_pub_access && !list_field) {
-            IronHIR_Expr **args = NULL;  /* zero-arg getter */
-            return iron_hir_expr_method_call(mod, obj, fa->field,
-                                              args, 0,
-                                              fa->resolved_type, span);
-        }
+        /* A read of a pub field is a field load like any other (#547).
+         * The getter is synthesized and only returns the field, but calling
+         * it copied the whole value: `app.cfg.port` copied the Config,
+         * retaining and then releasing each of its strings, which on a hot
+         * path shared by threads is atomic traffic on the same counters.
+         * The visibility check is the type checker's; writes still go
+         * through the setter. */
+        (void)list_field;
         /* Phase 20 PTR-06 (Plan 20-02b): is_auto_deref flag (set by Plan
          * 20-02a typecheck.c when receiver resolves to IRON_TYPE_PTR)
          * marks the receiver chain as needing iron_check_pointer_gen
@@ -2948,8 +2983,46 @@ static void lower_block_hir(IronHIR_LowerCtx *ctx, Iron_Block *block,
 /* ── Pass 1: Register module-level declarations ──────────────────────────── */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
+
+/* Methods lower to <type, lowercased up to the first _>_<method>; a free
+ * function of the program with that name is renamed (#524). */
+static void plan_func_renames(IronHIR_LowerCtx *ctx) {
+    struct { char *key; bool value; } *mnames = NULL;
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (!md->type_name || !md->method_name) continue;
+        char mangled[256];
+        snprintf(mangled, sizeof(mangled), "%s_%s", md->type_name, md->method_name);
+        for (int ci = 0; mangled[ci] && mangled[ci] != '_'; ci++)
+            if (mangled[ci] >= 'A' && mangled[ci] <= 'Z')
+                mangled[ci] = (char)(mangled[ci] + ('a' - 'A'));
+        if (shgeti(mnames, mangled) < 0) {
+            char *k = iron_arena_strdup(ctx->module->arena, mangled, strlen(mangled));
+            if (k) shput(mnames, k, true);
+        }
+    }
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_FUNC_DECL) continue;
+        Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+        if (!fd->name || fd->is_extern || strcmp(fd->name, "main") == 0 ||
+            iron_stdlib_origin_classify(fd->span.filename) != 0)
+            continue;
+        if (shgeti(mnames, fd->name) < 0) continue;
+        size_t n = strlen(fd->name) + 3;
+        char *rn = (char *)iron_arena_alloc(ctx->module->arena, n, 1);
+        if (!rn) iron_oom_abort("hir_lower.c:plan_func_renames");
+        snprintf(rn, n, "u_%s", fd->name);
+        hmput(ctx->func_renames, (Iron_Node *)fd, rn);
+    }
+    shfree(mnames);
+}
+
 static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
     IronHIR_Module *mod = ctx->module;
+    plan_func_renames(ctx);
 
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *decl = ctx->program->decls[i];
@@ -2965,11 +3038,15 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             if (!ret_ty) {
                 ret_ty = resolve_type_ann(ctx, fd->return_type);
             }
-            IronHIR_Func *f = iron_hir_func_create(mod, fd->name,
+            IronHIR_Func *f = iron_hir_func_create(mod, func_hir_name(ctx, fd),
                                                      params, fd->param_count,
                                                      ret_ty);
             f->is_extern    = fd->is_extern;
             f->extern_c_name = fd->extern_c_name;
+            if (fd->body && fd->body->kind == IRON_NODE_BLOCK) {
+                f->end_span = fd->body->span;
+                f->end_span.line = fd->body->span.end_line;
+            }
             f->is_runtime_stub =
                 fd->body && fd->body->kind == IRON_NODE_BLOCK &&
                 ((Iron_Block *)fd->body)->stmt_count == 0 &&
@@ -2977,6 +3054,8 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr from
              * AST decl (set by Plan 20-02a's mark_takes_local_addr_pass). */
             f->takes_local_addr = fd->takes_local_addr;
+            f->is_user_func = !fd->is_extern &&
+                iron_stdlib_origin_classify(fd->span.filename) == 0;
             /* Phase 22 READ-08: propagate is_readonly from AST FuncDecl.
              * Top-level free functions use is_readonly directly (no is_pure
              * on free functions per Iron design). */
@@ -3253,6 +3332,10 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             IronHIR_Func *f = iron_hir_func_create(mod, mname, params,
                                                      total_params, ret_ty);
             f->is_runtime_stub = is_stub;
+            if (md->body && md->body->kind == IRON_NODE_BLOCK) {
+                f->end_span = md->body->span;
+                f->end_span.line = md->body->span.end_line;
+            }
             /* Phase 80 MUT-07: propagate receiver mut-ness to the HIR func so
              * HIR→LIR can fire self_by_addr at call sites. Gated on
              * is_receiver_form + params[0]->is_mut_receiver so non-receiver-form
@@ -3267,6 +3350,29 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                 Iron_Param *recv = (Iron_Param *)md->params[0];
                 if (recv && recv->is_mut_receiver) {
                     f->is_mut_receiver_method = true;
+                }
+            }
+            /* PARM-02 for methods (#604): a `var` parameter takes the
+             * caller's binding by reference, as for a free function; the
+             * writes went to a copy. Parameter positions shift by the
+             * synthesized self. */
+            if (!is_stub) {
+                int off = total_params - md->param_count;
+                bool any_var = false;
+                for (int p = 0; p < md->param_count; p++) {
+                    Iron_Param *ap = (Iron_Param *)md->params[p];
+                    if (ap && ap->is_var && !(md->is_receiver_form && p == 0)) any_var = true;
+                }
+                if (any_var && off >= 0) {
+                    bool *pv = (bool *)iron_arena_alloc(
+                        mod->arena, (size_t)total_params * sizeof(bool), _Alignof(bool));
+                    if (!pv) iron_oom_abort("hir_lower.c:method_decl param_is_var");
+                    memset(pv, 0, (size_t)total_params * sizeof(bool));
+                    for (int p = 0; p < md->param_count; p++) {
+                        Iron_Param *ap = (Iron_Param *)md->params[p];
+                        pv[p + off] = ap && ap->is_var && !(md->is_receiver_form && p == 0);
+                    }
+                    f->param_is_var = pv;
                 }
             }
             /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr from
@@ -3288,6 +3394,11 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                 shgeti(ctx->global_decls_map, vd->name) < 0) {
                 shput(ctx->global_decls_map, (char *)vd->name, decl);
                 arrput(ctx->global_decl_order, vd->name);
+                /* Every global of the program is initialized before main
+                 * (manual 5.7), read or not: an initializer may have side
+                 * effects. (The standard library's stay lazy.) */
+                if (vd->init && iron_stdlib_origin_classify(vd->span.filename) == 0)
+                    activate_global(ctx, vd->name);
             }
             break;
         }
@@ -3298,6 +3409,8 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                 shgeti(ctx->global_decls_map, vd->name) < 0) {
                 shput(ctx->global_decls_map, (char *)vd->name, decl);
                 arrput(ctx->global_decl_order, vd->name);
+                if (vd->init && iron_stdlib_origin_classify(vd->span.filename) == 0)
+                    activate_global(ctx, vd->name);
             }
             break;
         }
@@ -3326,11 +3439,11 @@ static void lower_func_body_hir(IronHIR_LowerCtx *ctx,
                                  Iron_FuncDecl *fd) {
     if (!fd->body) return;  /* extern func — no body */
 
-    IronHIR_Func *fn = find_hir_func(ctx->module, fd->name);
+    IronHIR_Func *fn = find_hir_func(ctx->module, func_hir_name(ctx, fd));
     if (!fn) return;
 
     ctx->current_func             = fn;
-    ctx->current_func_name        = fd->name;
+    ctx->current_func_name        = fn->name;
     /* Phase 22 OQ-04: propagate readonly bit so lambda-queue site can
      * populate LiftPending.is_readonly_context. */
     ctx->current_func_is_readonly = fd->is_readonly;
@@ -3801,10 +3914,12 @@ static bool global_init_is_const(const IronHIR_Expr *e, const Iron_Type *t) {
  * IronHIR_Global list on the module.
  *
  * Ordering contract (documented in hir.h): initializer assignments appear in
- * DECLARATION order regardless of discovery order. Statics are zero-
- * initialized, so an initializer that reads a later-declared global observes
- * zero (C semantics). emit_c.c calls the function from main() after
- * iron_runtime_init() and before Iron_main().
+ * DECLARATION order regardless of discovery order. The resolver has already
+ * put the globals' declarations in dependency order (order_global_inits in
+ * resolve.c: a global whose initializer reads another, also through the
+ * functions it calls, comes after it; a cycle is E0345), so no initializer
+ * reads a global before it is set. emit_c.c calls the function from main()
+ * after iron_runtime_init() and before Iron_main().
  *
  * Fixed point: lowering one global's initializer can activate further
  * globals (its init reads them, or a lambda literal inside it captures
@@ -4016,6 +4131,7 @@ IronHIR_Module *iron_hir_lower(Iron_Program *program, Iron_Scope *global_scope,
     shfree(ctx.global_decls_map);
     arrfree(ctx.global_decl_order);
     shfree(ctx.global_active_set);
+    hmfree(ctx.func_renames);
     shfree(ctx.fnref_thunks);
 
     /* Verify the output module */

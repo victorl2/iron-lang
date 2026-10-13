@@ -1,0 +1,25 @@
+-- An interface method that returns or takes a function type: the dispatcher
+-- named the undeclared type Iron_func.
+interface Ranked {
+    func rank() -> func(Int) -> Int
+    func apply(f: func(Int) -> Int) -> Int
+}
+
+object A impl Ranked {
+    val k: Int
+    func rank() -> func(Int) -> Int {
+        val k = self.k
+        return func(x: Int) -> Int {
+            return x + k
+        }
+    }
+    func apply(f: func(Int) -> Int) -> Int {
+        return f(self.k)
+    }
+}
+
+func main() {
+    var r: Ranked = A(3)
+    val f = r.rank()
+    println("{f(4)} {r.apply(f)}")
+}

@@ -147,8 +147,9 @@ jobs:
 
       - name: Start a MySQL server (Linux)
         if: needs.changes.outputs.ci == 'true' && runner.os == 'Linux'
-        # test_mysql_integration (tests/mysql/run.sh) runs against it; without
-        # IRON_MYSQL_URL it is reported as skipped. A docker step rather than
+        # test_mysql_integration (tests/mysql/run.sh) and test_inventory_service
+        # (apps/inventory/tests/run.sh) run against it; without IRON_MYSQL_URL
+        # they are reported as skipped. A docker step rather than
         # a services: container, which the macOS leg of this matrix cannot run.
         run: |
           docker run -d --name iron-mysql -p 3306:3306 \
