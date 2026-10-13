@@ -31,7 +31,14 @@
   #include <sys/socket.h>
   #include <netinet/in.h>
   #include <arpa/inet.h>
+  #include <netinet/tcp.h>
   #include <pthread.h>
+#endif
+
+#ifdef MSG_NOSIGNAL
+  #define MSG_NOSIGNAL_IF_ANY MSG_NOSIGNAL
+#else
+  #define MSG_NOSIGNAL_IF_ANY 0
 #endif
 
 enum {
@@ -48,6 +55,59 @@ static Iron_String http_str(const char *s) {
 
 static Iron_String http_slice(const char *s, size_t n) {
     return iron_string_from_cstr(s ? s : "", s ? n : 0);
+}
+
+/* Assemble a request head and body into one buffer so it leaves in one
+ * write. Sent in pieces (request line, headers, separator, body), a request
+ * on a persistent connection meets Nagle's algorithm and the server's
+ * delayed ACK and waits ~40 ms on Linux. *out is malloc'd; 0 or an error. */
+static int64_t http_build_request(char **out, size_t *out_len,
+                                  const char *head, size_t head_len,
+                                  const char *headers, size_t headers_len,
+                                  const char *body, size_t body_len) {
+    int headers_need_crlf = headers_len &&
+        (headers_len < 2 || headers[headers_len - 2] != '\r' ||
+         headers[headers_len - 1] != '\n');
+    size_t total = head_len + headers_len + (headers_need_crlf ? 2 : 0) + 2;
+    if (body_len > SIZE_MAX - total) return IRON_ERR_HTTP_INVALID_ARGUMENT;
+    total += body_len;
+    char *msg = (char *)malloc(total ? total : 1);
+    if (!msg) return IRON_ERR_NET_NO_MEMORY;
+    size_t at = 0;
+    memcpy(msg, head, head_len);
+    at += head_len;
+    if (headers_len) {
+        memcpy(msg + at, headers, headers_len);
+        at += headers_len;
+        if (headers_need_crlf) {
+            memcpy(msg + at, "\r\n", 2);
+            at += 2;
+        }
+    }
+    memcpy(msg + at, "\r\n", 2);
+    at += 2;
+    if (body_len) memcpy(msg + at, body, body_len);
+    *out = msg;
+    *out_len = total;
+    return 0;
+}
+
+static void http_set_nodelay(int64_t fd) {
+#ifdef _WIN32
+    BOOL one = TRUE;
+    setsockopt((SOCKET)fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof(one));
+#else
+    int one = 1;
+    setsockopt((int)fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+#endif
+}
+
+/* Free the strings of a response being discarded (a retried attempt). */
+static void http_response_dispose(Iron_HttpResponse *r) {
+    iron_string_release(&r->reason);
+    iron_string_release(&r->headers);
+    iron_string_release(&r->body);
+    iron_string_release(&r->error_message);
 }
 
 static const char *http_error_message(int64_t code) {
@@ -322,6 +382,107 @@ static int header_count(const char *headers, size_t len, const char *name) {
     return count;
 }
 
+/* ── One-pass request header scan ──────────────────────────────────────
+ * Validates the header block exactly as raw_headers_valid does and finds
+ * the framing headers (Host, Connection, Content-Length, Transfer-Encoding)
+ * with their counts, in one walk instead of one per question. */
+typedef struct HttpHeaderScan {
+    int valid;
+    int host_count, connection_count, length_count, te_count;
+    const char *host, *connection, *length, *te;
+    size_t host_len, connection_len, length_len, te_len;
+} HttpHeaderScan;
+
+static unsigned char ascii_fold(unsigned char c) {
+    return (c >= 'A' && c <= 'Z') ? (unsigned char)(c + 32) : c;
+}
+
+static int name_is(const char *name, size_t n, const char *lower, size_t ln) {
+    if (n != ln) return 0;
+    for (size_t i = 0; i < n; i++)
+        if (ascii_fold((unsigned char)name[i]) != (unsigned char)lower[i]) return 0;
+    return 1;
+}
+
+static int is_tchar(unsigned char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+           c == '!' || c == '#' || c == '$' || c == '%' || c == '&' || c == '\'' ||
+           c == '*' || c == '+' || c == '-' || c == '.' || c == '^' || c == '_' ||
+           c == '`' || c == '|' || c == '~';
+}
+
+static void http_scan_headers(const char *h, size_t len, HttpHeaderScan *sc) {
+    memset(sc, 0, sizeof(*sc));
+    size_t pos = 0;
+    while (pos < len) {
+        /* One line: name ":" value, ended by CRLF or the end of the block. */
+        if (h[pos] == ' ' || h[pos] == '\t' || h[pos] == '\r' || h[pos] == '\n') return;
+        size_t colon = pos;
+        while (colon < len && is_tchar((unsigned char)h[colon])) colon++;
+        if (colon == pos || colon >= len || h[colon] != ':') return;
+        size_t end = colon + 1;
+        while (end < len) {
+            unsigned char c = (unsigned char)h[end];
+            if (c == '\r') break;
+            if (c == 0 || c == 127 || c == '\n' || (c < 32 && c != '\t')) return;
+            end++;
+        }
+        size_t next = len;
+        if (end < len) {
+            if (end + 1 >= len || h[end + 1] != '\n') return;
+            next = end + 2;
+            if (next == len) return;               /* a trailing CRLF: empty last line */
+        }
+        size_t vstart = colon + 1, vend = end;
+        while (vstart < vend && (h[vstart] == ' ' || h[vstart] == '\t')) vstart++;
+        while (vend > vstart && (h[vend - 1] == ' ' || h[vend - 1] == '\t')) vend--;
+        size_t nl = colon - pos;
+        const char *name = h + pos;
+        if (nl == 4 && name_is(name, nl, "host", 4)) {
+            if (sc->host_count++ == 0) { sc->host = h + vstart; sc->host_len = vend - vstart; }
+        } else if (nl == 10 && name_is(name, nl, "connection", 10)) {
+            if (sc->connection_count++ == 0) { sc->connection = h + vstart; sc->connection_len = vend - vstart; }
+        } else if (nl == 14 && name_is(name, nl, "content-length", 14)) {
+            if (sc->length_count++ == 0) { sc->length = h + vstart; sc->length_len = vend - vstart; }
+        } else if (nl == 17 && name_is(name, nl, "transfer-encoding", 17)) {
+            if (sc->te_count++ == 0) { sc->te = h + vstart; sc->te_len = vend - vstart; }
+        }
+        pos = next;
+    }
+    sc->valid = 1;
+}
+
+/* Whether a comma-separated header value holds `wanted` (case-insensitive). */
+static int value_has_token(const char *value, size_t value_len, const char *wanted) {
+    size_t wanted_len = strlen(wanted);
+    size_t pos = 0;
+    while (pos < value_len) {
+        while (pos < value_len && (value[pos] == ' ' || value[pos] == '\t' || value[pos] == ','))
+            pos++;
+        size_t end = pos;
+        while (end < value_len && value[end] != ',') end++;
+        size_t finish = end;
+        while (finish > pos && (value[finish - 1] == ' ' || value[finish - 1] == '\t')) finish--;
+        if (ascii_ieq_n(value + pos, finish - pos, wanted, wanted_len)) return 1;
+        pos = end + (end < value_len);
+    }
+    return 0;
+}
+
+/* Content-Length digits; 0 when malformed or out of range. */
+static int parse_length_value(const char *v, size_t vn, size_t *out) {
+    if (vn == 0) return 0;
+    size_t n = 0;
+    for (size_t i = 0; i < vn; i++) {
+        if (v[i] < '0' || v[i] > '9') return 0;
+        unsigned digit = (unsigned)(v[i] - '0');
+        if (n > (SIZE_MAX - digit) / 10) return 0;
+        n = n * 10 + digit;
+    }
+    *out = n;
+    return 1;
+}
+
 typedef struct HttpHead {
     uint8_t *data;
     size_t len;
@@ -334,12 +495,26 @@ typedef struct HttpTransport {
     Iron_TlsStream *tls;
 } HttpTransport;
 
+/* Plain sockets are non-blocking: try the call first and only consult the
+ * clock (for the remaining budget) when it would block, which on a busy
+ * keep-alive server is rare. */
 static Iron_Result_Int_Error transport_read(HttpTransport transport,
                                              uint8_t *buffer, int64_t capacity,
                                              Iron_Deadline deadline) {
     if (transport.tls) {
         return iron_tls_read(transport.tls, buffer, capacity, deadline);
     }
+#ifndef _WIN32
+    if (capacity > 0) {
+        ssize_t n = recv((int)transport.socket.fd, buffer, (size_t)capacity, 0);
+        if (n >= 0) {
+            Iron_Result_Int_Error ok;
+            ok.v0 = (int64_t)n;
+            ok.v1.code = 0;
+            return ok;
+        }
+    }
+#endif
     return Iron_net_tcp_recv_bytes(transport.socket, buffer, capacity,
                                     Iron_deadline_remaining_ms(deadline));
 }
@@ -351,6 +526,17 @@ static Iron_Result_Int_Error transport_write(HttpTransport transport,
     if (transport.tls) {
         return iron_tls_write(transport.tls, buffer, length, deadline);
     }
+#ifndef _WIN32
+    if (length > 0) {
+        ssize_t n = send((int)transport.socket.fd, buffer, (size_t)length, MSG_NOSIGNAL_IF_ANY);
+        if (n > 0) {
+            Iron_Result_Int_Error ok;
+            ok.v0 = (int64_t)n;
+            ok.v1.code = 0;
+            return ok;
+        }
+    }
+#endif
     return Iron_net_tcp_send_bytes(transport.socket, buffer, length,
                                     Iron_deadline_remaining_ms(deadline));
 }
@@ -369,22 +555,40 @@ static HttpHead receive_head(HttpTransport transport, size_t max_header,
         h.error = IRON_ERR_HTTP_INVALID_ARGUMENT;
         return h;
     }
-    h.data = (uint8_t *)malloc(max_header + 1);
+    /* Most heads fit in one small read: start with a buffer for that and
+     * grow toward max_header only for the ones that do not. */
+    size_t cap = max_header < HTTP_IO_CHUNK ? max_header : HTTP_IO_CHUNK;
+    h.data = (uint8_t *)malloc(cap + 1);
     if (!h.data) {
         h.error = IRON_ERR_NET_NO_MEMORY;
         return h;
     }
+    size_t scanned = 0;
     for (;;) {
-        h.marker = find_header_end(h.data, h.len);
-        if (h.marker != SIZE_MAX) return h;
+        /* Resume the search for CRLFCRLF where the last one stopped. */
+        size_t from = scanned > 3 ? scanned - 3 : 0;
+        size_t found = find_header_end(h.data + from, h.len - from);
+        if (found != SIZE_MAX) {
+            h.marker = from + found;
+            return h;
+        }
+        scanned = h.len;
         if (h.len == max_header) {
             h.error = IRON_ERR_HTTP_HEADERS_TOO_LARGE;
             return h;
         }
-        size_t avail = max_header - h.len;
+        if (h.len == cap) {
+            size_t grown = cap * 2 < max_header ? cap * 2 : max_header;
+            uint8_t *bigger = (uint8_t *)realloc(h.data, grown + 1);
+            if (!bigger) {
+                h.error = IRON_ERR_NET_NO_MEMORY;
+                return h;
+            }
+            h.data = bigger;
+            cap = grown;
+        }
+        size_t avail = cap - h.len;
         size_t chunk = avail < HTTP_IO_CHUNK ? avail : HTTP_IO_CHUNK;
-        int remaining = Iron_deadline_remaining_ms(deadline);
-        (void)remaining;
         Iron_Result_Int_Error rr = transport_read(
             transport, h.data + h.len, (int64_t)chunk, deadline);
         if (rr.v1.code != 0) {
@@ -1026,43 +1230,32 @@ static Iron_HttpRequest read_request_transport(HttpTransport transport,
 
     size_t headers_start = line_end + 2;
     size_t headers_len = h.marker >= headers_start ? h.marker - headers_start : 0;
-    const char *host_value = NULL;
-    size_t host_value_len = 0;
-    size_t host_count = header_count(data + headers_start, headers_len, "Host");
-    if (!raw_headers_valid(data + headers_start, headers_len) ||
-        (version_11 ? host_count != 1 : host_count > 1) ||
-        header_count(data + headers_start, headers_len, "Connection") > 1 ||
-        header_count(data + headers_start, headers_len, "Content-Length") > 1 ||
-        header_count(data + headers_start, headers_len, "Transfer-Encoding") > 1 ||
-        (host_count > 0 &&
-         (!header_value_span(data + headers_start, headers_len, "Host",
-                             &host_value, &host_value_len) ||
-          host_value_len == 0))) {
+    HttpHeaderScan sc;
+    http_scan_headers(data + headers_start, headers_len, &sc);
+    if (!sc.valid ||
+        (version_11 ? sc.host_count != 1 : sc.host_count > 1) ||
+        sc.connection_count > 1 || sc.length_count > 1 || sc.te_count > 1 ||
+        (sc.host_count > 0 && sc.host_len == 0)) {
         http_request_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
         free(h.data);
         return out;
     }
     out.headers = http_slice(data + headers_start, headers_len);
-    int requests_close = header_has_token(
-        data + headers_start, headers_len, "Connection", "close");
-    int requests_keep_alive = header_has_token(
-        data + headers_start, headers_len, "Connection", "keep-alive");
+    int requests_close = sc.connection_count &&
+        value_has_token(sc.connection, sc.connection_len, "close");
+    int requests_keep_alive = sc.connection_count &&
+        value_has_token(sc.connection, sc.connection_len, "keep-alive");
     out.keep_alive = version_11 ? !requests_close
                                 : requests_keep_alive && !requests_close;
     size_t content_len = 0;
-    int content_present = 0;
-    if (!parse_content_length(data + headers_start, headers_len,
-                              &content_len, &content_present)) {
+    int content_present = sc.length_count > 0;
+    if (content_present && !parse_length_value(sc.length, sc.length_len, &content_len)) {
         http_request_error(&out, IRON_ERR_HTTP_BAD_CONTENT_LENGTH);
         free(h.data);
         return out;
     }
-    const char *te = NULL;
-    size_t te_len = 0;
-    int has_te = header_value_span(data + headers_start, headers_len,
-                                   "Transfer-Encoding", &te, &te_len);
-    int chunked = header_is_exact_token(data + headers_start, headers_len,
-                                        "Transfer-Encoding", "chunked");
+    int has_te = sc.te_count > 0;
+    int chunked = has_te && ascii_ieq_n(sc.te, sc.te_len, "chunked", 7);
     if (has_te && content_present) {
         http_request_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
         free(h.data);
@@ -1161,30 +1354,35 @@ static Iron_HttpResponse http_response_owned(int64_t status,
     return out;
 }
 
+/* Strings are immutable and reference counted: a response shares the
+ * caller's header and body strings (one more reference) instead of copying
+ * the body. */
+static Iron_String http_share(Iron_String s) {
+    iron_string_retain(&s);
+    return s;
+}
+
 Iron_HttpResponse Iron_http_response(int64_t status, Iron_String headers,
                                       Iron_String body) {
-    return http_response_owned(
-        status,
-        http_slice(iron_string_cstr(&headers), iron_string_byte_len(&headers)),
-        http_slice(iron_string_cstr(&body), iron_string_byte_len(&body)));
+    return http_response_owned(status, http_share(headers), http_share(body));
 }
 
 Iron_HttpResponse Iron_http_json_response(int64_t status, Iron_String body) {
     return http_response_owned(
         status, http_str("Content-Type: application/json; charset=utf-8"),
-        http_slice(iron_string_cstr(&body), iron_string_byte_len(&body)));
+        http_share(body));
 }
 
 Iron_HttpResponse Iron_http_html_response(int64_t status, Iron_String body) {
     return http_response_owned(
         status, http_str("Content-Type: text/html; charset=utf-8"),
-        http_slice(iron_string_cstr(&body), iron_string_byte_len(&body)));
+        http_share(body));
 }
 
 Iron_HttpResponse Iron_http_text_response(int64_t status, Iron_String body) {
     return http_response_owned(
         status, http_str("Content-Type: text/plain; charset=utf-8"),
-        http_slice(iron_string_cstr(&body), iron_string_byte_len(&body)));
+        http_share(body));
 }
 
 Iron_HttpResponse Iron_http_file_response(int64_t status, Iron_String path,
@@ -1241,6 +1439,36 @@ Iron_HttpResponse Iron_http_file_response(int64_t status, Iron_String path,
     return http_response_owned(status, header_s, body_s);
 }
 
+/* "HTTP/1.1 <status> <reason>\r\nContent-Length: <n>\r\nConnection: ...\r\n"
+ * into out (without snprintf, which showed in profiles); -1 if it does
+ * not fit. */
+static int http_status_head(char *out, size_t cap, int64_t status,
+                            const char *reason, size_t reason_len,
+                            size_t body_len, bool keep_alive) {
+    char num[24];
+    int nl = 0;
+    size_t v = body_len;
+    do { num[nl++] = (char)('0' + v % 10); v /= 10; } while (v && nl < 22);
+    const char *conn = keep_alive ? "keep-alive" : "close";
+    size_t conn_len = keep_alive ? 10 : 5;
+    size_t need = 9 + 3 + 1 + reason_len + 2 + 16 + (size_t)nl + 2 + 12 + conn_len + 2;
+    if (need >= cap || status < 100 || status > 999) return -1;
+    char *p = out;
+    memcpy(p, "HTTP/1.1 ", 9); p += 9;
+    *p++ = (char)('0' + status / 100);
+    *p++ = (char)('0' + status / 10 % 10);
+    *p++ = (char)('0' + status % 10);
+    *p++ = ' ';
+    memcpy(p, reason, reason_len); p += reason_len;
+    memcpy(p, "\r\nContent-Length: ", 18); p += 18;
+    while (nl) *p++ = num[--nl];
+    memcpy(p, "\r\nConnection: ", 14); p += 14;
+    memcpy(p, conn, conn_len); p += conn_len;
+    *p++ = '\r';
+    *p++ = '\n';
+    return (int)(p - out);
+}
+
 static int64_t send_response_transport(HttpTransport transport,
                                        Iron_HttpResponse response,
                                        bool keep_alive,
@@ -1263,24 +1491,36 @@ static int64_t send_response_transport(HttpTransport transport,
     size_t body_len = iron_string_byte_len(&response.body);
     Iron_Deadline deadline = Iron_deadline_from_timeout_ms(timeout);
     char fixed[256];
-    int fixed_len = snprintf(fixed, sizeof(fixed),
-        "HTTP/1.1 %lld %.*s\r\nContent-Length: %zu\r\nConnection: %s\r\n",
-        (long long)response.status, (int)reason_len, reason, body_len,
-        keep_alive ? "keep-alive" : "close");
-    if (fixed_len < 0 || (size_t)fixed_len >= sizeof(fixed)) return IRON_ERR_HTTP_INVALID_ARGUMENT;
-    int64_t err = send_all(transport, (const uint8_t *)fixed, (size_t)fixed_len, deadline);
-    if (err) return err;
+    int fixed_len = http_status_head(fixed, sizeof(fixed), response.status,
+                                     reason, reason_len, body_len, keep_alive);
+    if (fixed_len < 0) return IRON_ERR_HTTP_INVALID_ARGUMENT;
+    /* One write for the whole message: separate small writes for the status
+     * line, headers and body meet Nagle's algorithm and the peer's delayed
+     * ACK on a keep-alive connection and stall each response by ~40 ms. */
+    int headers_need_crlf = headers_len &&
+        (headers_len < 2 || headers[headers_len - 2] != '\r' || headers[headers_len - 1] != '\n');
+    size_t total = (size_t)fixed_len + headers_len + (headers_need_crlf ? 2 : 0) + 2;
+    if (body_len > SIZE_MAX - total) return IRON_ERR_HTTP_INVALID_ARGUMENT;
+    total += body_len;
+    uint8_t stack_buf[16384];
+    uint8_t *msg = total <= sizeof(stack_buf) ? stack_buf : (uint8_t *)malloc(total);
+    if (!msg) return IRON_ERR_NET_NO_MEMORY;
+    size_t at = 0;
+    memcpy(msg + at, fixed, (size_t)fixed_len);
+    at += (size_t)fixed_len;
     if (headers_len) {
-        err = send_all(transport, (const uint8_t *)headers, headers_len, deadline);
-        if (err) return err;
-        if (headers_len < 2 || headers[headers_len - 2] != '\r' || headers[headers_len - 1] != '\n') {
-            err = send_all(transport, (const uint8_t *)"\r\n", 2, deadline);
-            if (err) return err;
+        memcpy(msg + at, headers, headers_len);
+        at += headers_len;
+        if (headers_need_crlf) {
+            memcpy(msg + at, "\r\n", 2);
+            at += 2;
         }
     }
-    err = send_all(transport, (const uint8_t *)"\r\n", 2, deadline);
-    if (err) return err;
-    if (body_len) err = send_all(transport, (const uint8_t *)body, body_len, deadline);
+    memcpy(msg + at, "\r\n", 2);
+    at += 2;
+    if (body_len) memcpy(msg + at, body, body_len);
+    int64_t err = send_all(transport, msg, total, deadline);
+    if (msg != stack_buf) free(msg);
     return err;
 }
 
@@ -1452,19 +1692,24 @@ static Iron_HttpResponse http_request_tls_options(
     Iron_Result_TcpSocket_Error dr = Iron_net_tcp_dial(
         host, parsed.port, Iron_deadline_remaining_ms(deadline));
     if (dr.v1.code != 0) {
+        iron_string_release(&host);
         http_response_error(&out, dr.v1.code);
         return out;
     }
+    http_set_nodelay(dr.v0.fd);
     HttpTransport transport = { dr.v0, NULL };
     if (parsed.secure) {
         Iron_TlsStreamResult tls = iron_tls_client_connect(
             dr.v0, host, ca_file, insecure, deadline);
+        iron_string_release(&host);
         if (tls.error.code != 0) {
             Iron_tcpsocket_close(dr.v0);
             http_response_error(&out, tls.error.code);
             return out;
         }
         transport.tls = tls.stream;
+    } else {
+        iron_string_release(&host);
     }
     size_t prefix_cap = method_len + strlen(parsed.target) + strlen(parsed.host_header) +
                         headers_len + 256;
@@ -1483,19 +1728,14 @@ static Iron_HttpResponse http_request_tls_options(
         http_response_error(&out, IRON_ERR_HTTP_INVALID_ARGUMENT);
         return out;
     }
-    int64_t err = send_all(transport, (const uint8_t *)prefix, (size_t)n, deadline);
+    char *msg = NULL;
+    size_t msg_len = 0;
+    int64_t err = http_build_request(&msg, &msg_len, prefix, (size_t)n,
+                                     headers_c, headers_len,
+                                     iron_string_cstr(&body), body_len);
     free(prefix);
-    if (!err && headers_len) {
-        err = send_all(transport, (const uint8_t *)headers_c, headers_len, deadline);
-        if (!err && (headers_len < 2 || headers_c[headers_len - 2] != '\r' ||
-                     headers_c[headers_len - 1] != '\n')) {
-            err = send_all(transport, (const uint8_t *)"\r\n", 2, deadline);
-        }
-    }
-    if (!err) err = send_all(transport, (const uint8_t *)"\r\n", 2, deadline);
-    if (!err && body_len) {
-        err = send_all(transport, (const uint8_t *)iron_string_cstr(&body), body_len, deadline);
-    }
+    if (!err) err = send_all(transport, (const uint8_t *)msg, msg_len, deadline);
+    free(msg);
     if (err) {
         transport_close(transport);
         http_response_error(&out, err);
@@ -1705,19 +1945,27 @@ static int64_t http_client_connect_slot(HttpClientState *client,
     Iron_String host = http_str(client->origin.host);
     Iron_Result_TcpSocket_Error dial = Iron_net_tcp_dial(
         host, client->origin.port, Iron_deadline_remaining_ms(deadline));
-    if (dial.v1.code != 0) return dial.v1.code;
+    if (dial.v1.code != 0) {
+        iron_string_release(&host);
+        return dial.v1.code;
+    }
+    http_set_nodelay(dial.v0.fd);
     slot->transport.socket = dial.v0;
     slot->transport.tls = NULL;
     if (client->origin.secure) {
         Iron_String ca = http_slice(client->ca_file, client->ca_file_length);
         Iron_TlsStreamResult tls = iron_tls_client_connect(
             dial.v0, host, ca, client->insecure != 0, deadline);
+        iron_string_release(&ca);
+        iron_string_release(&host);
         if (tls.error.code != 0) {
             Iron_tcpsocket_close(dial.v0);
             slot->transport.socket.fd = -1;
             return tls.error.code;
         }
         slot->transport.tls = tls.stream;
+    } else {
+        iron_string_release(&host);
     }
     slot->connected = 1;
     return 0;
@@ -1742,25 +1990,13 @@ static int64_t http_client_send_request(
         free(fixed);
         return IRON_ERR_HTTP_INVALID_ARGUMENT;
     }
-    int64_t error = send_all(slot->transport, (const uint8_t *)fixed,
-                             (size_t)length, deadline);
+    char *msg = NULL;
+    size_t msg_len = 0;
+    int64_t error = http_build_request(&msg, &msg_len, fixed, (size_t)length,
+                                       headers, headers_length, body, body_length);
     free(fixed);
-    if (!error && headers_length) {
-        error = send_all(slot->transport, (const uint8_t *)headers,
-                         headers_length, deadline);
-        if (!error && (headers_length < 2 ||
-            headers[headers_length - 2] != '\r' ||
-            headers[headers_length - 1] != '\n')) {
-            error = send_all(slot->transport, (const uint8_t *)"\r\n", 2,
-                             deadline);
-        }
-    }
-    if (!error)
-        error = send_all(slot->transport, (const uint8_t *)"\r\n", 2,
-                         deadline);
-    if (!error && body_length)
-        error = send_all(slot->transport, (const uint8_t *)body, body_length,
-                         deadline);
+    if (!error) error = send_all(slot->transport, (const uint8_t *)msg, msg_len, deadline);
+    free(msg);
     return error;
 }
 
@@ -1875,7 +2111,11 @@ Iron_HttpResponse Iron_httpclient_request(
                 error_code == IRON_ERR_TLS_IO ||
                 error_code == IRON_ERR_HTTP_TRUNCATED_MESSAGE;
             if (attempt == 0 && retry_safe && was_reused && stale_transport &&
-                Iron_deadline_remaining_ms(deadline) > 0) continue;
+                Iron_deadline_remaining_ms(deadline) > 0) {
+                http_response_dispose(&out);
+                out = http_response_empty();
+                continue;
+            }
             http_client_release(client, slot, 0);
             return out;
         }
@@ -1927,4 +2167,673 @@ void Iron_httpclient_close(Iron_HttpClient handle) {
     free(client->slots);
     free(client->ca_file);
     free(client);
+}
+
+/* ── HttpPoller: readiness-driven keep-alive serving ───────────────────────
+ *
+ * A server that hands each connection to a pool worker for its whole life
+ * can serve only as many keep-alive clients as it has workers: the rest wait
+ * in the queue while idle connections hold their workers in read_request.
+ * The poller keeps idle connections out of the workers. It owns accepting
+ * (non-blocking, TCP_NODELAY) and watches new and parked connections with
+ * epoll (Linux), kqueue (macOS and the BSDs) or poll (elsewhere); next()
+ * returns one connection whose request bytes have arrived. The worker reads
+ * that request, answers it and parks the connection again, or closes it.
+ *
+ * Slot states: WAITING (accepted, no bytes yet), PARKED (between requests),
+ * ACTIVE (handed out by next(), owned by a worker). Only WAITING and PARKED
+ * connections are watched and expire after idle_timeout milliseconds; an
+ * ACTIVE connection is the worker's to park, discard or close. Interest is
+ * one-shot, so an fd is returned once per park.
+ *
+ * Thread safety: any thread may park or discard, and any number of threads
+ * may call next() at once: a server can run one accept loop that hands
+ * connections to tasks, or several loops that each serve what they take. The state lives until the last
+ * Iron reference drops (HttpPollerCore's drop calls free), so a worker that
+ * parks after close() only has its connection closed. */
+
+#if defined(__linux__)
+  #define HTTP_POLLER_EPOLL 1
+  #include <sys/epoll.h>
+  #include <sys/eventfd.h>
+  #include <netinet/tcp.h>
+  #include <unistd.h>
+  #include <fcntl.h>
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+  #define HTTP_POLLER_KQUEUE 1
+  #include <sys/event.h>
+  #include <netinet/tcp.h>
+  #include <unistd.h>
+  #include <fcntl.h>
+#else
+  #define HTTP_POLLER_POLL 1
+  #ifndef _WIN32
+    #include <poll.h>
+    #include <netinet/tcp.h>
+    #include <unistd.h>
+    #include <fcntl.h>
+  #endif
+#endif
+
+enum {
+    HTTP_POLL_WAITING = 1,
+    HTTP_POLL_PARKED = 2,
+    HTTP_POLL_ACTIVE = 3,
+    HTTP_POLL_EVENTS = 256,
+    HTTP_POLL_ACCEPT_BURST = 256
+};
+
+typedef struct HttpPollSlot {
+    int64_t fd;
+    uint64_t since_ms;
+    int state;
+    int registered;
+} HttpPollSlot;
+
+typedef struct HttpPollerState {
+    int64_t listen_fd;
+    int64_t idle_timeout;
+    int closed;
+#if defined(HTTP_POLLER_EPOLL)
+    int ep;
+    int wake_fd;
+#elif defined(HTTP_POLLER_KQUEUE)
+    int kq;
+#endif
+#ifdef _WIN32
+    CRITICAL_SECTION lock;
+#else
+    pthread_mutex_t lock;
+#endif
+    HttpPollSlot *slots;
+    size_t count, cap;
+#ifndef _WIN32
+    int32_t *pos_by_fd;     /* fd -> index in slots, -1 when absent */
+    size_t pos_cap;
+#endif
+    int64_t *ready;         /* ring of fds handed out by next() */
+    size_t ready_head, ready_count, ready_cap;
+    uint64_t last_sweep_ms;
+    int64_t accepted, expired;
+    int callers;            /* threads inside next() */
+} HttpPollerState;
+
+static void http_poller_lock(HttpPollerState *st) {
+#ifdef _WIN32
+    EnterCriticalSection(&st->lock);
+#else
+    pthread_mutex_lock(&st->lock);
+#endif
+}
+
+static void http_poller_unlock(HttpPollerState *st) {
+#ifdef _WIN32
+    LeaveCriticalSection(&st->lock);
+#else
+    pthread_mutex_unlock(&st->lock);
+#endif
+}
+
+static void http_poller_close_fd(int64_t fd) {
+    Iron_TcpSocket s = { fd };
+    Iron_tcpsocket_close(s);
+}
+
+static long http_poller_find(HttpPollerState *st, int64_t fd) {
+#ifdef _WIN32
+    for (size_t i = 0; i < st->count; i++)
+        if (st->slots[i].fd == fd) return (long)i;
+    return -1;
+#else
+    if (fd < 0 || (size_t)fd >= st->pos_cap) return -1;
+    return st->pos_by_fd[fd];
+#endif
+}
+
+static HttpPollSlot *http_poller_add(HttpPollerState *st, int64_t fd, int state,
+                                     uint64_t now) {
+    long existing = http_poller_find(st, fd);
+    if (existing >= 0) {
+        /* The fd number was closed by its owner and reused by the kernel:
+         * whatever registration it had went with the old descriptor. */
+        HttpPollSlot *slot = &st->slots[existing];
+        slot->state = state;
+        slot->since_ms = now;
+        slot->registered = 0;
+        return slot;
+    }
+    if (st->count == st->cap) {
+        size_t cap = st->cap ? st->cap * 2 : 64;
+        HttpPollSlot *grown = (HttpPollSlot *)realloc(st->slots, cap * sizeof(*grown));
+        if (!grown) return NULL;
+        st->slots = grown;
+        st->cap = cap;
+    }
+#ifndef _WIN32
+    if (fd < 0) return NULL;
+    if ((size_t)fd >= st->pos_cap) {
+        size_t cap = st->pos_cap ? st->pos_cap : 256;
+        while (cap <= (size_t)fd) cap *= 2;
+        int32_t *grown = (int32_t *)realloc(st->pos_by_fd, cap * sizeof(*grown));
+        if (!grown) return NULL;
+        for (size_t i = st->pos_cap; i < cap; i++) grown[i] = -1;
+        st->pos_by_fd = grown;
+        st->pos_cap = cap;
+    }
+    st->pos_by_fd[fd] = (int32_t)st->count;
+#endif
+    HttpPollSlot *slot = &st->slots[st->count++];
+    slot->fd = fd;
+    slot->since_ms = now;
+    slot->state = state;
+    slot->registered = 0;
+    return slot;
+}
+
+static void http_poller_remove_at(HttpPollerState *st, size_t i) {
+#ifndef _WIN32
+    st->pos_by_fd[st->slots[i].fd] = -1;
+#endif
+    st->count--;
+    if (i != st->count) {
+        st->slots[i] = st->slots[st->count];
+#ifndef _WIN32
+        st->pos_by_fd[st->slots[i].fd] = (int32_t)i;
+#endif
+    }
+}
+
+static int http_poller_push_ready(HttpPollerState *st, int64_t fd) {
+    if (st->ready_count == st->ready_cap) {
+        size_t cap = st->ready_cap ? st->ready_cap * 2 : 64;
+        int64_t *grown = (int64_t *)malloc(cap * sizeof(*grown));
+        if (!grown) return 0;
+        for (size_t i = 0; i < st->ready_count; i++)
+            grown[i] = st->ready[(st->ready_head + i) % st->ready_cap];
+        free(st->ready);
+        st->ready = grown;
+        st->ready_cap = cap;
+        st->ready_head = 0;
+    }
+    st->ready[(st->ready_head + st->ready_count) % st->ready_cap] = fd;
+    st->ready_count++;
+    return 1;
+}
+
+/* Watch the slot's fd for one readable event. 0 on failure. */
+static int http_poller_arm(HttpPollerState *st, HttpPollSlot *slot) {
+#if defined(HTTP_POLLER_EPOLL)
+    struct epoll_event ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT;
+    ev.data.fd = (int)slot->fd;
+    if (slot->registered) {
+        if (epoll_ctl(st->ep, EPOLL_CTL_MOD, (int)slot->fd, &ev) == 0) return 1;
+        if (errno != ENOENT) return 0;
+    }
+    if (epoll_ctl(st->ep, EPOLL_CTL_ADD, (int)slot->fd, &ev) != 0) {
+        if (errno != EEXIST ||
+            epoll_ctl(st->ep, EPOLL_CTL_MOD, (int)slot->fd, &ev) != 0) return 0;
+    }
+    slot->registered = 1;
+    return 1;
+#elif defined(HTTP_POLLER_KQUEUE)
+    struct kevent ev;
+    EV_SET(&ev, (uintptr_t)slot->fd, EVFILT_READ, EV_ADD | EV_ENABLE | EV_ONESHOT,
+           0, 0, NULL);
+    if (kevent(st->kq, &ev, 1, NULL, 0, NULL) != 0) return 0;
+    slot->registered = 1;
+    return 1;
+#else
+    (void)st;
+    slot->registered = 1;   /* the poll set is rebuilt from the slots */
+    return 1;
+#endif
+}
+
+static void http_poller_forget(HttpPollerState *st, HttpPollSlot *slot) {
+#if defined(HTTP_POLLER_EPOLL)
+    if (slot->registered) epoll_ctl(st->ep, EPOLL_CTL_DEL, (int)slot->fd, NULL);
+#else
+    (void)st;
+#endif
+    slot->registered = 0;
+}
+
+static void http_poller_wake(HttpPollerState *st) {
+#if defined(HTTP_POLLER_EPOLL)
+    uint64_t one = 1;
+    ssize_t w = write(st->wake_fd, &one, sizeof(one));
+    (void)w;
+#elif defined(HTTP_POLLER_KQUEUE)
+    struct kevent ev;
+    EV_SET(&ev, 1, EVFILT_USER, 0, NOTE_TRIGGER, 0, NULL);
+    kevent(st->kq, &ev, 1, NULL, 0, NULL);
+#else
+    (void)st;   /* poll waits in short slices and sees `closed` */
+#endif
+}
+
+static void http_poller_set_socket_options(int64_t fd) {
+    http_set_nodelay(fd);
+}
+
+static int64_t http_poller_accept_one(int64_t listen_fd) {
+#if defined(_WIN32)
+    SOCKET fd = accept((SOCKET)listen_fd, NULL, NULL);
+    if (fd == INVALID_SOCKET) return -1;
+    u_long mode = 1;
+    ioctlsocket(fd, FIONBIO, &mode);
+    return (int64_t)fd;
+#else
+    int fd = accept((int)listen_fd, NULL, NULL);
+    if (fd < 0) return -1;
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    fcntl(fd, F_SETFD, FD_CLOEXEC);
+    return fd;
+#endif
+}
+
+/* Accept what the listen queue holds (bounded per wakeup) and watch each. */
+static void http_poller_accept_burst(HttpPollerState *st, uint64_t now) {
+    for (int i = 0; i < HTTP_POLL_ACCEPT_BURST; i++) {
+        int64_t fd = http_poller_accept_one(st->listen_fd);
+        if (fd < 0) return;
+        http_poller_set_socket_options(fd);
+        HttpPollSlot *slot = http_poller_add(st, fd, HTTP_POLL_WAITING, now);
+        if (!slot || !http_poller_arm(st, slot)) {
+            long at = http_poller_find(st, fd);
+            if (at >= 0) http_poller_remove_at(st, (size_t)at);
+            http_poller_close_fd(fd);
+            continue;
+        }
+        st->accepted++;
+    }
+}
+
+/* True when a peer that signalled hang-up has nothing left to read. */
+static int http_poller_peer_gone(int64_t fd) {
+    char b;
+#ifdef _WIN32
+    int n = recv((SOCKET)fd, &b, 1, MSG_PEEK);
+    return n == 0;
+#else
+    ssize_t n = recv((int)fd, &b, 1, MSG_PEEK | MSG_DONTWAIT);
+    return n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR);
+#endif
+}
+
+/* A watched connection became readable (or hung up). */
+static void http_poller_on_ready(HttpPollerState *st, int64_t fd, int hangup) {
+    long at = http_poller_find(st, fd);
+    if (at < 0) return;
+    HttpPollSlot *slot = &st->slots[at];
+    if (slot->state != HTTP_POLL_WAITING && slot->state != HTTP_POLL_PARKED) return;
+    if (hangup && http_poller_peer_gone(fd)) {
+        http_poller_forget(st, slot);
+        http_poller_remove_at(st, (size_t)at);
+        http_poller_close_fd(fd);
+        return;
+    }
+    slot->state = HTTP_POLL_ACTIVE;
+    if (!http_poller_push_ready(st, fd)) {
+        http_poller_forget(st, slot);
+        http_poller_remove_at(st, (size_t)at);
+        http_poller_close_fd(fd);
+    }
+}
+
+static void http_poller_sweep(HttpPollerState *st, uint64_t now) {
+    st->last_sweep_ms = now;
+    if (st->idle_timeout <= 0) return;
+    size_t i = st->count;
+    while (i > 0) {
+        i--;
+        HttpPollSlot *slot = &st->slots[i];
+        if ((slot->state == HTTP_POLL_WAITING || slot->state == HTTP_POLL_PARKED) &&
+            now - slot->since_ms >= (uint64_t)st->idle_timeout) {
+            int64_t fd = slot->fd;
+            http_poller_forget(st, slot);
+            http_poller_remove_at(st, i);
+            http_poller_close_fd(fd);
+            st->expired++;
+        }
+    }
+}
+
+int64_t Iron_httppollernative_open(int64_t listen_fd, int64_t idle_timeout) {
+    if (listen_fd < 0 || idle_timeout < 0) return -IRON_ERR_HTTP_INVALID_ARGUMENT;
+    HttpPollerState *st = (HttpPollerState *)calloc(1, sizeof(*st));
+    if (!st) return -IRON_ERR_NET_NO_MEMORY;
+    st->listen_fd = listen_fd;
+    st->idle_timeout = idle_timeout;
+    st->last_sweep_ms = Iron_monotonic_now_ms();
+#if defined(HTTP_POLLER_EPOLL)
+    st->ep = epoll_create1(EPOLL_CLOEXEC);
+    st->wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (st->ep < 0 || st->wake_fd < 0) goto fail;
+    struct epoll_event ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.events = EPOLLIN;
+    ev.data.fd = (int)listen_fd;
+    if (epoll_ctl(st->ep, EPOLL_CTL_ADD, (int)listen_fd, &ev) != 0) goto fail;
+    ev.data.fd = st->wake_fd;
+    if (epoll_ctl(st->ep, EPOLL_CTL_ADD, st->wake_fd, &ev) != 0) goto fail;
+#elif defined(HTTP_POLLER_KQUEUE)
+    st->kq = kqueue();
+    if (st->kq < 0) goto fail;
+    fcntl(st->kq, F_SETFD, FD_CLOEXEC);
+    struct kevent evs[2];
+    EV_SET(&evs[0], (uintptr_t)listen_fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+    EV_SET(&evs[1], 1, EVFILT_USER, EV_ADD | EV_CLEAR, 0, 0, NULL);
+    if (kevent(st->kq, evs, 2, NULL, 0, NULL) != 0) goto fail;
+#endif
+#ifdef _WIN32
+    InitializeCriticalSection(&st->lock);
+#else
+    if (pthread_mutex_init(&st->lock, NULL) != 0) goto fail;
+#endif
+    return (int64_t)(intptr_t)st;
+#if !defined(HTTP_POLLER_POLL) || !defined(_WIN32)
+fail:
+#if defined(HTTP_POLLER_EPOLL)
+    if (st->ep >= 0) close(st->ep);
+    if (st->wake_fd >= 0) close(st->wake_fd);
+#elif defined(HTTP_POLLER_KQUEUE)
+    if (st->kq >= 0) close(st->kq);
+#endif
+    free(st);
+    return -IRON_ERR_NET_UNKNOWN;
+#endif
+}
+
+/* Wait for readiness for at most `wait_ms` with the lock released, then
+ * process the events with the lock held again. */
+static void http_poller_wait(HttpPollerState *st, int wait_ms) {
+    uint64_t now;
+#if defined(HTTP_POLLER_EPOLL)
+    struct epoll_event evs[HTTP_POLL_EVENTS];
+    /* With several threads in next(), each takes one event: the kernel hands
+     * every ready connection to exactly one waiter, and none sits in the
+     * ready queue while its taker is busy serving another. */
+    int max_events = st->callers > 1 ? 1 : HTTP_POLL_EVENTS;
+    http_poller_unlock(st);
+    int n = epoll_wait(st->ep, evs, max_events, wait_ms);
+    http_poller_lock(st);
+    if (n <= 0 || st->closed) return;
+    now = Iron_monotonic_now_ms();
+    for (int i = 0; i < n; i++) {
+        int fd = evs[i].data.fd;
+        if (fd == (int)st->listen_fd) {
+            http_poller_accept_burst(st, now);
+        } else if (fd == st->wake_fd) {
+            uint64_t v;
+            ssize_t r = read(st->wake_fd, &v, sizeof(v));
+            (void)r;
+        } else {
+            int hangup = (evs[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)) != 0;
+            http_poller_on_ready(st, fd, hangup);
+        }
+    }
+#elif defined(HTTP_POLLER_KQUEUE)
+    struct kevent evs[HTTP_POLL_EVENTS];
+    struct timespec ts;
+    ts.tv_sec = wait_ms / 1000;
+    ts.tv_nsec = (long)(wait_ms % 1000) * 1000000L;
+    int max_events = st->callers > 1 ? 1 : HTTP_POLL_EVENTS;
+    http_poller_unlock(st);
+    int n = kevent(st->kq, NULL, 0, evs, max_events, wait_ms < 0 ? NULL : &ts);
+    http_poller_lock(st);
+    if (n <= 0 || st->closed) return;
+    now = Iron_monotonic_now_ms();
+    for (int i = 0; i < n; i++) {
+        if (evs[i].filter == EVFILT_USER) continue;
+        int64_t fd = (int64_t)evs[i].ident;
+        if (fd == st->listen_fd) {
+            http_poller_accept_burst(st, now);
+        } else {
+            int hangup = (evs[i].flags & (EV_EOF | EV_ERROR)) != 0;
+            http_poller_on_ready(st, fd, hangup);
+        }
+    }
+#else
+    /* poll(): the set is rebuilt from the watched slots each round and the
+     * wait is sliced so close() is noticed without a wake-up primitive. */
+    size_t watched = 0;
+    for (size_t i = 0; i < st->count; i++)
+        if (st->slots[i].state == HTTP_POLL_WAITING || st->slots[i].state == HTTP_POLL_PARKED)
+            watched++;
+#ifdef _WIN32
+    WSAPOLLFD *pfds = (WSAPOLLFD *)malloc((watched + 1) * sizeof(*pfds));
+#else
+    struct pollfd *pfds = (struct pollfd *)malloc((watched + 1) * sizeof(*pfds));
+#endif
+    if (!pfds) return;
+    size_t np = 0;
+    pfds[np].fd = st->listen_fd;
+    pfds[np].events = POLLIN;
+    pfds[np].revents = 0;
+    np++;
+    for (size_t i = 0; i < st->count; i++) {
+        if (st->slots[i].state != HTTP_POLL_WAITING && st->slots[i].state != HTTP_POLL_PARKED) continue;
+        pfds[np].fd = st->slots[i].fd;
+        pfds[np].events = POLLIN;
+        pfds[np].revents = 0;
+        np++;
+    }
+    int slice = wait_ms < 0 || wait_ms > 50 ? 50 : wait_ms;
+    http_poller_unlock(st);
+#ifdef _WIN32
+    int n = WSAPoll(pfds, (ULONG)np, slice);
+#else
+    int n = poll(pfds, (nfds_t)np, slice);
+#endif
+    http_poller_lock(st);
+    if (n > 0 && !st->closed) {
+        now = Iron_monotonic_now_ms();
+        for (size_t i = 1; i < np; i++) {
+            if (!pfds[i].revents) continue;
+            int hangup = (pfds[i].revents & (POLLHUP | POLLERR)) != 0;
+            http_poller_on_ready(st, (int64_t)pfds[i].fd, hangup);
+        }
+        if (pfds[0].revents) http_poller_accept_burst(st, now);
+    }
+    free(pfds);
+#endif
+    (void)now;
+}
+
+int64_t Iron_httppollernative_next(int64_t h, int64_t timeout) {
+    HttpPollerState *st = (HttpPollerState *)(intptr_t)h;
+    if (!st || timeout < 0) return -IRON_ERR_HTTP_INVALID_ARGUMENT;
+    Iron_Deadline deadline = Iron_deadline_from_timeout_ms(timeout);
+    http_poller_lock(st);
+    st->callers++;
+    for (;;) {
+        if (st->closed) {
+            st->callers--;
+            http_poller_unlock(st);
+            return -IRON_ERR_NET_CLOSED;
+        }
+        if (st->ready_count) {
+            int64_t fd = st->ready[st->ready_head];
+            st->ready_head = (st->ready_head + 1) % st->ready_cap;
+            st->ready_count--;
+            st->callers--;
+            http_poller_unlock(st);
+            return fd;
+        }
+        uint64_t now = Iron_monotonic_now_ms();
+        uint64_t sweep_every = st->idle_timeout > 0 && st->idle_timeout < 2000
+            ? (uint64_t)st->idle_timeout / 2 + 1 : 1000;
+        if (now - st->last_sweep_ms >= sweep_every) http_poller_sweep(st, now);
+        int remaining = Iron_deadline_remaining_ms(deadline);
+        if (remaining <= 0 && timeout > 0) {
+            st->callers--;
+            http_poller_unlock(st);
+            return -IRON_ERR_NET_TIMEOUT;
+        }
+        int wait = remaining;
+        if ((uint64_t)wait > sweep_every) wait = (int)sweep_every;
+        http_poller_wait(st, wait);
+        if (timeout == 0 && !st->ready_count && !st->closed) {
+            st->callers--;
+            http_poller_unlock(st);
+            return -IRON_ERR_NET_TIMEOUT;
+        }
+    }
+}
+
+void Iron_httppollernative_park(int64_t h, int64_t fd) {
+    HttpPollerState *st = (HttpPollerState *)(intptr_t)h;
+    if (fd < 0) return;
+    if (!st) {
+        http_poller_close_fd(fd);
+        return;
+    }
+    http_poller_lock(st);
+    if (st->closed) {
+        long at = http_poller_find(st, fd);
+        if (at >= 0) http_poller_remove_at(st, (size_t)at);
+        http_poller_unlock(st);
+        http_poller_close_fd(fd);
+        return;
+    }
+    uint64_t now = Iron_monotonic_now_ms();
+    long at = http_poller_find(st, fd);
+    HttpPollSlot *slot;
+    if (at >= 0) {
+        slot = &st->slots[at];
+        slot->state = HTTP_POLL_PARKED;
+        slot->since_ms = now;
+    } else {
+        http_poller_set_socket_options(fd);
+        slot = http_poller_add(st, fd, HTTP_POLL_PARKED, now);
+    }
+    if (!slot || !http_poller_arm(st, slot)) {
+        at = http_poller_find(st, fd);
+        if (at >= 0) http_poller_remove_at(st, (size_t)at);
+        http_poller_unlock(st);
+        http_poller_close_fd(fd);
+        return;
+    }
+    http_poller_unlock(st);
+}
+
+/* Close a connection whose peer may still be sending (a request rejected
+ * before it was read: too large, malformed). Closing with unread input
+ * makes the kernel reset the connection, and the reset can destroy the
+ * answer before the client reads it; so stop sending, read and drop what
+ * arrives for a short while, then close. */
+static void http_poller_close_draining(int64_t fd) {
+    /* Only a connection with input still waiting needs the lingering close
+     * (it waits for the peer); the usual discard closes at once. */
+    char b;
+#ifdef _WIN32
+    u_long avail = 0;
+    bool pending = ioctlsocket((SOCKET)fd, FIONREAD, &avail) == 0 && avail > 0;
+    (void)b;
+#else
+    bool pending = recv((int)fd, &b, 1, MSG_PEEK | MSG_DONTWAIT) > 0;
+#endif
+    if (pending) iron_net_lingering_close(fd);
+    else http_poller_close_fd(fd);
+}
+
+void Iron_httppollernative_discard(int64_t h, int64_t fd) {
+    HttpPollerState *st = (HttpPollerState *)(intptr_t)h;
+    if (fd < 0) return;
+    if (st) {
+        http_poller_lock(st);
+        long at = http_poller_find(st, fd);
+        if (at >= 0) {
+            http_poller_forget(st, &st->slots[at]);
+            http_poller_remove_at(st, (size_t)at);
+        }
+        http_poller_unlock(st);
+    }
+    http_poller_close_draining(fd);
+}
+
+void Iron_httppollernative_close(int64_t h) {
+    HttpPollerState *st = (HttpPollerState *)(intptr_t)h;
+    if (!st) return;
+    http_poller_lock(st);
+    if (!st->closed) {
+        __atomic_store_n(&st->closed, 1, __ATOMIC_RELEASE);
+        size_t i = st->count;
+        while (i > 0) {
+            i--;
+            HttpPollSlot *slot = &st->slots[i];
+            if (slot->state == HTTP_POLL_ACTIVE) continue;
+            int64_t fd = slot->fd;
+            http_poller_forget(st, slot);
+            http_poller_remove_at(st, i);
+            http_poller_close_fd(fd);
+        }
+        /* Handed out by the poll but never taken by next(). */
+        while (st->ready_count) {
+            int64_t fd = st->ready[st->ready_head];
+            st->ready_head = (st->ready_head + 1) % st->ready_cap;
+            st->ready_count--;
+            long at = http_poller_find(st, fd);
+            if (at >= 0) http_poller_remove_at(st, (size_t)at);
+            http_poller_close_fd(fd);
+        }
+        http_poller_wake(st);
+    }
+    http_poller_unlock(st);
+}
+
+void Iron_httppollernative_free(int64_t h) {
+    HttpPollerState *st = (HttpPollerState *)(intptr_t)h;
+    if (!st) return;
+    Iron_httppollernative_close(h);
+    /* Connections still ACTIVE belong to their workers; only forget them. */
+#if defined(HTTP_POLLER_EPOLL)
+    close(st->ep);
+    close(st->wake_fd);
+#elif defined(HTTP_POLLER_KQUEUE)
+    close(st->kq);
+#endif
+#ifdef _WIN32
+    DeleteCriticalSection(&st->lock);
+#else
+    pthread_mutex_destroy(&st->lock);
+    free(st->pos_by_fd);
+#endif
+    free(st->slots);
+    free(st->ready);
+    free(st);
+}
+
+/* 0 parked, 1 waiting for a first request, 2 handed out (active),
+ * 3 accepted in total, 4 closed for idleness in total. */
+int64_t Iron_httppollernative_count(int64_t h, int64_t what) {
+    HttpPollerState *st = (HttpPollerState *)(intptr_t)h;
+    if (!st) return 0;
+    int64_t n = 0;
+    http_poller_lock(st);
+    if (what == 3) n = st->accepted;
+    else if (what == 4) n = st->expired;
+    else {
+        int want = what == 0 ? HTTP_POLL_PARKED : what == 1 ? HTTP_POLL_WAITING : HTTP_POLL_ACTIVE;
+        for (size_t i = 0; i < st->count; i++)
+            if (st->slots[i].state == want) n++;
+    }
+    http_poller_unlock(st);
+    return n;
+}
+
+/* Whether close() has run: a lock-free read, cheap enough to ask on every
+ * request (to answer with Connection: close while draining). */
+bool Iron_httppollernative_closed(int64_t h) {
+    HttpPollerState *st = (HttpPollerState *)(intptr_t)h;
+    if (!st) return true;
+    return __atomic_load_n(&st->closed, __ATOMIC_ACQUIRE) != 0;
+}
+
+Iron_String Iron_httppollernative_error_message(int64_t code) {
+    return http_str(http_error_message(code));
 }

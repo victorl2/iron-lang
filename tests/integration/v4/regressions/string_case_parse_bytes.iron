@@ -1,0 +1,13 @@
+-- upper / lower use the simple Unicode case mapping (#637), to_float
+-- takes decimal numbers only (no hexadecimal, inf or nan), from_byte of
+-- a value outside 0..255 is "", and the empty-pattern and pad rules.
+
+func main() {
+    println("{"Ελλάδα ώρα".upper()} {"ΆΈΉ ΪΫ".lower()} {"straße ǅ ı µ ſ".upper()} {"ɐɑ".upper()} {"K".lower()}")
+    println("{"Armenian Ա ա".lower()} {"ა".upper()} {"Ꭰ".lower()}")
+    println("[{"0x1p3".to_float()}] [{"inf".to_float()}] [{"nan".to_float()}] [{" -1.5e2 ".to_float()}] [{".5".to_float()}] [{"5.".to_float()}] [{"1e".to_float()}] [{"+.5E+1".to_float()}] [{"1e400".to_float()}]")
+    println("[{"+5".to_int()}] [{" -7 ".to_int()}] [{"0x10".to_int()}] [{"9223372036854775808".to_int()}] [{"1e3".to_int()}]")
+    println("[{String.from_byte(256)}] [{String.from_byte(-1).byte_len()}] [{String.from_byte(255).byte_at(0)}]")
+    println("{"abc".split("").len()} {"".split("").len()} [{"abc".replace("", "-")}] {"abc".count("")}")
+    println("[{"7".pad_left(4, "ab")}] [{"7".pad_left(4, "")}] [{"7".pad_right(3, "日本")}]")
+}

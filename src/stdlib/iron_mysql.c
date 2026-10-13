@@ -1164,6 +1164,8 @@ typedef struct MyCfg {
     int64_t timeout;
     int multi_statements;
     int64_t max_packet;
+    char *init_command;
+    size_t init_command_len;
 } MyCfg;
 
 static void cfg_free(MyCfg *k) {
@@ -1174,6 +1176,7 @@ static void cfg_free(MyCfg *k) {
     free(k->ca_file);
     free(k->server_public_key);
     free(k->collation);
+    free(k->init_command);
     memset(k, 0, sizeof(*k));
 }
 
@@ -1199,8 +1202,10 @@ static int cfg_from_iron(MyCfg *k, const Iron_MysqlConfig *c) {
     k->timeout = c->timeout;
     k->multi_statements = c->multi_statements;
     k->max_packet = c->max_allowed_packet;
+    k->init_command = istr_dup(c->init_command);
+    k->init_command_len = iron_string_byte_len(&c->init_command);
     if (!k->host || !k->user || !k->password || !k->database || !k->ca_file ||
-        !k->server_public_key || !k->collation) {
+        !k->server_public_key || !k->collation || !k->init_command) {
         cfg_free(k);
         return 0;
     }
@@ -1599,6 +1604,15 @@ static void set_nodelay(int64_t fd) {
 
 /* Open and authenticate a connection. Always returns a MyConn (NULL only
  * when out of memory); on failure it is closed and carries the error. */
+/* MysqlConfig.init_command: run on a new connection (and after a pooled
+ * connection's COM_RESET_CONNECTION). Nonzero on failure, with e set. */
+static int conn_run_init(MyConn *c, const MyCfg *k, MyErr *e) {
+    if (!k->init_command || k->init_command_len == 0) return 0;
+    int rc = run_simple(c, k->init_command, k->init_command_len, e);
+    if (rc && !e->code) err_set(e, rc);
+    return rc;
+}
+
 static MyConn *conn_open(const MyCfg *k) {
     MyConn *c = conn_new();
     if (!c) return NULL;
@@ -1635,6 +1649,11 @@ static MyConn *conn_open(const MyCfg *k) {
         return c;
     }
     err_clear(&c->err);
+    if (conn_run_init(c, k, &c->err)) {
+        c->broken = 1;
+        conn_shutdown(c, 0);
+        return c;
+    }
     c->idle_since_ms = Iron_monotonic_now_ms();
     return c;
 }
@@ -2601,34 +2620,75 @@ static int decode_time(const Cell *c, DT *d) {
     return parse_time_text(c->p, c->len, d) ? 0 : IRON_ERR_MYSQL_CONVERSION;
 }
 
-static size_t fmt_fraction(char *out, size_t cap, int64_t micro, int digits) {
-    if (digits <= 0) return 0;
+/* Date and time text without snprintf: these run for every DATETIME a
+ * result is read as text, and printf's machinery dominated that path. */
+static char *put_num(char *p, int64_t v, int width) {
+    char tmp[24];
+    int n = 0;
+    uint64_t u = v < 0 ? (uint64_t)0 - (uint64_t)v : (uint64_t)v;
+    do { tmp[n++] = (char)('0' + u % 10); u /= 10; } while (u && n < 20);
+    if (v < 0) *p++ = '-';
+    for (int i = n; i < width; i++) *p++ = '0';
+    while (n) *p++ = tmp[--n];
+    return p;
+}
+
+static size_t put_out(char *out, size_t cap, const char *buf, size_t n) {
+    if (cap == 0) return 0;
+    if (n >= cap) n = cap - 1;
+    memcpy(out, buf, n);
+    out[n] = 0;
+    return n;
+}
+
+static char *put_fraction(char *p, int64_t micro, int digits) {
+    if (digits <= 0) return p;
     if (digits > 6) digits = 6;
     char tmp[8];
-    snprintf(tmp, sizeof(tmp), "%06lld", (long long)micro);
-    int n = snprintf(out, cap, ".%.*s", digits, tmp);
-    return n > 0 ? (size_t)n : 0;
+    put_num(tmp, micro < 0 ? 0 : micro % 1000000, 6);
+    *p++ = '.';
+    memcpy(p, tmp, (size_t)digits);
+    return p + digits;
 }
 
 static size_t fmt_date(char *out, size_t cap, const DT *d) {
-    int n = snprintf(out, cap, "%04lld-%02lld-%02lld", (long long)d->year,
-                     (long long)d->month, (long long)d->day);
-    return n > 0 ? (size_t)n : 0;
+    char buf[48];
+    char *p = put_num(buf, d->year, 4);
+    *p++ = '-';
+    p = put_num(p, d->month, 2);
+    *p++ = '-';
+    p = put_num(p, d->day, 2);
+    return put_out(out, cap, buf, (size_t)(p - buf));
 }
 
 static size_t fmt_datetime(char *out, size_t cap, const DT *d, int digits) {
-    int n = snprintf(out, cap, "%04lld-%02lld-%02lld %02lld:%02lld:%02lld",
-                     (long long)d->year, (long long)d->month, (long long)d->day,
-                     (long long)d->hour, (long long)d->minute, (long long)d->second);
-    if (n <= 0) return 0;
-    return (size_t)n + fmt_fraction(out + n, cap - (size_t)n, d->micro, digits);
+    char buf[96];
+    char *p = put_num(buf, d->year, 4);
+    *p++ = '-';
+    p = put_num(p, d->month, 2);
+    *p++ = '-';
+    p = put_num(p, d->day, 2);
+    *p++ = ' ';
+    p = put_num(p, d->hour, 2);
+    *p++ = ':';
+    p = put_num(p, d->minute, 2);
+    *p++ = ':';
+    p = put_num(p, d->second, 2);
+    p = put_fraction(p, d->micro, digits);
+    return put_out(out, cap, buf, (size_t)(p - buf));
 }
 
 static size_t fmt_time(char *out, size_t cap, const DT *d, int digits) {
-    int n = snprintf(out, cap, "%s%02lld:%02lld:%02lld", d->neg ? "-" : "",
-                     (long long)d->hour, (long long)d->minute, (long long)d->second);
-    if (n <= 0) return 0;
-    return (size_t)n + fmt_fraction(out + n, cap - (size_t)n, d->micro, digits);
+    char buf[96];
+    char *p = buf;
+    if (d->neg) *p++ = '-';
+    p = put_num(p, d->hour, 2);
+    *p++ = ':';
+    p = put_num(p, d->minute, 2);
+    *p++ = ':';
+    p = put_num(p, d->second, 2);
+    p = put_fraction(p, d->micro, digits);
+    return put_out(out, cap, buf, (size_t)(p - buf));
 }
 
 /* MySQL writes exponents without '+' or leading zeros ("1e29", "1e-7"). */
@@ -2804,6 +2864,7 @@ static void config_release(Iron_MysqlConfig *c) {
     iron_string_release(&c->ca_file);
     iron_string_release(&c->server_public_key);
     iron_string_release(&c->collation);
+    iron_string_release(&c->init_command);
 }
 
 static void replace_str(Iron_String *dst, Iron_String v) {
@@ -2943,6 +3004,8 @@ Iron_MysqlConfigResult Iron_mysqlnative_parse_url(Iron_String url_value) {
                 if (ok) r.v0.multi_statements = bv;
             } else if (!strcmp(keybuf, "collation")) {
                 replace_str(&r.v0.collation, str_of(v, vn));
+            } else if (!strcmp(keybuf, "init_command")) {
+                replace_str(&r.v0.init_command, str_of(v, vn));
             } else if (!strcmp(keybuf, "connect_timeout")) {
                 ok = parse_int_value(v, vn, &iv);
                 if (ok) r.v0.connect_timeout = iv;
@@ -3032,8 +3095,9 @@ static MyConn *pool_take(MyPool *p, MyErr *e, int *reused) {
         while (p->nidle > 0) {
             MyConn *c = p->idle[--p->nidle];
             uint64_t now = Iron_monotonic_now_ms();
-            int expired = (p->max_lifetime > 0 && now - c->created_ms >= (uint64_t)p->max_lifetime) ||
-                          (p->idle_timeout > 0 && p->total > p->min &&
+            int expired = (p->max_lifetime > 0 && now >= c->created_ms &&
+                           now - c->created_ms >= (uint64_t)p->max_lifetime) ||
+                          (p->idle_timeout > 0 && p->total > p->min && now >= c->idle_since_ms &&
                            now - c->idle_since_ms >= (uint64_t)p->idle_timeout);
             p->in_use++;
             iron_mutex_unlock(&p->lock);
@@ -3041,7 +3105,8 @@ static MyConn *pool_take(MyPool *p, MyErr *e, int *reused) {
              * closed while it sat idle (KILL, wait_timeout, a restart) is
              * readable, and is replaced before the caller sees an error. */
             int ok = !expired && conn_alive(c);
-            if (ok && p->health_check > 0 && now - c->idle_since_ms >= (uint64_t)p->health_check) {
+            if (ok && p->health_check > 0 && now >= c->idle_since_ms &&
+                now - c->idle_since_ms >= (uint64_t)p->health_check) {
                 MyErr pe;
                 ok = simple_command(c, COM_PING, "", 0, &pe) == 0;
             }
@@ -3101,15 +3166,24 @@ static void pool_give_back(MyConn *c) {
     if (c->open && !c->broken && p->reset_on_release) {
         MyErr e;
         if (simple_command(c, COM_RESET_CONNECTION, "", 0, &e)) c->broken = 1;
-        else cache_clear(c, 0);
+        else {
+            cache_clear(c, 0);
+            if (conn_run_init(c, &p->cfg, &e)) c->broken = 1;
+        }
     }
     atomic_fetch_add(&c->gen, 1);
-    uint64_t now = Iron_monotonic_now_ms();
     MyConn *stale = NULL;
     iron_mutex_lock(&p->lock);
+    /* Read the clock under the lock: a `now` taken before it can be older
+     * than the idle_since_ms another thread just stored, and the unsigned
+     * difference below then wrapped to a huge age, closing a connection
+     * that had idled for microseconds (under load: a new connection, TLS
+     * handshake included, for most requests). */
+    uint64_t now = Iron_monotonic_now_ms();
     p->in_use--;
     int keep = !p->closing && c->open && !c->broken &&
-               !(p->max_lifetime > 0 && now - c->created_ms >= (uint64_t)p->max_lifetime);
+               !(p->max_lifetime > 0 && now >= c->created_ms &&
+                 now - c->created_ms >= (uint64_t)p->max_lifetime);
     if (keep) {
         c->idle_since_ms = now;
         p->idle[p->nidle++] = c;
@@ -3117,6 +3191,7 @@ static void pool_give_back(MyConn *c) {
         p->total--;
     }
     if (p->nidle > 1 && p->total > p->min && p->idle_timeout > 0 &&
+        now >= p->idle[0]->idle_since_ms &&
         now - p->idle[0]->idle_since_ms >= (uint64_t)p->idle_timeout) {
         stale = p->idle[0];
         memmove(p->idle, p->idle + 1, (size_t)(p->nidle - 1) * sizeof(MyConn *));

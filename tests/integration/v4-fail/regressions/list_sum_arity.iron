@@ -1,0 +1,5 @@
+-- sum() takes no argument (E0216, #659).
+func main() {
+    val xs = [1, 2]
+    println("{xs.sum(1.5)}")
+}

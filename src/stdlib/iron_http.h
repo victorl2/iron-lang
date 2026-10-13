@@ -167,4 +167,16 @@ Iron_HttpResponse Iron_http_file_response(int64_t status, Iron_String path,
                                            int64_t max_body_bytes);
 Iron_String Iron_http_header(Iron_String headers, Iron_String name);
 
+/* HttpPoller (http.iron): readiness-driven keep-alive serving. Handles are
+ * opaque pointers; negative results are -(error code). */
+int64_t Iron_httppollernative_open(int64_t listen_fd, int64_t idle_timeout);
+int64_t Iron_httppollernative_next(int64_t h, int64_t timeout);
+void Iron_httppollernative_park(int64_t h, int64_t fd);
+void Iron_httppollernative_discard(int64_t h, int64_t fd);
+void Iron_httppollernative_close(int64_t h);
+void Iron_httppollernative_free(int64_t h);
+int64_t Iron_httppollernative_count(int64_t h, int64_t what);
+Iron_String Iron_httppollernative_error_message(int64_t code);
+bool Iron_httppollernative_closed(int64_t h);
+
 #endif
