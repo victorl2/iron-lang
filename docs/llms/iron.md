@@ -375,8 +375,8 @@ pointers short-lived: pass them down to calls, or store a value or an
 `rc` handle instead of a pointer to a local. Locals die in reverse order
 of declaration, so a `drop` block may read a pointer to a local declared
 before its value, not after. A list or `Map` cannot be used through a
-pointer to it (E0220): go through a field (`p.items.push(x)`). A `var`
-parameter takes a variable, not a field or an element (E0267).
+pointer to it (E0220): go through a field (`p.items.push(x)`). A `for`
+loop body must not add to or remove from the list it iterates (E0346).
 
 ```iron
 object Player {

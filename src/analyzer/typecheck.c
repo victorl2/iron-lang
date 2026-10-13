@@ -6414,19 +6414,6 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                        ce->args[i]->span, msg,
                                        "make the argument source mutable "
                                        "(declare as 'var')");
-                        } else if (fp->is_var && ce->args[i] &&
-                                   ce->args[i]->kind != IRON_NODE_IDENT) {
-                            /* The parameter takes the caller's binding by
-                             * address; a field or an element emitted C that
-                             * did not compile. */
-                            char msg[256];
-                            snprintf(msg, sizeof(msg),
-                                     "'var' parameter '%s' needs a variable, not a field or an element",
-                                     fp->name ? fp->name : "<unnamed>");
-                            emit_error(ctx, IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT,
-                                       ce->args[i]->span, msg,
-                                       "copy the value into a 'var' binding, pass that, "
-                                       "and store it back; or take a pointer parameter");
                         }
                     }
 
@@ -7936,16 +7923,6 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                                mc->args[ai]->span, msg,
                                                "make the argument source mutable "
                                                "(declare as 'var')");
-                                } else if (mp->is_var && mc->args[ai] &&
-                                           mc->args[ai]->kind != IRON_NODE_IDENT) {
-                                    char msg[256];
-                                    snprintf(msg, sizeof(msg),
-                                             "'var' parameter '%s' needs a variable, not a field or an element",
-                                             mp->name ? mp->name : "<unnamed>");
-                                    emit_error(ctx, IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT,
-                                               mc->args[ai]->span, msg,
-                                               "copy the value into a 'var' binding, pass that, "
-                                               "and store it back; or take a pointer parameter");
                                 }
                                 /* Phase 20 PTR-07 (Plan 20-02a): auto-address
                                  * insertion at method call sites mirrors the

@@ -160,8 +160,10 @@ A deleted check would have passed, so (1) and (2) are unaffected.
   dispatched on it runs.
 - A list with an element borrowed by a call is pinned: growing past
   capacity, removing, clearing or freeing it panics.
-- A `var` parameter takes a variable of the caller (E0267 otherwise), which
-  outlives the call.
+- A `var` parameter takes the caller's place by address. A variable
+  outlives the call; for a field or an element the list it is in is
+  pinned, the heap, arena or pointed-to value it is in has its generation
+  pinned, and the rc object it is in is retained for the call.
 
 ## I8. List layouts and loops
 

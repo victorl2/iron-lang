@@ -1,0 +1,40 @@
+-- @expect-panic: list changed while a pointer
+-- A list element passed to a var parameter keeps its list pinned for the
+-- call: growing the list aborts instead of the callee writing back into
+-- the freed buffer.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Hub {
+    var p: ?*P
+    var q: ?*Int
+    init() {
+        self.p = null
+        self.q = null
+    }
+}
+
+func clobber() -> Int {
+    val y = P(9)
+    val z = P(10)
+    return y.hp + z.hp
+}
+
+func touch(var x: Int, f: func()) {
+    f()
+    x += 1
+    println("{x}")
+}
+func main() {
+    var xs = [1, 2, 3]
+    touch(xs[0], func() {
+        for i in range(1000) {
+            xs.push(i)
+        }
+    })
+    println("{xs[0]}")
+}

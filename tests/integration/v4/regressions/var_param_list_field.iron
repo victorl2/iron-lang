@@ -1,0 +1,37 @@
+-- A list field passed to a var list parameter grows in place.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Hub {
+    var p: ?*P
+    var q: ?*Int
+    init() {
+        self.p = null
+        self.q = null
+    }
+}
+
+func clobber() -> Int {
+    val y = P(9)
+    val z = P(10)
+    return y.hp + z.hp
+}
+
+func addone(var xs: [Int]) {
+    xs.push(1)
+}
+object L {
+    var xs: [Int]
+    init() {
+        self.xs = [1, 2, 3]
+    }
+}
+func main() {
+    var l = L()
+    addone(l.xs)
+    println("{l.xs.len()}")
+}

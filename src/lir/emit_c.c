@@ -1666,6 +1666,35 @@ static bool emit_place_in_changeable_narrowed(IronLIR_Func *fn, EmitCtx *ctx,
     return stores > 1;
 }
 
+/* What holds the place `v` when it is not (inside) a local: the checked
+ * pointer or heap/arena handle it is reached through (*kind = 1) or the rc
+ * handle (*kind = 2); INVALID otherwise. A field or element passed to a
+ * `var` parameter by address must stay where it is for the call. */
+static IronLIR_ValueId emit_place_holder(IronLIR_Func *fn, IronLIR_ValueId v, int *kind, int depth) {
+    IronLIR_Instr *d = emit_def_instr(fn, v);
+    *kind = 0;
+    if (!d || depth > 32) return IRON_LIR_VALUE_INVALID;
+    IronLIR_ValueId obj;
+    if (d->kind == IRON_LIR_GET_FIELD) obj = d->field.object;
+    else if (d->kind == IRON_LIR_GET_INDEX) {
+        Iron_Type *at = emit_get_value_type(fn, d->index.array);
+        if (!at || at->kind != IRON_TYPE_ARRAY || (at->array.size < 0 && !at->array.is_bounded))
+            return IRON_LIR_VALUE_INVALID;
+        obj = d->index.array;
+    } else if (emit_is_optional_unwrap(fn, d) || emit_is_iface_object_view(fn, d, NULL, NULL, NULL)) {
+        obj = d->cast.value;
+    } else {
+        return IRON_LIR_VALUE_INVALID;
+    }
+    Iron_Type *ot = emit_get_value_type(fn, obj);
+    if (ot && ot->kind == IRON_TYPE_RC) { *kind = 2; return obj; }
+    if (emit_val_is_any_fat_ptr(fn, obj) || emit_val_is_checked_ptr_typed(fn, obj)) {
+        *kind = 1;
+        return obj;
+    }
+    return emit_place_holder(fn, obj, kind, depth + 1);
+}
+
 static void emit_place_gen(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
                            IronLIR_ValueId vid, int depth);
 /* The scope stamped on the ADDR_OF being emitted (addr_of.scope_id). */
@@ -6908,6 +6937,42 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             iron_strbuf_appendf(sb, ").items; uint64_t _lpg%u_%d = iron_list_pin(_lpb%u_%d);\n",
                                 (unsigned)instr->id, i, (unsigned)instr->id, i);
         }
+        /* A field or element handed to a `var` parameter by address: the
+         * list it is in is pinned, the heap, arena or pointed-to value it
+         * is in keeps its generation pinned, and the rc object is retained
+         * for the call, so the callee cannot move or end the storage it
+         * writes back to. */
+        int vkind[16] = { 0 };
+        for (int i = 0; instr->call.args_by_addr && i < instr->call.arg_count && i < 16; i++) {
+            if (!instr->call.args_by_addr[i] || lpinned[i]) continue;
+            IronLIR_ValueId av = instr->call.args[i];
+            IronLIR_Instr *ad = emit_def_instr(fn, av);
+            if (!ad || ad->kind == IRON_LIR_ALLOCA) continue;
+            IronLIR_ValueId lv = emit_elem_list(fn, av, 0);
+            if (lv != IRON_LIR_VALUE_INVALID) {
+                if (get_stack_array_origin(ctx, lv) != IRON_LIR_VALUE_INVALID) continue;
+                vkind[i] = 3;
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "const void *_vpb%u_%d = (const void *)(", (unsigned)instr->id, i);
+                emit_expr_to_buf(sb, lv, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ").items; iron_list_iter_pin(_vpb%u_%d);\n", (unsigned)instr->id, i);
+                continue;
+            }
+            int hk = 0;
+            IronLIR_ValueId hv = emit_place_holder(fn, av, &hk, 0);
+            if (hv == IRON_LIR_VALUE_INVALID) continue;
+            vkind[i] = hk;
+            emit_indent(sb, ind);
+            if (hk == 1) {
+                iron_strbuf_appendf(sb, "uint64_t _vpg%u_%d = (", (unsigned)instr->id, i);
+                emit_expr_to_buf(sb, hv, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ").gen; iron_gen_pin(_vpg%u_%d);\n", (unsigned)instr->id, i);
+            } else {
+                iron_strbuf_appendf(sb, "void *_vpr%u_%d = (void *)(", (unsigned)instr->id, i);
+                emit_expr_to_buf(sb, hv, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, "); iron_rc_retain(_vpr%u_%d);\n", (unsigned)instr->id, i);
+            }
+        }
         bool rc_pin = instr->call.self_by_addr && instr->call.arg_count > 0 &&
                       emit_rc_receiver_needs_pin(fn, instr->call.args[0], 0);
         /* Receiver pins: a receiver reached through a heap or arena handle
@@ -7538,6 +7603,16 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (gen_pin) {
             emit_indent(sb, ind);
             iron_strbuf_appendf(sb, "iron_gen_unpin(_gpin%u);\n", (unsigned)instr->id);
+        }
+        for (int i = (instr->call.arg_count < 16 ? instr->call.arg_count : 16) - 1; i >= 0; i--) {
+            if (!vkind[i]) continue;
+            emit_indent(sb, ind);
+            if (vkind[i] == 3)
+                iron_strbuf_appendf(sb, "iron_list_iter_unpin(_vpb%u_%d);\n", (unsigned)instr->id, i);
+            else if (vkind[i] == 1)
+                iron_strbuf_appendf(sb, "iron_gen_unpin(_vpg%u_%d);\n", (unsigned)instr->id, i);
+            else
+                iron_strbuf_appendf(sb, "iron_rc_release(_vpr%u_%d);\n", (unsigned)instr->id, i);
         }
         if (iface_pin) {
             emit_indent(sb, ind);

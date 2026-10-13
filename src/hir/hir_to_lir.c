@@ -5278,6 +5278,8 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             Iron_Type *it = stmt->for_loop.iterable ? stmt->for_loop.iterable->type : NULL;
             if (iter_scope_depth == 0 && arrlen(iter_temps) == 0 && it &&
                 it->kind == IRON_TYPE_ARRAY && it->array.size < 0 && !it->array.is_bounded &&
+                /* (an interface list is split by implementor: no one buffer) */
+                !(it->array.elem && it->array.elem->kind == IRON_TYPE_INTERFACE) &&
                 iterable_val != IRON_LIR_VALUE_INVALID &&
                 ctx->current_block && !block_is_terminated(ctx->current_block)) {
                 IronLIR_Instr *pref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
