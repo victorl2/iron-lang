@@ -1,0 +1,6 @@
+7 lamp
+http://example.com/a//b
+-- not a comment /// nor this //json:no
+4 42
+green
+12

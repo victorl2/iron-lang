@@ -173,6 +173,7 @@ static const char *signature_for_decl(Iron_Node *d, Iron_Arena *arena,
             sb_append(&sb, vd->name ? vd->name : "_");
             sb_append(&sb, ": ");
             sb_append(&sb, render_type_ann(vd->type_ann, arena));
+            if (out_doc) *out_doc = vd->doc_comment;
             break;
         }
         default:

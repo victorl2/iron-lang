@@ -78,7 +78,7 @@ queue_source() {
     dir=$(dirname "$src")
     name=$(basename "$src" .iron)
     [ -f "$dir/$name.expected" ] || { skipped=$((skipped+1)); return 0; }
-    if head -n 10 "$src" | grep -qE '^[[:space:]]*--[[:space:]]*@(expect-panic|compile-only|leaks-by-design)'; then
+    if head -n 10 "$src" | grep -qE '^[[:space:]]*(--|//)[[:space:]]*@(expect-panic|compile-only|leaks-by-design)'; then
         skipped=$((skipped+1)); return 0
     fi
     echo "$src" >> "$work/list"

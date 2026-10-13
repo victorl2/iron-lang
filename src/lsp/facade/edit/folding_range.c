@@ -139,12 +139,12 @@ static void visit_body(Iron_Node             *n,
     }
 }
 
-/* Detect a multi-line consecutive `///` doc-comment run from the token
- * stream. Each IRON_TOK_DOC_COMMENT token carries its 1-based line; a
- * run is a sequence of doc-comment tokens on consecutive lines with
- * nothing else on those lines. We emit a single fold covering the run
- * when it spans ≥ 2 source lines. Arena-allocated via the caller's
- * arena for the fold array. */
+/* Folds every run of own-line comment lines (`//`, and `--` / `///`
+ * while code migrates) on consecutive lines when it spans >= 2 lines.
+ * A `//` line comes as a NEWLINE token carrying the comment, a `///` line
+ * as a DOC_COMMENT token; both carry their 1-based line. (The old walk
+ * looked for DOC_COMMENT tokens back to back, but a NEWLINE always sits
+ * between two of them, so no comment run was ever folded.) */
 static void emit_doc_comment_folds(Iron_Token            *tokens,
                                      int                    tok_count,
                                      IronLsp_FoldingRange **arr,
@@ -152,27 +152,30 @@ static void emit_doc_comment_folds(Iron_Token            *tokens,
                                      size_t                *cap,
                                      Iron_Arena            *arena) {
     if (!tokens || tok_count <= 0) return;
-    int i = 0;
-    while (i < tok_count) {
-        if (tokens[i].kind != IRON_TOK_DOC_COMMENT) { i++; continue; }
-        uint32_t first_line = tokens[i].line;
-        uint32_t last_line  = tokens[i].line;
-        int j = i + 1;
-        while (j < tok_count && tokens[j].kind == IRON_TOK_DOC_COMMENT) {
-            /* Accept only consecutive (or near-consecutive) doc-comment
-             * tokens -- the parser groups `///` lines back-to-back. We
-             * treat a gap of 1 (same line + 1) as continuing the run; a
-             * bigger gap breaks the run. Intermediate IRON_TOK_NEWLINE
-             * between two doc-comment tokens counts as "consecutive". */
-            if (tokens[j].line > last_line + 1) break;
-            last_line = tokens[j].line;
-            j++;
+    uint32_t first_line = 0, last_line = 0;
+    for (int i = 0; i <= tok_count; i++) {
+        bool is_line = false;
+        uint32_t line = 0;
+        if (i < tok_count) {
+            const Iron_Token *t = &tokens[i];
+            if ((t->comment & IRON_COMMENT_PRESENT) &&
+                (t->comment & IRON_COMMENT_OWN_LINE) &&
+                !(t->comment & IRON_COMMENT_MARKER)) {
+                is_line = true;
+                line = t->line;
+            } else if (t->kind == IRON_TOK_NEWLINE && t->comment == 0) {
+                continue;  /* the newline after a `///` line, or a blank line */
+            }
         }
-        if (first_line < last_line) {
-            (void)emit_fold(arr, count, cap, arena,
-                             first_line, last_line, "comment");
+        if (is_line && first_line != 0 && line == last_line + 1) {
+            last_line = line;
+            continue;
         }
-        i = j > i ? j : i + 1;
+        if (first_line != 0 && first_line < last_line) {
+            (void)emit_fold(arr, count, cap, arena, first_line, last_line, "comment");
+        }
+        first_line = is_line ? line : 0;
+        last_line  = is_line ? line : 0;
     }
 }
 
