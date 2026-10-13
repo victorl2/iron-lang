@@ -25,7 +25,9 @@ for src in "${here}"/v4/soa/*.iron; do
     fi
     # (in a shell of its own, so an expected abort is not reported here)
     bash -c 'cd "$1" && ./prog > out.txt 2> err.txt' _ "${work}/${name}" 2> /dev/null; rc=$?
-    panic=$(head -n 10 "${src}" | sed -n 's/^[[:space:]]*--[[:space:]]*@expect-panic:[[:space:]]*//p' | head -1)
+    panic=$(head -n 10 "${src}" \
+        | sed -nE 's#^[[:space:]]*(--|//)[[:space:]]*@expect-panic:[[:space:]]*##p' \
+        | head -1)
     if [ -n "${panic}" ]; then
         if [ "${rc}" -ne 0 ] && grep -qF -- "${panic}" "${work}/${name}/err.txt"; then
             pass=$((pass + 1))

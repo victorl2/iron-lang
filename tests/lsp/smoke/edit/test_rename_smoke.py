@@ -18,6 +18,8 @@ import pathlib
 import pytest
 from lsprotocol import types
 
+from request_timeout import REQUEST_TIMEOUT_SECONDS
+
 
 FIXTURE_DIR = (
     pathlib.Path(__file__).parent
@@ -200,7 +202,7 @@ async def test_rename_cross_file_workspace(client):
                 new_name="do_more",
             ),
         ),
-        timeout=10.0,
+        timeout=REQUEST_TIMEOUT_SECONDS,
     )
     files = _files_touched(result)
     # Ideal: 2 files touched (main + lib). Degraded: 1 file (same-file
