@@ -463,8 +463,9 @@ changes is where the bytes are:
   element copied or destroyed.
 
 For an element type that is not an object (numbers, `String`, enums) the
-attribute is accepted and changes nothing; fixed arrays and bounded
-vectors take no attributes. Traversing every field of every element is
+attribute is accepted and changes nothing. Fixed arrays and bounded
+vectors take no attributes by definition, although the compiler currently
+accepts and ignores them there ([#841](https://github.com/victorl2/iron-lang/issues/841)). Traversing every field of every element is
 not faster in a `layout: soa` list; use it for lists whose hot loops read
 a few fields of many elements. The debugger formatters show the elements
 of either layout.
@@ -1314,8 +1315,8 @@ other expression on its own is accepted by the parser but has no effect.
 
 A program is a sequence of top-level declarations: imports, functions,
 objects, patches, interfaces, enums and global bindings. Declarations may
-appear in any order and are visible throughout the file (and, when `pub`,
-throughout the package, section 10.3).
+appear in any order and are visible throughout the file. Most become visible
+throughout the package when `pub`; section 5.10 records the current exceptions.
 
 ### 5.1 The entry point
 
@@ -1936,10 +1937,12 @@ is available without an import.
 
 ### 5.10 Visibility
 
-Every top-level declaration is private to its file unless marked `pub`.
-`pub` may prefix a function, object, patch, interface, enum or global
-binding (`pub val`, `pub var`). Using a private declaration from another file of the
-package is an error (`E0320`). Object members are private to the declaring
+Functions, objects, patches, enums and global bindings are private to their
+file unless marked `pub`; global bindings use `pub val` and `pub var`.
+Interfaces are currently visible package-wide even without `pub`, while an
+extern function stays file-private even when written `pub extern func`
+([#842](https://github.com/victorl2/iron-lang/issues/842)). Using any other
+private declaration from another file of the package is an error (`E0320`). Object members are private to the declaring
 file unless marked `pub` (section 5.3). The word `private` is not accepted
 (`E0101`). Visibility does not make names local: all files of a package
 share one namespace, so two files may not declare the same top-level name,
@@ -3303,7 +3306,8 @@ a filter that starts with `-`); any other argument is an error, as is a
 second file given to `ironc`. Builds and checks of the same package may run
 at the same time. All files of a package share one namespace: a
 `pub` declaration in one file is visible in every other file, and a
-private one only in its own (`E0320`). `import` of a package file is
+private one only in its own (`E0320`), subject to the interface and extern
+exceptions in section 5.10. `import` of a package file is
 optional and documents the dependency. The files are compiled in this
 order, which is the order of their globals' initialization where those do
 not depend on each other (section 5.7): the vendored files, `src/lib.iron`,

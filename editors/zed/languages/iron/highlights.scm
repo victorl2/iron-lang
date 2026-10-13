@@ -52,7 +52,6 @@
 (interface_declaration name: (identifier) @type)
 (enum_declaration      name: (identifier) @type)
 (patch_declaration   target: (identifier) @type)
-(object_declaration  parent: (identifier) @type)
 (object_declaration  implements: (identifier) @type)
 (patch_declaration   implements: (identifier) @type)
 (enum_variant          name: (identifier) @constructor)
@@ -96,7 +95,7 @@
 "init" @keyword.function
 "test" @keyword
 ["defer" "free" "leak" "drop" "copy"] @keyword
-["impl" "implements" "extends"] @keyword
+"impl" @keyword
 ["extern" "comptime" "spawn" "parallel" "heap" "rc" "weak" "await"] @keyword
 ["unchecked" "layout" "unordered"] @keyword.modifier
 (heap_option key: "in" @keyword)
@@ -118,7 +117,7 @@
 (escape_sequence) @string.escape
 
 ; ── Operators ─────────────────────────────────────────────────────────
-["+" "-" "*" "/" "%" "==" "!=" "<" ">" "<=" ">=" "&&" "||" "!" "="
+["+" "-" "*" "/" "%" "==" "!=" "<" ">" "<=" ">=" "="
  "+=" "-=" "*=" "/=" "<<" ">>" "<<=" ">>=" "&" "|" "^" "~" "&=" "|=" "^="
  ".." "?"]
   @operator
