@@ -1,5 +1,17 @@
 # @fusible Annotation Specification
 
+> **Status.** This is the original design note of loop fusion. The rules the
+> compiler applies today are in the language manual, section 9.3.1, and
+> differ from the text below in these points: a chain is fused only when
+> every callback is proven free of effects and panics
+> (`src/lir/fusion_safety.c`), only trivial values may flow between stages,
+> a list of an interface type is never the source of a fused loop (the
+> "split collection" loops described below were removed: they visited the
+> elements type by type), nothing fuses without optimization, and
+> `//iron:fusible` (the successor of `@fusible`) on a function of a program
+> is a checked claim that the function can run in a fused loop (W0618).
+
+
 ## 1. Overview
 
 The `@fusible` annotation marks collection methods as eligible for loop fusion optimization. When the compiler detects a chain of calls to fusible methods where each method's result feeds directly into the next method's input, it composes their per-element bodies into a single fused loop with no intermediate allocations.
@@ -10,8 +22,8 @@ The standard library annotations document the closed whitelist. The current
 code generator does not inspect the AST flag: it recognizes the five built-in
 list operation names below and uses hardcoded knowledge of their per-element
 semantics. A user annotation is retained as declaration metadata but does not
-define another fusion operation. The language manual section 5.2 is the
-normative description of the safety and ownership gates.
+define another fusion operation. The language manual section 9.3.1 is the
+normative description of the rules.
 
 ---
 
@@ -113,7 +125,7 @@ Where `env` is the closure environment pointer (or NULL for non-capturing lambda
 body. It uses hardcoded semantics for the five built-in list methods. It does,
 however, analyze every callback and refuses fusion unless its lowered call
 graph is pure and non-trapping and every eliminated element stream has a
-trivial lifetime. See manual section 5.2.
+trivial lifetime. See manual section 9.3.1.
 
 ### Example: Fused Loop for `arr.map(f).filter(g).sum()`
 
