@@ -1,0 +1,39 @@
+-- s += t grows a uniquely owned buffer in place, so building a string
+-- piece by piece is linear (#597: 80 000 one-byte appends took 2.3 s);
+-- other views of the old value are unchanged and the character count
+-- stays exact when a multi-byte sequence arrives a byte at a time.
+func main() {
+    var s = ""
+    for i in range(40) {
+        s += String.from_byte(195)
+        s += String.from_byte(169)
+        s += "日"
+    }
+    println("{s.len()} {s.byte_len()} {s.count("é")}")
+    val keep = s
+    s += "tail"
+    println("{keep.len()} {s.len()} {keep.ends_with("日")} {s.ends_with("tail")}")
+    var t = "x".repeat(30)
+    var u = t
+    t += "y"
+    u += "z"
+    println("{t.byte_len()} {u.byte_len()} {t.ends_with("y")} {u.ends_with("z")} {t == u}")
+    var w = "a long enough first part of the string"
+    w += String.from_byte(226)
+    w += String.from_byte(130)
+    println("{w.len()}")
+    w += String.from_byte(172)
+    println("{w.len()} {w.ends_with("€")}")
+    var parts: [String] = []
+    var acc = "start of a string that is long enough"
+    for i in range(5) {
+        acc += "-{i}"
+        parts.push(acc)
+    }
+    println("{parts[0]} | {parts[4]}")
+    var big = ""
+    for i in range(300000) {
+        big += String.from_byte(97 + i % 26)
+    }
+    println("{big.len()} {big.byte_len()} {big.count("xyz")}")
+}

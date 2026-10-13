@@ -24,9 +24,7 @@
  * Tear down at the end of every test. No mocking required; this is an
  * integration test against a real filesystem.
  *
- * Not tested here: Iron_io_read_line (blocks on stdin — requires pty
- * injection). It covers 4 lines and is not on the critical path for the
- * 50% threshold.
+ * Iron_io_read_line is tested with stdin reopened on a sandbox file.
  */
 
 #include "stdlib/iron_io.h"
@@ -78,7 +76,7 @@ static void sandbox_nuke(void) {
     const char *names[] = {
         "a.txt", "b.txt", "c.txt", "hello.txt", "lines.txt", "append.txt",
         "bytes.bin", "bounded.bin", "copied.bin", "moved.bin", "written.txt",
-        "nope.txt", "race-source.bin", "race-target.bin", NULL
+        "nope.txt", "race-source.bin", "race-target.bin", "stdin.txt", NULL
     };
     for (int i = 0; names[i]; i++) {
         snprintf(path, sizeof(path), "%s/%s", s_sandbox, names[i]);
@@ -547,6 +545,53 @@ void test_io_no_overwrite_move_is_atomic_against_creator(void) {
     }
 }
 
+/* #572: joining onto "" keeps a relative path relative. */
+void test_io_join_path_empty_base(void) {
+    Iron_String j = Iron_io_join_path(make_str(""), make_str("x/y"));
+    TEST_ASSERT_EQUAL_STRING("x/y", iron_string_cstr(&j));
+    iron_string_release(&j);
+}
+
+/* #572: read_line returns a whole line of any length, zero bytes
+ * included, without its LF or CRLF; "" at end of input. */
+void test_io_read_line_long_and_binary(void) {
+    Iron_String path = mkpath("stdin.txt");
+    char *line = (char *)malloc(10001);
+    TEST_ASSERT_NOT_NULL(line);
+    for (int i = 0; i < 10000; i++) line[i] = (char)('a' + i % 26);
+    line[5000] = '\0';
+    FILE *f = fopen(iron_string_cstr(&path), "wb");
+    TEST_ASSERT_NOT_NULL(f);
+    fwrite(line, 1, 10000, f);
+    fputs("\r\nshort\nlast", f);
+    fclose(f);
+    TEST_ASSERT_NOT_NULL(freopen(iron_string_cstr(&path), "rb", stdin));
+    Iron_String a = Iron_io_read_line();
+    TEST_ASSERT_EQUAL_size_t(10000, iron_string_byte_len(&a));
+    TEST_ASSERT_EQUAL_MEMORY(line, iron_string_cstr(&a), 10000);
+    Iron_String b = Iron_io_read_line();
+    TEST_ASSERT_EQUAL_STRING("short", iron_string_cstr(&b));
+    Iron_String c = Iron_io_read_line();
+    TEST_ASSERT_EQUAL_STRING("last", iron_string_cstr(&c));
+    Iron_String d = Iron_io_read_line();
+    TEST_ASSERT_EQUAL_size_t(0, iron_string_byte_len(&d));
+    iron_string_release(&a);
+    iron_string_release(&b);
+    iron_string_release(&c);
+    iron_string_release(&d);
+    iron_string_release(&path);
+    free(line);
+}
+
+/* #569: a directory cannot be read as a file. */
+void test_io_read_directory(void) {
+    Iron_FileReadResult r = Iron_io_read_text(make_str(s_sandbox), 1024);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_IS_DIRECTORY, r.error);
+    TEST_ASSERT_EQUAL_size_t(0, iron_string_byte_len(&r.data));
+    iron_string_release(&r.data);
+    iron_string_release(&r.error_message);
+}
+
 /* ── main ────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -560,6 +605,9 @@ int main(void) {
     RUN_TEST(test_io_basename);
     RUN_TEST(test_io_dirname);
     RUN_TEST(test_io_join_path);
+    RUN_TEST(test_io_join_path_empty_base);
+    RUN_TEST(test_io_read_line_long_and_binary);
+    RUN_TEST(test_io_read_directory);
     RUN_TEST(test_io_extension);
     RUN_TEST(test_io_is_dir);
     RUN_TEST(test_io_read_lines);

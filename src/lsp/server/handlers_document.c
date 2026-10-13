@@ -320,6 +320,25 @@ void ilsp_handle_didClose(IronLsp_Server *s, struct yyjson_doc *doc,
     shdel(s->documents, uri);
 }
 
+/* A source file changed on disk. The open documents of its package are
+ * analyzed together with it (the saved contents of the package's other
+ * files), so their diagnostics may have changed: analyze them again, and
+ * ask a client that pulls diagnostics to pull again. */
+static void reanalyze_open_documents(IronLsp_Server *s, const char *changed_uri) {
+    if (!s || !s->documents) return;
+    bool any = false;
+    for (ptrdiff_t i = 0; i < shlen(s->documents); i++) {
+        IronLsp_Document *d = s->documents[i].value;
+        if (!d || !d->uri) continue;
+        if (changed_uri && strcmp(d->uri, changed_uri) == 0) continue;
+        any = true;
+        if (d->mailbox && d->worker_started) {
+            ilsp_mailbox_post_compile(d->mailbox, d->version, NULL);
+        }
+    }
+    if (any && s->client_pulls_diagnostics) ilsp_send_workspace_diagnostic_refresh(s);
+}
+
 /* ── textDocument/didSave ──────────────────────────────────────────── */
 
 void ilsp_handle_didSave(IronLsp_Server *s, struct yyjson_doc *doc,
@@ -357,6 +376,7 @@ void ilsp_handle_didSave(IronLsp_Server *s, struct yyjson_doc *doc,
         }
     }
     /* else: signal-only save -- no state change needed. */
+    reanalyze_open_documents(s, uri);
 }
 
 /* ── workspace/didChangeWatchedFiles ───────────────────────────────── */
@@ -404,6 +424,7 @@ void ilsp_handle_didChangeWatchedFiles(IronLsp_Server *s,
                     }
                     if (canon) free(canon);
                 }
+                reanalyze_open_documents(s, uri);
                 if (open_doc) {
                     fprintf(stderr,
                             "ironls: watched-files source stale-on-disk %s\n",
