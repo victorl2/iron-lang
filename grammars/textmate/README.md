@@ -52,8 +52,9 @@ highlights without affecting other languages.
 | Interpolated string `$"..."` | `string.interpolated.iron` with inner `meta.interpolation.iron` |
 | Escape sequence | `constant.character.escape.iron` |
 | Line comment `//` | `comment.line.double-slash.iron` |
-| Block comment `/* */` | `comment.block.iron` |
-| Doc comment `///` | `comment.block.documentation.iron` |
+| Directive comment `//key:value` | `meta.directive.iron`, key `keyword.other.directive.iron` |
+| Transitional line comment `--` | `comment.line.double-dash.iron` |
+| Transitional doc comment `///` | `comment.block.documentation.iron` |
 | Operator | `keyword.operator.iron` |
 | Section punctuation `{}[]()` | `punctuation.section.iron` |
 | Separator punctuation `,;:` | `punctuation.separator.iron` |

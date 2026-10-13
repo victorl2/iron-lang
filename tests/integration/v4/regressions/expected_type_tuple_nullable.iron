@@ -1,0 +1,94 @@
+-- A tuple literal where a tuple is expected fills `T?` components (#599)
+-- and gives a generic construction among its elements the type arguments
+-- it leaves open (#626), in the same literal: through a return, a
+-- parameter, a field, an annotation and an assignment, nested too.
+object Stack[T] {
+    var items: [T]
+    init() {
+        self.items = []
+    }
+    func push(x: T) {
+        self.items.push(x)
+    }
+    readonly func size() -> Int {
+        return len(self.items)
+    }
+}
+
+object Cell[T] {
+    var n: Int
+    var v: T?
+    init() {
+        self.n = 0
+        self.v = null
+    }
+}
+
+object Rec {
+    val t: (Cell[String]?, Int?)
+    val u: (Cell[Int], String?)
+}
+
+func both(k: Int) -> (Map[String, Int]?, Int?) {
+    if k == 0 {
+        return (Map(), null)
+    }
+    if k == 1 {
+        return (null, 4)
+    }
+    return (Map(), 7)
+}
+
+func mixed(b: Bool) -> (Stack[Int], String?) {
+    if b {
+        return (Stack(), null)
+    }
+    return (Stack(), "s")
+}
+
+func nested(b: Bool) -> ((Cell[String], Int?), Set[Int]?) {
+    if b {
+        return ((Cell(), null), Set())
+    }
+    return ((Cell(), 3), null)
+}
+
+func take(t: (Cell[Int]?, Int?)) -> String {
+    val (s, n) = t
+    var out = ""
+    if s != null {
+        out = "S{s.n}"
+    } else {
+        out = "N"
+    }
+    if n != null {
+        return "{out}{n}"
+    }
+    return "{out}-"
+}
+
+func main() {
+    val (a, b) = both(0)
+    val (c, d) = both(1)
+    val (e, f) = both(2)
+    println("{a != null} {b == null} {c == null} {d} {e != null} {f}")
+    val (s1, t1) = mixed(true)
+    val (s2, t2) = mixed(false)
+    println("{s1.size()} {t1 == null} {s2.size()} {t2}")
+    val (n1, n2) = nested(true)
+    val (m1, k1) = n1
+    val (n3, n4) = nested(false)
+    val (m3, k3) = n3
+    println("{m1.n} {k1 == null} {n2 != null} {m3.n} {k3} {n4 == null}")
+    println("{take((Cell(), null))} {take((null, 2))} {take((Cell(), 5))}")
+    val r = Rec((Cell(), null), (Cell(), null))
+    val (rm, rn) = r.t
+    val (rs, rq) = r.u
+    println("{rm != null} {rn == null} {rs.n} {rq == null}")
+    val v: (Cell[String]?, Int?) = (Cell(), 9)
+    val (vm, vn) = v
+    var w: (Cell[Int], Int?) = (Cell(), null)
+    w = (Cell(), 3)
+    val (ws, wn) = w
+    println("{vm != null} {vn} {ws.n} {wn}")
+}

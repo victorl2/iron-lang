@@ -26,6 +26,7 @@
 #include "fmt/format.h"
 #include "fmt/options.h"
 #include "fmt/config_load.h"
+#include "fmt/migrate.h"
 #include "cli/toml.h"
 
 /* ── Helper: read a file into a heap-allocated string ────────────────────── */
@@ -266,4 +267,150 @@ int iron_fmt_check(const char *source_path) {
     free(source);
     if (proj) iron_toml_free(proj);
     return rc;
+}
+
+/* ── iron_fmt_migrate_comments ────────────────────────────────────────────── */
+
+typedef struct {
+    bool check;
+    int  files, changed, failed, comments, hints;
+} MigrateStats;
+
+static bool migrate_write(const char *path, const char *text, size_t len) {
+    size_t pl = strlen(path);
+    char *tmp = (char *)malloc(pl + 10);
+    if (!tmp) return false;
+    memcpy(tmp, path, pl);
+    memcpy(tmp + pl, ".iron.tmp", 10);
+    FILE *f = fopen(tmp, "wb");
+    if (!f) { free(tmp); return false; }
+    size_t w = fwrite(text, 1, len, f);
+    int fe = fflush(f);
+    fclose(f);
+    if (w != len || fe != 0 || rename(tmp, path) != 0) {
+        remove(tmp);
+        free(tmp);
+        return false;
+    }
+    free(tmp);
+    return true;
+}
+
+static void migrate_file(const char *path, MigrateStats *st) {
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "iron fmt: cannot open '%s': %s\n", path, strerror(errno));
+        st->failed++;
+        return;
+    }
+    char *src = NULL;
+    size_t len = 0, cap = 0;
+    for (;;) {
+        if (len + 4096 + 1 > cap) {
+            cap = cap ? cap * 2 : 8192;
+            char *nb = (char *)realloc(src, cap);
+            if (!nb) { free(src); fclose(f); st->failed++; return; }
+            src = nb;
+        }
+        size_t n = fread(src + len, 1, 4096, f);
+        len += n;
+        if (n < 4096) break;
+    }
+    fclose(f);
+    src[len] = '\0';
+    st->files++;
+
+    Iron_Arena arena = iron_arena_create(64 * 1024);
+    IronMigrateResult r = iron_migrate_comments(src, len, path, &arena);
+    if (!r.ok) {
+        fprintf(stderr, "iron fmt: %s: not migrated: %s\n", path, r.error ? r.error : "error");
+        st->failed++;
+    } else if (r.changed) {
+        st->changed++;
+        st->comments += r.comments;
+        st->hints += r.hints;
+        if (st->check) {
+            fprintf(stderr, "would migrate %s\n", path);
+        } else if (!migrate_write(path, r.text, r.len)) {
+            fprintf(stderr, "iron fmt: cannot write '%s'\n", path);
+            st->failed++;
+        } else {
+            printf("migrated %s\n", path);
+        }
+    }
+    iron_arena_free(&arena);
+    free(src);
+}
+
+static bool has_iron_ext(const char *name) {
+    size_t n = strlen(name);
+    return n > 5 && strcmp(name + n - 5, ".iron") == 0;
+}
+
+static void migrate_path(const char *path, MigrateStats *st, int depth) {
+    struct stat sb;
+    if (stat(path, &sb) != 0) {
+        fprintf(stderr, "iron fmt: cannot open '%s': %s\n", path, strerror(errno));
+        st->failed++;
+        return;
+    }
+    if (!S_ISDIR(sb.st_mode)) {
+        if (!has_iron_ext(path)) {
+            fprintf(stderr, "iron fmt: '%s' is not an .iron source file\n", path);
+            st->failed++;
+            return;
+        }
+        migrate_file(path, st);
+        return;
+    }
+    if (depth > 64) return;
+    DIR *d = opendir(path);
+    if (!d) {
+        fprintf(stderr, "iron fmt: cannot read directory '%s'\n", path);
+        st->failed++;
+        return;
+    }
+    /* Sorted, so the output is the same on every system. */
+    char **names = NULL;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        /* Hidden directories (.git, .iron-build) and build output are not
+         * sources. */
+        if (e->d_name[0] == '.') continue;
+        arrput(names, strdup(e->d_name));
+    }
+    closedir(d);
+    for (ptrdiff_t i = 1; i < arrlen(names); i++)
+        for (ptrdiff_t j = i; j > 0 && strcmp(names[j - 1], names[j]) > 0; j--) {
+            char *t = names[j]; names[j] = names[j - 1]; names[j - 1] = t;
+        }
+    for (ptrdiff_t i = 0; i < arrlen(names); i++) {
+        size_t n = strlen(path) + strlen(names[i]) + 2;
+        char *child = (char *)malloc(n);
+        if (child) {
+            snprintf(child, n, "%s/%s", path, names[i]);
+            struct stat cs;
+            if (stat(child, &cs) == 0) {
+                if (S_ISDIR(cs.st_mode)) migrate_path(child, st, depth + 1);
+                else if (has_iron_ext(names[i])) migrate_file(child, st);
+            }
+            free(child);
+        }
+        free(names[i]);
+    }
+    arrfree(names);
+}
+
+int iron_fmt_migrate_comments(const char *const *paths, int count, bool check) {
+    MigrateStats st = { check, 0, 0, 0, 0, 0 };
+    static const char *const here[] = { "." };
+    if (count <= 0) { paths = here; count = 1; }
+    for (int i = 0; i < count; i++) migrate_path(paths[i], &st, 0);
+    fprintf(stderr, "iron fmt: %d file%s checked, %d %s (%d comment%s, %d hint%s), %d failed\n",
+            st.files, st.files == 1 ? "" : "s", st.changed,
+            check ? "to migrate" : "migrated",
+            st.comments, st.comments == 1 ? "" : "s",
+            st.hints, st.hints == 1 ? "" : "s", st.failed);
+    if (st.failed > 0) return 1;
+    return (check && st.changed > 0) ? 1 : 0;
 }

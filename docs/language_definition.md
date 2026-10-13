@@ -46,21 +46,26 @@ types and list literals (`[Int; 4]`).
 
 ### 1.2 Comments
 
-A line comment starts with `--` and runs to the end of the line. There are
-no block comments, and `//` and `#` are not comments.
+Iron has one comment form: `//` starts a comment that runs to the end of
+the line. There are no block comments, and `#` is not a comment. A `//`
+inside a string literal is string text (`"http://example.com"`).
 
-A line starting with `///` is a documentation comment. A run of `///`
-lines directly above a declaration, field, enum variant or interface method
-(no blank line in between) is attached to it and shown by the language
-server; a blank line breaks the association. The compiler otherwise ignores
-doc comments.
+**Documentation.** A run of `//` comment lines directly above a
+declaration, an object field, an enum variant or an interface method, with
+no blank line between the lines or before the declaration, is its
+documentation. The language server shows it on hover, in completion and in
+signature help, with one leading space removed from each line. A blank line
+breaks the association, and a comment at the end of a line of code is never
+documentation. The compiler otherwise ignores comments.
 
 ```iron
-/// Doubles its argument.
-/// Attached to `twice` because no blank line separates them.
+// Doubles its argument.
+// Attached to `twice` because no blank line separates them.
 func twice(x: Int) -> Int {
-    return x * 2   -- a line comment
+    return x * 2   // a comment at the end of a line
 }
+
+// A comment followed by a blank line documents nothing.
 
 func main() {
     println("{twice(21)}")
@@ -70,6 +75,58 @@ func main() {
 ```output
 42
 ```
+
+**Directives.** A comment written `//key:value`, with no space after `//`,
+a key of lowercase letters, digits and `_` starting with a letter, and a
+`:` right after the key, is a directive. A directive belongs to the
+declaration or field it sits directly above, as part of its comment run. It
+may instead trail an object field on that field's line. Directive lines are
+not part of the documentation. The value is the rest of the line.
+`// json:id`, with a space, is an ordinary comment.
+
+```iron
+object Item {
+    // The catalog number.
+    //db:primary_key
+    pub val item_id: Int  //json:id
+    pub val name: String  //json:name
+}
+
+func main() {
+    val it = Item(7, "lamp")
+    println("{it.item_id} {it.name}")
+}
+```
+
+```output
+7 lamp
+```
+
+The compiler keeps this metadata on each relevant AST node as its
+`doc_comment` text and a source-ordered `directives` list. Each directive is
+`(key, value, line, trailing)`; `line` is one-based and `trailing` can be true
+only for an object field. This is the representation available to the later
+compile-time reflection work in issue #455. Directives have no meaning of
+their own, except the `iron` key: `//iron:<hint>` is a compiler hint. A hint
+changes only how the compiler represents or optimizes a declaration (a
+function, object or field), never what the program does;
+anything that is part of a type or changes what type checks, such as
+`[T, layout: soa]` or `[I, unordered]`, is language syntax instead. The
+hints are:
+
+| Hint | On | Meaning |
+|------|----|---------|
+| `//iron:fusible` | a function or method, on the line above `func` | eligible for loop fusion of chained list operations (section 5.2) |
+
+An `//iron:` hint the compiler does not know, or one written above a
+declaration it does not apply to, is warning W0617, so a misspelling such
+as `//iron:fusable` does not pass silently.
+
+**Transition.** Earlier versions wrote line comments with `--`,
+documentation lines with `///` and the fusion hint as `@fusible`. These
+are still accepted, with the same meaning as `//`, `//` and
+`//iron:fusible`, while code moves over; `iron fmt --migrate-comments
+[paths]` rewrites them (section 10) and a later version will reject them.
 
 ### 1.3 Identifiers and keywords
 
@@ -103,10 +160,11 @@ implemented). `init`, `copy`, `drop`, `null` and `free` may additionally
 appear as method names after a `.` or after `func` inside an object body,
 which is how `Box.null()` and `b.free()` are spelled.
 
-The words `as`, `fusible`, `layout`, `soa`, `aos`, `unordered`,
-`allow_drop_skip` and `Self` are ordinary identifiers with a special meaning
-in specific positions (import aliases, `@fusible`, list attributes, `heap`
-options and the receiver type).
+The words `as`, `layout`, `soa`, `aos`, `unordered`, `allow_drop_skip`
+and `Self` are ordinary identifiers with a special meaning in specific
+positions (import aliases, list attributes, `heap` options and the
+receiver type). `fusible` is an ordinary identifier too; it is special only
+after `@` in the transitional `@fusible` (section 1.2).
 
 ### 1.4 Literals
 
@@ -429,6 +487,46 @@ is used the same way. `[I, unordered]`, for an interface type `I`, keeps
 the elements grouped by concrete type instead of in insertion order and
 cannot be indexed (`E0329`); iteration visits every element.
 
+A `layout: soa` list of an object type keeps one column per field, all in
+one allocation: the values of the first field of every element, then those
+of the next field, and so on. Every list operation gives the same result,
+and the same panic at the same line, as for the default layout; what
+changes is where the bytes are:
+
+- `ps[i].x` reads or writes one value of the `x` column and touches no
+  other field, so a loop over one or two fields of a long list reads
+  contiguous memory and can be vectorized. `&ps[i].x` passed to a pointer
+  parameter points into the column.
+- A whole element (`ps[i]`, `for p in ps`, `pop`, `remove`) is gathered
+  from the columns into a value; `push`, `insert` and `ps[i] = v` scatter
+  one. `insert` and `remove` move the tail of every column.
+- A whole element has no address. A method called on `ps[i]`, `&ps[i]`
+  passed to a pointer parameter and `ps[i]` passed to a `var` parameter
+  lend a gathered copy for the duration of the call; when the call
+  returns, what it may have changed is stored back (for a method, the
+  fields its body can write; nothing for a `readonly` method or a `*T`
+  parameter). During such a call the element read again through the list
+  itself still has its value from before the call.
+- The layout belongs to the list value and is chosen where the list is
+  made. A list literal, `[]` included, takes the layout of the type it is
+  checked against: the annotation of the binding, field, parameter or
+  return type it initializes. `copy()`, `take()`, a slice and `filter` give
+  a list of the same layout as their source; any other new list (`map`, a
+  literal with no annotated type) has the default layout.
+- A list keeps its layout wherever it goes. `[T]` and `[T, layout: soa]`
+  are the same type: a parameter, binding or field of either accepts a
+  list of either layout, and passing, returning or storing a list never
+  converts it.
+- Copy and drop hooks run exactly as for the default layout, once per
+  element copied or destroyed.
+
+For an element type that is not an object (numbers, `String`, enums) the
+attribute is accepted and changes nothing; fixed arrays and bounded
+vectors take no attributes. Traversing every field of every element is
+not faster in a `layout: soa` list; use it for lists whose hot loops read
+a few fields of many elements. The debugger formatters show the elements
+of either layout.
+
 ```iron
 object Particle {
     var x: Float
@@ -606,6 +704,55 @@ func main() {
 A generic enum value takes the type arguments its payload does not fix from
 where it is used: `return Maybe.Nothing` in a function returning
 `Maybe[Int]`, an argument, an assignment or an annotated binding.
+
+The same holds for a generic construction or call: type arguments that
+neither are written nor follow from the arguments come from the expected
+type, the type the value is checked against. That is the annotation of a
+`val` or `var`, the target of an assignment, the parameter at a call
+(functions, methods, constructors), the return type of the enclosing
+function, the field in an object construction, or the element of a list
+or tuple whose type is known; an `rc` or `T?` expected type gives its
+inner type. This covers the library containers (`Channel`, `Mutex`,
+`RWLock`, `Box`, `Map`, `Set`), generic objects and generic functions
+whose type parameters appear in the return type. Written type arguments
+and those the arguments fix are never replaced: when they disagree with
+the expected type the program is rejected with a type mismatch naming
+both (`E0202`).
+
+```iron
+object Stack[T] {
+    var items: [T]
+    init() {
+        self.items = []
+    }
+}
+
+func empty[T]() -> [T] {
+    return []
+}
+
+func counts() -> Map[String, Int] {
+    return Map()
+}
+
+func size(s: Set[Int]) -> Int {
+    return s.len()
+}
+
+func main() {
+    val ch: Channel[Int] = Channel(4)
+    var seen: Set[String] = Set()
+    val st: Stack[Int] = Stack()
+    val xs: [Int] = empty()
+    val shared: rc Map[String, Int] = rc Map()
+    ch.send(len(xs) + len(st.items))
+    println("{ch.recv()} {seen.add("a")} {counts().len()} {size(Set())} {shared.len()}")
+}
+```
+
+```output
+0 true 0 0 0
+```
 
 ### 2.9 Type conversions
 
@@ -1319,8 +1466,10 @@ func main() {
 A top-level function name is a function value: `val f = twice`,
 `apply(twice, 4)` and `[twice]` work like the equivalent lambdas.
 
-`@fusible` before a `func` marks it as eligible for loop fusion of chained
-list operations; it changes nothing else about the function.
+The compiler hint `//iron:fusible` on the line directly above a `func`
+marks it as eligible for loop fusion of chained list operations; it changes
+nothing else about the function. The older `@fusible` before `func` means
+the same and is accepted while code migrates (section 1.2).
 
 ### 5.3 Objects
 
@@ -2060,9 +2209,12 @@ after that (kept in a closure or an object that outlived the call) it
 aborts with a "dangling stack pointer to frame" message. Checked pointers
 support no arithmetic (`E0268`, `E0295`); `&` cannot be applied to a
 temporary (`E0270`), a pointer to a local cannot be returned (`E0271`), `&`
-on an `rc` handle is rejected (`E0296`), and `&list[i]` on a growable list
-is rejected (`E0330`) unless it is written directly as a call argument,
-because the list may move its elements when it grows.
+on an `rc` handle is rejected (`E0296`), and the address of an element of
+a growable list, or of anything stored inside one (`&list[i]`,
+`&list[i].field`, `&list[i].inner.field`, `&list[i].fixed[0]`), is
+rejected (`E0330`) unless it is written directly as a call argument,
+because the list may move its elements when it grows. This holds for
+either list layout (section 2.3).
 
 ```iron
 object Player {
@@ -2212,7 +2364,11 @@ list cleared), with `self` bound to the dying value. It may contain a
 cloning its list fields). An object declared `nocopy object` cannot be
 copied at all: assigning it to another binding, passing it by value or
 storing it is an error (`E0286`), which is how `Box`, `Channel`, `Mutex`,
-`RWLock` and `FileHandle` guarantee a single owner. Each object has at most
+`RWLock` and `FileHandle` guarantee a single owner. A list of `nocopy`
+objects moves its elements (`take()`, `pop()`, `remove()`) and lends them
+(field reads, `for`, methods), but anything that would duplicate one is
+`E0286` too: `copy()`, a slice, `filter`, and binding an element or a
+field (`val p = ps[i]`). Each object has at most
 one `drop` and one `copy` block (`E0284`, `E0285`); `drop` may not be
 `readonly` (`E0287`) and may not `return` early (`E0288`).
 
@@ -2894,8 +3050,8 @@ C optimizer from reasoning about it; it exists for benchmarks.
 
 These are always available and are described in sections 6 and 7. Each
 one is constructed like any object, `Type(args)` or `Type[T](args)` when
-no argument carries the element type; there is no `.new` method
-(`E0333`):
+no argument carries the element type and no expected type gives it
+(section 2.8); there is no `.new` method (`E0333`):
 
 | Type | API |
 |---|---|
@@ -2911,9 +3067,10 @@ no argument carries the element type; there is no `.new` method
 ### 9.10 `Hashable`, `Map` and `Set`
 
 `Map[K, V]` is a hash table from keys of type `K` to values of type `V`;
-`Set[T]` is a hash set of `T`. Both are constructed empty with their type
-arguments written out (`Map[String, Int]()`, `Set[Int]()`; nothing else
-carries them) and both are library objects: there is no literal and no
+`Set[T]` is a hash set of `T`. Both are constructed empty, with their type
+arguments written out (`Map[String, Int]()`, `Set[Int]()`) or taken from
+the expected type (`var m: Map[String, Int] = Map()`, `return Set()` in
+a function returning `Set[Int]`, section 2.8), and both are library objects: there is no literal and no
 `m[k]` indexing. The key type must satisfy `Hashable` (`E0206`): the
 integer types, `Bool` and `String` do, and an object does when it declares
 `impl Hashable` with `pure func hash() -> Int` and `pure func
@@ -3178,7 +3335,13 @@ runs the package's `test "name" { ... }` blocks (section 10.2.1) and every
 `tests/test_*.iron` program, and `iron fmt file.iron` reformats a file
 (`--check` only reports, and exits with 0 when the file is formatted, 1
 when it would change, 2 when it does not parse and 3 when it cannot be
-read). In a package, `iron build`, `iron run` and `iron
+read). `iron fmt --migrate-comments [paths]` rewrites
+the transitional `--` comments, `///` documentation lines and `@fusible`
+in every `.iron` file under the given files or directories (the current
+directory by default) to `//` and `//iron:fusible` (section 1.2); it
+changes only comments as the lexer reads them, checks that every rewritten
+file still lexes, parses and documents the same, and with `--check` only
+lists the files it would change. In a package, `iron build`, `iron run` and `iron
 check` take no file argument (program arguments follow `--` in `iron
 run`), and `iron test` takes one, a name filter (`iron test -- -name` for
 a filter that starts with `-`); any other argument is an error, as is a
@@ -3428,7 +3591,7 @@ codes cited in this manual:
 | E0314 | possibly uninitialized `var` |
 | E0320, E0321 | private declaration used from another file; standalone `func Type.method` form |
 | E0322, E0323, E0324, E0325, E0326 | unsupported `is`; unsupported match subject; lambda parameter type; awaited twice; thread pools |
-| E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element |
+| E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element or of a field inside one |
 | E0335 | `break` / `continue` outside a loop, in a lambda, `defer` or `spawn` body inside one, or in a `parallel` loop |
 | E0336 | `return` inside a `defer` body |
 | E0350, E0351 | static function called on a value; method called through the type name |
@@ -3442,6 +3605,7 @@ codes cited in this manual:
 | E0700 to E0703 | web main loop rules |
 | W0601, W0604, W0605, W0606 | narrowing cast; spawn data race; arena skips `drop`; heap value never freed |
 | W0611, W0613, W0614 | unused import; `var` never reassigned; `var` parameter never reassigned |
+| W0617 | unknown `//iron:` compiler hint, or one on a declaration it does not apply to |
 
 `docs/dev/diagnostic-codes.md` lists every code with its message.
 
@@ -3473,6 +3637,20 @@ or one of the keywords allowed in name position. Newlines and comments are
 not part of the grammar: the parser skips them between any two tokens (see
 section 1.6). The grammar is checked against the fixture corpus by
 `scripts/grammar_check.py`.
+
+Comments are lexical (section 1.2):
+
+```text
+comment        ::= '//' { any character except newline }
+directive      ::= '//' KEY ':' { any character except newline }
+KEY            ::= 'a'..'z' { 'a'..'z' | '0'..'9' | '_' }
+doc_run        ::= { own-line comment, one per line, no blank line between }
+                   (documents the declaration, field, enum variant or
+                    interface method on the next line)
+```
+
+`--` and `///` are transitional spellings of `//`, and `@fusible` of the
+directive `//iron:fusible` (section 1.2).
 
 ```ebnf
 program        ::= { decl }

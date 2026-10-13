@@ -1,0 +1,7 @@
+unknown compiler hint `//iron:fusable`
+the known hints are: fusible
+`//iron:fusible` applies to a function or method
+`//iron:fusible` must be above a function or method
+iron_hints.iron:4:1
+iron_hints.iron:9:1
+iron_hints.iron:19:1
