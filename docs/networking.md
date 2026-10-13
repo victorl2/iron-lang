@@ -340,6 +340,17 @@ One task may receive from a socket while multiple tasks send; complete frame
 writes are serialized. There must be only one receiving task, and close/abort
 must not race other operations.
 
+A receive that fails with a framing error (6002, after sending close 1002),
+a message over the limit (6003, close 1009), invalid UTF-8 (6004, close
+1007) or a stream that ends inside a frame (6005) fails the connection:
+later receives and sends return 6005, because the stream is no longer at a
+frame boundary. Nothing is sent after a close frame. `close` stops sending
+after the closing handshake and drains what the peer still sends (at most
+a second) before closing, so the peer reads the close frame instead of a
+reset. After `close` or `abort`, every copy of the `WebSocket` value is
+stale: `is_open` is false and the other calls return 6005. `is_open` is
+also false once a close frame was received or a receive failed.
+
 ## Text and binary file operations
 
 Iron `String` values preserve embedded zero and arbitrary bytes. The byte APIs
@@ -472,7 +483,11 @@ TcpSocket.close(socket)
 
 TCP is a byte stream: one write does not guarantee one read. Loop until the
 protocol's delimiter or expected length is complete, and treat an empty
-successful read as end of stream.
+successful read as end of stream. `TcpSocket.write` writes the whole buffer
+within its deadline (on a timeout or error the count is what was written
+before it); a read returns what one receive gives, never more than
+`max_bytes` (a large limit does not allocate a large buffer). Ports outside
+0..65535 are invalid arguments (1024), never clamped or wrapped.
 
 ## UDP
 
@@ -499,7 +514,9 @@ UdpSocket.close(receiver)
 Datagram boundaries are preserved: one successful receive consumes one
 packet. If a datagram exceeds `max_bytes`, the captured prefix is returned
 with `truncated == 1` and error code `1018`. A successful zero-length
-datagram has empty data and error code `0`; a timeout has code `1004`.
+datagram has empty data and error code `0`; a timeout has code `1004`. Sending a datagram larger
+than the system allows is error `1018` too (65507 bytes over IPv4; macOS
+limits UDP sends to 9216 bytes by default, `net.inet.udp.maxdgram`).
 
 ## DNS and addresses
 
@@ -520,6 +537,10 @@ for address in addresses {
 
 `IPv4Addr.parse`, `IPv6Addr.parse` and the matching `format` functions
 convert between text and the typed addresses the socket calls take.
+
+An address literal resolves to itself without a resolver query. A name that
+is empty or holds a zero byte is error `1009` (it is never looked up as the
+text before the zero byte).
 
 ## Concurrency
 

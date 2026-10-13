@@ -1,0 +1,26 @@
+-- Globals are visible above their declaration and are initialized in
+-- dependency order (manual 5.7); a function or an initializer reading a
+-- later global was rejected with E0200 / E0176.
+val A = B + 1
+val S = "{A}-{T}"
+val B = twice(C)
+val T = Pt(C).show()
+val C = 20
+
+object Pt {
+    val v: Int
+    readonly func show() -> String {
+        return "pt{self.v}"
+    }
+}
+
+func twice(x: Int) -> Int {
+    return x * 2 + late
+}
+
+func main() {
+    late = late + 1
+    println("{A} {B} {C} {S} {T} {late}")
+}
+
+var late = 1

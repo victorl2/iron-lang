@@ -107,7 +107,7 @@ IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_null_box(void) {
 #define iron_panic_null_box() iron_dbg_panic_null_box()
 #endif
 /* FileHandle.open(path) (write mode) / close: the descriptor, or -1. */
-int    iron_filehandle_open(const char *path);
+int    iron_filehandle_open(const char *path, size_t len);
 void   iron_filehandle_close(int fd);
 
 /* ── Atomics: C11 on every platform ──────────────────────────────────────── */
@@ -1035,6 +1035,8 @@ size_t       iron_string_codepoint_count(const Iron_String *s);
 bool         iron_string_equals(const Iron_String *a, const Iron_String *b);
 int          iron_string_compare(const Iron_String *a, const Iron_String *b);
 Iron_String  iron_string_concat(const Iron_String *a, const Iron_String *b);
+/* `s += t`: like concat, growing a uniquely owned buffer in place (#597). */
+Iron_String  iron_string_concat_append(const Iron_String *a, const Iron_String *b);
 Iron_String  iron_string_intern(Iron_String s);
 /* Consumes one owned string value. Heap-backed interned literals remain owned
  * by the runtime and are ignored; non-interned heap storage is freed. Any

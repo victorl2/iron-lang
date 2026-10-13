@@ -12,7 +12,8 @@ typedef enum {
 } Iron_LogLevel;
 
 /* ── Log API ─────────────────────────────────────────────────────────────── */
-void Iron_log_set_level(Iron_LogLevel level);
+/* Any Int: below DEBUG shows everything, above ERROR hides everything. */
+void Iron_log_set_level(int64_t level);
 void Iron_log_debug(Iron_String msg);
 void Iron_log_info(Iron_String msg);
 void Iron_log_warn(Iron_String msg);
