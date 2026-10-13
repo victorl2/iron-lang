@@ -361,6 +361,21 @@ if(NOT WIN32)
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     set_tests_properties(test_mysql_integration PROPERTIES
         LABELS "integration;networking;mysql" TIMEOUT 1800 SKIP_RETURN_CODE 77)
+
+    # apps/inventory, a complete service (HTTP server, upstream API client,
+    # MySQL), built and driven by its integration suite against the same
+    # server; skipped (77) without IRON_MYSQL_URL. A sanitizer build of the
+    # compiler builds the service with ASan and UBSan as well.
+    add_test(NAME test_inventory_service
+        COMMAND ${CMAKE_SOURCE_DIR}/apps/inventory/tests/run.sh ${CMAKE_BINARY_DIR}/iron
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set(_inventory_env "")
+    if(IRON_ENABLE_SANITIZERS)
+        set(_inventory_env "INVENTORY_SANITIZE=1")
+    endif()
+    set_tests_properties(test_inventory_service PROPERTIES
+        LABELS "integration;networking;mysql" TIMEOUT 1200 SKIP_RETURN_CODE 77
+        ENVIRONMENT "${_inventory_env}")
 endif()
 
 add_executable(test_stdlib_websocket test_stdlib_websocket.c)

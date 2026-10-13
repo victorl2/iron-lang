@@ -244,65 +244,58 @@ static char *derive_output_name(const char *source_path) {
     return out;
 }
 
-/* Every Iron_<name> identifier declared by the runtime and standard library
- * headers. Generated C includes these headers even when the corresponding
- * Iron module is not imported, so a program function must not reuse one of
- * their identifiers (#524). */
+/* ── Runtime C symbols (#524) ─────────────────────────────────────────────── */
+
+/* Every Iron_<name> identifier in the headers of dir (the generated C
+ * includes the runtime and standard library headers whether a module is
+ * imported or not): a free function of the program with that C name is
+ * emitted as Iron_u_<name> instead of colliding with it. */
 static void reserve_header_symbols_in(const char *dir) {
     char **files = NULL;
 #ifdef _WIN32
-    char pattern[4200];
-    snprintf(pattern, sizeof(pattern), "%s\\*.h", dir);
-    struct _finddata_t entry;
-    intptr_t handle = _findfirst(pattern, &entry);
-    if (handle == -1) return;
+    char pat[4200];
+    snprintf(pat, sizeof(pat), "%s\\*.h", dir);
+    struct _finddata_t fd;
+    intptr_t h = _findfirst(pat, &fd);
+    if (h == -1) return;
     do {
-        char *path = malloc(strlen(dir) + strlen(entry.name) + 2);
-        if (path) {
-            sprintf(path, "%s/%s", dir, entry.name);
-            arrput(files, path);
-        }
-    } while (_findnext(handle, &entry) == 0);
-    _findclose(handle);
+        size_t cap = strlen(dir) + strlen(fd.name) + 2;
+        char *p = malloc(cap);
+        if (p) { snprintf(p, cap, "%s/%s", dir, fd.name); arrput(files, p); }
+    } while (_findnext(h, &fd) == 0);
+    _findclose(h);
 #else
-    DIR *stream = opendir(dir);
-    if (!stream) return;
-    struct dirent *entry;
-    while ((entry = readdir(stream)) != NULL) {
-        size_t name_len = strlen(entry->d_name);
-        if (name_len < 3 || strcmp(entry->d_name + name_len - 2, ".h") != 0)
-            continue;
-        char *path = malloc(strlen(dir) + name_len + 2);
-        if (path) {
-            sprintf(path, "%s/%s", dir, entry->d_name);
-            arrput(files, path);
-        }
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        size_t n = strlen(e->d_name);
+        if (n < 3 || strcmp(e->d_name + n - 2, ".h") != 0) continue;
+        size_t cap = strlen(dir) + n + 2;
+        char *p = malloc(cap);
+        if (p) { snprintf(p, cap, "%s/%s", dir, e->d_name); arrput(files, p); }
     }
-    closedir(stream);
+    closedir(d);
 #endif
-
     for (int i = 0; i < (int)arrlen(files); i++) {
-        FILE *header = fopen(files[i], "rb");
+        FILE *f = fopen(files[i], "rb");
         free(files[i]);
-        if (!header) continue;
+        if (!f) continue;
         char line[4096];
-        while (fgets(line, sizeof(line), header)) {
-            for (char *p = strstr(line, "Iron_"); p; p = strstr(p + 1, "Iron_")) {
-                if (p > line && (isalnum((unsigned char)p[-1]) || p[-1] == '_'))
-                    continue;
-                char identifier[256];
-                size_t len = 0;
-                while (len < sizeof(identifier) - 1 &&
-                       (isalnum((unsigned char)p[len]) || p[len] == '_')) {
-                    identifier[len] = p[len];
-                    len++;
+        while (fgets(line, sizeof(line), f)) {
+            for (char *q = strstr(line, "Iron_"); q; q = strstr(q + 1, "Iron_")) {
+                if (q > line && (isalnum((unsigned char)q[-1]) || q[-1] == '_')) continue;
+                char id[256];
+                size_t k = 0;
+                while (k < sizeof(id) - 1 && (isalnum((unsigned char)q[k]) || q[k] == '_')) {
+                    id[k] = q[k];
+                    k++;
                 }
-                identifier[len] = '\0';
-                if (len > strlen("Iron_"))
-                    iron_lir_emit_add_reserved_c_name(identifier);
+                id[k] = '\0';
+                if (k > 5) iron_lir_emit_add_reserved_c_name(id);
             }
         }
-        fclose(header);
+        fclose(f);
     }
     arrfree(files);
 }
@@ -311,16 +304,15 @@ static void reserve_runtime_symbols(void) {
     static bool done = false;
     if (done) return;
     done = true;
-
-    char *lib_dir = get_iron_lib_dir();
-    if (!lib_dir) return;
+    char *lib = get_iron_lib_dir();
+    if (!lib) return;
     static const char *const subdirs[] = { "runtime", "stdlib", NULL };
     for (int i = 0; subdirs[i]; i++) {
-        char path[4200];
-        snprintf(path, sizeof(path), "%s/%s", lib_dir, subdirs[i]);
-        reserve_header_symbols_in(path);
+        char p[4200];
+        snprintf(p, sizeof(p), "%s/%s", lib, subdirs[i]);
+        reserve_header_symbols_in(p);
     }
-    free(lib_dir);
+    free(lib);
 }
 
 /* ── Helper: write C source to a temp file ───────────────────────────────── */
@@ -815,6 +807,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = "/clang:-ffp-contract=off";
     /* ...so clang's overflow warnings on the generated C are noise. */
     argv_buf[ai++] = "/clang:-Wno-integer-overflow";
+    argv_buf[ai++] = "/clang:-Wno-tautological-compare";
     /* The runtime uses the standard C library by name; the UCRT's
      * "unsafe" deprecation notes are noise on every build. */
     argv_buf[ai++] = "/D_CRT_SECURE_NO_WARNINGS";
@@ -909,6 +902,10 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = "-fwrapv";
     /* Overflow wraps by definition: clang's warning on the C is noise. */
     argv_buf[ai++] = "-Wno-integer-overflow";
+    /* `x != x` in Iron (a NaN test, or any comparison of a value with
+     * itself) is written as such in the C; clang's warning about it names
+     * the generated file, not the program. */
+    argv_buf[ai++] = "-Wno-tautological-compare";
     argv_buf[ai++] = "-fno-strict-aliasing";
     /* Float arithmetic rounds after every operation (section 10.6): with
      * the default contraction `a * b + c` became one fused multiply-add on
@@ -932,6 +929,20 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         argv_buf[ai++] = "-g";
         argv_buf[ai++] = "-fno-omit-frame-pointer";
     }
+    /* IRON_CC_FLAGS: extra C compiler flags, after the ones above (so an
+     * -O level here wins). For the differential fuzzer (tests/fuzz/
+     * cg_fuzz.py), which builds the same program at every -O level, with
+     * -Werror and with -fsanitize=undefined. At most 8 flags. */
+    {
+        static char cc_flags_buf[512];
+        const char *env = getenv("IRON_CC_FLAGS");
+        if (env && *env && strlen(env) < sizeof(cc_flags_buf)) {
+            strcpy(cc_flags_buf, env);
+            int n = 0;
+            for (char *tok = strtok(cc_flags_buf, " "); tok && n < 8; tok = strtok(NULL, " "), n++)
+                argv_buf[ai++] = tok;
+        }
+    }
     /* Phase 31 GA3 (Plan 31-01): debug builds get the full debug allocator —
      * 64B IronAllocHdr + poison-on-free + leak registry + atexit dump +
      * double-free both-sites. This define was NEVER wired before Phase 31; it
@@ -939,6 +950,25 @@ static int build_src_list(const char **argv_buf, int *ai_out,
      * generated user binary's runtime TUs. Release builds keep the 16B header. */
     if (opts.debug_build && !opts.release) {
         argv_buf[ai++] = "-DIRON_DEBUG_ALLOCATOR";
+    }
+    /* IRON_CFLAGS: extra C compiler flags for the program and the runtime
+     * compiled into it, such as "-fsanitize=address,undefined -g" for a
+     * sanitizer build of a whole project. Split on spaces, at most 16. */
+    {
+        static char cflags_copy[1024];
+        const char *env_cflags = getenv("IRON_CFLAGS");
+        if (env_cflags && env_cflags[0]) {
+            snprintf(cflags_copy, sizeof(cflags_copy), "%s", env_cflags);
+            int added = 0;
+            char *p = cflags_copy;
+            while (*p && added < 16) {
+                while (*p == ' ' || *p == '\t') *p++ = 0;
+                if (!*p) break;
+                argv_buf[ai++] = p;
+                added++;
+                while (*p && *p != ' ' && *p != '\t') p++;
+            }
+        }
     }
     argv_buf[ai++] = "-o";
     argv_buf[ai++] = output;
@@ -1179,6 +1209,10 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
     argv_buf[ai++] = "-fwrapv";
     /* Overflow wraps by definition: clang's warning on the C is noise. */
     argv_buf[ai++] = "-Wno-integer-overflow";
+    /* `x != x` in Iron (a NaN test, or any comparison of a value with
+     * itself) is written as such in the C; clang's warning about it names
+     * the generated file, not the program. */
+    argv_buf[ai++] = "-Wno-tautological-compare";
     argv_buf[ai++] = "-fno-strict-aliasing";
     /* Float arithmetic rounds after every operation (section 10.6): with
      * the default contraction `a * b + c` became one fused multiply-add on
@@ -1463,6 +1497,7 @@ static int invoke_cross(const char *c_file, const char *output, IronBuildOpts op
     cc[ci++] = "-std=gnu17";
     cc[ci++] = "-fwrapv";
     cc[ci++] = "-Wno-integer-overflow";
+    cc[ci++] = "-Wno-tautological-compare";
     cc[ci++] = "-fno-strict-aliasing";
     cc[ci++] = "-ffp-contract=off";
     cc[ci++] = opts.release ? "-O2" : "-O3";
@@ -1571,8 +1606,8 @@ static int invoke_clang(const char *c_file, const char *output,
     char *rl_src = NULL, *rl_i_flag = NULL;
     char *rl_glfw_src = NULL, *rl_glfw_i_flag = NULL;
 
-    const char *argv_buf[128];
-    _Static_assert(sizeof(argv_buf)/sizeof(argv_buf[0]) >= 128,
+    const char *argv_buf[176];
+    _Static_assert(sizeof(argv_buf)/sizeof(argv_buf[0]) >= 160,
                    "argv_buf too small — bump if adding new stdlib modules");
     int ai = 0;
 
@@ -1904,6 +1939,13 @@ int iron_build(const char *source_path, const char *output_path,
     if (iron_detect_import(source, source_path, "hint", &detect_arena)) {
         stdlib_prepended_lines +=
             prepend_marked_file(&source, base_dir, "stdlib/hint.iron",
+                                line_markers);
+    }
+
+    /* Detect "import atomic" and prepend atomic.iron (AtomicInt, AtomicBool). */
+    if (iron_detect_import(source, source_path, "atomic", &detect_arena)) {
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/atomic.iron",
                                 line_markers);
     }
 
@@ -2331,6 +2373,7 @@ int iron_build(const char *source_path, const char *output_path,
                                 opts.report_compression);
     } else {
         iron_lir_emit_set_line_directives(opts.debug_info && !opts.release);
+        reserve_runtime_symbols();
         c_src = iron_lir_emit_c(ir_module, &arena, &diags, &optimize_info,
                                 &analysis.iface_registry,
                                 opts.warn_fusion_break,

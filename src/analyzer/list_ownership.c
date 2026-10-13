@@ -56,9 +56,20 @@ static const Iron_Type *strip_nullable(const Iron_Type *t) {
     return t && t->kind == IRON_TYPE_NULLABLE ? t->nullable.inner : t;
 }
 
+static bool tuple_owns_list(const Iron_Type *t);
+
 static bool owns_list(const Iron_Type *t) {
     t = strip_nullable(t);
-    return is_dynamic_list(t) || object_holds_list(t, 0);
+    return is_dynamic_list(t) || object_holds_list(t, 0) || tuple_owns_list(t);
+}
+
+/* A tuple with a component that owns a list (also through an optional). */
+static bool tuple_owns_list(const Iron_Type *t) {
+    if (!t || t->kind != IRON_TYPE_TUPLE) return false;
+    for (int i = 0; i < t->tuple.elem_count; i++) {
+        if (owns_list(t->tuple.elem_types[i])) return true;
+    }
+    return false;
 }
 
 static bool declared_primitive(const Iron_Type *t) {
@@ -146,6 +157,21 @@ static bool is_top_level_decl(ListOwnCtx *c, Iron_Node *decl) {
     for (int i = 0; i < c->program->decl_count; i++)
         if (c->program->decls[i] == decl) return true;
     return false;
+}
+
+/* Destructuring transfers the elements out of an owned local tuple. A
+ * parameter, global, field or indexed tuple is only borrowed, so transferring
+ * a list element out of it would leave the original owner with the same list. */
+static bool tuple_destructure_is_borrowed(ListOwnCtx *c, Iron_Node *value) {
+    if (!value) return false;
+    if (value->kind == IRON_NODE_FIELD_ACCESS || value->kind == IRON_NODE_INDEX)
+        return true;
+    if (value->kind != IRON_NODE_IDENT) return false;
+    Iron_Symbol *sym = ((Iron_Ident *)value)->resolved_sym;
+    if (!sym) return false;
+    if (sym->sym_kind != IRON_SYM_VARIABLE) return true;
+    Iron_Node *decl = sym->decl_node;
+    return !decl || is_top_level_decl(c, decl);
 }
 
 /* `return xs` moves a list the function owns: a local val / var. Anything
@@ -291,6 +317,22 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
             Iron_ValDecl *vd = (Iron_ValDecl *)n;
             if (declared_primitive(vd->declared_type)) break;
             if (vd->binding_count == 0) require_fresh(c, vd->init);
+            /* `val (a, b) = t` transfers from an owned local tuple. A
+             * parameter, global, field or element is borrowed instead, so
+             * taking its list would duplicate the original owner's list. */
+            else if (tuple_destructure_is_borrowed(c, vd->init) &&
+                     tuple_owns_list(((Iron_ExprNode *)vd->init)->resolved_type)) {
+                const char *name = place_text(vd->init);
+                char msg[320];
+                snprintf(msg, sizeof(msg),
+                         "destructuring '%s' would duplicate the list it holds",
+                         name ? name : "the tuple");
+                iron_diag_emit(c->diags, c->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_LIST_IMPLICIT_COPY, vd->span,
+                               iron_arena_strdup(c->arena, msg, strlen(msg)),
+                               "take the tuple apart where it is made (`val (a, b) = f()`), "
+                               "or pass the list on its own");
+            }
             break;
         }
         case IRON_NODE_VAR_DECL: {
@@ -311,6 +353,14 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
             Iron_ArrayLit *al = (Iron_ArrayLit *)n;
             for (int i = 0; i < al->element_count; i++)
                 require_fresh(c, al->elements[i]);
+            break;
+        }
+        /* An enum payload is owned by the enum like a field by its object:
+         * a list place in it is a duplicate (the payload kept the borrowed
+         * parameter's buffer, freed by the caller, #618). */
+        case IRON_NODE_ENUM_CONSTRUCT: {
+            Iron_EnumConstruct *ec = (Iron_EnumConstruct *)n;
+            for (int i = 0; i < ec->arg_count; i++) require_fresh(c, ec->args[i]);
             break;
         }
         case IRON_NODE_CONSTRUCT: {

@@ -1,0 +1,22 @@
+-- A var written by a spawned thread holds the thread's value after await,
+-- in every build (#559). The optimizer forwarded the store made before the
+-- spawn past it.
+func main() {
+    var x = 1
+    val h = spawn("t") {
+        x = x + 41
+        return 0
+    }
+    val r = await h
+    println("{x} {r}")
+    var s = "a"
+    var n = 0
+    val h2 = spawn("u") {
+        s = s + "b"
+        n = 7
+        return 1
+    }
+    n = n + 0
+    val r2 = await h2
+    println("{s} {n} {r2}")
+}

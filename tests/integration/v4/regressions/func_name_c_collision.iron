@@ -1,7 +1,15 @@
 -- Free functions whose generated C names are already declared by runtime or
 -- standard-library headers keep distinct names, even without importing the
 -- corresponding modules (issue 524). A fresh name also avoids a user
--- function that already has the first candidate name.
+-- function that already has the first candidate name. The same applies to a
+-- free function named like a method's lowered name (Pt.area is pt_area).
+object Pt {
+    val x: Int
+    readonly func area() -> Int {
+        return self.x * 10
+    }
+}
+
 func log_info(msg: String) -> Int {
     return msg.len()
 }
@@ -18,7 +26,13 @@ func u_log_info(msg: String) -> Int {
     return msg.len() + 10
 }
 
+func pt_area(p: Pt) -> Int {
+    return p.x + 1
+}
+
 func main() {
     val f = log_info
     println("{log_info("x")} {http_get(1)} {time_now()} {u_log_info("x")} {f("abc")}")
+    val p = Pt(4)
+    println("{p.area()} {pt_area(p)}")
 }

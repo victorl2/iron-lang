@@ -46,6 +46,14 @@ func IO.extension(path: String) -> String {}
 func IO.is_dir(path: String) -> Bool {}
 func IO.read_lines(path: String) -> [String] {}
 
+-- Write all of `s` to standard output or standard error at once, without
+-- buffering (one write(2) for a line up to the pipe buffer size, so lines
+-- from several threads do not interleave). Anything println left in the
+-- stdout buffer is flushed first, keeping the two in order. Returns the
+-- bytes written, or -1 when the stream is closed or broken.
+func IO.write_stdout(s: String) -> Int {}
+func IO.write_stderr(s: String) -> Int {}
+
 -- Explicit result-returning file API. Reads are bounded before allocation;
 -- text and byte variants both preserve exact bytes. Write/append report the
 -- committed byte count and surface open, permission, flush, and close errors.

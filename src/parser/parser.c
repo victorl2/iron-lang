@@ -1538,10 +1538,17 @@ static bool iron_elem_is_nullable_type(Iron_Parser *p) {
              * expressions whose type arguments hold the `?`. */
             for (int m = j + 1; m < p->token_count; m++) {
                 Iron_TokenKind km = p->tokens[m].kind;
-                if (km == IRON_TOK_LBRACKET) depth++;
+                if (km == IRON_TOK_LBRACKET || (km == IRON_TOK_LPAREN && depth > 0)) depth++;
                 else if (km == IRON_TOK_RBRACKET || km == IRON_TOK_RPAREN) {
                     if (depth == 0) return true;
                     depth--;
+                    /* `]` then `(` or `.` at any depth constructs or calls
+                     * the generic the `?` is an argument of: the element
+                     * `[Gp[Int?, Int](1, 2)]` is a list literal. */
+                    if (km == IRON_TOK_RBRACKET && m + 1 < p->token_count &&
+                        (p->tokens[m + 1].kind == IRON_TOK_LPAREN ||
+                         p->tokens[m + 1].kind == IRON_TOK_DOT))
+                        return false;
                 } else if (depth == 0 && (km == IRON_TOK_LPAREN || km == IRON_TOK_DOT))
                     return false;
                 else if (depth == 0 && km != IRON_TOK_QUESTION)
@@ -1553,9 +1560,34 @@ static bool iron_elem_is_nullable_type(Iron_Parser *p) {
     return false;
 }
 
+/* A parenthesized element holding a `?` and ending the element (`,` or
+ * `]` after its `)`, or a `?` of its own) is a tuple type in expression
+ * position: `Gp[Int, (Bool, Int?)](...)`. */
+static bool iron_elem_is_nullable_tuple_type(Iron_Parser *p) {
+    if (!iron_check(p, IRON_TOK_LPAREN)) return false;
+    int depth = 0;
+    bool has_q = false;
+    for (int j = p->pos; j < p->token_count; j++) {
+        Iron_TokenKind k = p->tokens[j].kind;
+        if (k == IRON_TOK_EOF || k == IRON_TOK_NEWLINE || k == IRON_TOK_LBRACE) return false;
+        if (k == IRON_TOK_LPAREN || k == IRON_TOK_LBRACKET) depth++;
+        else if (k == IRON_TOK_RPAREN || k == IRON_TOK_RBRACKET) {
+            depth--;
+            if (depth == 0) {
+                if (!has_q) return false;
+                Iron_TokenKind nk = j + 1 < p->token_count ? p->tokens[j + 1].kind : IRON_TOK_EOF;
+                return nk == IRON_TOK_COMMA || nk == IRON_TOK_RBRACKET || nk == IRON_TOK_QUESTION;
+            }
+        } else if (k == IRON_TOK_QUESTION) has_q = true;
+    }
+    return false;
+}
+
 static Iron_Node *iron_parse_expr_or_nullable_type(Iron_Parser *p) {
     if ((iron_check(p, IRON_TOK_IDENTIFIER) || iron_check(p, IRON_TOK_LBRACKET)) &&
         iron_elem_is_nullable_type(p))
+        return iron_parse_type_annotation(p);
+    if (iron_elem_is_nullable_tuple_type(p))
         return iron_parse_type_annotation(p);
     return iron_parse_expr(p);
 }
@@ -6763,23 +6795,22 @@ static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_
         iron_parser_sync_toplevel(p);
         return iron_make_error(p);
     }
+    /* `pub val` / `pub var` share a global with the package's other files
+     * (#547); other globals are private to their file, like every other
+     * top-level declaration. */
     if (is_pub && (iron_check(p, IRON_TOK_VAL) || iron_check(p, IRON_TOK_VAR))) {
-        Iron_Token *tok = iron_current(p);
-        const char *which = iron_check(p, IRON_TOK_VAL) ? "val" : "var";
-        char msg[200];
-        snprintf(msg, sizeof(msg),
-                 "top-level `pub %s` is not supported in v3.2; "
-                 "use `pub func` returning a constant, or wrap in a `pub object`",
-                 which);
-        const char *msg_copy = iron_arena_strdup(p->arena, msg, strlen(msg));
-        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                       IRON_ERR_UNEXPECTED_TOKEN,
-                       iron_token_span(p, tok),
-                       msg_copy ? msg_copy : "top-level pub val/var rejected",
-                       NULL);
-        iron_advance(p);
-        iron_parser_sync_toplevel(p);
-        return iron_make_error(p);
+        bool is_val = iron_check(p, IRON_TOK_VAL);
+        Iron_Node *n = is_val ? iron_parse_val_decl(p) : iron_parse_var_decl(p);
+        if (n && n->kind == IRON_NODE_VAL_DECL) {
+            ((Iron_ValDecl *)n)->is_global = true;
+            ((Iron_ValDecl *)n)->is_pub = true;
+        } else if (n && n->kind == IRON_NODE_VAR_DECL) {
+            ((Iron_VarDecl *)n)->is_global = true;
+            ((Iron_VarDecl *)n)->is_pub = true;
+        }
+        p->in_error_recovery = false;
+        p->stmt_errored = false;
+        return n;
     }
 
     /* `test "name" { ... }`: `test` is a keyword only here, before a string. */
@@ -6885,12 +6916,14 @@ static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_
         }
         case IRON_TOK_VAL:       {
             Iron_Node *n = iron_parse_val_decl(p);
+            if (n && n->kind == IRON_NODE_VAL_DECL) ((Iron_ValDecl *)n)->is_global = true;
             p->in_error_recovery = false;
             p->stmt_errored = false;
             return n;
         }
         case IRON_TOK_VAR:       {
             Iron_Node *n = iron_parse_var_decl(p);
+            if (n && n->kind == IRON_NODE_VAR_DECL) ((Iron_VarDecl *)n)->is_global = true;
             p->in_error_recovery = false;
             p->stmt_errored = false;
             return n;
