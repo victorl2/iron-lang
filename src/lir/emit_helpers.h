@@ -297,6 +297,13 @@ typedef struct {
 
 /* ── Name mangling ───────────────────────────────────────────────────────── */
 
+/* A user-chosen Iron identifier as a collision-free C identifier. Safe names
+ * are returned unchanged. Reserved names are encoded reversibly in a namespace
+ * which is itself reserved below, so no user spelling can collide with one. */
+const char *emit_c_user_identifier(const char *name, Iron_Arena *arena);
+/* The same operation for a dot-separated member path such as
+ * `data.SomeVariant._0`. */
+const char *emit_c_user_member_path(const char *path, Iron_Arena *arena);
 const char *emit_mangle_name(const char *name, Iron_Arena *arena);
 const char *emit_object_type_name(const char *name, EmitCtx *ctx);
 const char *emit_mangle_func_name(const char *name, Iron_Arena *arena);

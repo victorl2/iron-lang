@@ -23,13 +23,102 @@ const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem);
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
 
+/* C23 keywords (including the underscore compatibility spellings), the
+ * alternative operator spellings from <iso646.h>, and unprefixed macros and
+ * declarations commonly visible through libc and platform headers. Runtime
+ * and emitted-prelude macros were audited from src/runtime/iron_runtime.h and
+ * the include block in emit_c.c: all of their spellings are covered by the
+ * Iron_, iron_, or IRON_ prefix checks below. */
+static bool emit_c_name_is_reserved(const char *name) {
+    static const char *const exact[] = {
+        "_Alignas", "_Alignof", "_Atomic", "_BitInt", "_Bool", "_Complex",
+        "_Decimal128", "_Decimal32", "_Decimal64", "_Generic", "_Imaginary",
+        "_Noreturn", "_Static_assert", "_Thread_local",
+        "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand",
+        "bitor", "bool", "break", "case", "char", "compl", "const",
+        "constexpr", "continue", "default", "do", "double", "else", "enum",
+        "extern", "false", "float", "for", "goto", "if", "inline", "int",
+        "long", "not", "not_eq", "nullptr", "or", "or_eq", "register",
+        "restrict", "return", "short", "signed", "sizeof", "static",
+        "static_assert", "struct", "switch", "thread_local", "true", "typedef",
+        "typeof", "typeof_unqual", "union", "unsigned", "void", "volatile",
+        "while", "xor", "xor_eq",
+        "CHAR_BIT", "EOF", "EXIT_FAILURE", "EXIT_SUCCESS", "FP_INFINITE",
+        "FP_NAN", "FP_NORMAL", "FP_SUBNORMAL", "FP_ZERO", "HUGE_VAL",
+        "HUGE_VALF", "HUGE_VALL", "INFINITY", "MATH_ERRNO", "MATH_ERREXCEPT",
+        "NAN", "NULL", "RAND_MAX", "SEEK_CUR", "SEEK_END", "SEEK_SET",
+        "SIG_ATOMIC_MAX", "SIG_ATOMIC_MIN", "SIG_DFL", "SIG_ERR", "SIG_IGN",
+        "WCHAR_MAX", "WCHAR_MIN", "errno", "environ", "stderr", "stdin",
+        "stdout",
+        "APIENTRY", "CALLBACK", "DELETE", "ERROR", "IN", "OUT", "OPTIONAL",
+        "RGB", "STRICT", "TRUE", "FALSE", "interface", "small", "near",
+        "far", "min", "max", NULL
+    };
+    static const char *const prefixes[] = {
+        "Iron_", "iron_", "IRON_", "__", "_v", "_ref_", "_sb", "_Hof",
+        "_Sp", "_iron_", "lambda_", "spawn_", "parallel_", NULL
+    };
+    if (!name || !*name) return true;
+    for (int i = 0; prefixes[i]; i++) {
+        size_t n = strlen(prefixes[i]);
+        if (strncmp(name, prefixes[i], n) == 0) return true;
+    }
+    for (int i = 0; exact[i]; i++)
+        if (strcmp(name, exact[i]) == 0) return true;
+    return false;
+}
+
+const char *emit_c_user_identifier(const char *name, Iron_Arena *arena) {
+    static const char hex[] = "0123456789abcdef";
+    if (!name) return "NULL";
+    if (!emit_c_name_is_reserved(name)) return name;
+    size_t len = strlen(name);
+    size_t prefix_len = strlen("Iron__id_");
+    char *buf = (char *)iron_arena_alloc(arena, prefix_len + len * 2 + 1, 1);
+    if (!buf) iron_oom_abort("emit_helpers.c:emit_c_user_identifier");
+    memcpy(buf, "Iron__id_", prefix_len);
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)name[i];
+        buf[prefix_len + i * 2] = hex[c >> 4];
+        buf[prefix_len + i * 2 + 1] = hex[c & 15];
+    }
+    buf[prefix_len + len * 2] = '\0';
+    return buf;
+}
+
+const char *iron_lir_emit_c_user_identifier(const char *name,
+                                             Iron_Arena *arena) {
+    return emit_c_user_identifier(name, arena);
+}
+
+const char *emit_c_user_member_path(const char *path, Iron_Arena *arena) {
+    if (!path || !strchr(path, '.')) return emit_c_user_identifier(path, arena);
+    Iron_StrBuf out = iron_strbuf_create(strlen(path) + 16);
+    const char *part = path;
+    for (;;) {
+        const char *dot = strchr(part, '.');
+        size_t len = dot ? (size_t)(dot - part) : strlen(part);
+        const char *piece = iron_arena_strdup(arena, part, len);
+        if (!piece) iron_oom_abort("emit_helpers.c:emit_c_user_member_path piece");
+        if (out.len) iron_strbuf_appendf(&out, ".");
+        iron_strbuf_appendf(&out, "%s", emit_c_user_identifier(piece, arena));
+        if (!dot) break;
+        part = dot + 1;
+    }
+    const char *result = iron_arena_strdup(arena, iron_strbuf_get(&out), out.len);
+    if (!result) iron_oom_abort("emit_helpers.c:emit_c_user_member_path result");
+    iron_strbuf_free(&out);
+    return result;
+}
+
 const char *emit_mangle_name(const char *name, Iron_Arena *arena) {
-    size_t len   = strlen(name);
+    const char *c_name = emit_c_user_identifier(name, arena);
+    size_t len   = strlen(c_name);
     size_t total = 5 + len + 1;
     char  *buf   = (char *)iron_arena_alloc(arena, total, 1);
     if (!buf) iron_oom_abort("emit_helpers.c:emit_mangle_name");
     memcpy(buf, "Iron_", 5);
-    memcpy(buf + 5, name, len + 1);
+    memcpy(buf + 5, c_name, len + 1);
     return buf;
 }
 
