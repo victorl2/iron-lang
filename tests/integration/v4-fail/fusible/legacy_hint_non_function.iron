@@ -1,0 +1,7 @@
+// The transitional token form is syntactically restricted to functions.
+@fusible
+object NotAFunction {
+    val n: Int
+}
+
+func main() {}
