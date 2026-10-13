@@ -1,0 +1,33 @@
+-- pop() on a list of interface values with the result unused, inside a
+-- loop (the result is hoisted): the C had a bare `_vN;` statement and the
+-- C compiler warned.
+interface Shape {
+    readonly func area() -> Int
+}
+
+object Ta impl Shape {
+    val w: Int
+    readonly func area() -> Int {
+        return self.w
+    }
+}
+
+object Tb impl Shape {
+    val h: Int
+    readonly func area() -> Int {
+        return self.h * 2
+    }
+}
+
+func main() {
+    var xs: [Shape] = []
+    xs.push(Ta(1))
+    xs.push(Tb(2))
+    xs.push(Ta(3))
+    for i in range(2) {
+        if len(xs) > 0 {
+            xs.pop()
+        }
+    }
+    println("{len(xs)} {xs[0].area()}")
+}

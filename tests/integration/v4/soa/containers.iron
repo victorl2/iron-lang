@@ -1,0 +1,118 @@
+-- layout: soa lists: object fields, globals (#717), maps, nested lists, channels, mutexes and tasks.
+-- The same program with the layout annotations removed prints the same
+-- (tests/integration/soa_parity.sh).
+object P {
+    var x: Int
+    var s: String
+    init(x: Int) {
+        self.x = x
+        self.s = "str-{x}-padding-padding-padding"
+    }
+    func bump(n: Int) { self.x += n }
+}
+object World {
+    var ps: [P, layout: soa]
+    var names: [String]
+    init(n: Int) {
+        self.ps = []
+        self.names = []
+        for i in range(n) {
+            self.ps.push(P(i))
+            self.names.push("n{i}")
+        }
+    }
+    func step() {
+        for i in range(self.ps.len()) {
+            self.ps[i].x += 1
+            self.ps[i].bump(i)
+        }
+    }
+    readonly func total() -> Int {
+        var t = 0
+        for p in self.ps { t += p.x }
+        return t
+    }
+    func replace(xs: [P, layout: soa]) { self.ps = xs.copy() }
+    func steal() -> [P, layout: soa] { return self.ps.take() }
+}
+var GLOBAL: [P, layout: soa] = []
+func gpush(n: Int) { GLOBAL.push(P(n)) }
+func gsum() -> Int {
+    var t = 0
+    for p in GLOBAL { t += p.x }
+    return t
+}
+func apply(xs: [P, layout: soa], f: func(P) -> Int) -> Int {
+    var t = 0
+    for p in xs { t += f(p) }
+    return t
+}
+func each[T](xs: [T], f: func(T)) { for x in xs { f(x) } }
+func keep[T](xs: [T]) -> [T] { return xs.copy() }
+func total(xs: [P]) -> Int { return xs.reduce(0, func(a: Int, p: P) -> Int { return a + p.x }) }
+func mutate(var xs: [P, layout: soa]) {
+    xs[0].x = 500
+    xs[1].bump(5)
+    xs.push(P(77))
+    val r = xs.remove(2)
+    xs.insert(0, P(r.x * 2))
+}
+func main() {
+    var w = World(5)
+    w.step()
+    w.step()
+    println("{w.total()} {w.ps.len()} {w.ps[4].s}")
+    var mine: [P, layout: soa] = [P(100), P(200), P(300), P(400)]
+    mutate(mine)
+    for p in mine { print("{p.x} ") }
+    println("")
+    w.replace(mine)
+    println("{w.total()}")
+    val stolen = w.steal()
+    println("{stolen.len()} {w.ps.len()} {w.total()}")
+    gpush(1)
+    gpush(2)
+    GLOBAL[0].bump(10)
+    GLOBAL[1].x = 20
+    println("{gsum()} {GLOBAL.len()}")
+    println("{apply(mine, func(p: P) -> Int { return p.x * 2 })}")
+    var seen = 0
+    each(mine, func(p: P) { seen += p.x })
+    println("{seen} {keep(mine).len()} {total(mine)}")
+    var m = Map[String, [P, layout: soa]]()
+    m.put("a", mine.copy())
+    m.put("b", [P(1)])
+    val got = m.get_or("a", [])
+    println("{got.len()} {m.len()}")
+    var grid: [[P, layout: soa]] = []
+    for i in range(3) {
+        var row: [P, layout: soa] = []
+        for j in range(i + 1) { row.push(P(i * 10 + j)) }
+        grid.push(row.take())
+    }
+    grid[2][1].bump(1000)
+    grid[1].push(P(-1))
+    println("{grid[2][1].x} {grid[1].len()} {grid[0][0].s}")
+    val ch = Channel[[P, layout: soa]](2)
+    ch.send(mine.copy())
+    ch.send(mine.take())
+    val r1 = ch.recv()
+    val r2 = ch.recv()
+    println("{r1.len()} {r2[0].x} {mine.len()}")
+    val mu = Mutex[[P, layout: soa]](r1.copy())
+    {
+        val guard = mu.lock()
+        val locked = guard.get()
+        println("{locked[1].x}")
+    }
+    val t1 = spawn("a") { return r1.len() + r1[1].x }
+    val t2 = spawn("b") {
+        var local: [P, layout: soa] = []
+        for i in range(100) { local.push(P(i)) }
+        var t = 0
+        for p in local { t += p.x }
+        return t
+    }
+    println("{await t1} {await t2}")
+    defer println("deferred {r2.len()}")
+}

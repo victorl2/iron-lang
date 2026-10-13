@@ -8,69 +8,65 @@
 #include <errno.h>
 #include "util/os.h"   /* dirent, mkdir, access on every platform */
 
+/* A C copy of a path, or NULL (errno EINVAL) for an empty path or one
+ * holding a zero byte: such a path cannot name a file, and handing its
+ * prefix to the OS would act on a different file (#568). */
+static char *io_path_cstr(Iron_String path) {
+    size_t length = iron_string_byte_len(&path);
+    const char *bytes = iron_string_cstr(&path);
+    if (length == 0 || memchr(bytes, '\0', length) != NULL) {
+        errno = EINVAL;
+        return NULL;
+    }
+    char *copy = (char *)malloc(length + 1);
+    if (!copy) {
+        errno = ENOMEM;
+        return NULL;
+    }
+    memcpy(copy, bytes, length);
+    copy[length] = '\0';
+    return copy;
+}
+
+static FILE *io_fopen(Iron_String path, const char *mode) {
+    char *p = io_path_cstr(path);
+    if (!p) return NULL;
+    FILE *f = fopen(p, mode);
+    int saved = errno;
+    free(p);
+    errno = saved;
+    return f;
+}
+
+static Iron_FileReadResult io_read_bounded(Iron_String path, int64_t max_bytes);
+
 /* ── File I/O ────────────────────────────────────────────────────────────── */
 
 Iron_Result_String_Error Iron_io_read_file_result(Iron_String path) {
-    const char *p = iron_string_cstr(&path);
-    FILE *f = fopen(p, "rb");
-    if (!f) {
+    Iron_FileReadResult r = io_read_bounded(path, (int64_t)(SIZE_MAX / 2));
+    iron_string_release(&r.error_message);
+    if (r.error != 0) {
+        iron_string_release(&r.data);
         Iron_String empty = iron_string_from_cstr("", 0);
         return (Iron_Result_String_Error){ empty, iron_error_new(1, "file not found") };
     }
+    return (Iron_Result_String_Error){ r.data, iron_error_none() };
+}
 
-    if (fseek(f, 0, SEEK_END) != 0) {
-        fclose(f);
-        Iron_String empty = iron_string_from_cstr("", 0);
-        return (Iron_Result_String_Error){ empty, iron_error_new(2, "seek failed") };
-    }
-
-    long file_size = ftell(f);
-    if (file_size < 0) {
-        fclose(f);
-        Iron_String empty = iron_string_from_cstr("", 0);
-        return (Iron_Result_String_Error){ empty, iron_error_new(3, "tell failed") };
-    }
-
-    if (fseek(f, 0, SEEK_SET) != 0) {
-        fclose(f);
-        Iron_String empty = iron_string_from_cstr("", 0);
-        return (Iron_Result_String_Error){ empty, iron_error_new(2, "seek failed") };
-    }
-
-    size_t size = (size_t)file_size;
-    char *buf = (char *)malloc(size + 1);
-    if (!buf) {
-        fclose(f);
-        Iron_String empty = iron_string_from_cstr("", 0);
-        return (Iron_Result_String_Error){ empty, iron_error_new(4, "out of memory") };
-    }
-
-    size_t read_count = fread(buf, 1, size, f);
-    fclose(f);
-    buf[read_count] = '\0';
-
-    Iron_String result = iron_string_from_cstr(buf, read_count);
-    free(buf);
-
-    return (Iron_Result_String_Error){ result, iron_error_none() };
+static Iron_Error io_put(Iron_String path, const uint8_t *data, size_t len,
+                         const char *mode) {
+    FILE *f = io_fopen(path, mode);
+    if (!f) return iron_error_new(1, "could not open file for writing");
+    size_t written = len ? fwrite(data, 1, len, f) : 0;
+    int failed = written != len || fflush(f) != 0;
+    if (fclose(f) != 0) failed = 1;
+    if (failed) return iron_error_new(5, "write incomplete");
+    return iron_error_none();
 }
 
 Iron_Error Iron_io_write_file(Iron_String path, Iron_String content) {
-    const char *p = iron_string_cstr(&path);
-    FILE *f = fopen(p, "wb");
-    if (!f) {
-        return iron_error_new(1, "could not open file for writing");
-    }
-
-    const char *data = iron_string_cstr(&content);
-    size_t len = iron_string_byte_len(&content);
-    size_t written = fwrite(data, 1, len, f);
-    fclose(f);
-
-    if (written != len) {
-        return iron_error_new(5, "write incomplete");
-    }
-    return iron_error_none();
+    return io_put(path, (const uint8_t *)iron_string_cstr(&content),
+                  iron_string_byte_len(&content), "wb");
 }
 
 Iron_Result_String_Error Iron_io_read_bytes_result(Iron_String path) {
@@ -79,53 +75,51 @@ Iron_Result_String_Error Iron_io_read_bytes_result(Iron_String path) {
 }
 
 Iron_Error Iron_io_write_bytes_raw(Iron_String path, const uint8_t *data, size_t len) {
-    const char *p = iron_string_cstr(&path);
-    FILE *f = fopen(p, "wb");
-    if (!f) {
-        return iron_error_new(1, "could not open file for writing");
-    }
-
-    size_t written = fwrite(data, 1, len, f);
-    fclose(f);
-
-    if (written != len) {
-        return iron_error_new(5, "write incomplete");
-    }
-    return iron_error_none();
+    return io_put(path, data, len, "wb");
 }
 
 /* ── File system ─────────────────────────────────────────────────────────── */
 
 bool Iron_io_file_exists(Iron_String path) {
-    const char *p = iron_string_cstr(&path);
+    char *p = io_path_cstr(path);
+    if (!p) return false;
     struct stat st;
-    return stat(p, &st) == 0;
+    bool exists = stat(p, &st) == 0;
+    free(p);
+    return exists;
 }
 
 Iron_Error Iron_io_create_dir(Iron_String path) {
-    const char *p = iron_string_cstr(&path);
+    char *p = io_path_cstr(path);
+    if (!p) return iron_error_new(6, "could not create directory");
     /* WINDOWS-TODO: mkdir(path, mode) is POSIX. On Windows use _mkdir(path) from <direct.h> (no mode arg). */
     int result = mkdir(p, 0755);
-    if (result != 0 && errno != EEXIST) {
+    int saved = errno;
+    free(p);
+    if (result != 0 && saved != EEXIST) {
         return iron_error_new(6, "could not create directory");
     }
     return iron_error_none();
 }
 
 Iron_Error Iron_io_delete_file(Iron_String path) {
-    const char *p = iron_string_cstr(&path);
-    if (remove(p) != 0) {
+    char *p = io_path_cstr(path);
+    if (!p) return iron_error_new(7, "could not delete file");
+    int result = remove(p);
+    free(p);
+    if (result != 0) {
         return iron_error_new(7, "could not delete file");
     }
     return iron_error_none();
 }
 
 Iron_Result_String_Error Iron_io_list_files_result(Iron_String dir_path) {
-    const char *p = iron_string_cstr(&dir_path);
+    char *p = io_path_cstr(dir_path);
     /* WINDOWS-TODO: opendir/readdir/closedir are POSIX. On Windows replace this block with
      * FindFirstFileA/FindNextFileA/FindClose from <windows.h>. WIN32_FIND_DATAA carries
      * the entry name in cFileName. */
-    DIR *dir = opendir(p);
+    DIR *dir = p ? opendir(p) : NULL;
+    free(p);
     if (!dir) {
         Iron_String empty = iron_string_from_cstr("", 0);
         return (Iron_Result_String_Error){ empty, iron_error_new(8, "could not open directory") };
@@ -180,16 +174,27 @@ Iron_Result_String_Error Iron_io_list_files_result(Iron_String dir_path) {
 
 /* ── Phase 39 additions ──────────────────────────────────────────────────── */
 
+/* One line of standard input without its line ending (LF or CRLF), of any
+ * length and with its bytes as read (a zero byte included); "" at end of
+ * input. */
 Iron_String Iron_io_read_line(void) {
-    char buf[4096];
-    if (!fgets(buf, sizeof(buf), stdin)) {
-        return iron_string_from_cstr("", 0);  /* EOF — return empty string */
+    size_t cap = 256, len = 0;
+    char *buf = (char *)malloc(cap);
+    if (!buf) return iron_string_from_cstr("", 0);
+    int c;
+    while ((c = getchar()) != EOF && c != '\n') {
+        if (len + 1 >= cap) {
+            char *grown = (char *)realloc(buf, cap * 2);
+            if (!grown) break;
+            buf = grown;
+            cap *= 2;
+        }
+        buf[len++] = (char)c;
     }
-    size_t len = strlen(buf);
-    /* Strip trailing CR and LF */
-    if (len > 0 && buf[len - 1] == '\n') { buf[--len] = '\0'; }
-    if (len > 0 && buf[len - 1] == '\r') { buf[--len] = '\0'; }
-    return iron_string_from_cstr(buf, len);
+    if (len > 0 && buf[len - 1] == '\r') len--;
+    Iron_String line = iron_string_from_cstr(buf, len);
+    free(buf);
+    return line;
 }
 
 /* Unbuffered whole-string writes to fd 1 / fd 2 (IO.write_stdout and
@@ -223,41 +228,47 @@ int64_t Iron_io_write_stdout(Iron_String s) { return io_write_fd(1, s); }
 int64_t Iron_io_write_stderr(Iron_String s) { return io_write_fd(2, s); }
 
 Iron_Error Iron_io_append_file(Iron_String path, Iron_String content) {
-    const char *p = iron_string_cstr(&path);
-    FILE *f = fopen(p, "ab");
-    if (!f) return iron_error_new(1, "could not open file for appending");
-    const char *data = iron_string_cstr(&content);
-    size_t len = iron_string_byte_len(&content);
-    size_t written = fwrite(data, 1, len, f);
-    fclose(f);
-    if (written != len) return iron_error_new(5, "write incomplete");
-    return iron_error_none();
+    return io_put(path, (const uint8_t *)iron_string_cstr(&content),
+                  iron_string_byte_len(&content), "ab");
+}
+
+/* The path helpers work on the bytes of the path (a zero byte is an
+ * ordinary byte here, not the end), always with '/' as the separator. */
+static ptrdiff_t io_last_slash(const char *p, size_t n) {
+    for (size_t i = n; i > 0; i--) {
+        if (p[i - 1] == '/') return (ptrdiff_t)(i - 1);
+    }
+    return -1;
 }
 
 Iron_String Iron_io_basename(Iron_String path) {
     const char *p = iron_string_cstr(&path);
-    const char *last = strrchr(p, '/');
-    const char *base = last ? last + 1 : p;
-    return iron_string_from_cstr(base, strlen(base));
+    size_t n = iron_string_byte_len(&path);
+    ptrdiff_t last = io_last_slash(p, n);
+    size_t start = last < 0 ? 0 : (size_t)last + 1;
+    return iron_string_from_cstr(p + start, n - start);
 }
 
 Iron_String Iron_io_dirname(Iron_String path) {
     const char *p = iron_string_cstr(&path);
-    const char *last = strrchr(p, '/');
-    if (!last) return iron_string_from_cstr(".", 1);
-    if (last == p) return iron_string_from_cstr("/", 1);
-    size_t len = (size_t)(last - p);
-    return iron_string_from_cstr(p, len);
+    size_t n = iron_string_byte_len(&path);
+    ptrdiff_t last = io_last_slash(p, n);
+    if (last < 0) return iron_string_from_cstr(".", 1);
+    if (last == 0) return iron_string_from_cstr("/", 1);
+    return iron_string_from_cstr(p, (size_t)last);
 }
 
 Iron_String Iron_io_join_path(Iron_String a, Iron_String b) {
-    /* Always forward slash — works on Windows too (locked decision) */
+    /* Always forward slash — works on Windows too (locked decision). An
+     * empty first part gives the second part unchanged: joining onto ""
+     * must not turn a relative path into an absolute one. */
     const char *ap = iron_string_cstr(&a);
     const char *bp = iron_string_cstr(&b);
     size_t alen = iron_string_byte_len(&a);
+    size_t blen = iron_string_byte_len(&b);
+    if (alen == 0) return iron_string_from_cstr(bp, blen);
     /* Strip trailing slash(es) from a */
     while (alen > 0 && ap[alen - 1] == '/') alen--;
-    size_t blen = strlen(bp);
     size_t total = alen + 1 + blen + 1;
     char *buf = (char *)malloc(total);
     if (!buf) return iron_string_from_cstr("", 0);
@@ -273,21 +284,25 @@ Iron_String Iron_io_join_path(Iron_String a, Iron_String b) {
 Iron_String Iron_io_extension(Iron_String path) {
     /* Returns extension WITHOUT the leading dot: "file.iron" -> "iron" */
     const char *p = iron_string_cstr(&path);
-    const char *last_slash = strrchr(p, '/');
-    const char *base = last_slash ? last_slash + 1 : p;
-    const char *dot = strrchr(base, '.');
+    size_t n = iron_string_byte_len(&path);
+    ptrdiff_t last = io_last_slash(p, n);
+    size_t base = last < 0 ? 0 : (size_t)last + 1;
+    size_t dot = n;
+    for (size_t i = n; i > base; i--) {
+        if (p[i - 1] == '.') { dot = i - 1; break; }
+    }
     /* No dot, or dot is the first char of filename (e.g. ".gitignore") */
-    if (!dot || dot == base) return iron_string_from_cstr("", 0);
-    /* Skip the dot — return extension only */
-    const char *ext = dot + 1;
-    return iron_string_from_cstr(ext, strlen(ext));
+    if (dot == n || dot == base) return iron_string_from_cstr("", 0);
+    return iron_string_from_cstr(p + dot + 1, n - dot - 1);
 }
 
 bool Iron_io_is_dir(Iron_String path) {
-    const char *p = iron_string_cstr(&path);
+    char *p = io_path_cstr(path);
+    if (!p) return false;
     struct stat st;
-    if (stat(p, &st) != 0) return false;
-    return S_ISDIR(st.st_mode);
+    bool dir = stat(p, &st) == 0 && S_ISDIR(st.st_mode);
+    free(p);
+    return dir;
 }
 
 Iron_List_Iron_String Iron_io_read_lines(Iron_String path) {
@@ -395,6 +410,48 @@ static int io_path_copy(Iron_String path, char **output) {
     return 1;
 }
 
+/* Read an open stream to its end, failing with TOO_LARGE past max_bytes.
+ * Closes the stream. */
+static Iron_FileReadResult io_read_stream(FILE *file, int64_t max_bytes) {
+    size_t cap = 4096, length = 0;
+    uint8_t *buffer = (uint8_t *)malloc(cap);
+    if (!buffer) {
+        fclose(file);
+        return io_read_error(IRON_ERR_IO_NO_MEMORY);
+    }
+    for (;;) {
+        if (length == cap) {
+            uint8_t *grown = (uint8_t *)realloc(buffer, cap * 2);
+            if (!grown) {
+                free(buffer);
+                fclose(file);
+                return io_read_error(IRON_ERR_IO_NO_MEMORY);
+            }
+            buffer = grown;
+            cap *= 2;
+        }
+        size_t got = fread(buffer + length, 1, cap - length, file);
+        length += got;
+        if ((uint64_t)length > (uint64_t)max_bytes) {
+            free(buffer);
+            fclose(file);
+            return io_read_error(IRON_ERR_IO_TOO_LARGE);
+        }
+        if (got == 0) break;
+    }
+    int failed = ferror(file);
+    if (fclose(file) != 0 || failed) {
+        free(buffer);
+        return io_read_error(IRON_ERR_IO_READ);
+    }
+    Iron_FileReadResult out;
+    out.data = iron_string_from_cstr((const char *)buffer, length);
+    out.error = 0;
+    out.error_message = io_message(0);
+    free(buffer);
+    return out;
+}
+
 static Iron_FileReadResult io_read_bounded(Iron_String path,
                                             int64_t max_bytes) {
     if (max_bytes < 0 || (uint64_t)max_bytes > (uint64_t)(SIZE_MAX - 1)) {
@@ -413,6 +470,17 @@ static Iron_FileReadResult io_read_bounded(Iron_String path,
         return io_read_error(code);
     }
     free(path_text);
+    /* fopen succeeds on a directory on POSIX systems; reading it is an
+     * error of its own. A file whose size the OS does not report (a pipe,
+     * a /proc or /sys file) is read to its end, still within max_bytes. */
+    struct stat opened;
+    if (fstat(fileno(file), &opened) == 0 && !S_ISREG(opened.st_mode)) {
+        if (S_ISDIR(opened.st_mode)) {
+            fclose(file);
+            return io_read_error(IRON_ERR_IO_IS_DIRECTORY);
+        }
+        return io_read_stream(file, max_bytes);
+    }
     if (fseek(file, 0, SEEK_END) != 0) {
         fclose(file);
         return io_read_error(IRON_ERR_IO_SEEK);

@@ -1,0 +1,51 @@
+-- Motivating Incident: #679 silently used AoS for concrete SoA lists.
+-- Layout Diagram: AoS [object, object]; SoA [field0, field0] [field1, field1].
+-- Fix Summary: emit_structs.c emits column storage and lifecycle helpers;
+-- emit_c.c routes indexing and borrowed storage through those helpers.
+-- Severity: M, explicit layout behavior and ownership could be incorrect.
+object P { var x: Int
+    val s: String
+    init(x: Int) { self.x = x
+ self.s = "a long string to require heap allocation {x}" }
+}
+object Holder { var xs: [P, layout: soa]
+    init() { self.xs = [P(4), P(5)] }
+}
+object Boxed[T] { val value: T }
+func observe(p: *P) -> Int { return p.x }
+func edit(p: *var P) { p.x += 10 }
+func field(p: *Int) -> String { return "{p}" }
+func length[T](xs: [T]) -> Int { return xs.len() }
+func main() {
+    var ps: [P, layout: soa] = [P(1), P(2)]
+    println("{observe(&ps[0])} {field(&ps[1].x)}")
+    edit(&ps[0])
+    ps.push(P(3))
+    println("{ps[0].x} {ps[2].x} {length(ps)}")
+    var h = Holder()
+    h.xs[0].x = 7
+    println("{h.xs[0].x}")
+    var nested: [[P, layout: soa]] = []
+    nested.push(ps.copy())
+    println("{nested[0][0].x}")
+    var m = Map[Int, [P, layout: soa]]()
+    m.put(1, ps.copy())
+    val v = m.get_or(1, [])
+    println("{v[0].x}")
+    var gp: [Boxed[Int], layout: soa] = [Boxed[Int](9)]
+    println("{gp[0].value}")
+    var shared: rc [P, layout: soa] = rc [P(20), P(21)]
+    println("{shared[0].x}")
+    val ch = Channel[[P, layout: soa]](1)
+    ch.send(ps.copy())
+    val received = ch.recv()
+    println("{received[0].x}")
+    val mu = Mutex[[P, layout: soa]](ps.copy())
+    {
+        val guard = mu.lock()
+        val locked = guard.get()
+        println("{locked[2].x}")
+    }
+    val task = spawn("soa") { return ps.len() + ps[1].x }
+    println("{await task}")
+}

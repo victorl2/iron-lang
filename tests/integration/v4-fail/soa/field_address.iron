@@ -1,0 +1,9 @@
+object Point { var x: Int
+ init(x: Int) { self.x = x }
+}
+func main() {
+    var ps: [Point, layout: soa] = [Point(7)]
+    val p = &ps[0].x
+    ps.push(Point(8))
+    println("{p}")
+}

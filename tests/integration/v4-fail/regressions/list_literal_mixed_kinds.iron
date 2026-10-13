@@ -1,0 +1,11 @@
+-- A list literal mixing an Int and a String is a type error (E0202), not
+-- C the C compiler rejects (#622).
+func f(n: Int) -> Int {
+    var ls = [n, "x", n]
+    ls.push(4)
+    return len(ls)
+}
+
+func main() {
+    println("{f(1)}")
+}

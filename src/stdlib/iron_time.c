@@ -1,4 +1,5 @@
 #include "iron_time.h"
+#include <stdint.h>
 #include <stdlib.h>
 #include "util/os.h"   /* clock_gettime / nanosleep on Windows */
 
@@ -51,10 +52,21 @@ double Iron_time_since(double start) {
 
 /* ── Timer (accumulator style) ───────────────────────────────────────────── */
 
+/* Seconds to whole milliseconds like an Iron Float to Int conversion
+ * (manual 2.9): truncating, saturating at the Int limits, NaN to 0. A
+ * plain C cast is undefined for those values (#574). */
+static int64_t timer_ms(double seconds) {
+    double ms = seconds * 1000.0;
+    if (ms != ms) return 0;
+    if (ms >= 9223372036854775807.0) return INT64_MAX;
+    if (ms <= -9223372036854775808.0) return INT64_MIN;
+    return (int64_t)ms;
+}
+
 Iron_Timer Iron_time_Timer(double duration_s) {
     Iron_Timer t;
     t.elapsed_ms  = 0;
-    t.duration_ms = (int64_t)(duration_s * 1000.0);
+    t.duration_ms = timer_ms(duration_s);
     return t;
 }
 
@@ -63,7 +75,10 @@ bool Iron_timer_done(Iron_Timer t) {
 }
 
 void Iron_timer_update(Iron_Timer *t, double dt) {
-    t->elapsed_ms += (int64_t)(dt * 1000.0);
+    int64_t d = timer_ms(dt);
+    if (d > 0 && t->elapsed_ms > INT64_MAX - d) t->elapsed_ms = INT64_MAX;
+    else if (d < 0 && t->elapsed_ms < INT64_MIN - d) t->elapsed_ms = INT64_MIN;
+    else t->elapsed_ms += d;
 }
 
 void Iron_timer_reset(Iron_Timer *t) {

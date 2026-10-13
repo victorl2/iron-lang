@@ -148,6 +148,37 @@ class StringPrinter:
         return None
 
 
+def _align(t):
+    """The alignment of a C type, from its layout: the largest alignment
+    among a struct's members, an array's element alignment, and a scalar's
+    own size."""
+    t = t.strip_typedefs()
+    if t.code == gdb.TYPE_CODE_ARRAY:
+        return _align(t.target())
+    if t.code in (gdb.TYPE_CODE_STRUCT, gdb.TYPE_CODE_UNION):
+        a = 1
+        for f in t.fields():
+            if not f.is_base_class and hasattr(f, "bitpos"):
+                a = max(a, _align(f.type))
+        return a
+    return max(1, min(t.sizeof, 16))
+
+
+def _soa_columns(elem):
+    """Where a `layout: soa` list keeps each member of its element type:
+    (offset in the element, size, bytes per element of capacity before the
+    member's column). Columns follow decreasing alignment, declaration
+    order among equals (emit_structs.c emit_object_soa_impl)."""
+    members = []
+    for i, f in enumerate(elem.fields()):
+        members.append((i, f.bitpos // 8, f.type.sizeof, _align(f.type)))
+    cols, before = [], 0
+    for i, off, size, _a in sorted(members, key=lambda m: (-m[3], m[0])):
+        cols.append((off, size, before))
+        before += size
+    return cols
+
+
 class ListPrinter:
     def __init__(self, val):
         self.val = val
@@ -155,10 +186,30 @@ class ListPrinter:
     def to_string(self):
         return "[%d]" % int(self.val["count"])
 
+    def _is_soa(self):
+        # A list of an element type used with layout: soa has a `soa` flag;
+        # when it is set, items points at one block of columns.
+        t = self.val.type.strip_typedefs()
+        return any(f.name == "soa" for f in t.fields()) and bool(self.val["soa"])
+
     def children(self):
         items = self.val["items"]
-        for i in range(min(int(self.val["count"]), 10000)):
-            yield "[%d]" % i, items[i]
+        n = min(int(self.val["count"]), 10000)
+        if not self._is_soa():
+            for i in range(n):
+                yield "[%d]" % i, items[i]
+            return
+        elem = items.type.target().strip_typedefs()
+        columns = _soa_columns(elem)
+        base, capacity = int(items), int(self.val["capacity"])
+        inferior = gdb.selected_inferior()
+        for i in range(n):
+            buf = bytearray(elem.sizeof)
+            for off, size, before in columns:
+                if size:
+                    chunk = inferior.read_memory(base + capacity * before + i * size, size)
+                    buf[off:off + size] = bytes(chunk)
+            yield "[%d]" % i, gdb.Value(bytes(buf), elem)
 
     def display_hint(self):
         return "array"

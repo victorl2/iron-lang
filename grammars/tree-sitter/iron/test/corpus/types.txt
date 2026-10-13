@@ -66,3 +66,27 @@ val x: Int? = null
       (type_identifier
         (identifier)))
     value: (null_literal)))
+
+==========
+nullable list and bounded vector types
+==========
+
+val xs: [String]? = null
+val ys: [Int; <=8]? = null
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    type: (array_type
+      (type_identifier
+        (identifier)))
+    value: (null_literal))
+  (val_declaration
+    binding: (identifier)
+    type: (bounded_vector_type
+      (type_identifier
+        (identifier))
+      (integer_literal))
+    value: (null_literal)))
