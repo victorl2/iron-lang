@@ -1,0 +1,23 @@
+-- @expect-panic: index: 5 bound: 4
+-- layout: soa lists: insert panics as it does for the default layout,
+-- naming the Iron line.
+object P {
+    var x: Int
+    var s: String
+    init(x: Int) {
+        self.x = x
+        self.s = "str-{x}-padding-padding-padding"
+    }
+    func bump(n: Int) { self.x += n }
+    readonly func get() -> Int { return self.x }
+}
+func observe(p: *P) -> Int { return p.x }
+func edit(p: *var P) { p.x += 10 }
+func idx(n: Int) -> Int { return n }
+func main() {
+    var ps: [P, layout: soa] = [P(1), P(2), P(3)]
+    var es: [P, layout: soa] = []
+    println("start {ps.len()} {es.len()}")
+    ps.insert(idx(5), P(1))
+    println("unreachable")
+}

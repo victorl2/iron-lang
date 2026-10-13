@@ -1,0 +1,155 @@
+-- soa_bench.iron: [T, layout: soa] against the default layout.
+--
+-- A particle with hot fields (position, velocity) and cold ones (mass,
+-- charge, an id, a name). Each kernel runs over a list of N particles in
+-- both layouts; run_soa_bench.sh prints the times and checks that the
+-- field loops are vectorized in the generated code.
+import time
+
+object Particle {
+    var x: Float
+    var y: Float
+    var vx: Float
+    var vy: Float
+    var mass: Float
+    var charge: Float
+    var id: Int
+    var hits: Int
+    var name: String
+    init(i: Int) {
+        self.x = Float(i) * 0.5
+        self.y = Float(i) * 0.25
+        self.vx = 1.0
+        self.vy = -0.5
+        self.mass = 2.0
+        self.charge = 0.0
+        self.id = i
+        self.hits = 0
+        self.name = "p"
+    }
+    func advance(dt: Float) {
+        self.x += self.vx * dt
+        self.y += self.vy * dt
+    }
+}
+
+-- one field read: sum of an Int column
+func sum_ids_soa(ps: [Particle, layout: soa]) -> Int {
+    var t = 0
+    for i in range(ps.len()) { t += ps[i].id }
+    return t
+}
+func sum_ids_aos(ps: [Particle]) -> Int {
+    var t = 0
+    for i in range(ps.len()) { t += ps[i].id }
+    return t
+}
+
+-- two fields read, one written: x += vx * dt
+func integrate_soa(var ps: [Particle, layout: soa], dt: Float) {
+    for i in range(ps.len()) { ps[i].x += ps[i].vx * dt }
+}
+func integrate_aos(var ps: [Particle], dt: Float) {
+    for i in range(ps.len()) { ps[i].x += ps[i].vx * dt }
+}
+
+-- an Int field written from another
+func count_soa(var ps: [Particle, layout: soa]) {
+    for i in range(ps.len()) { ps[i].hits += ps[i].id }
+}
+func count_aos(var ps: [Particle]) {
+    for i in range(ps.len()) { ps[i].hits += ps[i].id }
+}
+
+-- a method on each element (a whole element lent and written back)
+func advance_soa(var ps: [Particle, layout: soa], dt: Float) {
+    for i in range(ps.len()) { ps[i].advance(dt) }
+}
+func advance_aos(var ps: [Particle], dt: Float) {
+    for i in range(ps.len()) { ps[i].advance(dt) }
+}
+
+-- every field of every element, in order
+func whole_soa(ps: [Particle, layout: soa]) -> Float {
+    var t = 0.0
+    for p in ps { t += p.x + p.y + p.vx + p.vy + p.mass + p.charge + Float(p.id + p.hits) }
+    return t
+}
+func whole_aos(ps: [Particle]) -> Float {
+    var t = 0.0
+    for p in ps { t += p.x + p.y + p.vx + p.vy + p.mass + p.charge + Float(p.id + p.hits) }
+    return t
+}
+
+func report(name: String, soa_ns: Int, aos_ns: Int) {
+    println("{name} soa_us {soa_ns / 1000} aos_us {aos_ns / 1000}")
+}
+
+func main() {
+    val n = 1000000
+    val rounds = 20
+    var soa: [Particle, layout: soa] = []
+    var aos: [Particle] = []
+    var t0 = Time.now_ns()
+    for i in range(n) { soa.push(Particle(i)) }
+    val push_soa = Time.now_ns() - t0
+    t0 = Time.now_ns()
+    for i in range(n) { aos.push(Particle(i)) }
+    report("push", push_soa, Time.now_ns() - t0)
+
+    var check = 0
+    t0 = Time.now_ns()
+    for r in range(rounds) { check += sum_ids_soa(soa) }
+    val a1 = Time.now_ns() - t0
+    t0 = Time.now_ns()
+    for r in range(rounds) { check -= sum_ids_aos(aos) }
+    report("sum_ids", a1, Time.now_ns() - t0)
+
+    t0 = Time.now_ns()
+    for r in range(rounds) { integrate_soa(soa, 0.01) }
+    val a2 = Time.now_ns() - t0
+    t0 = Time.now_ns()
+    for r in range(rounds) { integrate_aos(aos, 0.01) }
+    report("integrate", a2, Time.now_ns() - t0)
+
+    t0 = Time.now_ns()
+    for r in range(rounds) { count_soa(soa) }
+    val a3 = Time.now_ns() - t0
+    t0 = Time.now_ns()
+    for r in range(rounds) { count_aos(aos) }
+    report("count", a3, Time.now_ns() - t0)
+
+    t0 = Time.now_ns()
+    for r in range(rounds) { advance_soa(soa, 0.01) }
+    val a4 = Time.now_ns() - t0
+    t0 = Time.now_ns()
+    for r in range(rounds) { advance_aos(aos, 0.01) }
+    report("advance", a4, Time.now_ns() - t0)
+
+    var ws = 0.0
+    var wa = 0.0
+    t0 = Time.now_ns()
+    for r in range(rounds) { ws += whole_soa(soa) }
+    val a5 = Time.now_ns() - t0
+    t0 = Time.now_ns()
+    for r in range(rounds) { wa += whole_aos(aos) }
+    report("whole", a5, Time.now_ns() - t0)
+
+    t0 = Time.now_ns()
+    var removed = 0
+    for r in range(20) {
+        val p = soa.remove(1000)
+        removed += p.id
+        soa.insert(2000, p)
+    }
+    val a6 = Time.now_ns() - t0
+    t0 = Time.now_ns()
+    for r in range(20) {
+        val p = aos.remove(1000)
+        removed -= p.id
+        aos.insert(2000, p)
+    }
+    report("remove_insert", a6, Time.now_ns() - t0)
+
+    println("check {check} {ws == wa} {removed} {soa[n - 1].x == aos[n - 1].x} {soa[7].hits == aos[7].hits} {soa[9].y == aos[9].y}")
+}
