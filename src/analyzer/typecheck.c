@@ -2369,9 +2369,19 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
             ((Iron_TypeAnnotation *)ann->rc_inner)->is_array &&
             !((Iron_TypeAnnotation *)ann->rc_inner)->bounded) {
             Iron_Type *lt = resolve_type_annotation(ctx, ann->rc_inner);
+            /* `rc [T]?` is a nullable shared list: as for any `rc T?`,
+             * the `?` applies to the whole type. */
+            bool nullable = lt && lt->kind == IRON_TYPE_NULLABLE && lt->nullable.inner;
+            if (nullable) lt = lt->nullable.inner;
             if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.elem &&
-                lt->array.elem->kind != IRON_TYPE_ERROR)
-                return rc_list_type(ctx, lt->array.elem);
+                lt->array.elem->kind != IRON_TYPE_ERROR) {
+                Iron_Type *rl = rc_list_type(ctx, lt->array.elem);
+                if (nullable && rl && rl->kind != IRON_TYPE_ERROR) {
+                    Iron_Type *nt = iron_type_make_nullable(ctx->arena, rl);
+                    return nt ? nt : iron_type_make_primitive(IRON_TYPE_ERROR);
+                }
+                return rl;
+            }
             return iron_type_make_primitive(IRON_TYPE_ERROR);
         }
         Iron_Type *inner_t = ann->rc_inner
@@ -3886,8 +3896,23 @@ static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
         Iron_Type *pt = resolve_type_annotation(ctx, mp->type_ann);
         ctx->enclosing_type_name = saved_enc;
         Iron_Type *arg_resolved = ((Iron_ExprNode *)mc->args[i])->resolved_type;
-        if ((!arg_resolved || arg_resolved->kind == IRON_TYPE_ERROR) && pt &&
-            pt->kind != IRON_TYPE_ERROR && !type_mentions_generic(pt))
+        /* A tuple literal or an enum value takes its shape from the
+         * parameter as it does in a function call: `null` and a plain T
+         * fill a `T?` component, a variant takes the type arguments its
+         * payload leaves open (`o.f((null, 1))`, `o.g(Opt.None)`). */
+        bool shaped = false;
+        if (mc->args[i]->kind == IRON_NODE_ENUM_CONSTRUCT) shaped = true;
+        if (mc->args[i]->kind == IRON_NODE_ARRAY_LIT) {
+            Iron_Node *ta = ((Iron_ArrayLit *)mc->args[i])->type_ann;
+            shaped = ta && ta->kind == IRON_NODE_TYPE_ANNOTATION &&
+                     ((Iron_TypeAnnotation *)ta)->is_tuple;
+        }
+        if (pt && pt->kind != IRON_TYPE_ERROR && !type_mentions_generic(pt) &&
+            (!arg_resolved || arg_resolved->kind == IRON_TYPE_ERROR ||
+             /* `rc Cell()` typed before its instance existed */
+             (arg_resolved->kind == IRON_TYPE_RC && arg_resolved->rc.inner &&
+              arg_resolved->rc.inner->kind == IRON_TYPE_ERROR) ||
+             (shaped && !types_assignable(pt, arg_resolved))))
             check_expr_with_expected(ctx, mc->args[i], pt);
         Iron_Type *at = ((Iron_ExprNode *)mc->args[i])->resolved_type;
         if (!pt || !at || pt->kind == IRON_TYPE_ERROR || at->kind == IRON_TYPE_ERROR)
@@ -4689,11 +4714,17 @@ static void unify_generic(Iron_Node *ann_node, Iron_Type *actual,
 /* Infer a generic object's type arguments from constructor arguments:
  * against the anonymous init's parameters when it has one, otherwise
  * against the fields in declaration order (the field-wise constructor). */
+static bool arg_waits_for_param(TypeCtx *ctx, Iron_Node *n);
+
 static void infer_object_generic_args(TypeCtx *ctx, Iron_ObjectDecl *od,
                                       Iron_Node **args, int argc,
                                       Iron_Type **bind) {
     Iron_MethodDecl *init = iron_find_init_by_name(ctx->program, od->name, NULL);
     for (int i = 0; i < argc; i++) {
+        /* An argument that cannot type itself (`Pair(Map(), 1)`) fixes
+         * nothing here; it is typed against its parameter once the
+         * expected type has given the instance. */
+        if (arg_waits_for_param(ctx, args[i])) continue;
         Iron_Type *at = check_expr(ctx, args[i]);
         Iron_Node *ann = NULL;
         if (init) {
@@ -4760,6 +4791,7 @@ static bool redirect_generic_call(TypeCtx *ctx, Iron_CallExpr *ce, Iron_Type *ex
         /* f(...): infer from the argument types. */
         Iron_FuncDecl *fd = (Iron_FuncDecl *)tmpl;
         for (int i = 0; i < ce->arg_count && i < fd->param_count; i++) {
+            if (arg_waits_for_param(ctx, ce->args[i])) continue;
             Iron_Type *at = check_expr(ctx, ce->args[i]);
             Iron_Param *p = (Iron_Param *)fd->params[i];
             if (p) unify_generic(p->type_ann, at, gps, ngp, bind);
@@ -4859,6 +4891,7 @@ static bool is_open_generic_construct(TypeCtx *ctx, Iron_Node *n) {
     if (tmpl->kind == IRON_NODE_FUNC_DECL) {
         Iron_FuncDecl *fd = (Iron_FuncDecl *)tmpl;
         for (int i = 0; i < argc && i < fd->param_count; i++) {
+            if (arg_waits_for_param(ctx, args[i])) continue;
             Iron_Type *at = check_expr(ctx, args[i]);
             Iron_Param *p = (Iron_Param *)fd->params[i];
             if (p) unify_generic(p->type_ann, at, gps, ngp, bind);
@@ -4869,6 +4902,31 @@ static bool is_open_generic_construct(TypeCtx *ctx, Iron_Node *n) {
     for (int i = 0; i < ngp; i++)
         if (!bind[i]) return true;
     return false;
+}
+
+/* A method argument that waits for the parameter type: an open generic
+ * construction or call, alone or inside a tuple literal, an enum payload
+ * or an `rc` (`b.put((Map(), null))`, `b.set(Opt.Some(Set()))`). */
+static bool arg_waits_for_param(TypeCtx *ctx, Iron_Node *n) {
+    if (!n) return false;
+    if (n->kind == IRON_NODE_ARRAY_LIT) {
+        Iron_ArrayLit *al = (Iron_ArrayLit *)n;
+        if (!al->type_ann || al->type_ann->kind != IRON_NODE_TYPE_ANNOTATION ||
+            !((Iron_TypeAnnotation *)al->type_ann)->is_tuple)
+            return false;
+        for (int i = 0; i < al->element_count; i++)
+            if (arg_waits_for_param(ctx, al->elements[i])) return true;
+        return false;
+    }
+    if (n->kind == IRON_NODE_ENUM_CONSTRUCT) {
+        Iron_EnumConstruct *ec = (Iron_EnumConstruct *)n;
+        for (int i = 0; ec->args && i < ec->arg_count; i++)
+            if (arg_waits_for_param(ctx, ec->args[i])) return true;
+        return false;
+    }
+    if (n->kind == IRON_NODE_RC)
+        return arg_waits_for_param(ctx, ((Iron_RcExpr *)n)->inner);
+    return is_open_generic_construct(ctx, n);
 }
 
 static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
@@ -4882,7 +4940,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 !((Iron_ArrayLit *)a)->type_ann && !((Iron_ArrayLit *)a)->resolved_type)
                 check_expr_impl(ctx, a);
             else if (a && !((Iron_ExprNode *)a)->resolved_type &&
-                     is_open_generic_construct(ctx, a))
+                     arg_waits_for_param(ctx, a))
                 check_expr_impl(ctx, a);
         }
     }
@@ -7005,7 +7063,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     !((Iron_ArrayLit *)mc->args[i])->type_ann)
                     continue;
                 /* `b.add(Set())` likewise waits for the parameter type. */
-                if (is_open_generic_construct(ctx, mc->args[i])) continue;
+                if (arg_waits_for_param(ctx, mc->args[i])) continue;
                 check_expr(ctx, mc->args[i]);
             }
 
@@ -9778,10 +9836,12 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
     }
     /* A literal where a T? is expected is typed as a T (then wrapped):
      * `f([["a"], []])` for a `[[String]]?` parameter, `Mb.So(null)` for an
-     * `Mb[Int?]?`. */
+     * `Mb[Int?]?`. So is an `rc` expression where an `rc T?` is expected:
+     * `rc Cell()` for an `rc Cell[Int]?`, `rc []` for an `rc [Int]?`. */
     if (node && expected && expected->kind == IRON_TYPE_NULLABLE &&
         expected->nullable.inner &&
-        (node->kind == IRON_NODE_ARRAY_LIT || node->kind == IRON_NODE_ENUM_CONSTRUCT))
+        (node->kind == IRON_NODE_ARRAY_LIT || node->kind == IRON_NODE_ENUM_CONSTRUCT ||
+         (node->kind == IRON_NODE_RC && expected->nullable.inner->kind == IRON_TYPE_RC)))
         expected = expected->nullable.inner;
     /* A generic enum construct whose payload leaves type arguments open
      * (`Maybe.Nothing`, `Result.Ok(1)`) takes them from the expected type
@@ -9828,13 +9888,6 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
         take_expected(ctx, node);
         return t;
     }
-    if (node && expected && node->kind == IRON_NODE_ARRAY_LIT && expected->kind == IRON_TYPE_TUPLE &&
-        ((Iron_ArrayLit *)node)->type_ann &&
-        ((Iron_ArrayLit *)node)->type_ann->kind == IRON_NODE_TYPE_ANNOTATION &&
-        ((Iron_TypeAnnotation *)((Iron_ArrayLit *)node)->type_ann)->is_tuple) {
-        ((Iron_ArrayLit *)node)->context_type = expected;
-        return check_expr(ctx, node);
-    }
     if (node && expected && node->kind == IRON_NODE_RC && expected->kind == IRON_TYPE_RC &&
         expected->rc.inner && ((Iron_RcExpr *)node)->inner &&
         (((Iron_RcExpr *)node)->inner->kind == IRON_NODE_CALL ||
@@ -9861,7 +9914,10 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
     /* A tuple literal where a tuple is expected (an annotation, a return,
      * an argument) types each element against its component, so `null`
      * and a plain `T` fill a `T?` component as they fill a `T?` binding:
-     * `return (null, "n")` from a function returning `(Int?, String)`. */
+     * `return (null, "n")` from a function returning `(Int?, String)`.
+     * A generic construction or call among the elements takes the type
+     * arguments it leaves open from its component the same way (#626):
+     * `return (Map(), null)` as a `(Map[String, Int], Int?)`. */
     if (node && node->kind == IRON_NODE_ARRAY_LIT && expected &&
         expected->kind == IRON_TYPE_TUPLE) {
         Iron_ArrayLit *al = (Iron_ArrayLit *)node;
@@ -9880,6 +9936,10 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
                 al->resolved_type = expected;
                 return expected;
             }
+            /* A component that does not fit: the literal keeps its own
+             * tuple type, with each element still typed against its
+             * component, so the mismatch names the inferred instance. */
+            al->context_type = expected;
         }
         return check_expr(ctx, node);
     }

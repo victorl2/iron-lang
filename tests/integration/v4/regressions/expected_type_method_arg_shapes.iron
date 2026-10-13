@@ -1,0 +1,110 @@
+-- A method argument takes its shape from the parameter as a function
+-- argument does: a tuple literal fills `T?` components, an enum value
+-- takes the type arguments its payload leaves open, and a generic
+-- construction inside either waits for the parameter type. A generic
+-- construction whose own argument cannot type itself takes its instance
+-- from the expected type (#828, #829).
+enum Opt[T] {
+    Some(T),
+    None,
+}
+object Cell[T] {
+    var n: Int
+    var v: T?
+    init() {
+        self.n = 0
+        self.v = null
+    }
+}
+object Pair[A, B] {
+    val a: A
+    val b: B
+}
+object Box2[T] {
+    val v: T?
+    val w: Opt[T]
+}
+object Taker {
+    var n: Int
+    init() {
+        self.n = 0
+    }
+    func feed(t: (Int?, String)) {
+        self.n += 1
+    }
+    func feedo(t: Opt[Int?]) {
+        self.n += 1
+    }
+    func feedl(t: [Int?]) {
+        self.n += 1
+    }
+    func feedp(t: (Int?, Opt[String])) {
+        self.n += 1
+    }
+    func feedc(t: (Cell[Int]?, Opt[String])) {
+        self.n += 1
+    }
+    func feedn(c: Opt[Cell[Int]?]) {
+        self.n += 1
+    }
+    func feedr(c: rc Cell[Int]?) {
+        self.n += 1
+    }
+}
+func a(k: Int) -> Opt[Cell[Int]?] {
+    if k == 0 {
+        return Opt.Some(Cell())
+    }
+    if k == 1 {
+        return Opt.Some(null)
+    }
+    return Opt.None
+}
+func ot(b: Bool) -> Opt[(Cell[Int], Int?)] {
+    if b {
+        return Opt.Some((Cell(), null))
+    }
+    return Opt.Some((Cell(), 2))
+}
+func name(o: Opt[Cell[Int]?]) -> String {
+    match o {
+        Opt.Some(c) -> {
+            if c != null {
+                return "cell"
+            }
+            return "null"
+        }
+        Opt.None -> return "none"
+    }
+}
+func main() {
+    var tk = Taker()
+    tk.feed((null, "s"))
+    tk.feed((1, "s"))
+    tk.feedo(Opt.Some(null))
+    tk.feedo(Opt.Some(2))
+    tk.feedo(Opt.None)
+    tk.feedl([1, null])
+    tk.feedp((null, Opt.None))
+    tk.feedc((Cell(), Opt.None))
+    tk.feedc((null, Opt.Some("s")))
+    tk.feedn(Opt.Some(Cell()))
+    tk.feedn(Opt.Some(null))
+    tk.feedr(rc Cell())
+    tk.feedr(null)
+    println("{tk.n}")
+    println("{name(a(0))} {name(a(1))} {name(a(2))} {name(Opt.Some(Cell()))} {name(Opt.Some(null))}")
+    match ot(true) {
+        Opt.Some(t) -> {
+            val (c, n) = t
+            println("{c.n} {n == null}")
+        }
+        Opt.None -> println("none")
+    }
+    val p: Pair[Map[String, Int], Int] = Pair(Map(), 1)
+    val q: Pair[Cell[Int], Pair[Set[Int], String?]] = Pair(Cell(), Pair(Set(), null))
+    val b1: Box2[Int] = Box2(null, Opt.None)
+    val b2: Box2[Cell[Int]] = Box2(Cell(), Opt.Some(Cell()))
+    val b3: Box2[Cell[Int]]? = Box2(Cell(), Opt.Some(Cell()))
+    println("{p.a.len()} {p.b} {q.a.n} {q.b.a.len()} {q.b.b == null} {b1.v == null} {b2.v != null} {b3 != null}")
+}
