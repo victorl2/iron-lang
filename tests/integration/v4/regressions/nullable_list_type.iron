@@ -1,0 +1,22 @@
+-- Nullable list types parse, take list literals and survive a return (#620).
+func f(x: [[String]]?) -> String {
+    if x != null {
+        return "{len(x)}"
+    }
+    return "N"
+}
+
+func g() -> [Int]? {
+    return [1, 2]
+}
+
+func main() {
+    println(f(null))
+    println(f([["a"], []]))
+    val y = g()
+    if y != null {
+        println("{y[1]}")
+    }
+    val z: [Int; 3]? = null
+    println("{z == null}")
+}

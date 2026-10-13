@@ -1,0 +1,7 @@
+-- heap allocates an object or an array, not a number (E0202).
+func main() {
+    val h = heap 3
+    val a = 2 * h
+    println("{a}")
+    free h
+}

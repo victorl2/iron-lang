@@ -1,0 +1,20 @@
+-- len() of a list of interface values (a split list) inlined into an
+-- expression; the test also builds it with copy propagation left out (#596).
+interface Sh {
+    readonly func id() -> String
+}
+
+object Ci impl Sh {
+    val n: String
+    readonly func id() -> String {
+        return "ci{self.n}"
+    }
+}
+
+func main() {
+    val b: [Sh] = [Ci("a"), Ci("b")]
+    for s in b {
+        print("{s.id()},")
+    }
+    println("{len(b) + 1}")
+}

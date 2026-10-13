@@ -1,0 +1,14 @@
+-- Motivating Incident: #680 saved interior list addresses bypassed E0330.
+-- Layout Diagram: list -> element -> inline field still moves on growth.
+-- Fix Summary: typecheck.c walks the entire address storage path.
+-- Severity: H, dangling addresses can read freed memory.
+object Inner { val x: Int }
+object P { val inner: Inner
+ val fixed: [Int; 2]
+ val nested: [Int]
+}
+func main() {
+ var ps: [P, layout: soa] = []
+ val addr = &ps[0]
+ println("{addr}")
+}

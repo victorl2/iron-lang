@@ -818,8 +818,9 @@ module.exports = grammar({
       ']',
     )),
 
-    // [T] or [T; Size]
-    array_type: $ => prec(3, seq(
+    // [T], [T]? or [T; Size] (the parser permits the nullable suffix on
+    // every bracketed collection type).
+    array_type: $ => prec.right(3, seq(
       '[',
       $._type,
       optional(seq(';', $._expression)),
@@ -829,14 +830,16 @@ module.exports = grammar({
         'unordered',
       ))),
       ']',
+      optional(field('nullable', '?')),
     )),
 
     // Phase 35 GRM-06 (Plan 35-01): bounded vector type `[T; <=N]` (VEC-01).
     // Distinguished from array_type by the literal `<=` token between `;`
     // and the size expression — tree-sitter's GLR picks the right form by
     // lookahead. Strict form `[T; N]` stays in array_type.
-    bounded_vector_type: $ => prec(3, seq(
+    bounded_vector_type: $ => prec.right(3, seq(
       '[', $._type, ';', '<=', $._expression, ']',
+      optional(field('nullable', '?')),
     )),
 
     // Phase 35 GRM-06 (Plan 35-01): pointer_type covers the Iron v4 checked

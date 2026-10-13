@@ -10,7 +10,7 @@
 --   2000 IRON_ERR_URL_EMPTY
 --   2001 IRON_ERR_URL_NO_SCHEME      (reserved — not produced today)
 --   2002 IRON_ERR_URL_BAD_SCHEME     (reserved)
---   2003 IRON_ERR_URL_BAD_HOST       (reserved)
+--   2003 IRON_ERR_URL_BAD_HOST
 --   2004 IRON_ERR_URL_BAD_IPV6
 --   2005 IRON_ERR_URL_BAD_PORT
 --   2006 IRON_ERR_URL_BAD_PATH       (reserved)
@@ -193,6 +193,39 @@ func Url.all_digits(s: String) -> Bool {
     return true
 }
 
+-- RFC 3986 section 3.1 scheme syntax: a letter, then letters, digits,
+-- '+', '-' or '.'.
+func Url.valid_scheme(s: String) -> Bool {
+    if s.byte_len() == 0 { return false }
+    var i = 0
+    while i < s.byte_len() {
+        val b = s.byte_at(i)
+        val alpha = (b >= 65 and b <= 90) or (b >= 97 and b <= 122)
+        if i == 0 and not alpha { return false }
+        if not alpha and not Url.is_digit(b) and b != 43 and b != 45 and b != 46 {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+-- The value of a port written as decimal digits, or -1 when the text is
+-- not all digits or the value exceeds 65535 (leading zeros are allowed;
+-- the digits are accumulated with an early exit, so a long run of digits
+-- cannot overflow into a valid port).
+func Url.parse_port(s: String) -> Int {
+    if not Url.all_digits(s) { return -1 }
+    var v = 0
+    var i = 0
+    while i < s.byte_len() {
+        v = v * 10 + (s.byte_at(i) - 48)
+        if v > 65535 { return -1 }
+        i = i + 1
+    }
+    return v
+}
+
 -- ── Percent codec (RFC 3986 §2.1) ─────────────────────────────────────────
 
 -- Encode `s` using percent-encoding. When `reserved_ok` is true, sub-delims
@@ -205,14 +238,14 @@ func Url.percent_encode(s: String, reserved_ok: Bool) -> String {
         val b = s.byte_at(i)
         if Url.is_unreserved(b) {
             val ch = String.from_byte(b)
-            out = "{out}{ch}"
+            out += ch
         } else {
             if reserved_ok and Url.is_sub_delim(b) {
                 val ch2 = String.from_byte(b)
-                out = "{out}{ch2}"
+                out += ch2
             } else {
                 val hex = Url.byte_to_hex(b)
-                out = "{out}%{hex}"
+                out += "%{hex}"
             }
         }
         i = i + 1
@@ -242,11 +275,11 @@ func Url.percent_decode(s: String) -> (String, UrlError) {
                 return ("", UrlError(2007))
             }
             val decoded = String.from_byte(hi * 16 + lo)
-            out = "{out}{decoded}"
+            out += decoded
             i = i + 3
         } else {
             val ch = String.from_byte(b)
-            out = "{out}{ch}"
+            out += ch
             i = i + 1
         }
     }
@@ -259,8 +292,9 @@ func Url.percent_decode(s: String) -> (String, UrlError) {
 -- and authority-less forms. Error cases return a zero Url and a non-zero
 -- UrlError code:
 --   2000 empty input
---   2004 unclosed IPv6 bracket
---   2005 port not all digits or out of range
+--   2003 a host without brackets holding ':', '[' or ']'
+--   2004 unclosed IPv6 bracket, or text after the ']' that is not ':' port
+--   2005 port not all digits or out of range (an empty port is the default, -1)
 --   2009 input longer than 8192 bytes (sanity cap)
 func Url.parse(s: String) -> (Url, UrlError) {
     if s.len() == 0 {
@@ -298,6 +332,11 @@ func Url.parse(s: String) -> (Url, UrlError) {
             if first_hash < colon { has_scheme = false }
         }
     }
+    -- RFC 3986 section 3.1: scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ).
+    -- Text before ':' that is not a scheme makes a relative reference.
+    if has_scheme {
+        has_scheme = Url.valid_scheme(rest.substring(0, colon))
+    }
     if has_scheme {
         scheme = rest.substring(0, colon)
         rest = rest.substring(colon + 1, rest.len())
@@ -333,7 +372,10 @@ func Url.parse(s: String) -> (Url, UrlError) {
             host_part = auth.substring(at_sign + 1, auth.len())
         }
 
-        -- IPv6 bracketed host vs plain host:port
+        -- IPv6 bracketed host vs plain host:port. A bracketed host ends at
+        -- the first ']', which must end the authority or come before
+        -- ':' port; a host without brackets cannot hold ':', '[' or ']'.
+        var port_str = ""
         if host_part.starts_with("[") {
             val rb = host_part.index_of("]")
             if rb < 0 {
@@ -341,36 +383,29 @@ func Url.parse(s: String) -> (Url, UrlError) {
             }
             host = host_part.substring(1, rb)
             val after = host_part.substring(rb + 1, host_part.len())
-            if after.starts_with(":") {
-                val port_str = after.substring(1, after.len())
-                if not Url.all_digits(port_str) {
-                    return (Url.empty(), UrlError(2005))
+            if after != "" {
+                if not after.starts_with(":") {
+                    return (Url.empty(), UrlError(2004))
                 }
-                port = port_str.to_int()
-                if port < 0 {
-                    return (Url.empty(), UrlError(2005))
-                }
-                if port > 65535 {
-                    return (Url.empty(), UrlError(2005))
-                }
+                port_str = after.substring(1, after.len())
             }
         } else {
             val lc = host_part.rindex_of(":")
             if lc >= 0 {
                 host = host_part.substring(0, lc)
-                val port_str = host_part.substring(lc + 1, host_part.len())
-                if not Url.all_digits(port_str) {
-                    return (Url.empty(), UrlError(2005))
-                }
-                port = port_str.to_int()
-                if port < 0 {
-                    return (Url.empty(), UrlError(2005))
-                }
-                if port > 65535 {
-                    return (Url.empty(), UrlError(2005))
-                }
+                port_str = host_part.substring(lc + 1, host_part.len())
             } else {
                 host = host_part
+            }
+            if host.contains(":") or host.contains("[") or host.contains("]") {
+                return (Url.empty(), UrlError(2003))
+            }
+        }
+        -- An empty port means the scheme default (RFC 3986 section 3.2.3).
+        if port_str != "" {
+            port = Url.parse_port(port_str)
+            if port < 0 {
+                return (Url.empty(), UrlError(2005))
             }
         }
     }
@@ -415,42 +450,48 @@ func Url.build(u: Url) -> String {
     var out = ""
     if u.scheme != "" {
         val sch = u.scheme
-        out = "{out}{sch}:"
+        out += "{sch}:"
     }
-    if u.host != "" {
-        out = "{out}//"
+    -- The result must parse back to the same fields (RFC 3986 section 5.3):
+    -- the authority is written whenever it holds anything, a host that is
+    -- not a valid unbracketed host goes in brackets, a path after an
+    -- authority starts with '/', and a path starting with "//" without an
+    -- authority gets an empty one so it is not read as a host.
+    val has_authority = u.host != "" or u.userinfo != "" or u.port >= 0
+    if has_authority {
+        out += "//"
         if u.userinfo != "" {
             val ui = u.userinfo
-            out = "{out}{ui}@"
+            out += "{ui}@"
         }
-        -- If host looks like an IPv6 literal (contains ':'), re-bracket it.
-        val needs_brackets = u.host.index_of(":") >= 0
-        if needs_brackets {
-            if u.host.starts_with("[") {
-                val h = u.host
-                out = "{out}{h}"
-            } else {
-                val h = u.host
-                out = "{out}[{h}]"
-            }
+        val h = u.host
+        val bracketed = h.byte_len() >= 2 and h.starts_with("[") and h.ends_with("]")
+        if not bracketed and (h.contains(":") or h.contains("[") or h.contains("]")) {
+            out += "[{h}]"
         } else {
-            val h = u.host
-            out = "{out}{h}"
+            out += h
         }
         if u.port >= 0 {
             val pstr = Url.int_to_string(u.port)
-            out = "{out}:{pstr}"
+            out += ":{pstr}"
+        }
+        if u.path != "" and not u.path.starts_with("/") {
+            out += "/"
+        }
+    } else {
+        if u.path.starts_with("//") {
+            out += "//"
         }
     }
     val p = u.path
-    out = "{out}{p}"
+    out += p
     if u.query != "" {
         val q = u.query
-        out = "{out}?{q}"
+        out += "?{q}"
     }
     if u.fragment != "" {
         val f = u.fragment
-        out = "{out}#{f}"
+        out += "#{f}"
     }
     return out
 }
@@ -545,17 +586,13 @@ func Url.remove_dot_segments(input: String) -> String {
                                         -- Move the first path segment to output.
                                         -- Segment runs from index 0 up to the next '/' at
                                         -- index >= 1 (a leading '/' is part of the segment).
+                                        -- (character positions throughout: byte_at
+                                        -- here cut multi-byte segments wrongly)
                                         var seg_end = rest.len()
-                                        var j = 1
-                                        while j < rest.len() {
-                                            val c = rest.byte_at(j)
-                                            if c == 47 {
-                                                if seg_end == rest.len() { seg_end = j }
-                                            }
-                                            j = j + 1
-                                        }
+                                        val next_slash = rest.substring(1, rest.len()).index_of("/")
+                                        if next_slash >= 0 { seg_end = next_slash + 1 }
                                         val seg = rest.substring(0, seg_end)
-                                        out = "{out}{seg}"
+                                        out += seg
                                         rest = rest.substring(seg_end, rest.len())
                                     }
                                 }

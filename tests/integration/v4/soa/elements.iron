@@ -1,0 +1,117 @@
+-- layout: soa lists: payload enums, rc and weak rc, generic, one-field and no-field (#716) elements, 20000 elements.
+-- The same program with the layout annotations removed prints the same
+-- (tests/integration/soa_parity.sh).
+enum Token { Number(Int), Text(String), Pair(Int, String), Nothing }
+enum Color { Red, Green, Blue }
+object Res {
+    val n: Int
+    drop { println("res drop {self.n}") }
+}
+object One { var v: Int
+    init(v: Int) { self.v = v } }
+object Empty { }
+object Gen[T] {
+    var value: T
+    var items: [T]
+    init(v: T) {
+        self.value = v
+        self.items = [v]
+    }
+    func put(v: T) { self.items.push(v) }
+}
+object Big {
+    var a: Int8
+    var b: Int
+    var c: Bool
+    var d: Float32
+    var e: Int16
+    var f: Float
+    var g: UInt8
+    var h: UInt32
+    var tok: Token
+    var col: Color
+    var opt: String?
+    var optn: Int?
+    var strong: rc Res
+    var back: weak rc Res
+    var one: One
+    init(n: Int, r: rc Res) {
+        self.a = 1
+        self.b = n
+        self.c = n % 2 == 0
+        self.d = 1.5
+        self.e = 7
+        self.f = Float(n) / 4.0
+        self.g = 200
+        self.h = 4000000000
+        self.tok = Token.Pair(n, "pair payload string long long {n}")
+        self.col = Color.Green
+        self.opt = null
+        self.optn = n
+        self.strong = r
+        self.back = r.downgrade()
+        self.one = One(n)
+    }
+}
+func show(bs: [Big, layout: soa]) {
+    for b in bs {
+        print("{b.a} {b.b} {b.c} {b.d} {b.e} {b.f} {b.g} {b.h} {b.col == Color.Green} {b.opt != null} {b.optn != null} {b.strong.n} {b.one.v} ")
+        match b.tok {
+            Token.Number(n) -> println("num {n}")
+            Token.Text(s) -> println("text {s}")
+            Token.Pair(n, s) -> println("pair {n} {s}")
+            Token.Nothing -> println("nothing")
+        }
+    }
+}
+func main() {
+    val r = rc Res(7)
+    var bs: [Big, layout: soa] = []
+    for i in range(5) { bs.push(Big(i, r)) }
+    bs[1].tok = Token.Text("text payload long long long long")
+    bs[2].tok = Token.Number(42)
+    bs[3].tok = Token.Nothing
+    bs[1].opt = "optional string long long long long long"
+    bs[2].optn = null
+    bs[3].col = Color.Blue
+    bs[4].one.v = 99
+    bs[0].a = -5
+    bs[0].g = 255
+    show(bs)
+    val cp = bs.copy()
+    show(cp)
+    val sl = bs[1..3]
+    show(sl)
+    var ones: [One, layout: soa] = []
+    for i in range(1000) { ones.push(One(i)) }
+    var t = 0
+    for o in ones { t += o.v }
+    ones[500].v = 0
+    println("{t} {ones.len()} {ones[999].v} {ones[500].v}")
+    var es: [Empty, layout: soa] = []
+    for i in range(20) { es.push(Empty()) }
+    val e = es.pop()
+    es.insert(0, Empty())
+    val e2 = es.remove(3)
+    println("{es.len()} {es.copy().len()}")
+    var gs: [Gen[String], layout: soa] = []
+    gs.push(Gen[String]("generic string long long long long"))
+    gs.push(Gen[String]("second"))
+    gs[0].put("more generic string long long long")
+    gs[1].value = "changed generic string long long long"
+    println("{gs[0].items.len()} {gs[0].value} {gs[1].value} {gs[1].items[0]}")
+    var gi: [Gen[Int], layout: soa] = [Gen[Int](1), Gen[Int](2)]
+    gi[1].put(5)
+    println("{gi[1].items.len()} {gi[0].value}")
+    var huge: [Big, layout: soa] = []
+    for i in range(20000) { huge.push(Big(i, r)) }
+    var acc = 0
+    for b in huge { acc += b.b }
+    for i in range(10000) {
+        val x = huge.pop()
+        acc -= x.b
+    }
+    println("{acc} {huge.len()}")
+    val up = bs[0].back.upgrade()
+    println("{up != null}")
+}
