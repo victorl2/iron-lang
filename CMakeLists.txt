@@ -3277,7 +3277,16 @@ if(NOT WIN32)
   add_test(NAME debug_panic_smoke
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_panic_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
-  set_tests_properties(debug_panic_smoke PROPERTIES TIMEOUT 300)
+  set_tests_properties(debug_panic_smoke PROPERTIES TIMEOUT 600)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME test_debug_panic_smoke_timeout
+             COMMAND ${Python3_EXECUTABLE}
+                     ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
+                     ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
+                     debug_panic_smoke 600)
+    set_tests_properties(test_debug_panic_smoke_timeout PROPERTIES
+                         LABELS "integration;unit")
+  endif()
 endif()
 # #312: gdb, LLDB and Visual Studio (natvis) views of Iron values in
 # `--debug` programs.

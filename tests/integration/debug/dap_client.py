@@ -32,6 +32,12 @@ class StepTimeout(queue.Empty):
     does."""
 
 
+# Starting a fresh debugger can be delayed by compiler and debugger teardown
+# from the preceding smoke case. Keep initialization above the ordinary
+# request deadline; the shell-level session watchdog remains the hard cap.
+INITIALIZE_TIMEOUT = 120
+
+
 def frame(msg):
     body = json.dumps(msg).encode()
     return b"Content-Length: %d\r\n\r\n" % len(body) + body
@@ -250,7 +256,7 @@ def main():
     seq = c.send("initialize", {"clientID": "iron-test", "adapterID": "iron",
                                 "linesStartAt1": True, "columnsStartAt1": True,
                                 "pathFormat": "path"})
-    r = c.response(seq, "initialize")
+    r = c.response(seq, "initialize", timeout=INITIALIZE_TIMEOUT)
     if not r.get("success"):
         if "no debugger found" in (r.get("message") or ""):
             print("no DAP debugger (lldb-dap, gdb 14+): skipped")
