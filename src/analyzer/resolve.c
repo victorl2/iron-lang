@@ -1120,6 +1120,39 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+            /* `Enum.lowercase_variant(args)` is deliberately parsed as a
+             * method call so syntax-only tooling keeps static calls in their
+             * natural shape. Once the receiver resolves to an enum, rewrite
+             * the same-size node into the enum construction expected by the
+             * type checker and lowering pipeline. */
+            if (mc->object && mc->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *obj_id = (Iron_Ident *)mc->object;
+                Iron_Symbol *obj_sym = iron_scope_lookup(ctx->current_scope, obj_id->name);
+                if (obj_sym && obj_sym->sym_kind == IRON_SYM_ENUM) {
+                    _Static_assert(sizeof(Iron_EnumConstruct) <= sizeof(Iron_MethodCallExpr),
+                                   "method-call-to-enum-construct rewrite requires size fit");
+                    Iron_Span span = mc->span;
+                    const char *enum_name = obj_id->name;
+                    const char *variant_name = mc->method;
+                    Iron_Node **args = mc->args;
+                    int arg_count = mc->arg_count;
+                    bool is_generated = mc->is_generated;
+                    Iron_EnumConstruct *ec = (Iron_EnumConstruct *)mc;
+                    ec->span = span;
+                    ec->kind = IRON_NODE_ENUM_CONSTRUCT;
+                    ec->resolved_type = NULL;
+                    ec->enum_name = enum_name;
+                    ec->variant_name = variant_name;
+                    ec->args = args;
+                    ec->arg_count = arg_count;
+                    ec->reserved_flags[0] = true;
+                    ec->reserved_flags[1] = is_generated;
+                    ec->reserved_generic_args = NULL;
+                    ec->reserved_generic_arg_count = 0;
+                    resolve_expr(ctx, (Iron_Node *)ec);
+                    break;
+                }
+            }
             /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset / Ptr.diff are
              * compiler builtins accessed through the synthetic "Ptr" namespace.
              * "Ptr" is NOT a user-defined identifier — skip the normal
@@ -1148,6 +1181,31 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FIELD_ACCESS: {
             Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
+            if (fa->is_enum_candidate && fa->object &&
+                fa->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *obj_id = (Iron_Ident *)fa->object;
+                Iron_Symbol *obj_sym = iron_scope_lookup(ctx->current_scope, obj_id->name);
+                if (obj_sym && obj_sym->sym_kind == IRON_SYM_ENUM) {
+                    Iron_Span span = fa->span;
+                    const char *enum_name = obj_id->name;
+                    const char *variant_name = fa->field;
+                    bool is_generated = fa->is_generated;
+                    Iron_EnumConstruct *ec = (Iron_EnumConstruct *)fa;
+                    ec->span = span;
+                    ec->kind = IRON_NODE_ENUM_CONSTRUCT;
+                    ec->resolved_type = NULL;
+                    ec->enum_name = enum_name;
+                    ec->variant_name = variant_name;
+                    ec->args = NULL;
+                    ec->arg_count = 0;
+                    ec->reserved_flags[0] = false;
+                    ec->reserved_flags[1] = is_generated;
+                    ec->reserved_generic_args = NULL;
+                    ec->reserved_generic_arg_count = 0;
+                    resolve_expr(ctx, (Iron_Node *)ec);
+                    break;
+                }
+            }
             /* Phase 20 OQ-D + Phase 33 STDLIB-10: skip resolve when the
              * field access is on the synthetic "Ptr" namespace (Ptr.cast /
              * Ptr.offset / Ptr.diff compiler builtins). The typechecker's
