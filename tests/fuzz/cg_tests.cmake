@@ -101,6 +101,18 @@ if(NOT WIN32)
         set_tests_properties(cg_${_cg_t} PROPERTIES LABELS "codegen" TIMEOUT 120)
     endforeach()
 endif()
+if(NOT WIN32)
+    # #826 .. #829: `rc [T]?`, the release of an inlined `rc T?` temporary,
+    # and the expected type through tuples, enum payloads, `T?` and `rc`.
+    foreach(_cg_t rc_list_nullable rc_nullable_inlined_temp expected_type_tuple_nullable
+                  expected_type_through_nullable expected_type_method_arg_shapes)
+        add_test(NAME cg_${_cg_t}
+            COMMAND ${CMAKE_SOURCE_DIR}/tests/fuzz/cg_check.sh $<TARGET_FILE:ironc>
+                ${_cg_reg}/${_cg_t}.iron ${_cg_reg}/${_cg_t}.expected
+                ${CMAKE_BINARY_DIR}/cg_check/${_cg_t})
+        set_tests_properties(cg_${_cg_t} PROPERTIES LABELS "codegen" TIMEOUT 120)
+    endforeach()
+endif()
 
 if(NOT WIN32)
     # #606: nullable generic instance parameters, tuple object fields.
