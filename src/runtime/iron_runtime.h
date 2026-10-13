@@ -77,6 +77,8 @@ void  *iron_mem_alloc(size_t size);
 void  *iron_mem_calloc(size_t count, size_t size);
 void  *iron_mem_realloc(void *ptr, size_t size);
 void   iron_mem_free(void *ptr);
+/* Apply platform allocator defaults before the runtime starts threads. */
+void   iron_allocator_init(void);
 void  *iron_mem_copy(void *dst, const void *src, size_t n);
 void  *iron_mem_move(void *dst, const void *src, size_t n);
 void  *iron_mem_set(void *dst, int byte, size_t n);

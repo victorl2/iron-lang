@@ -364,10 +364,12 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
     candidate_t *cands = NULL;
     open_source_t *open_sources = snapshot_open_sources(server, arena);
 
-    /* Iterate workspace_index entries. Coarse read -- the workspace
-     * index owns its own mutex, but we take a snapshot under our own
-     * discipline by reading the entries array once. */
+    /* Entries and their AST arenas are replaced during watched-file
+     * invalidation. Keep one index generation alive through scoring and
+     * range conversion so a span can never be translated with a newer
+     * entry's line index. */
     IronLsp_WorkspaceIndex *wi = server->workspace_index;
+    IRON_MUTEX_LOCK(wi->lock);
     size_t n_entries = (size_t)hmlenu(wi->entries);
     for (size_t i = 0; i < n_entries; i++) {
         if (cancel && atomic_load(cancel)) break;
@@ -380,6 +382,7 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
         score_program(server, entry, entry->program, rest,
                        prefix, prefix_len, arena, &cands);
     }
+    IRON_MUTEX_UNLOCK(wi->lock);
 
     for (ptrdiff_t i = 0; i < arrlen(open_sources); i++) {
         if (cancel && atomic_load(cancel)) break;
@@ -420,7 +423,10 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
     IronLsp_WorkspaceSymbol *arr = (IronLsp_WorkspaceSymbol *)iron_arena_alloc(
         arena, sizeof(IronLsp_WorkspaceSymbol) * total,
         _Alignof(IronLsp_WorkspaceSymbol));
-    if (!arr) { arrfree(cands); return; }
+    if (!arr) {
+        arrfree(cands);
+        return;
+    }
 
     for (size_t i = 0; i < total; i++) {
         candidate_t *c = &cands[i];

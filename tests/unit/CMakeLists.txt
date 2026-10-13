@@ -366,6 +366,17 @@ if(NOT WIN32)
     set_tests_properties(test_inventory_service PROPERTIES
         LABELS "integration;networking;mysql" TIMEOUT 1200 SKIP_RETURN_CODE 77
         ENVIRONMENT "${_inventory_env}")
+
+    # A sustained mixed workload must settle after warmup. RSS is a Linux
+    # interface, and sanitizer allocators deliberately retain quarantine
+    # memory, so this is a Release allocator check.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT IRON_ENABLE_SANITIZERS)
+        add_test(NAME test_inventory_memory_bound
+            COMMAND ${CMAKE_SOURCE_DIR}/apps/inventory/bench/memory_bound.sh ${CMAKE_BINARY_DIR}/iron
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+        set_tests_properties(test_inventory_memory_bound PROPERTIES
+            LABELS "integration;networking;mysql;memory" TIMEOUT 300 SKIP_RETURN_CODE 77)
+    endif()
 endif()
 
 add_executable(test_stdlib_websocket test_stdlib_websocket.c)

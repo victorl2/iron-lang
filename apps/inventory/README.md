@@ -170,6 +170,23 @@ counts. It reports requests/s, latency percentiles, errors, CPU time per
 1000 requests and resident memory. `bench/go-baseline` is the same API in Go
 (net/http, database/sql, go-sql-driver/mysql) for comparison.
 
+`bench/soak.sh` runs the mixed workload for a sustained memory check. On
+Linux with glibc, `SOAK_MALLOC_STATS=allocator.csv` also builds and preloads
+the benchmark-only allocator probe, recording live heap, retained free heap
+and arena count next to the soak's RSS, thread, request, pool and cache
+samples. For example:
+
+```sh
+SOAK_MALLOC_STATS=allocator.csv SERVICE_CPUS=0 WRK_CPUS=1 \
+    IRON_MYSQL_URL=mysql://root:secret@127.0.0.1:3306/inventory \
+    apps/inventory/bench/soak.sh build/iron 30 64
+```
+
+The CTest `test_inventory_memory_bound` is the shorter regression gate. It
+creates and seeds its own database, warms the mixed workload, and fails when
+the post-warmup RSS slope exceeds 0.75 MB per minute. It skips when Linux,
+`wrk`, or `IRON_MYSQL_URL` is unavailable.
+
 ## Editing and debugging
 
 - Open `apps/inventory` as the editor's folder: the language server

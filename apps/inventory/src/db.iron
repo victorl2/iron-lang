@@ -515,6 +515,11 @@ pub object ReportCache {
         self.rows = []
         self.computing = false
     }
+
+    pub readonly func size() -> Int {
+        val g = self.lock.lock()
+        return self.rows.len()
+    }
 }
 
 pub func cached_report(cache: rc ReportCache, db: rc MysqlPool, window_s: Int) -> Report {
