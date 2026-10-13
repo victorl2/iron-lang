@@ -585,6 +585,66 @@ func main() {
 dot1 dot3 square2 
 ```
 
+#### 2.3.1 Borrowed views
+
+`View[T]` is a read-only borrowed window over contiguous elements and
+`ViewMut[T]` is writable. `Bytes` is `View[UInt8]`. A view is a two-word
+value containing a pointer and a length; making or slicing one does not
+copy its elements.
+
+Use `s.bytes()` for a String, `xs.view()` for a list, fixed array or bounded
+vector, and `xs.view_mut()` for a writable view of a `var` collection.
+`v.slice(start, end)` checks `0 <= start <= end <= v.len()` once. Indexing
+and iteration use the same checked rules as lists. There is deliberately no
+unchecked view access. The optimizer removes proven checks from ordinary
+loops, and `--report-bounds-checks` lists those that remain.
+
+Views have these methods:
+
+| Method | Description |
+|---|---|
+| `len() -> Int`, `slice(a, b) -> Self` | length and checked subview |
+| `index_of(x) -> Int` | first index, or `-1` |
+| `starts_with(v)`, `ends_with(v)`, `equals(v)` | comparison with a read-only view |
+| `to_list() -> [T]` | copy the elements |
+| `fill(x)`, `copy_from(v)` | write a `ViewMut`; the source must fit |
+| `as_view() -> View[T]` | read-only form of a `ViewMut` |
+
+`Bytes` also has `to_string()` (a lossy UTF-8 copy) and
+`load_u64_le_or(i, fill)`, which reads up to eight little-endian bytes and
+uses `fill` past the end. `String.from_utf8(bytes) -> String?` copies valid
+UTF-8 and returns `null` for invalid bytes. A String, list, fixed array or
+bounded vector is lent automatically to a compatible view parameter.
+
+```iron
+func middle(input: Bytes) -> Bytes {
+    return input.slice(1, input.len() - 1)
+}
+
+func main() {
+    val bytes = "hello".bytes()
+    println("{middle(bytes).to_string()} {bytes[0]}")
+    var xs = [1, 2, 3]
+    val writable = xs.view_mut()
+    writable[1] = 9
+    println("{xs[1]}")
+}
+```
+
+```output
+ell 104
+9
+```
+
+A view cannot be stored in a field, global, list, map, nullable, tuple,
+closure or detached task (`E0369`). A function may return a view only when
+it has exactly one view, String or list parameter, and the result comes from
+that parameter. While a view is live, its source cannot be reassigned,
+resized, taken, passed to a `var` parameter or mutated directly (`E0370`);
+writes go through `ViewMut`. Liveness ends at the view's last lexical use.
+A temporary and a list or String reached through a heap, rc or pointer
+handle cannot be borrowed.
+
 ### 2.4 Tuples
 
 `(T1, T2, ...)` with at least two element types is a tuple type. A tuple
@@ -1474,10 +1534,13 @@ func main() {
 A top-level function name is a function value: `val f = twice`,
 `apply(twice, 4)` and `[twice]` work like the equivalent lambdas.
 
-The compiler hint `//iron:fusible` on the line directly above a `func`
-marks it as eligible for loop fusion of chained list operations; it changes
-nothing else about the function. The older `@fusible` before `func` means
-the same and is accepted while code migrates (section 1.2).
+Compiler hints on the line directly above a function are
+`//iron:fusible`, `//iron:inline`, `//iron:noinline` and `//iron:cold`.
+They respectively allow list-loop fusion, require inlining, prevent
+inlining, and put an unlikely slow function on the backend's cold path.
+`inline` and `noinline` together are an error; recursive `inline` warns
+with `W0631` because it cannot be honored everywhere. The older `@fusible`
+means `//iron:fusible` and is accepted while code migrates (section 1.2).
 
 ### 5.3 Objects
 
@@ -1515,6 +1578,15 @@ partially built `self` (`E0249`), return early (`E0250`), delegate to
 another `init` (`E0251`) or return a value (`E0252`). An object has at
 most one anonymous `init` (`E0201`). `Name.init(args)` is an explicit
 spelling of `Name(args)`.
+
+`//iron:align=N` directly above an object, field, local `val` or local
+`var` raises its alignment to a power of two from 1 through 4096.
+`//iron:align=cacheline` means 64 bytes, or 128 on Apple arm64. An alignment
+below the natural alignment is `E0368`. Stack values, fields, fixed arrays
+and list element storage honor over-alignment. Over-aligned heap, rc, arena,
+interface, closure and spawned-task storage is not implemented yet and is
+also `E0368`; it is deferred until the generation-table allocator work is
+merged.
 
 **Methods** are declared inside the object body with `func`, take an
 implicit receiver `self` of the object type, and are called as
@@ -2751,6 +2823,28 @@ for any other value.
 `Int`, `Int32` and `Float` have a `to_string() -> String` method. `s[i]`
 is `s.char_at(i)` and `s[a..b]` is `s.substring(a, b)`.
 
+#### 9.2.1 Scalar bit and overflow operations
+
+Every integer type has `leading_zeros()`, `trailing_zeros()` (both return
+the bit width for zero), `count_ones()`, `clear_lowest_bit()`,
+`lowest_bit()`, `rotate_left(k)`, `rotate_right(k)`, `byte_swap()` and
+`prefix_xor()`. Rotations reduce `k` modulo the width, including negative
+counts. Arithmetic methods return wrapped results together with a flag:
+
+```text
+a.add_overflow(b) -> (T, Bool)
+a.sub_overflow(b) -> (T, Bool)
+a.mul_overflow(b) -> (T, Bool)
+a.add_carry(b, carry: Bool) -> (T, Bool)
+```
+
+`mul_wide` returns the full product as `(high: T, low: U)`, where `U` is
+the unsigned type of the same width; `mul_high` returns only the high half.
+They are available on all integer widths. Signed integers have
+`to_bits() -> U` and `T.from_bits(U)`. `Float` and `Float64` use `UInt64`,
+and `Float32` uses `UInt32`, with the same `to_bits` and `from_bits` names.
+These are bit casts, not numeric conversions.
+
 ```iron
 func main() {
     val s = "Hello, Wörld"
@@ -2791,6 +2885,8 @@ Methods on `[T]` (and, where noted, on fixed arrays, bounded vectors and
 | `reduce(init: U, f: func(U, T) -> U) -> U` | fold |
 | `forEach(f: func(T))` | call `f` on each element |
 | `sum() -> T` | sum of an `[Int]` or `[Float]` |
+| `view() -> View[T]`, `view_mut() -> ViewMut[T]` | borrow the elements; the mutable form needs a `var` list |
+| `spare(n) -> ViewMut[T]`, `commit(k)` | reserve and zero `n` scalar elements, then append the first `k` written elements (`k <= n`) |
 
 A slice `xs[a..b]` must lie within the list with `a <= b`; anything else
 is an index out of bounds panic, like `xs[i]`. `contains` compares with
@@ -2827,6 +2923,33 @@ func main() {
 1,2,3,4,5,
 5 60 8 2
 abc
+```
+
+#### 9.3.1 `StringBuilder`
+
+`StringBuilder` is a `nocopy` byte builder. `new()` starts empty and
+`with_capacity(n)` reserves bytes. `push_byte`, `push_bytes`, `push_str`,
+`push_int` and `push_uint` append without temporary Strings. `reserve(n)`
+makes room for the next `n` bytes. `spare(n) -> ViewMut[UInt8]` returns
+zeroed writable bytes after the current end; after writing them,
+`commit(k)` appends the first `k` (`k <= n`). `bytes()` borrows the built
+prefix, `len()` reports its byte length, `clear()` keeps the allocation,
+and `finish()` moves the buffer into a String and leaves the builder empty.
+
+```iron
+func main() {
+    var out = StringBuilder.with_capacity(32)
+    out.push_str("count=")
+    out.push_int(12)
+    val tail = out.spare(1)
+    tail[0] = UInt8(33)
+    out.commit(1)
+    println(out.finish())
+}
+```
+
+```output
+count=12!
 ```
 
 ### 9.4 `math` (import)
@@ -3053,6 +3176,8 @@ a new line); a line from one task is never mixed with another's.
 
 `Hint.black_box(x: Int) -> Int` returns its argument while preventing the
 C optimizer from reasoning about it; it exists for benchmarks.
+`Hint.likely(c)` and `Hint.unlikely(c)` return the Bool unchanged and tell
+the optimizer which outcome is expected.
 
 ### 9.9 Memory and concurrency types
 
@@ -3436,6 +3561,7 @@ without optimization or inlining, for gdb, lldb or the Visual Studio
 debugger), `--debug-build` (keep the generated C under
 `.iron-build/`), `--emit-c` (`build` only: write the C file and stop
 before the C compiler), `--dump-ir-passes`, `--report-compression`,
+`--report-bounds-checks`,
 `--warn-fusion-break`, `--force-comptime` (ignore the comptime cache),
 `--target=web` (section 10.5) and `--target=<os>-<arch>` (cross
 compilation, section 10.6). `--no-strict-v3` accepts a few removed syntax forms for
@@ -3446,6 +3572,11 @@ compiler flags (separated by spaces, at most 16) to the compilation of the
 program and of the runtime built into it, for example
 `IRON_CFLAGS="-g -fsanitize=address,undefined" iron build` for a sanitizer
 build.
+
+`--report-bounds-checks` prints the source line, function and access kind
+for each checked list, array or view access left after Iron optimization,
+then a total. It does not weaken a check and omits checks in the prepended
+standard library.
 
 ### 10.5 The web target
 
@@ -3600,6 +3731,9 @@ codes cited in this manual:
 | E0320, E0321 | private declaration used from another file; standalone `func Type.method` form |
 | E0322, E0323, E0324, E0325, E0326 | unsupported `is`; unsupported match subject; lambda parameter type; awaited twice; thread pools |
 | E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element or of a field inside one |
+| E0368 | invalid `//iron:align`, or over-aligned storage not supported yet |
+| E0369 | a view escapes its source or a returned view has no unique source parameter |
+| E0370 | a view source is not borrowable or is changed while the view is live |
 | E0335 | `break` / `continue` outside a loop, in a lambda, `defer` or `spawn` body inside one, or in a `parallel` loop |
 | E0336 | `return` inside a `defer` body |
 | E0350, E0351 | static function called on a value; method called through the type name |
@@ -3614,6 +3748,7 @@ codes cited in this manual:
 | W0601, W0604, W0605, W0606 | narrowing cast; spawn data race; arena skips `drop`; heap value never freed |
 | W0611, W0613, W0614 | unused import; `var` never reassigned; `var` parameter never reassigned |
 | W0617 | unknown `//iron:` compiler hint, or one on a declaration it does not apply to |
+| W0631 | `//iron:inline` cannot be honored because the function is recursive |
 
 `docs/dev/diagnostic-codes.md` lists every code with its message.
 
@@ -3630,6 +3765,8 @@ so that older material is not mistaken for the current language:
 - `String`, `Bool` and `Float` subjects in `match`.
 - raylib in Linux cross builds: it needs the system's OpenGL, which a
   static musl executable cannot load.
+- over-aligned heap, rc, arena, interface, closure and spawned-task storage;
+  stack, field, fixed-array and list storage already honor `//iron:align`.
 
 ---
 
@@ -3656,6 +3793,12 @@ doc_run        ::= { own-line comment, one per line, no blank line between }
                    (documents the declaration, field, enum variant or
                     interface method on the next line)
 ```
+
+The `iron` directive values implemented here are `fusible`, `inline`,
+`noinline`, `cold`, and `align=N|cacheline`. Function directives attach to
+the following declaration. `align` may also precede an object, field or
+local binding. Directives are lexical comments, so they add no grammar
+production.
 
 `--` and `///` are transitional spellings of `//`, and `@fusible` of the
 directive `//iron:fusible` (section 1.2).

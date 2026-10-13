@@ -436,13 +436,77 @@ static void iron_apply_iron_hints(Iron_Parser *p, Iron_Node *n,
                            "move it directly above the `func` it is for");
             continue;
         }
+        uint8_t fhint = (vl == 6 && memcmp(v, "inline", 6) == 0) ? IRON_HINT_INLINE
+                      : (vl == 8 && memcmp(v, "noinline", 8) == 0) ? IRON_HINT_NOINLINE
+                      : (vl == 4 && memcmp(v, "cold", 4) == 0) ? IRON_HINT_COLD : 0;
+        if (fhint) {
+            uint8_t *hp = n->kind == IRON_NODE_FUNC_DECL ? &((Iron_FuncDecl *)n)->hints
+                        : n->kind == IRON_NODE_METHOD_DECL ? &((Iron_MethodDecl *)n)->hints
+                        : NULL;
+            if (hp && !dirs[i].trailing) {
+                *hp |= fhint;
+                if ((*hp & IRON_HINT_INLINE) && (*hp & IRON_HINT_NOINLINE) && !p->quiet_hints)
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_WARNING,
+                                   IRON_WARN_UNKNOWN_IRON_HINT, sp,
+                                   "`//iron:inline` and `//iron:noinline` contradict each other",
+                                   "keep one of them");
+                continue;
+            }
+            if (p->quiet_hints) continue;
+            snprintf(msg, sizeof(msg), "`//iron:%.*s` applies to a function or method",
+                     (int)vl, v);
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_WARNING,
+                           IRON_WARN_UNKNOWN_IRON_HINT, sp,
+                           iron_arena_strdup(p->arena, msg, strlen(msg)),
+                           "move it directly above the `func` it is for");
+            continue;
+        }
+        if (vl > 6 && memcmp(v, "align=", 6) == 0) {
+            const char *av = v + 6;
+            size_t al = vl - 6;
+            uint16_t *ap = n->kind == IRON_NODE_OBJECT_DECL ? &((Iron_ObjectDecl *)n)->align
+                         : n->kind == IRON_NODE_FIELD ? &((Iron_Field *)n)->align
+                         : n->kind == IRON_NODE_VAL_DECL ? &((Iron_ValDecl *)n)->align
+                         : n->kind == IRON_NODE_VAR_DECL ? &((Iron_VarDecl *)n)->align
+                         : NULL;
+            unsigned long val = 0;
+            bool ok = true;
+            if (al == 9 && memcmp(av, "cacheline", 9) == 0) {
+                val = IRON_ALIGN_CACHELINE;
+            } else {
+                for (size_t k = 0; k < al; k++) {
+                    if (av[k] < '0' || av[k] > '9' || val > 100000) { ok = false; break; }
+                    val = val * 10 + (unsigned long)(av[k] - '0');
+                }
+                ok = ok && al > 0 && val >= 1 && val <= 4096 && (val & (val - 1)) == 0;
+            }
+            if (!ok) {
+                snprintf(msg, sizeof(msg),
+                         "invalid alignment `//iron:%.*s`: use a power of two from 1 to 4096, "
+                         "or cacheline", (int)(vl > 120 ? 120 : vl), v);
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, IRON_ERR_ALIGN_VALUE, sp,
+                               iron_arena_strdup(p->arena, msg, strlen(msg)),
+                               "for example //iron:align=64 or //iron:align=cacheline");
+                continue;
+            }
+            if (ap && (!dirs[i].trailing || n->kind == IRON_NODE_FIELD)) {
+                *ap = (uint16_t)val;
+                continue;
+            }
+            if (p->quiet_hints) continue;
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_WARNING,
+                           IRON_WARN_UNKNOWN_IRON_HINT, sp,
+                           "`//iron:align` applies to an object, a field or a val / var binding",
+                           "move it directly above the declaration it is for");
+            continue;
+        }
         if (p->quiet_hints) continue;
         snprintf(msg, sizeof(msg), "unknown compiler hint `//iron:%.*s`",
                  (int)(vl > 120 ? 120 : vl), v);
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_WARNING,
                        IRON_WARN_UNKNOWN_IRON_HINT, sp,
                        iron_arena_strdup(p->arena, msg, strlen(msg)),
-                       "the known hints are: fusible");
+                       "the known hints are: fusible, inline, noinline, cold, align=N");
     }
 }
 
@@ -1475,7 +1539,11 @@ static Iron_Node *iron_parse_block_impl(Iron_Parser *p) {
         if (iron_check(p, IRON_TOK_RBRACE)) break;
         bool outer_errored = p->stmt_errored;
         p->stmt_errored = false;
+        /* `//iron:` hints above a statement (`//iron:align=32` on a local). */
+        Iron_DocRun stmt_doc = iron_collect_doc_run(p, p->arena);
         Iron_Node *s = iron_parse_stmt(p);
+        if (s && s->kind != IRON_NODE_ERROR && stmt_doc.dir_count > 0)
+            iron_apply_doc_run(p, s, stmt_doc);
         if (p->stmt_errored) {
             iron_skip_rest_of_stmt(p);
             /* The error is reported; checking what was parsed of the broken

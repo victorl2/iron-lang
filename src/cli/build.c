@@ -2338,6 +2338,8 @@ int iron_build(const char *source_path, const char *output_path,
     iron_lir_optimize(ir_module, &optimize_info, &arena,
                      opts.dump_ir_passes, no_optimize,
                      /*elision_enabled=*/ !no_optimize && !opts.debug_build);
+    if (opts.report_bounds_checks)
+        iron_lir_report_bounds_checks(ir_module, stderr, false);
 
     /* 7b. Phase 5: LIR main-loop split pass (WEB-EMIT-01..04).
      *

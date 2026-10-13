@@ -1356,6 +1356,7 @@ class Proxy:
         by_name = {v.get("name"): v for v in variables}
         out = []
         for v in variables:
+            v = self.view_value(v, frame_id)
             if not v.get("value") and v.get("variablesReference"):
                 v = dict(v, value=self.struct_text("", v["variablesReference"], v.get("type")))
             name = str(v.get("name", ""))
@@ -1368,6 +1369,26 @@ class Proxy:
                 v = dict(v, value=text, variablesReference=ref, indexedVariables=count)
             out.append(v)
         return out
+
+    def view_value(self, v, frame_id):
+        """Present the generated Iron_View_T {ptr, len} value as the Iron
+        View it represents, with indexed children instead of C fields."""
+        type_name = str(v.get("type", ""))
+        if not re.search(r"\bIron_View_[A-Za-z0-9_]+\b", type_name):
+            return v
+        ref = v.get("variablesReference", 0)
+        name = str(v.get("evaluateName") or v.get("name", ""))
+        if not ref or not name:
+            return v
+        r = self.request("variables", {"variablesReference": ref})
+        kids = (r.get("body") or {}).get("variables", []) if r.get("success") else []
+        lengths = [str(k.get("value", "")) for k in kids if k.get("name") == "len"]
+        if not lengths or not re.fullmatch(r"\d+", lengths[0]):
+            return v
+        n = int(lengths[0])
+        text, child_ref, count = self.array_view("(%s).ptr" % name, n, frame_id)
+        return dict(v, value="View[size=%d] %s" % (n, text),
+                    variablesReference=child_ref, indexedVariables=count)
 
     def array_view(self, name, n, frame_id):
         """(text, variablesReference, children) of the C array `name` of n

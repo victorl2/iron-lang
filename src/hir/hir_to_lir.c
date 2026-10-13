@@ -17,6 +17,7 @@
 #include "lir/verify.h"
 #include "diagnostics/diagnostics.h"
 #include "analyzer/types.h"
+#include "analyzer/intrinsics.h"
 #include "vendor/stb_ds.h"
 
 #include <stdio.h>
@@ -2349,6 +2350,178 @@ static int64_t enum_variant_runtime_value(Iron_Type *et, int vi) {
     return v;
 }
 
+
+/* ── Compiler intrinsics (analyzer/intrinsics.h) ─────────────────────────────
+ * An intrinsic method call lowers to calls of the inline helpers in
+ * runtime/iron_intrinsics.h. A helper whose name starts with `iron_t_` is a
+ * macro that also receives the C type of the result as its first argument
+ * (emit_c.c adds it), for the helpers that build a view, list, optional or
+ * StringBuilder value. Receivers the helper must address (a String whose
+ * bytes are viewed, a list, a StringBuilder) pass by address
+ * (self_by_addr), which names the binding's own storage. A tuple result,
+ * (high, low) or (value, overflowed), is built from two helper calls on
+ * the same operand values; clang merges them after inlining. */
+
+/* The C suffix of a scalar type in the helper names. */
+static const char *intr_suffix(const Iron_Type *t) {
+    switch ((int)(t ? t->kind : IRON_TYPE_ERROR)) {
+        case IRON_TYPE_INT8:    return "i8";
+        case IRON_TYPE_INT16:   return "i16";
+        case IRON_TYPE_INT32:   return "i32";
+        case IRON_TYPE_INT:
+        case IRON_TYPE_INT64:   return "i64";
+        case IRON_TYPE_UINT8:   return "u8";
+        case IRON_TYPE_UINT16:  return "u16";
+        case IRON_TYPE_UINT32:  return "u32";
+        case IRON_TYPE_UINT:
+        case IRON_TYPE_UINT64:  return "u64";
+        case IRON_TYPE_FLOAT32: return "f32";
+        default:                return "f64";
+    }
+}
+
+static IronLIR_ValueId intr_call(HIR_to_LIR_Ctx *ctx, const char *base, const char *suffix,
+                                 IronLIR_ValueId *args, int argc, Iron_Type *type,
+                                 bool by_addr, Iron_Span span) {
+    char buf[96];
+    if (suffix) snprintf(buf, sizeof(buf), "%s_%s", base, suffix);
+    else snprintf(buf, sizeof(buf), "%s", base);
+    size_t n = strlen(buf);
+    char *name = (char *)iron_arena_alloc(ctx->lir_arena, n + 1, 1);
+    if (!name) iron_oom_abort("hir_to_lir.c:intr_call");
+    memcpy(name, buf, n + 1);
+    IronLIR_Instr *fref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
+                                            name, NULL, span);
+    IronLIR_Instr *call = iron_lir_call(ctx->current_func, ctx->current_block, NULL,
+                                        fref->id, args, argc, type, span);
+    call->call.self_by_addr = by_addr;
+    return call->id;
+}
+
+static IronLIR_ValueId intr_tuple(HIR_to_LIR_Ctx *ctx, Iron_Type *type,
+                                  IronLIR_ValueId a, IronLIR_ValueId b, Iron_Span span) {
+    IronLIR_ValueId vals[2] = { a, b };
+    return iron_lir_construct(ctx->current_func, ctx->current_block, type, vals, 2, span)->id;
+}
+
+static IronLIR_ValueId lower_intrinsic(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr,
+                                       Iron_Type *type, Iron_Span span) {
+    int id = expr->method_call.intrinsic;
+    IronHIR_Expr *obj = expr->method_call.object;
+    Iron_Type *recv_t = obj ? obj->type : NULL;
+    bool is_static = id == IRON_INTR_FROM_BITS || id == IRON_INTR_HINT_LIKELY ||
+                     id == IRON_INTR_HINT_UNLIKELY || id == IRON_INTR_STRING_FROM_UTF8 ||
+                     id == IRON_INTR_SB_NEW || id == IRON_INTR_SB_WITH_CAPACITY;
+    IronLIR_ValueId *args = NULL;
+    TempOwned *temps = NULL;
+    if (!is_static) arrput(args, lower_expr(ctx, obj));
+    for (int i = 0; i < expr->method_call.arg_count; i++) {
+        IronHIR_Expr *ae = expr->method_call.args[i];
+        IronLIR_ValueId av = lower_expr(ctx, ae);
+        note_owned_temp(ctx, &temps, ae, av, span);
+        arrput(args, av);
+    }
+    int argc = (int)arrlen(args);
+    const char *sfx = intr_suffix(recv_t);
+    IronLIR_ValueId r = IRON_LIR_VALUE_INVALID;
+    Iron_Type *t0 = (type && type->kind == IRON_TYPE_TUPLE) ? type->tuple.elem_types[0] : NULL;
+    Iron_Type *t1 = (type && type->kind == IRON_TYPE_TUPLE) ? type->tuple.elem_types[1] : NULL;
+    bool bvec = recv_t && recv_t->kind == IRON_TYPE_ARRAY && recv_t->array.size >= 0;
+    switch (id) {
+        case IRON_INTR_LEADING_ZEROS:  r = intr_call(ctx, "iron_clz", sfx, args, argc, type, false, span); break;
+        case IRON_INTR_TRAILING_ZEROS: r = intr_call(ctx, "iron_ctz", sfx, args, argc, type, false, span); break;
+        case IRON_INTR_COUNT_ONES:     r = intr_call(ctx, "iron_popcount", sfx, args, argc, type, false, span); break;
+        case IRON_INTR_CLEAR_LOWEST_BIT: r = intr_call(ctx, "iron_clear_lowest", sfx, args, argc, type, false, span); break;
+        case IRON_INTR_LOWEST_BIT:     r = intr_call(ctx, "iron_lowest_bit", sfx, args, argc, type, false, span); break;
+        case IRON_INTR_ROTATE_LEFT:    r = intr_call(ctx, "iron_rotl", sfx, args, argc, type, false, span); break;
+        case IRON_INTR_ROTATE_RIGHT:   r = intr_call(ctx, "iron_rotr", sfx, args, argc, type, false, span); break;
+        case IRON_INTR_BYTE_SWAP:      r = intr_call(ctx, "iron_bswap", sfx, args, argc, type, false, span); break;
+        case IRON_INTR_PREFIX_XOR:     r = intr_call(ctx, "iron_prefix_xor", sfx, args, argc, type, false, span); break;
+        case IRON_INTR_MUL_HIGH:       r = intr_call(ctx, "iron_mul_hi", sfx, args, argc, type, false, span); break;
+        case IRON_INTR_MUL_WIDE:
+            r = intr_tuple(ctx, type,
+                           intr_call(ctx, "iron_mul_hi", sfx, args, argc, t0, false, span),
+                           intr_call(ctx, "iron_mul_lo", sfx, args, argc, t1, false, span), span);
+            break;
+        case IRON_INTR_ADD_OVERFLOW:
+        case IRON_INTR_SUB_OVERFLOW:
+        case IRON_INTR_MUL_OVERFLOW:
+        case IRON_INTR_ADD_CARRY: {
+            const char *w = id == IRON_INTR_ADD_OVERFLOW ? "iron_add_wrap"
+                          : id == IRON_INTR_SUB_OVERFLOW ? "iron_sub_wrap"
+                          : id == IRON_INTR_MUL_OVERFLOW ? "iron_mul_wrap" : "iron_add_carry_wrap";
+            const char *o = id == IRON_INTR_ADD_OVERFLOW ? "iron_add_ovf"
+                          : id == IRON_INTR_SUB_OVERFLOW ? "iron_sub_ovf"
+                          : id == IRON_INTR_MUL_OVERFLOW ? "iron_mul_ovf" : "iron_add_carry_ovf";
+            r = intr_tuple(ctx, type,
+                           intr_call(ctx, w, sfx, args, argc, t0, false, span),
+                           intr_call(ctx, o, sfx, args, argc, t1, false, span), span);
+            break;
+        }
+        case IRON_INTR_TO_BITS: {
+            char base[32];
+            snprintf(base, sizeof(base), "iron_%s_to_bits", sfx);
+            r = intr_call(ctx, base, NULL, args, argc, type, false, span);
+            break;
+        }
+        case IRON_INTR_FROM_BITS: {
+            char base[32];
+            snprintf(base, sizeof(base), "iron_%s_from_bits", intr_suffix(type));
+            r = intr_call(ctx, base, NULL, args, argc, type, false, span);
+            break;
+        }
+        case IRON_INTR_HINT_LIKELY:   r = intr_call(ctx, "iron_hint_likely", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_HINT_UNLIKELY: r = intr_call(ctx, "iron_hint_unlikely", NULL, args, argc, type, false, span); break;
+
+        case IRON_INTR_STRING_BYTES:  r = intr_call(ctx, "iron_string_bytes", NULL, args, argc, type, true, span); break;
+        case IRON_INTR_LIST_VIEW:
+        case IRON_INTR_LIST_VIEW_MUT:
+            r = intr_call(ctx, bvec ? "iron_t_bvec_view" : "iron_t_list_view", NULL,
+                          args, argc, type, true, span);
+            break;
+        case IRON_INTR_LIST_SPARE:    r = intr_call(ctx, "iron_t_list_spare", NULL, args, argc, type, true, span); break;
+        case IRON_INTR_LIST_COMMIT:   r = intr_call(ctx, "iron_list_commit", NULL, args, argc, type, true, span); break;
+        case IRON_INTR_VIEW_LEN:
+            /* A field read the optimizer understands (bounds check ranges). */
+            r = iron_lir_get_field(ctx->current_func, ctx->current_block, args[0], "len",
+                                   type, span)->id;
+            break;
+        case IRON_INTR_VIEW_SLICE:    r = intr_call(ctx, "iron_view_slice", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_VIEW_INDEX_OF: r = intr_call(ctx, "iron_view_index_of", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_VIEW_STARTS_WITH: r = intr_call(ctx, "iron_view_starts_with", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_VIEW_ENDS_WITH: r = intr_call(ctx, "iron_view_ends_with", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_VIEW_EQUALS:   r = intr_call(ctx, "iron_view_equals", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_VIEW_TO_LIST:  r = intr_call(ctx, "iron_t_view_to_list", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_VIEW_TO_STRING: r = intr_call(ctx, "iron_bytes_to_string", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_VIEW_FILL:     r = intr_call(ctx, "iron_view_fill", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_VIEW_COPY_FROM: r = intr_call(ctx, "iron_view_copy_from", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_VIEW_LOAD_U64_LE_OR: r = intr_call(ctx, "iron_view_load_u64_le_or", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_VIEW_AS_READ:  r = intr_call(ctx, "iron_view_as_read", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_STRING_FROM_UTF8: r = intr_call(ctx, "iron_t_string_from_utf8", NULL, args, argc, type, false, span); break;
+
+        case IRON_INTR_SB_NEW:        r = intr_call(ctx, "iron_t_sb_new", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_SB_WITH_CAPACITY: r = intr_call(ctx, "iron_t_sb_with_capacity", NULL, args, argc, type, false, span); break;
+        case IRON_INTR_SB_PUSH_BYTE:  r = intr_call(ctx, "iron_sb_push_byte", NULL, args, argc, type, true, span); break;
+        case IRON_INTR_SB_PUSH_BYTES: r = intr_call(ctx, "iron_sb_push_bytes", NULL, args, argc, type, true, span); break;
+        case IRON_INTR_SB_PUSH_STR:   r = intr_call(ctx, "iron_sb_push_str", NULL, args, argc, type, true, span); break;
+        case IRON_INTR_SB_PUSH_INT:   r = intr_call(ctx, "iron_sb_push_int", NULL, args, argc, type, true, span); break;
+        case IRON_INTR_SB_PUSH_UINT:  r = intr_call(ctx, "iron_sb_push_uint", NULL, args, argc, type, true, span); break;
+        case IRON_INTR_SB_SPARE:      r = intr_call(ctx, "iron_sb_spare_at", NULL, args, argc, type, true, span); break;
+        case IRON_INTR_SB_COMMIT:     r = intr_call(ctx, "iron_sb_commit_at", NULL, args, argc, type, true, span); break;
+        case IRON_INTR_SB_RESERVE:    r = intr_call(ctx, "iron_sb_reserve", NULL, args, argc, type, true, span); break;
+        case IRON_INTR_SB_FINISH:     r = intr_call(ctx, "iron_sb_finish_at", NULL, args, argc, type, true, span); break;
+        case IRON_INTR_SB_LEN:        r = intr_call(ctx, "iron_sb_len", NULL, args, argc, type, true, span); break;
+        case IRON_INTR_SB_CLEAR:      r = intr_call(ctx, "iron_sb_clear", NULL, args, argc, type, true, span); break;
+        case IRON_INTR_SB_BYTES:      r = intr_call(ctx, "iron_sb_bytes", NULL, args, argc, type, true, span); break;
+        default:
+            r = iron_lir_poison(ctx->current_func, ctx->current_block, type, span)->id;
+            break;
+    }
+    release_owned_temps(ctx, &temps, span);
+    arrfree(args);
+    return r;
+}
+
 static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     if (!expr) return IRON_LIR_VALUE_INVALID;
     if (!ctx->current_block) return IRON_LIR_VALUE_INVALID; /* dead code after return */
@@ -2705,6 +2878,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     }
 
     case IRON_HIR_EXPR_METHOD_CALL: {
+        if (expr->method_call.intrinsic)
+            return lower_intrinsic(ctx, expr, type, span);
         /* `x.copy()` on an object: its value with the copy glue applied
          * (rc fields retained, list fields cloned, the copy block run). A
          * receiver that is already a fresh value needs nothing. */
@@ -4499,6 +4674,9 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         IronHIR_VarId vid  = stmt->let.var_id;
         Iron_Type    *type = stmt->let.type;
         bool is_mut        = stmt->let.is_mutable;
+        /* An over-aligned binding needs a stack slot to carry the
+         * alignment: it takes the slot path of a var. */
+        if (stmt->let.align) is_mut = true;
 
         if (!type && stmt->let.init) type = stmt->let.init->type;
 
@@ -4549,6 +4727,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             const char *name = iron_hir_var_name(ctx->hir, vid);
             IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, alloca_type, name, span);
             hmput(ctx->var_alloca_map, vid, alloca_id);
+            if (stmt->let.align &&
+                alloca_id < (IronLIR_ValueId)arrlen(ctx->current_func->value_table) &&
+                ctx->current_func->value_table[alloca_id])
+                ctx->current_func->value_table[alloca_id]->alloca.align = stmt->let.align;
             /* A var a closure captures lives in a counted cell (#210): the
              * frame releases its share at scope exit and the cell's own
              * drop destroys the value with the last share. */
@@ -5142,6 +5324,9 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             stmt->for_loop.iterable->type->kind == IRON_TYPE_ARRAY) {
             elem_type = stmt->for_loop.iterable->type->array.elem;
         }
+        bool iter_is_view = stmt->for_loop.iterable && stmt->for_loop.iterable->type &&
+                            stmt->for_loop.iterable->type->kind == IRON_TYPE_VIEW;
+        if (iter_is_view) elem_type = stmt->for_loop.iterable->type->view.elem;
         if (!elem_type) elem_type = int_type;
 
         /* The element slot carries the loop variable's name, so a debugger
@@ -5155,7 +5340,8 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         /* Hoist loop bound: evaluate .count once in pre-header */
         IronLIR_ValueId count_alloca = emit_alloca_in_entry(ctx, int_type, "__for_count", span);
         IronLIR_ValueId count_init = iron_lir_get_field(ctx->current_func, pre_header,
-                                                          iterable_val, "count", int_type, span)->id;
+                                                          iterable_val, iter_is_view ? "len" : "count",
+                                                          int_type, span)->id;
         iron_lir_store(ctx->current_func, pre_header, count_alloca, count_init, span);
 
         if (!block_is_terminated(pre_header)) {
@@ -5865,6 +6051,7 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
      * + per-return-path bumps for functions whose body takes the address
      * of a stack-local (set by Plan 20-02a's mark_takes_local_addr_pass). */
     lir_func->takes_local_addr = hir_func->takes_local_addr;
+    lir_func->hints = hir_func->hints;
     /* Phase 22 READ-08: pure pass-through propagation HIR -> LIR.
      * Consumed by emit_c.c emit_func_use_sret helper for symmetric
      * sret ABI at function-decl and call-site emission. */
@@ -6118,6 +6305,8 @@ static void ssa_collect_addr_taken(IronLIR_Func *fn) {
                  * as 0, and value range narrowing then truncated its loads
                  * to the range of the stored constants.) */
                 if (in->alloca.global_name) hmput(g_ssa_addr_taken, in->id, true);
+                /* An over-aligned slot is storage, never a register. */
+                if (in->alloca.align) hmput(g_ssa_addr_taken, in->id, true);
                 break;
             case IRON_LIR_CALL:
                 for (int ai = 0; ai < in->call.arg_count; ai++) {

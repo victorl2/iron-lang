@@ -4,18 +4,21 @@
  * ilsp_facade_nav_workspace_symbol against a tmp workspace seeded
  * with a couple of .iron files.
  *
- * Four RUN_TESTs:
+ * Five RUN_TESTs:
  *   1. fuzzy match surfaces the best-scoring candidate first.
  *   2. overlong query is rejected with an empty result (T-03-07).
  *   3. empty query / no workspace_index -> empty result.
  *   4. path-prefix filter narrows results via '/' split.
+ *   5. open-document edits are used when converting result ranges.
  */
 #include "unity.h"
 
 #include "lsp/facade/nav/nav_core.h"
+#include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h"
 #include "lsp/server/server.h"
 #include "util/arena.h"
+#include "vendor/stb_ds.h"
 
 #include <errno.h>
 #include <stdatomic.h>
@@ -55,9 +58,9 @@ static void make_tmp_workspace(char *out_root, size_t cap) {
     write_file(tomlp,
         "[package]\nname=\"t\"\nversion=\"0.1.0\"\n");
     write_file(mainp,
-        "pub func greeter() {}\n"
         "func reader()  {}\n"
-        "func writer()  {}\n");
+        "func writer()  {}\n"
+        "pub func greeter() {}\n");
     write_file(utilp,
         "func helper() {}\n");
 }
@@ -173,11 +176,54 @@ static void test_path_prefix_filter(void) {
     fx_destroy(&f);
 }
 
+/* Regression for #818: workspace/symbol must parse an open buffer instead of
+ * returning ranges from its stale on-disk index. */
+static void test_open_document_range_uses_live_text(void) {
+    fx_t f; fx_init(&f);
+
+    Iron_Arena first_arena = iron_arena_create(16 * 1024);
+    IronLsp_WorkspaceSymbol *first = NULL;
+    size_t first_n = 0;
+    ilsp_facade_nav_workspace_symbol(&f.server, "gret", NULL, &first_arena,
+                                       &first, &first_n);
+    TEST_ASSERT_GREATER_OR_EQUAL_size_t(1, first_n);
+
+    const char *uri = first[0].uri;
+    const char *live = "pub func greeter() {}\n";
+    size_t live_len = strlen(live);
+    IronLsp_Document *doc = ilsp_document_create(uri, live, live_len, 2);
+    TEST_ASSERT_NOT_NULL(doc);
+    sh_new_strdup(f.server.documents);
+    shput(f.server.documents, uri, doc);
+
+    Iron_Arena arena = iron_arena_create(16 * 1024);
+    IronLsp_WorkspaceSymbol *out = NULL;
+    size_t n = 0;
+    ilsp_facade_nav_workspace_symbol(&f.server, "gret", NULL, &arena,
+                                       &out, &n);
+
+    TEST_ASSERT_GREATER_OR_EQUAL_size_t(1, n);
+    TEST_ASSERT_EQUAL_UINT32(0, out[0].range.start.line);
+    TEST_ASSERT_EQUAL_UINT32(0, out[0].range.end.line);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32((uint32_t)live_len,
+                                     out[0].range.start.character);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32((uint32_t)live_len,
+                                     out[0].range.end.character);
+
+    iron_arena_free(&arena);
+    shfree(f.server.documents);
+    f.server.documents = NULL;
+    ilsp_document_destroy(doc);
+    iron_arena_free(&first_arena);
+    fx_destroy(&f);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_fuzzy_returns_best_match);
     RUN_TEST(test_query_too_long_returns_empty);
     RUN_TEST(test_no_workspace_index_empty);
     RUN_TEST(test_path_prefix_filter);
+    RUN_TEST(test_open_document_range_uses_live_text);
     return UNITY_END();
 }

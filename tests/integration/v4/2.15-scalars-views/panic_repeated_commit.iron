@@ -1,0 +1,10 @@
+-- @expect-panic: range out of bounds
+
+func main() {
+    var xs: [UInt8] = []
+    val room = xs.spare(2)
+    room[0] = UInt8(7)
+    room[1] = UInt8(8)
+    xs.commit(1)
+    xs.commit(1)
+}

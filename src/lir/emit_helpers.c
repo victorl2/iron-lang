@@ -228,7 +228,7 @@ const char *emit_ensure_nested_list(EmitCtx *ctx, const Iron_Type *elem) {
         "    dst.capacity = src->count;\n"
         "    dst.items = NULL;\n"
         "    if (src->count > 0) {\n"
-        "        dst.items = (%s *)iron_mem_alloc((size_t)src->count * sizeof(%s));\n"
+        "        dst.items = (%s *)IRON_LIST_ALLOC(__typeof__(*dst.items), (size_t)src->count * sizeof(%s));\n"
         "        if (!dst.items) iron_oom_abort(\"%s_clone\");\n"
         "        for (int64_t _i = 0; _i < src->count; _i++)\n"
         "            dst.items[_i] = %s_clone(&src->items[_i]);\n"
@@ -237,11 +237,12 @@ const char *emit_ensure_nested_list(EmitCtx *ctx, const Iron_Type *elem) {
         "}\n"
         "void %s_free(%s *self) {\n"
         "    for (int64_t _i = 0; _i < self->count; _i++) %s_free(&self->items[_i]);\n"
-        "    iron_mem_free(self->items);\n"
+        "    IRON_LIST_FREE(__typeof__(*self->items), self->items);\n"
         "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
         "}\n"
         "void %s_clear(%s *self) {\n"
         "    for (int64_t _i = 0; _i < self->count; _i++) %s_free(&self->items[_i]);\n"
+        "    IRON_LIST_CANCEL_SPARE(self);\n"
         "    self->count = 0;\n"
         "}\n\n",
         result, result, result,
@@ -289,7 +290,7 @@ const char *emit_ensure_rc_list(EmitCtx *ctx, const Iron_Type *elem) {
         "    dst.capacity = src->count;\n"
         "    dst.items = NULL;\n"
         "    if (src->count > 0) {\n"
-        "        dst.items = (%s *)iron_mem_alloc((size_t)src->count * sizeof(%s));\n"
+        "        dst.items = (%s *)IRON_LIST_ALLOC(__typeof__(*dst.items), (size_t)src->count * sizeof(%s));\n"
         "        if (!dst.items) iron_oom_abort(\"%s_clone\");\n"
         "        for (int64_t _i = 0; _i < src->count; _i++) {\n"
         "            dst.items[_i] = src->items[_i];\n"
@@ -300,11 +301,12 @@ const char *emit_ensure_rc_list(EmitCtx *ctx, const Iron_Type *elem) {
         "}\n"
         "void %s_free(%s *self) {\n"
         "    for (int64_t _i = 0; _i < self->count; _i++) %s((void *)self->items[_i]);\n"
-        "    iron_mem_free(self->items);\n"
+        "    IRON_LIST_FREE(__typeof__(*self->items), self->items);\n"
         "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
         "}\n"
         "void %s_clear(%s *self) {\n"
         "    for (int64_t _i = 0; _i < self->count; _i++) %s((void *)self->items[_i]);\n"
+        "    IRON_LIST_CANCEL_SPARE(self);\n"
         "    self->count = 0;\n"
         "}\n\n",
         result, result, result,
@@ -353,7 +355,7 @@ const char *emit_ensure_nullable_list(EmitCtx *ctx, const Iron_Type *elem) {
         "    dst.capacity = src->count;\n"
         "    dst.items = NULL;\n"
         "    if (src->count > 0) {\n"
-        "        dst.items = (%s *)iron_mem_alloc((size_t)src->count * sizeof(%s));\n"
+        "        dst.items = (%s *)IRON_LIST_ALLOC(__typeof__(*dst.items), (size_t)src->count * sizeof(%s));\n"
         "        if (!dst.items) iron_oom_abort(\"%s_clone\");\n"
         "        for (int64_t _i = 0; _i < src->count; _i++) {\n"
         "            dst.items[_i] = src->items[_i];\n"
@@ -366,11 +368,12 @@ const char *emit_ensure_nullable_list(EmitCtx *ctx, const Iron_Type *elem) {
         "    for (int64_t _i = 0; _i < self->count; _i++) {\n"
         "%s"
         "    }\n"
+        "    IRON_LIST_CANCEL_SPARE(self);\n"
         "    self->count = 0;\n"
         "}\n"
         "void %s_free(%s *self) {\n"
         "    %s_clear(self);\n"
-        "    iron_mem_free(self->items);\n"
+        "    IRON_LIST_FREE(__typeof__(*self->items), self->items);\n"
         "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
         "}\n\n",
         result, result, result,
@@ -448,7 +451,7 @@ const char *emit_ensure_container_list(EmitCtx *ctx, const Iron_Type *elem) {
         "    dst.capacity = src->count;\n"
         "    dst.items = NULL;\n"
         "    if (src->count > 0) {\n"
-        "        dst.items = (%s *)iron_mem_alloc((size_t)src->count * sizeof(%s));\n"
+        "        dst.items = (%s *)IRON_LIST_ALLOC(__typeof__(*dst.items), (size_t)src->count * sizeof(%s));\n"
         "        if (!dst.items) iron_oom_abort(\"%s_clone\");\n"
         "        for (int64_t _i = 0; _i < src->count; _i++) {\n"
         "            dst.items[_i] = src->items[_i];\n"
@@ -461,11 +464,12 @@ const char *emit_ensure_container_list(EmitCtx *ctx, const Iron_Type *elem) {
         "    for (int64_t _i = 0; _i < self->count; _i++) {\n"
         "%s"
         "    }\n"
+        "    IRON_LIST_CANCEL_SPARE(self);\n"
         "    self->count = 0;\n"
         "}\n"
         "void %s_free(%s *self) {\n"
         "    %s_clear(self);\n"
-        "    iron_mem_free(self->items);\n"
+        "    IRON_LIST_FREE(__typeof__(*self->items), self->items);\n"
         "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
         "}\n\n",
         result, result, result,
@@ -674,6 +678,9 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
 
         case IRON_TYPE_FUNC:
             return "Iron_Closure";
+
+        case IRON_TYPE_VIEW:
+            return emit_ensure_view(ctx, t->view.elem);
 
         case IRON_TYPE_ARRAY: {
             /* Phase 23 VEC-01: bounded vector [T; <=N] — emit Iron_BVec_T_N struct name.
@@ -1076,6 +1083,41 @@ void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
 /* Phase 33 STDLIB-07/08 (Plan 33-05): build the escaped element-C suffix shared
  * by the Mutex/Channel glue mangling (mirrors emit_ensure_box's name builder).
  * Returns an arena string like "int64_t" with space/`*` escaped to `_`. */
+/* View[T] / ViewMut[T] lower to `Iron_View_<elem>`: { T *ptr; int64_t len; },
+ * one struct per element type for both kinds (the checker keeps a View
+ * read-only). The runtime header defines the views of the scalar types
+ * (IRON_VIEW_TYPEDEF in iron_intrinsics.h); any other element type gets its
+ * typedef here, once. */
+const char *emit_ensure_view(EmitCtx *ctx, const Iron_Type *elem) {
+    const char *elem_c = emit_type_to_c(elem, ctx);
+    const char *esc = emit_elem_c_escaped(ctx, elem);
+    Iron_StrBuf sb = iron_strbuf_create(48);
+    iron_strbuf_appendf(&sb, "Iron_View_%s", esc ? esc : "void");
+    const char *name = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    if (!name) iron_oom_abort("emit_helpers.c:emit_ensure_view");
+    bool predefined = false;
+    switch ((int)(elem ? elem->kind : IRON_TYPE_ERROR)) {
+        case IRON_TYPE_INT:   case IRON_TYPE_INT8:   case IRON_TYPE_INT16:
+        case IRON_TYPE_INT32: case IRON_TYPE_INT64:
+        case IRON_TYPE_UINT:  case IRON_TYPE_UINT8:  case IRON_TYPE_UINT16:
+        case IRON_TYPE_UINT32: case IRON_TYPE_UINT64:
+        case IRON_TYPE_FLOAT: case IRON_TYPE_FLOAT32: case IRON_TYPE_FLOAT64:
+        case IRON_TYPE_BOOL:  case IRON_TYPE_STRING:
+            predefined = true;
+            break;
+        default:
+            break;
+    }
+    if (!predefined && shgeti(ctx->emitted_mono_list_types, name) < 0) {
+        shput(ctx->emitted_mono_list_types, name, true);
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "typedef struct %s { %s *ptr; int64_t len; } %s;\n",
+            name, elem_c, name);
+    }
+    return name;
+}
+
 const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem) {
     const char *elem_c = emit_type_to_c(elem, ctx);
     if (!elem_c) return NULL;

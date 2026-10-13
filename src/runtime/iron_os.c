@@ -416,6 +416,38 @@ Iron_String Iron_os_env_or(Iron_String name, Iron_String fallback) {
     return s;
 }
 
+/* Over-aligned blocks for list storage of `//iron:align=N` objects
+ * (iron_intrinsics.h). Freed only with iron_mem_free_aligned: on the
+ * Windows UCRT _aligned_malloc blocks need _aligned_free. */
+void *iron_mem_alloc_aligned(size_t size, size_t align) {
+    if (align < sizeof(void *)) align = sizeof(void *);
+    if (size == 0) size = align;
+#ifdef _WIN32
+    return _aligned_malloc(size, align);
+#else
+    void *p = NULL;
+    return posix_memalign(&p, align, size) == 0 ? p : NULL;
+#endif
+}
+
+void iron_mem_free_aligned(void *p) {
+#ifdef _WIN32
+    _aligned_free(p);
+#else
+    free(p);
+#endif
+}
+
+void *iron_mem_realloc_aligned(void *p, size_t old_size, size_t new_size, size_t align) {
+    void *n = iron_mem_alloc_aligned(new_size, align);
+    if (!n) return NULL;
+    if (p) {
+        memcpy(n, p, old_size < new_size ? old_size : new_size);
+        iron_mem_free_aligned(p);
+    }
+    return n;
+}
+
 /* os.iron: OS.trap_shutdown_signals() and OS.shutdown_signal().
  *
  * After the trap is installed, SIGINT and SIGTERM (Ctrl+C, Ctrl+Break and

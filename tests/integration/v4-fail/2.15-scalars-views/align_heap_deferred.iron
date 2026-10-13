@@ -1,0 +1,9 @@
+//iron:align=64
+object Aligned {
+    val n: Int
+}
+
+func main() {
+    val item = heap Aligned(1)
+    free item
+}

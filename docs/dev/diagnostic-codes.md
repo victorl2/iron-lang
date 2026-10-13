@@ -542,6 +542,15 @@ parser/typecheck sites land in Plan 27-02.
 | E0335 | `IRON_ERR_LOOP_JUMP_OUTSIDE` | 'break' outside a loop / 'continue' in a parallel for | `break` or `continue` outside a `while` or `for` of the same function body (including inside a lambda, `defer` or `spawn` body within a loop), or in a `parallel` loop. |
 | E0336 | `IRON_ERR_RETURN_IN_DEFER` | 'return' inside a defer body | `return` in a `defer` statement or block, which runs while its scope exits (a lambda inside the defer body may return from itself). |
 
+## Scalar views and alignment
+
+| Code | Symbol | Message | Notes |
+|------|--------|---------|-------|
+| E0368 | `IRON_ERR_ALIGN_VALUE` | invalid or unsupported `//iron:align` | Alignment is not a power of two from 1 through 4096, lowers natural alignment, or requests an over-aligned runtime allocation deferred to the generation-table allocator work. |
+| E0369 | `IRON_ERR_VIEW_ESCAPE` | a borrowed view escapes | A view is stored in a compound value, global or capture, or returned without exactly one source parameter. |
+| E0370 | `IRON_ERR_VIEW_SOURCE` | a borrowed source is invalid or changed | The source is a temporary or handle path, or it is reassigned, resized, taken, passed as `var`, or directly mutated while the view is live. |
+| W0631 | `IRON_WARN_INLINE_NOT_HONORED` | `//iron:inline` cannot be honored | The function recursively calls itself, so the backend cannot inline every call. |
+
 ## Global initialization (§5.7)
 
 | Code | Symbol | Message | Notes |

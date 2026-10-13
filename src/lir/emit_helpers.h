@@ -454,6 +454,9 @@ void emit_drop_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx, Iron_Type *t, cons
 /* The C name of a container element type with spaces and `*` as `_`, as
  * the per-T Mutex / Channel / RWLock glue names spell it. */
 const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem);
+/* The C struct of View[elem] / ViewMut[elem] (Iron_View_<elem>), emitting
+ * its typedef on first use for non-scalar element types. */
+const char *emit_ensure_view(EmitCtx *ctx, const Iron_Type *elem);
 void emit_copy_fixup_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
                             Iron_Type *t, const char *lv);
 const char *emit_cell_drop_fn(EmitCtx *ctx, Iron_Type *t);

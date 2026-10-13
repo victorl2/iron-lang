@@ -1147,3 +1147,125 @@ Iron_String Iron_string_from_byte(int64_t b) {
 void Iron_string_release(Iron_String self) {
     (void)self;
 }
+
+/* ── Views and StringBuilder (iron_intrinsics.h) ───────────────────────── */
+
+/* Length of the well-formed UTF-8 sequence at p[0..n), or 0 when it is not
+ * one (overlong forms, surrogates and code points above U+10FFFF are not). */
+static int iron__utf8_seq(const uint8_t *p, int64_t n) {
+    uint8_t c = p[0];
+    if (c < 0x80) return 1;
+    int len; uint32_t cp;
+    if (c >= 0xC2 && c <= 0xDF) { len = 2; cp = c & 0x1F; }
+    else if (c >= 0xE0 && c <= 0xEF) { len = 3; cp = c & 0x0F; }
+    else if (c >= 0xF0 && c <= 0xF4) { len = 4; cp = c & 0x07; }
+    else return 0;
+    if (n < len) return 0;
+    for (int i = 1; i < len; i++) {
+        if ((p[i] & 0xC0) != 0x80) return 0;
+        cp = (cp << 6) | (p[i] & 0x3F);
+    }
+    if (len == 3 && (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF))) return 0;
+    if (len == 4 && (cp < 0x10000 || cp > 0x10FFFF)) return 0;
+    return len;
+}
+
+bool iron_bytes_valid_utf8(Iron_View_uint8_t b) {
+    int64_t i = 0;
+    while (i < b.len) {
+        int k = iron__utf8_seq(b.ptr + i, b.len - i);
+        if (!k) return false;
+        i += k;
+    }
+    return true;
+}
+
+Iron_String iron_bytes_to_string_exact(Iron_View_uint8_t b) {
+    return iron_string_from_cstr((const char *)b.ptr, (size_t)(b.len > 0 ? b.len : 0));
+}
+
+/* A copy of the bytes with each maximal invalid sequence replaced by
+ * U+FFFD (one per byte that starts no valid sequence). */
+Iron_String iron_bytes_to_string(Iron_View_uint8_t b) {
+    if (iron_bytes_valid_utf8(b)) return iron_bytes_to_string_exact(b);
+    size_t cap = (size_t)b.len * 3 + 1, w = 0;
+    char *buf = (char *)malloc(cap);
+    if (!buf) iron_oom_abort("iron_bytes_to_string");
+    int64_t i = 0;
+    while (i < b.len) {
+        int k = iron__utf8_seq(b.ptr + i, b.len - i);
+        if (k) { memcpy(buf + w, b.ptr + i, (size_t)k); w += (size_t)k; i += k; }
+        else { buf[w++] = (char)0xEF; buf[w++] = (char)0xBF; buf[w++] = (char)0xBD; i++; }
+    }
+    Iron_String s = iron_string_from_cstr(buf, w);
+    free(buf);
+    return s;
+}
+
+/* StringBuilder storage is a heap string block (IronStrHdr, bytes, one
+ * spare byte for the NUL) so finish() can hand it to a String as is. */
+void iron_sb_grow(Iron_SBRT *sb, int64_t extra) {
+    if (sb->capacity < 0) sb->capacity = sb->length;
+    if (extra < 0) extra = 0;
+    int64_t need = sb->length + extra;
+    if (need < sb->length || need > (int64_t)UINT32_MAX - 1)
+        iron_oom_abort("StringBuilder: a string is at most 4 GiB");
+    int64_t cap = sb->capacity ? sb->capacity * 2 : 32;
+    if (cap < need) cap = need;
+    if (cap > (int64_t)UINT32_MAX - 1) cap = (int64_t)UINT32_MAX - 1;
+    IronStrHdr *old = sb->data ? ((IronStrHdr *)(uintptr_t)sb->data) - 1 : NULL;
+    IronStrHdr *h = (IronStrHdr *)realloc(old, sizeof(IronStrHdr) + (size_t)cap + 1);
+    if (!h) iron_oom_abort("StringBuilder");
+    if (!old) { atomic_init(&h->rc, 1); h->_pad = 0; }
+    sb->data = (int64_t)(uintptr_t)(h + 1);
+    sb->capacity = cap;
+}
+
+Iron_String iron_sb_finish(Iron_SBRT *sb) {
+    if (sb->capacity < 0) sb->capacity = sb->length;
+    Iron_String s;
+    memset(&s, 0, sizeof s);
+    char *data = (char *)(uintptr_t)sb->data;
+    size_t len = (size_t)sb->length;
+    if (!data || len <= IRON_STRING_SSO_MAX) {
+        s = iron_string_from_cstr(data ? data : "", len);
+        if (data) free(((IronStrHdr *)data) - 1);
+    } else {
+        IronStrHdr *h = ((IronStrHdr *)data) - 1;
+        /* Give back a large unused tail. */
+        if ((int64_t)len + 4096 < sb->capacity) {
+            IronStrHdr *nh = (IronStrHdr *)realloc(h, sizeof(IronStrHdr) + len + 1);
+            if (nh) { h = nh; data = (char *)(h + 1); }
+        }
+        data[len] = '\0';
+        s.heap.data = data;
+        s.heap.byte_length = (uint32_t)len;
+        s.heap.codepoint_count = IRON_STRING_COUNT_UNKNOWN;
+        s.heap.flags = 0x01;
+    }
+    sb->data = 0;
+    sb->length = 0;
+    sb->capacity = 0;
+    return s;
+}
+
+void Iron_stringbuilder__release(int64_t data) {
+    if (data) free(((IronStrHdr *)(uintptr_t)data) - 1);
+}
+
+void iron_sb_push_uint(void *sb, uint64_t n) {
+    char tmp[20];
+    int k = 20;
+    do { tmp[--k] = (char)('0' + n % 10); n /= 10; } while (n);
+    Iron_View_uint8_t v = { (uint8_t *)tmp + k, 20 - k };
+    iron_sb_push_bytes(sb, v);
+}
+
+void iron_sb_push_int(void *sb, int64_t n) {
+    if (n < 0) {
+        iron_sb_push_byte(sb, '-');
+        iron_sb_push_uint(sb, 0u - (uint64_t)n);
+    } else {
+        iron_sb_push_uint(sb, (uint64_t)n);
+    }
+}

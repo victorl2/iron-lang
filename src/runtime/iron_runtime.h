@@ -1531,6 +1531,9 @@ void  iron_closure_release(Iron_Closure c);
  */
 /* qsort comparators for list.sort() on numeric and String elements.
  * Floats order NaN after every number so the order is total. */
+#define IRON_LIST_CANCEL_SPARE(self) \
+    do { if ((self)->capacity < 0) (self)->capacity = (self)->count; } while (0)
+
 #define IRON_SORT_CMP_NUM(name, T) \
     static inline int name(const void *pa, const void *pb) { \
         T a = *(const T *)pa, b = *(const T *)pb; \
@@ -1585,6 +1588,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
  * gated on od_has_drop_lir / the FileHandle nocopy surface. */
 #define IRON_LIST_IMPL_CORE(T, suffix) \
     Iron_List_##suffix Iron_List_##suffix##_take(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         Iron_List_##suffix out = *self; \
         self->items = NULL; self->count = 0; self->capacity = 0; \
         return out; \
@@ -1600,19 +1604,20 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         l.capacity = cap; \
         l.items = NULL; \
         if (cap > 0) { \
-            l.items = (T *)iron_mem_alloc((size_t)cap * sizeof(T)); \
+            l.items = (T *)IRON_LIST_ALLOC(T, (size_t)cap * sizeof(T)); \
             if (!l.items) iron_oom_abort("Iron_List_" #suffix "_create_with_capacity"); \
         } \
         return l; \
     } \
     void Iron_List_##suffix##_push(Iron_List_##suffix *self, T item) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         if (self->count >= self->capacity) { \
             int64_t new_cap = self->capacity ? self->capacity * 2 : 8; \
             /* FIX-01/FIX-02: capacity doubling must not wrap int64_t (audit row 18) */ \
             if (new_cap < self->capacity) { \
                 iron_oom_abort("Iron_List_" #suffix "_push: capacity overflow"); \
             } \
-            T *new_items = (T *)iron_mem_realloc(self->items, (size_t)new_cap * sizeof(T)); \
+            T *new_items = (T *)IRON_LIST_REALLOC(T, self->items, (size_t)self->capacity * sizeof(T), (size_t)new_cap * sizeof(T)); \
             if (!new_items) iron_oom_abort("Iron_List_" #suffix "_push"); \
             self->items = new_items; \
             self->capacity = new_cap; \
@@ -1626,17 +1631,20 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return self->items[index]; \
     } \
     void Iron_List_##suffix##_set(Iron_List_##suffix *self, int64_t index, T item) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         if ((uint64_t)index >= (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_set", 0, index, self->count); \
         self->items[index] = item; \
     } \
     T Iron_List_##suffix##_pop(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         /* LIST-01: pop on empty read items[-1] and corrupted count to -1 */ \
         if (self->count <= 0) \
             iron_panic_index_oob("Iron_List_" #suffix "_pop", 0, -1, self->count); \
         return self->items[--self->count]; \
     } \
     T Iron_List_##suffix##_remove(Iron_List_##suffix *self, int64_t index) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         /* Removes and returns items[index], shifting the tail down. */ \
         if ((uint64_t)index >= (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_remove", 0, index, self->count); \
@@ -1656,6 +1664,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         self->items[index] = item; \
     } \
     void Iron_List_##suffix##_reverse(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         for (int64_t i = 0, j = self->count - 1; i < j; i++, j--) { \
             T tmp = self->items[i]; \
             self->items[i] = self->items[j]; \
@@ -1674,7 +1683,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         dst.count = src->count; \
         dst.capacity = src->count; \
         if (src->count > 0) { \
-            dst.items = (T *)iron_mem_alloc((size_t)src->count * sizeof(T)); \
+            dst.items = (T *)IRON_LIST_ALLOC(T, (size_t)src->count * sizeof(T)); \
             if (!dst.items) iron_oom_abort("Iron_List_" #suffix "_clone"); \
             iron_mem_copy(dst.items, src->items, (size_t)src->count * sizeof(T)); \
         } else { \
@@ -1683,10 +1692,11 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return dst; \
     } \
     void Iron_List_##suffix##_clear(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
-        iron_mem_free(self->items); \
+        IRON_LIST_FREE(T, self->items); \
         self->items = NULL; self->count = 0; self->capacity = 0; \
     }
 
@@ -1697,6 +1707,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
  * already-mangled (non-keyword) names. */
 #define IRON_LIST_IMPL(T, suffix) \
     Iron_List_##suffix Iron_List_##suffix##_take(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         Iron_List_##suffix out = *self; \
         self->items = NULL; self->count = 0; self->capacity = 0; \
         return out; \
@@ -1712,7 +1723,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         l.capacity = cap; \
         l.items = NULL; \
         if (cap > 0) { \
-            l.items = (T *)iron_mem_alloc((size_t)cap * sizeof(T)); \
+            l.items = (T *)IRON_LIST_ALLOC(T, (size_t)cap * sizeof(T)); \
             if (!l.items) iron_oom_abort("Iron_List_" #suffix "_create_with_capacity"); \
         } \
         return l; \
@@ -1722,7 +1733,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         dst.count = src->count; \
         dst.capacity = src->count; \
         if (src->count > 0) { \
-            dst.items = (T *)iron_mem_alloc((size_t)src->count * sizeof(T)); \
+            dst.items = (T *)IRON_LIST_ALLOC(T, (size_t)src->count * sizeof(T)); \
             if (!dst.items) iron_oom_abort("Iron_List_" #suffix "_clone"); \
             iron_mem_copy(dst.items, src->items, (size_t)src->count * sizeof(T)); \
         } else { \
@@ -1731,12 +1742,13 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return dst; \
     } \
     void Iron_List_##suffix##_push(Iron_List_##suffix *self, T item) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         if (self->count >= self->capacity) { \
             int64_t new_cap = self->capacity ? self->capacity * 2 : 8; \
             if (new_cap < self->capacity) { \
                 iron_oom_abort("Iron_List_" #suffix "_push: capacity overflow"); \
             } \
-            T *new_items = (T *)iron_mem_realloc(self->items, (size_t)new_cap * sizeof(T)); \
+            T *new_items = (T *)IRON_LIST_REALLOC(T, self->items, (size_t)self->capacity * sizeof(T), (size_t)new_cap * sizeof(T)); \
             if (!new_items) iron_oom_abort("Iron_List_" #suffix "_push"); \
             self->items = new_items; \
             self->capacity = new_cap; \
@@ -1750,17 +1762,20 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return self->items[index]; \
     } \
     void Iron_List_##suffix##_set(Iron_List_##suffix *self, int64_t index, T item) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         if ((uint64_t)index >= (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_set", 0, index, self->count); \
         self->items[index] = item; \
     } \
     T Iron_List_##suffix##_pop(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         /* LIST-01: pop on empty read items[-1] and corrupted count to -1 */ \
         if (self->count <= 0) \
             iron_panic_index_oob("Iron_List_" #suffix "_pop", 0, -1, self->count); \
         return self->items[--self->count]; \
     } \
     T Iron_List_##suffix##_remove(Iron_List_##suffix *self, int64_t index) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         /* Removes and returns items[index], shifting the tail down. */ \
         if ((uint64_t)index >= (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_remove", 0, index, self->count); \
@@ -1780,6 +1795,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         self->items[index] = item; \
     } \
     void Iron_List_##suffix##_reverse(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         for (int64_t i = 0, j = self->count - 1; i < j; i++, j--) { \
             T tmp = self->items[i]; \
             self->items[i] = self->items[j]; \
@@ -1790,10 +1806,11 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return self->count; \
     } \
     void Iron_List_##suffix##_clear(Iron_List_##suffix *self) { \
+        IRON_LIST_CANCEL_SPARE(self); \
         self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
-        iron_mem_free(self->items); \
+        IRON_LIST_FREE(T, self->items); \
         self->items = NULL; self->count = 0; self->capacity = 0; \
     }
 
@@ -2097,7 +2114,12 @@ IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_key_missing(const char *f, int l
 #ifndef IRON_CODEGEN_PROVIDES_STRUCTS
 
 typedef struct Iron_List_int64_t    { int64_t     *items; int64_t count; int64_t capacity; } Iron_List_int64_t;
+typedef struct Iron_List_int8_t     { int8_t      *items; int64_t count; int64_t capacity; } Iron_List_int8_t;
+typedef struct Iron_List_int16_t    { int16_t     *items; int64_t count; int64_t capacity; } Iron_List_int16_t;
 typedef struct Iron_List_int32_t    { int32_t     *items; int64_t count; int64_t capacity; } Iron_List_int32_t;
+typedef struct Iron_List_uint16_t   { uint16_t    *items; int64_t count; int64_t capacity; } Iron_List_uint16_t;
+typedef struct Iron_List_uint32_t   { uint32_t    *items; int64_t count; int64_t capacity; } Iron_List_uint32_t;
+typedef struct Iron_List_uint64_t   { uint64_t    *items; int64_t count; int64_t capacity; } Iron_List_uint64_t;
 typedef struct Iron_List_double     { double      *items; int64_t count; int64_t capacity; } Iron_List_double;
 typedef struct Iron_List_bool       { bool        *items; int64_t count; int64_t capacity; } Iron_List_bool;
 typedef struct Iron_List_Iron_String { Iron_String *items; int64_t count; int64_t capacity; } Iron_List_Iron_String;
@@ -2122,7 +2144,12 @@ typedef struct Iron_List_uint8_t { uint8_t *items; int64_t count; int64_t capaci
 
 /* Declarations for the pre-instantiated types in iron_collections.c */
 IRON_LIST_DECL(int64_t,     int64_t)
+IRON_LIST_DECL(int8_t,      int8_t)
+IRON_LIST_DECL(int16_t,     int16_t)
 IRON_LIST_DECL(int32_t,     int32_t)
+IRON_LIST_DECL(uint16_t,    uint16_t)
+IRON_LIST_DECL(uint32_t,    uint32_t)
+IRON_LIST_DECL(uint64_t,    uint64_t)
 IRON_LIST_DECL(double,      double)
 IRON_LIST_DECL(bool,        bool)
 IRON_LIST_DECL(Iron_String, Iron_String)
@@ -2200,5 +2227,9 @@ Iron_String           Iron_string_from_byte(int64_t b);
 Iron_String           Iron_string_byte_slice(Iron_String self, int64_t start, int64_t end_idx);
 int64_t               Iron_string_byte_len(Iron_String self);
 void                  Iron_string_release(Iron_String self);
+
+/* Compiler intrinsics: bit operations, wide and overflow arithmetic, bit
+ * casts, branch hints, views and StringBuilder (inline helpers). */
+#include "runtime/iron_intrinsics.h"
 
 #endif /* IRON_RUNTIME_H */

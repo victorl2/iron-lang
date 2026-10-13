@@ -98,6 +98,25 @@ for (c_name, test), want in FRAMES:
     if got != want:
         failed += 1
         print("FAIL: iron_function_name(%r, %r) = %r, want %r" % (c_name, test, got, want))
+
+# The DAP proxy presents the generated C view struct as indexed Iron data.
+proxy = dap.Proxy(None, None)
+def view_request(command, args, timeout=10):
+    if command == "variables" and args.get("variablesReference") == 9:
+        return {"success": True, "body": {"variables": [
+            {"name": "ptr", "value": "0x1234"}, {"name": "len", "value": "2"}]}}
+    if command == "evaluate":
+        values = {"(bytes).ptr[0]": "65", "(bytes).ptr[1]": "66"}
+        value = values.get(args.get("expression"))
+        return {"success": value is not None,
+                "body": {"result": value, "variablesReference": 0} if value is not None else {}}
+    return {"success": False}
+proxy.request = view_request
+shown = proxy.join_array_lengths([{"name": "bytes", "value": "", "variablesReference": 9,
+                                    "type": "struct Iron_View_uint8_t"}], 1)[0]
+if shown.get("value") != "View[size=2] [65, 66]" or shown.get("indexedVariables") != 2:
+    failed += 1
+    print("FAIL: view debugger display is %r" % shown)
 if failed:
     sys.exit(1)
 print("iron eval: %d expressions, %d errors: PASS" % (len(CASES), len(ERRORS)))

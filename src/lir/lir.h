@@ -263,6 +263,9 @@ struct IronLIR_Instr {
              * standing for `(*_vN_box)`; the scope-exit release goes
              * through iron_cell_release. */
             bool        is_boxed;
+            /* `//iron:align=N` on the binding (IRON_ALIGN_CACHELINE =
+             * cacheline); emitted as _Alignas. 0 = natural alignment. */
+            uint16_t    align;
         } alloca;
 
         /* IRON_LIR_LOAD */
@@ -659,6 +662,9 @@ struct IronLIR_Func {
      * through the receiver persist to the caller's binding — the MUT-07
      * mutation-persistence contract. Default false via lir.c memset. */
     bool               is_mut_receiver_method;
+    /* IRON_HINT_* (parser/ast.h): `//iron:inline` emits always_inline,
+     * `noinline` noinline (and keeps the LIR inliner away), `cold` cold. */
+    uint8_t            hints;
     /* From IronHIR_Func.is_user_func (#524). */
     bool               is_user_func;
 

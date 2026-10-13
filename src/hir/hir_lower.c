@@ -1116,6 +1116,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         IronHIR_VarId id   = iron_hir_alloc_var(mod, hir_local_name(ctx, vd->name), ty, false);
         declare_var(ctx, vd->name, id);
         IronHIR_Stmt *s = iron_hir_stmt_let(mod, id, ty, init, false, span);
+        s->let.align = vd->align;
         iron_hir_block_add_stmt(blk, s);
         return NULL;
     }
@@ -1130,6 +1131,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         if (vd->is_boxed) iron_hir_var_set_boxed(mod, id);
         declare_var(ctx, vd->name, id);
         IronHIR_Stmt *s = iron_hir_stmt_let(mod, id, ty, init, true, span);
+        s->let.align = vd->align;
         iron_hir_block_add_stmt(blk, s);
         return NULL;
     }
@@ -2504,9 +2506,11 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                       obj->type->ptr.pointee, span);
         }
         /* NOTE: args stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
-        return iron_hir_expr_method_call(mod, obj, mc->method,
-                                          args, arg_count,
-                                          mc->resolved_type, span);
+        IronHIR_Expr *mce = iron_hir_expr_method_call(mod, obj, mc->method,
+                                                      args, arg_count,
+                                                      mc->resolved_type, span);
+        mce->method_call.intrinsic = mc->intrinsic;
+        return mce;
     }
 
     /* ── Field access ────────────────────────────────────────────────────── */
@@ -3054,6 +3058,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr from
              * AST decl (set by Plan 20-02a's mark_takes_local_addr_pass). */
             f->takes_local_addr = fd->takes_local_addr;
+            f->hints = fd->hints;
             f->is_user_func = !fd->is_extern &&
                 iron_stdlib_origin_classify(fd->span.filename) == 0;
             /* Phase 22 READ-08: propagate is_readonly from AST FuncDecl.
@@ -3378,6 +3383,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr from
              * AST method decl (set by Plan 20-02a's mark_takes_local_addr_pass). */
             f->takes_local_addr = md->takes_local_addr;
+            f->hints = md->hints;
             /* Phase 22 READ-08: propagate is_readonly from AST MethodDecl.
              * Methods inherit readonly when EITHER is_readonly OR is_pure
              * (pure >= readonly one-way subsumption per OQ-05). */
