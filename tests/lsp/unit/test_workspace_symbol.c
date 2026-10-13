@@ -184,7 +184,7 @@ static void test_path_prefix_filter(void) {
 
 /* ── Test 05: edited open documents do not expose stale ranges ── */
 
-static void test_stale_open_document_is_excluded(void) {
+static void test_open_document_uses_current_source(void) {
     fx_t f; fx_init(&f);
 
     Iron_Arena path_arena = iron_arena_create(1024);
@@ -207,6 +207,15 @@ static void test_stale_open_document_is_excluded(void) {
 
     TEST_ASSERT_EQUAL_size_t(0, n);
 
+    out = NULL;
+    n = 0;
+    ilsp_facade_nav_workspace_symbol(&f.server, "x", NULL, &arena,
+                                       &out, &n);
+    TEST_ASSERT_EQUAL_size_t(1, n);
+    TEST_ASSERT_EQUAL_STRING("x", out[0].name);
+    TEST_ASSERT_EQUAL_UINT32(0, out[0].range.start.line);
+    TEST_ASSERT_LESS_THAN_UINT32(16, out[0].range.end.character);
+
     iron_arena_free(&arena);
     iron_arena_free(&path_arena);
     fx_destroy(&f);
@@ -218,6 +227,6 @@ int main(void) {
     RUN_TEST(test_query_too_long_returns_empty);
     RUN_TEST(test_no_workspace_index_empty);
     RUN_TEST(test_path_prefix_filter);
-    RUN_TEST(test_stale_open_document_is_excluded);
+    RUN_TEST(test_open_document_uses_current_source);
     return UNITY_END();
 }

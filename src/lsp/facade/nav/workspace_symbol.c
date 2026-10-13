@@ -125,14 +125,6 @@ static const char *decl_container(Iron_Node *d) {
     }
 }
 
-static uint64_t document_content_hash(const IronLsp_Document *doc) {
-    uint64_t hash = 0;
-    for (size_t i = 0; i < 8; i++) {
-        hash = (hash << 8) | (uint64_t)doc->sha256[i];
-    }
-    return hash;
-}
-
 /* Sort predicate: score DESC, kind_rank ASC, canonical_path ASC,
  * line ASC, col ASC (deterministic final order). */
 static int candidate_cmp(const void *pa, const void *pb) {
@@ -231,20 +223,6 @@ static void score_decl(IronLsp_Server *server,
         : "";
     c.uri            = ilsp_nav_path_to_uri(entry->canonical_path, arena);
     if (!c.uri) c.uri = "";
-
-    /* The workspace index describes the last on-disk snapshot. An open
-     * document may already contain newer edits, so its cached AST spans
-     * cannot safely be converted with the indexed line table. Keep the
-     * candidate only while both snapshots still describe identical text. */
-    if (server->documents) {
-        ptrdiff_t doc_idx = shgeti(server->documents, c.uri);
-        if (doc_idx >= 0) {
-            IronLsp_Document *doc = server->documents[doc_idx].value;
-            if (doc && document_content_hash(doc) != entry->content_hash) {
-                return;
-            }
-        }
-    }
 
     c.lsp_kind       = lsp_kind_from_node(d);
     c.kind_rank      = kind_rank_for_lsp(c.lsp_kind);
