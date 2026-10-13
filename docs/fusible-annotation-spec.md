@@ -6,7 +6,12 @@ The `@fusible` annotation marks collection methods as eligible for loop fusion o
 
 For example, `arr.map(f).filter(g).sum()` ordinarily produces three separate loops (map allocates a new array, filter allocates another, sum iterates the final array). With fusion, the compiler emits a single loop that applies the map transform, tests the filter predicate, and accumulates the sum -- all in one pass over the source array.
 
-The `@fusible` annotation serves as a whitelist gate. Only methods annotated `@fusible` participate in fusion. The compiler does NOT parse Iron function bodies to determine fusibility -- it uses hardcoded knowledge of each annotated method's per-element semantics.
+The standard library annotations document the closed whitelist. The current
+code generator does not inspect the AST flag: it recognizes the five built-in
+list operation names below and uses hardcoded knowledge of their per-element
+semantics. A user annotation is retained as declaration metadata but does not
+define another fusion operation. The language manual section 5.2 is the
+normative description of the safety and ownership gates.
 
 ---
 
@@ -104,7 +109,11 @@ When emitting a fused loop, the compiler generates a single loop over the source
 
 Where `env` is the closure environment pointer (or NULL for non-capturing lambdas).
 
-**Important:** The compiler does NOT parse the Iron function body to determine these operations. It uses hardcoded knowledge of each method's semantics. The `@fusible` annotation is a whitelist gate -- only annotated methods get this treatment. If a method is annotated `@fusible` but its semantics differ from the hardcoded behavior, the fused output will be incorrect. This is why `@fusible` is restricted to stdlib methods in the initial implementation.
+**Important:** The compiler does not derive an operation from an Iron function
+body. It uses hardcoded semantics for the five built-in list methods. It does,
+however, analyze every callback and refuses fusion unless its lowered call
+graph is pure and non-trapping and every eliminated element stream has a
+trivial lifetime. See manual section 5.2.
 
 ### Example: Fused Loop for `arr.map(f).filter(g).sum()`
 

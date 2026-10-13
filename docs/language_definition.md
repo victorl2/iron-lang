@@ -1467,9 +1467,64 @@ A top-level function name is a function value: `val f = twice`,
 `apply(twice, 4)` and `[twice]` work like the equivalent lambdas.
 
 The compiler hint `//iron:fusible` on the line directly above a `func`
-marks it as eligible for loop fusion of chained list operations; it changes
-nothing else about the function. The older `@fusible` before `func` means
-the same and is accepted while code migrates (section 1.2).
+records that declaration as eligible for list loop fusion; it changes nothing
+else about the function. The older `@fusible` before `func` means the same and
+is accepted while code migrates (section 1.2).
+
+The current fusion repertoire is closed. The standard library declarations
+for `List.map`, `filter`, `reduce`, `forEach`, and `sum` carry the hint, and the
+code generator knows the per-element meaning of those five names. A hint on a
+different user function or method is retained in the syntax tree but does not
+make calls to it a pipeline stage. In particular, putting the hint on a
+callback passed to `map` or `filter` is not required and does not override the
+safety checks below. General user-defined fusion operations need an explicit
+operation category and are not part of this version.
+
+A chain contains at least two of the five operations. `map` and `filter` may
+occur anywhere. `reduce`, `sum`, and `forEach` produce no list and therefore
+can only be terminal. A direct call chain can fuse with or without the LIR
+optimizer. With optimization enabled, stores and loads through a single local
+binding are also followed. An intermediate used anywhere besides the next
+stage escapes, so the chain is split there. A non-fusible operation, including
+`copy`, slicing, indexing, and any other list method, is another boundary.
+Each remaining subchain of two or more operations is considered separately.
+
+Fusion changes stage-at-a-time execution into element-at-a-time execution.
+The compiler therefore fuses a subchain only when every callback closure and
+its statically known call graph are proven to have no observable effect and no
+operation that can panic. I/O, global writes, mutable captures, unknown or
+recursive callees, checked indexing, and integer division or remainder by a
+value not proven nonzero all prevent fusion. Immutable captures of trivial
+values are allowed. Named functions, anonymous closures, generic instances,
+and method calls inside a closure are otherwise equivalent: their lowered
+bodies must pass the same proof. This is a compiler proof, not a promise made
+by the hint.
+
+Only trivial-lifetime values may cross an eliminated intermediate-list
+boundary. Numeric values, `Bool`, pointers, and objects with neither `nocopy`
+nor drop work qualify. A `String`, list, closure, rc or weak rc handle,
+nullable or enum with owned payload, `nocopy` value, interface value, or object
+with a drop hook or owned field makes that boundary materialize. A later
+trivial subchain may still fuse. This rule preserves copy hooks, destructor
+calls, reference counts, and their order. Source and final result lists may
+contain owned elements because they still exist and retain their ordinary
+lifetime.
+
+The fused loop visits source elements in list order. `map` transforms the
+current element, `filter` skips it when its predicate is false, `reduce`
+updates its accumulator from the supplied initial value, `sum` starts from
+the type's zero value, and `forEach` calls its callback. An empty source calls
+no callbacks, returns the `reduce` initial value or the zero sum, and produces
+an empty list for a collection terminal. A panic outside a fused subchain and
+all observable effects retain ordinary stage order.
+
+Nested pipelines are analyzed independently, including a pipeline in a
+callback that causes its outer chain to remain unfused. A pipeline in a
+parallel loop body is local to that body and uses the same rules; fusion does
+not parallelize a loop or change synchronization. A `layout: soa` list may be
+the source or the collection result. The fused loop gathers each source
+element through the layout-aware read helper and creates a result with the
+result type's requested layout. Fusion never changes list order or layout.
 
 ### 5.3 Objects
 

@@ -1,0 +1,25 @@
+// @fusion-loops: 3
+
+//iron:fusible
+func plus_one(x: Int) -> Int {
+    return x + 1
+}
+
+//iron:fusible
+func yes(x: Int) -> Bool {
+    return x > 0
+}
+
+//iron:fusible
+func add(a: Int, b: Int) -> Int {
+    return a + b
+}
+
+func main() {
+    var xs = [0]
+    xs.pop()
+    println("{xs.map(plus_one).sum()}")
+    println("{xs.filter(yes).reduce(41, add)}")
+    val kept = xs.map(plus_one).filter(yes)
+    println("{kept.len()}")
+}

@@ -312,6 +312,12 @@ static void analyze_array_param_modes(IronLIR_Module *module,
              * the list itself (emit_c.c main wrapper), never by Iron code
              * that would pass a pointer and a length. */
             if (fn->name && strcmp(fn->name, "main") == 0) continue;
+            /* Lifted functions are invoked through a closure, spawn, or
+             * parallel-loop ABI whose function type still contains one
+             * list value. Rewriting only the lifted C signature to
+             * pointer+length makes indirect callers pass the wrong number
+             * and shape of arguments (#848). */
+            if (fn->name && strncmp(fn->name, "__", 2) == 0) continue;
 
             for (int pi = 0; pi < fn->param_count; pi++) {
                 Iron_Type *pt = fn->params[pi].type;

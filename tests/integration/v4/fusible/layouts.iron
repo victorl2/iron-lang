@@ -1,0 +1,30 @@
+// @fusion-loops: 2
+
+object Point {
+    val x: Int
+    val y: Int
+}
+
+//iron:fusible
+func x_of(p: Point) -> Int {
+    return p.x
+}
+
+//iron:fusible
+func positive(x: Int) -> Bool {
+    return x > 0
+}
+
+//iron:fusible
+func right_half(p: Point) -> Bool {
+    return p.x > 0
+}
+
+func main() {
+    val points: [Point, layout: soa] = [Point(-1, 2), Point(3, 4), Point(5, 6)]
+    println("{points.map(x_of).filter(positive).sum()}")
+
+    val kept: [Point, layout: soa] = points.filter(right_half).filter(
+        func(p: Point) -> Bool { return p.y < 6 })
+    println("{kept.len()} {kept[0].x} {kept[0].y}")
+}

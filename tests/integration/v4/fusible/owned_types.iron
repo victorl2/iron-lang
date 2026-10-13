@@ -1,0 +1,41 @@
+// @fusion-loops: 1
+
+object Ref {
+    val id: Int
+}
+
+//iron:fusible
+func text(x: Int) -> String {
+    return "item-{x}-padding-padding"
+}
+
+//iron:fusible
+func text_size(x: String) -> Int {
+    return x.len()
+}
+
+//iron:fusible
+func wrapped(x: Int) -> [Int] {
+    return [x, x + 10]
+}
+
+//iron:fusible
+func first(x: [Int]) -> Int {
+    return x[0]
+}
+
+//iron:fusible
+func shared(x: Int) -> rc Ref {
+    return rc Ref(x)
+}
+
+//iron:fusible
+func ref_id(x: rc Ref) -> Int {
+    return x.id
+}
+
+func main() {
+    println("{[1, 2].map(text).map(text_size).sum()}")
+    println("{[3, 4].map(wrapped).map(first).sum()}")
+    println("{[5, 6].map(shared).map(ref_id).sum()}")
+}
