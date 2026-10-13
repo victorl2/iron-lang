@@ -1,6 +1,6 @@
 # HTTP benchmark baseline
 
-Measured 2026-10-12 at commit `0555f414b2412efca7c66882067276e868ce365d`.
+Measured 2026-10-13 at commit `f1f1d2c0c64ea7a23c17f21a3743c4734f88cd4e`.
 
 | Setting | Value |
 |---|---|
@@ -22,24 +22,24 @@ bench/http/run.sh build-http-release --samples 15 --warmup 3 \
 
 | Workload | Iron GB/s | Iron Mmsg/s | pico GB/s | pico Mmsg/s | Iron/pico |
 |---|---:|---:|---:|---:|---:|
-| Small GET | 0.070 (+/- 2.0%) | 1.997 (+/- 2.0%) | 0.957 (+/- 9.9%) | 27.353 (+/- 9.9%) | 0.073 |
-| Browser-like request | 0.124 (+/- 3.2%) | 0.199 (+/- 3.2%) | 1.438 (+/- 17.6%) | 2.305 (+/- 17.6%) | 0.086 |
-| 1 MiB chunked upload | 1.819 (+/- 9.8%) | 0.002 (+/- 9.8%) | 20.489 (+/- 5.0%) | 0.020 (+/- 5.0%) | 0.089 |
-| 128-request pipeline | 0.059 (+/- 2.8%) | 1.676 (+/- 2.8%) | 1.331 (+/- 9.7%) | 38.029 (+/- 9.7%) | 0.044 |
+| Small GET | 0.096 (+/- 2.4%) | 2.744 (+/- 2.4%) | 1.401 (+/- 5.5%) | 40.026 (+/- 5.5%) | 0.069 |
+| Browser-like request | 0.229 (+/- 3.7%) | 0.367 (+/- 3.7%) | 2.177 (+/- 7.2%) | 3.488 (+/- 7.2%) | 0.105 |
+| 1 MiB chunked upload | 2.253 (+/- 11.9%) | 0.002 (+/- 11.9%) | 21.362 (+/- 7.2%) | 0.020 (+/- 7.2%) | 0.105 |
+| 128-request pipeline | 0.090 (+/- 1.5%) | 2.567 (+/- 1.5%) | 1.428 (+/- 5.8%) | 40.801 (+/- 5.8%) | 0.063 |
 
 ### Response serialization
 
 | Workload | Iron GB/s | Iron Mmsg/s | C GB/s | C Mmsg/s | Iron/C |
 |---|---:|---:|---:|---:|---:|
-| 2-byte response | 0.243 (+/- 4.0%) | 2.334 (+/- 4.0%) | 1.592 (+/- 8.4%) | 15.312 (+/- 8.4%) | 0.152 |
-| 4 KiB response | 7.966 (+/- 4.9%) | 1.896 (+/- 4.9%) | 32.347 (+/- 14.3%) | 7.700 (+/- 14.3%) | 0.246 |
-| 1 MiB response | 9.424 (+/- 6.2%) | 0.009 (+/- 6.2%) | 29.299 (+/- 7.4%) | 0.028 (+/- 7.4%) | 0.322 |
+| 2-byte response | 0.451 (+/- 3.5%) | 4.338 (+/- 3.5%) | 1.781 (+/- 4.7%) | 17.129 (+/- 4.7%) | 0.253 |
+| 4 KiB response | 13.114 (+/- 5.3%) | 3.122 (+/- 5.3%) | 43.459 (+/- 11.7%) | 10.345 (+/- 11.7%) | 0.302 |
+| 1 MiB response | 10.306 (+/- 4.9%) | 0.010 (+/- 4.9%) | 29.215 (+/- 5.6%) | 0.028 (+/- 5.6%) | 0.353 |
 
 ### End to end
 
 | Workload | Iron requests/s | pico requests/s | Iron/pico |
 |---|---:|---:|---:|
-| Minimal persistent server | 115255.371 (+/- 11.7%) | 139337.307 (+/- 7.4%) | 0.827 |
+| Minimal persistent server | 119318.236 (+/- 5.0%) | 128437.213 (+/- 15.2%) | 0.929 |
 
 Bytes include HTTP framing. The parse results include model allocation and
 release for Iron and chunk decoding for both implementations. The end-to-end
