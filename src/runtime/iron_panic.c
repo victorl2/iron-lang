@@ -572,9 +572,9 @@ void iron_list_pinned_panic(const void *buf) {
         fputs("{\"panic\":\"list_borrowed\"}\n", stderr);
     } else {
         fputs("iron: list changed while a pointer to one of its elements is in use\n", stderr);
-        fputs("  a call that received a pointer into the list (or a method called on one of\n"
-              "  its elements) is still running; the list cannot grow past its capacity,\n"
-              "  lose elements or be freed until it returns\n", stderr);
+        fputs("  a call that received a pointer into the list, a method called on one of\n"
+              "  its elements or a for loop over the list is still running; the list cannot\n"
+              "  grow past its capacity, lose elements or be freed until it is done\n", stderr);
     }
     fflush(stdout);
     fflush(stderr);

@@ -263,6 +263,45 @@ func main() {
 }
 ```
 
+`static func` declares a function of the type, called as `Type.f(args)`, with
+no `self`. Calling a method through the type name (`Cat.describe()`) is an
+error: it needs a value. Interfaces may declare static functions and use
+`Self` (the implementing type) in signatures; a generic function calls them
+on a constrained type parameter, `T.parse(text)`. A static function, or a
+method taking `Self`, cannot be called through a value of interface type.
+
+```iron
+interface Parse {
+    static func parse(text: String) -> Self?
+}
+
+object Num impl Parse {
+    val n: Int
+    static func parse(text: String) -> Self? {
+        if text.len() == 0 {
+            return null
+        }
+        return Num(text.len())
+    }
+}
+
+func parse_or[T: Parse](text: String, fallback: T) -> T {
+    val v = T.parse(text)
+    if v != null {
+        return v
+    }
+    return fallback
+}
+
+func main() {
+    println("{parse_or("abc", Num(0)).n} {parse_or("", Num(7)).n}")
+}
+```
+
+```output
+3 7
+```
+
 
 ## Enums and generics
 
@@ -394,12 +433,14 @@ capitalized module object: `import io` then `IO.read_file(path)`,
 
 | Import | Object | Contents |
 |---|---|---|
-| `io` | `IO` | files and directories (`read_file`, `write_file`, `read_text`, `list_files`, ...) |
+| `io` | `IO` | files and directories (`read_file`, `write_file`, `read_text`, `list_files`, ...), `write_stdout` / `write_stderr` |
 | `math` | `Math` | `sqrt`, `sin`, `pow`, `floor`, `random`, `PI`, ... |
-| `time` | `Time` | `now`, `now_ms`, `sleep`, timers |
+| `time` | `Time` | `now`, `unix_ms` (wall clock), `now_ms` and `now_ns` (monotonic), `sleep`, timers |
+| `atomic` | `AtomicInt`, `AtomicBool` | lock-free counters and flags shared by tasks (`add`, `get`, `set`, `swap`, `compare_and_set`) |
+| `os` | `OS` | environment (`env`, `env_or`), `trap_shutdown_signals` / `shutdown_signal`, `exit`, `pid`, `cpu_count` |
 | `log` | `Log` | `info`, `warn`, `error`, `debug`, `set_level` |
 | `net` | | TCP, UDP, DNS |
-| `http` | | HTTP/HTTPS clients and servers |
+| `http` | | HTTP/HTTPS clients and servers; `Http.poller` for keep-alive servers |
 | `websocket` | | WS/WSS clients and server upgrades |
 | `url` | | URL parsing and encoding |
 | `json` | `Json` | JSON values, `parse`, `to_string`, `JsonWriter`, `JsonReader` |

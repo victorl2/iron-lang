@@ -102,12 +102,20 @@ if(IRON_BUILD_GRAMMARS AND IRON_NPM_EXECUTABLE AND IRON_NODE_EXECUTABLE AND BASH
         FIXTURES_SETUP tree_sitter_deps
         TIMEOUT 180)
 
+    # tree-sitter compiles the grammar into a library it caches per user
+    # (~/.cache/tree-sitter/lib/iron.*), shared by every checkout: a run in
+    # another worktree replaced it and these tests parsed with that
+    # worktree's grammar. Each build directory keeps its own.
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/tree-sitter-lib")
+    set(_gr_ts_env "TREE_SITTER_LIBDIR=${CMAKE_BINARY_DIR}/tree-sitter-lib")
+
     add_test(NAME test_tree_sitter_corpus
         COMMAND ${BASH_EXECUTABLE}
                 "${CMAKE_SOURCE_DIR}/tests/grammars/tree_sitter/run_corpus.sh")
     set_tests_properties(test_tree_sitter_corpus PROPERTIES
         LABELS "phase-m5-invariant"
         FIXTURES_REQUIRED tree_sitter_deps
+        ENVIRONMENT "${_gr_ts_env}"
         SKIP_RETURN_CODE 77
         TIMEOUT 60)
 
@@ -117,6 +125,7 @@ if(IRON_BUILD_GRAMMARS AND IRON_NPM_EXECUTABLE AND IRON_NODE_EXECUTABLE AND BASH
     set_tests_properties(test_tree_sitter_parses_integration_corpus PROPERTIES
         LABELS "phase-m5-invariant"
         FIXTURES_REQUIRED tree_sitter_deps
+        ENVIRONMENT "${_gr_ts_env}"
         SKIP_RETURN_CODE 77
         TIMEOUT 120)
 
@@ -134,6 +143,7 @@ if(IRON_BUILD_GRAMMARS AND IRON_NPM_EXECUTABLE AND IRON_NODE_EXECUTABLE AND BASH
     set_tests_properties(test_tree_sitter_v4_rules PROPERTIES
         LABELS "phase-m5-invariant;phase35-invariant"
         FIXTURES_REQUIRED tree_sitter_deps
+        ENVIRONMENT "${_gr_ts_env}"
         SKIP_RETURN_CODE 77
         TIMEOUT 60)
 
@@ -145,8 +155,24 @@ if(IRON_BUILD_GRAMMARS AND IRON_NPM_EXECUTABLE AND IRON_NODE_EXECUTABLE AND BASH
     set_tests_properties(test_tree_sitter_queries PROPERTIES
         LABELS "phase-m5-invariant"
         FIXTURES_REQUIRED tree_sitter_deps
+        ENVIRONMENT "${_gr_ts_env}"
         SKIP_RETURN_CODE 77
         TIMEOUT 120)
+
+    # The grammar accepts what the compiler's parser accepts, on generated
+    # programs and mutants (tests/fuzz/ts_diff.py, fixed seed).
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_EXECUTABLE)
+        add_test(NAME test_tree_sitter_differential
+            COMMAND ${BASH_EXECUTABLE}
+                    "${CMAKE_SOURCE_DIR}/tests/grammars/tree_sitter/ts_differential.sh"
+                    ${Python3_EXECUTABLE} $<TARGET_FILE:ironc>)
+        set_tests_properties(test_tree_sitter_differential PROPERTIES
+            LABELS "phase-m5-invariant;fuzz"
+            FIXTURES_REQUIRED tree_sitter_deps
+            SKIP_RETURN_CODE 77
+            TIMEOUT 300)
+    endif()
 
     # The committed generated parser (read by Zed) matches grammar.js.
     add_test(NAME test_tree_sitter_parser_in_sync

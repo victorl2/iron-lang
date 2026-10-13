@@ -232,6 +232,10 @@ IronLIR_FuncSummaryEntry *iron_lir_compute_func_summaries(IronLIR_Module *module
                     if (in->kind != IRON_LIR_CALL) continue;
 
                     const char *callee = resolve_callee_name(fn, in);
+                    /* A for loop's pin on its list (#734) frees nothing. */
+                    if (callee && (strcmp(callee, "$iter_pin") == 0 ||
+                                   strcmp(callee, "$iter_unpin") == 0))
+                        continue;
                     if (!callee) {
                         /* extern / indirect-unresolved → fully pessimistic. */
                         summary_or_into(&cur, iron_lir_func_summary_pessimistic());

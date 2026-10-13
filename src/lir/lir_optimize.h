@@ -160,6 +160,9 @@ void iron_lir_prune_stack_scopes(IronLIR_Module *module);
 
 /* Look up the array parameter mode. Non-static so emit_c.c can call it.
  * Note: stb_ds shgeti modifies the map header internally, so info cannot be const. */
+/* Whether `value` is an operand of `instr`. */
+bool iron_lir_instr_uses_value(const IronLIR_Instr *instr, IronLIR_ValueId value);
+
 ArrayParamMode iron_lir_get_array_param_mode(IronLIR_OptimizeInfo *info,
                                              const char *func_name,
                                              int param_index,

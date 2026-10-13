@@ -163,6 +163,36 @@ A deleted check would have passed, so (1) and (2) are unaffected.
 - A `var` parameter takes a variable of the caller (E0267 otherwise), which
   outlives the call.
 
+## I8. List layouts and loops
+
+A `layout: soa` list keeps a column per field in one block. The rules for
+element pointers are the same in both layouts, and the fixtures
+`ptr_list_aos_*` / `ptr_list_soa_*` run the same programs in each:
+
+- `&ps[i].x` as a call argument points into the list's buffer (the element
+  in the default layout, the column block in soa); `&ps[i]` in soa points at
+  a gathered copy in the caller's frame that is stored back after the call.
+  Either way the pointer carries the generation of the pin made for the
+  call and is stale once the call returns, so a copy the callee keeps
+  never reads the buffer, or the frame, later.
+- The pin is on the list's buffer (`items`: the element array or the column
+  block). Growth past the capacity, `pop`, `remove`, `insert`, `clear` and
+  the free of a pinned list panic in both layouts (the list methods of
+  emit_structs.c and of the IRON_LIST_IMPL macros check the pin).
+- E0330 rejects the address of an element, or of anything stored inside
+  one, anywhere but directly as a call argument, in both layouts.
+
+A `for` loop over a growable list reads its elements through the list
+value it took before the first iteration. The body may not change the
+list it iterates (E0346 when the body does it directly), and for what the
+compiler cannot see the loop pins the buffer like a call that borrows an
+element (`$iter_pin` / `$iter_unpin`, the unpin on a scope around the loop
+so that every exit runs it). `prune_iter_pins` removes the pin of a loop
+whose body has no instruction that could change a list: no free, release,
+spawn or await, and no call except to functions whose summary shows
+neither (printing is the one runtime call treated as harmless). A
+temporary list and a list kept as a stack array need no pin.
+
 ## Known limits
 
 - 2^30 live slots, 4095 attached threads, 1,048,575 nested scopes: the
@@ -172,6 +202,8 @@ A deleted check would have passed, so (1) and (2) are unaffected.
   object's drop block holds a pointer back into the owner) is not caught:
   a value's generation ends after its whole destruction.
 - Unchecked pointers (`*unchecked T`, `Box`, `RawPtr`) are not covered.
+- A loop over a `Map` or a `Set` is not pinned: the body must not add or
+  remove entries (manual 9.10).
 
 ## Tests
 

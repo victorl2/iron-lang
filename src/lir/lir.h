@@ -712,6 +712,8 @@ struct IronLIR_Func {
      * elided because none of them escapes (emit_scope_gen falls back to
      * the generation live at entry, _iron_fg). */
     bool               has_addr_of;
+    /* From IronHIR_Func.is_user_func (#524). */
+    bool               is_user_func;
 
     /* PARM-02: see the block comment above web_frame_captures. */
     bool              *param_is_var;

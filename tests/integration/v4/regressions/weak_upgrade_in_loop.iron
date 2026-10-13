@@ -1,0 +1,20 @@
+-- upgrade() of a weak rc inside a loop body (its result is hoisted): no
+-- unused expression statement in the C (#596).
+object Ta {
+    val v: Int
+}
+
+func main() {
+    val a = rc Ta(5)
+    val w = a.downgrade()
+    for i in range(2) {
+        {
+            val o = w.upgrade()
+            if o != null {
+                println("alive {o.v} {i}")
+            } else {
+                println("gone")
+            }
+        }
+    }
+}

@@ -81,6 +81,7 @@ Exit status 1 when any program fails; failing programs are kept under
 OUTDIR/fail/.
 """
 import glob
+import json
 import os
 import random
 import re
@@ -94,7 +95,7 @@ from pf_lang import Bail, Expected  # noqa: E402
 
 AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime',
          'numedge', 'genedge', 'ptredge', 'ctedge', 'strcoll', 'dropord',
-         'sync', 'arenax', 'jsonp', 'crypto', 'http', 'ptrlife')
+         'sync', 'arenax', 'jsonp', 'crypto', 'http', 'soa', 'ptrlife')
 
 
 def generator(area):
@@ -125,6 +126,9 @@ def expected_of(g, cached=False):
                  panic=getattr(m, 'panic', None) or getattr(g, 'expect_panic', None))
     e.leaks_ok = bool(getattr(m, 'leaks_ok', False) or getattr(g, 'leaks_ok', False)
                       or e.panic)
+    # output the model does not predict (pf_soa: copy and drop hooks); the
+    # program is checked by comparing its two layouts
+    e.any_output = bool(getattr(g, 'any_output', False))
     # files the program reads (comptime read_file), written next to it
     e.files = dict(getattr(g, 'files', None) or {})
     return e
@@ -140,6 +144,7 @@ def make_program(area, seed):
 SAN_COMMON = ['-g', '-O1', '-fno-omit-frame-pointer', '-std=gnu17', '-fwrapv',
               '-fno-strict-aliasing', '-ffp-contract=off', '-Wno-integer-overflow', '-w']
 SAN_FLAGS = {
+    'plain': ['-O3'],
     'asan': ['-fsanitize=address,undefined', '-fno-sanitize-recover=undefined'],
     'tsan': ['-fsanitize=thread'],
     # helgrind / DRD: the runtime's happens-before annotations on (neither
@@ -207,6 +212,20 @@ def check(ironc, outdir, area, seed, mode='plain', rtlib=None):
     src_text, expected = make_program(area, seed)
     d = os.path.join(outdir, f'{area}_{seed}')
     st, msg, _ = check_text(ironc, d, f'{area}_{seed}', src_text, expected, mode, rtlib)
+    if st == 'ok' and area == 'soa':
+        # Keep the same source basename and lines, so panic sites compare
+        # exactly after replacing only the differing absolute directory.
+        aos = os.path.join(d, 'aos')
+        aos_text = src_text.replace(', layout: soa]', ']')
+        st, msg, _ = check_text(ironc, aos, f'{area}_{seed}', aos_text, expected, mode, rtlib)
+        if st == 'ok':
+            def outcome(path):
+                with open(os.path.join(path, 'outcome.json'), encoding='utf-8') as f:
+                    value = json.load(f)
+                value['panic'] = value['panic'].replace(path, '<program>')
+                return value
+            if outcome(d) != outcome(aos):
+                st, msg = 'wrong', 'SoA and AoS output, exit code or panic differs'
     if st == 'ok':
         shutil.rmtree(d, ignore_errors=True)
     return st, msg
@@ -238,7 +257,7 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None, bui
             if st[0] != 'ok':
                 return (st[0], '[' + (' '.join(flags) or 'default') + '] ' + st[1], st[2])
         return st
-    if mode in ('asan', 'tsan'):
+    if mode in ('asan', 'tsan') or (mode == 'plain' and rtlib):
         b = asan_build(ironc, src, d, exe, rtlib, mode)
     elif mode in ('helgrind', 'drd') and rtlib:
         b = asan_build(ironc, src, d, exe, rtlib, 'vg')
@@ -269,9 +288,9 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None, bui
         cmd = ['valgrind', '--quiet', f'--tool={mode}', '--error-exitcode=99',
                f'--suppressions={VG_SUPP}', exe]
     if mode == 'asan':
-        # LeakSanitizer does not run on macOS
-        lk = 0 if (leaks_ok or sys.platform == 'darwin') else 1
-        env['ASAN_OPTIONS'] = (f'detect_leaks={lk}:abort_on_error=0:exitcode=99:'
+        # (LeakSanitizer does not exist on macOS: asking for it ends the run)
+        leaks = 0 if leaks_ok or sys.platform == 'darwin' else 1
+        env['ASAN_OPTIONS'] = (f'detect_leaks={leaks}:abort_on_error=0:exitcode=99:'
                                'detect_stack_use_after_return=1')
         env['UBSAN_OPTIONS'] = 'print_stacktrace=1:halt_on_error=1'
     if mode == 'tsan':
@@ -293,6 +312,13 @@ def run_once(cmd, env, expected, panic, d, mode):
                            errors='replace')
     except subprocess.TimeoutExpired:
         return 'timeout', '', ('timeout', '')
+    # Panic identity excludes stack traces, whose addresses vary per run.
+    # Retain the panic header and source site, excluding native stack frames.
+    panic_line = '\n'.join(line for line in r.stderr.splitlines()
+                           if line.startswith('iron:') or line.startswith('  site:')
+                           or line.startswith('{\"panic\":')) if panic else ''
+    with open(os.path.join(d, 'outcome.json'), 'w', encoding='utf-8') as f:
+        json.dump({'stdout': r.stdout, 'returncode': r.returncode, 'panic': panic_line}, f)
     got = r.stdout.splitlines()
     with open(os.path.join(d, 'got.txt'), 'w', encoding='utf-8') as f:
         f.write(r.stdout + ('\n-- stderr:\n' + r.stderr[:4000] if r.stderr else ''))
@@ -301,7 +327,7 @@ def run_once(cmd, env, expected, panic, d, mode):
     if 'Sanitizer' in r.stderr or 'definitely lost' in r.stderr:
         err1 = next((l for l in r.stderr.splitlines() if 'Sanitizer' in l or 'lost' in l), err1)
     sig = ('rc' if r.returncode else 'ok', norm(err1))
-    if got != expected:
+    if got != expected and not getattr(expected, 'any_output', False):
         sig = ('wrong',) + sig
         for i, (x, y) in enumerate(zip(expected, got)):
             if x != y:
@@ -538,7 +564,7 @@ SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure'
          'numedge': range(1, 49), 'strcoll': range(1, 49), 'genedge': range(1, 49),
          'ptredge': range(1, 49), 'ctedge': range(1, 25), 'dropord': range(1, 25),
          'sync': range(1, 9), 'arenax': range(1, 9), 'jsonp': range(1, 7), 'crypto': range(1, 7),
-         'http': range(1, 5),
+         'http': range(1, 5), 'soa': range(1, 25),
          'ptrlife': range(1, 41), 'ptrlife_opts': range(1001, 1013)}
 # `--suite IRONC OUTDIR` runs these; the other areas have ctest entries of
 # their own (`--suite IRONC OUTDIR conc`, `... num generic ptr comptime`,
@@ -595,6 +621,9 @@ def main(argv):
                 i += 1
         elif argv[i] == '--runs':
             os.environ['PF_RUNS'] = argv[i + 1]
+            i += 1
+        elif argv[i] == '--cached-runtime':
+            rtlib = build_asan_rt(argv[i + 1], 'plain')
             i += 1
         elif argv[i] in ('--asan', '--tsan'):
             mode = argv[i][2:]

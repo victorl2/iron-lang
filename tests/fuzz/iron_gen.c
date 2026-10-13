@@ -310,6 +310,7 @@ static const char *iron_gen_keyword_lit(Iron_TokenKind kind) {
         case IRON_TOK_LEAK:      return "leak";
         case IRON_TOK_FREE:      return "free";
         case IRON_TOK_SUPER:     return "super";
+        case IRON_TOK_STATIC:    return "static";
         case IRON_TOK_SELF:      return "self";
         case IRON_TOK_IS:        return "is";
         case IRON_TOK_NOT:       return "not";

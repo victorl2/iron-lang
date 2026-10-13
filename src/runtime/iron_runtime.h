@@ -90,6 +90,8 @@ void   iron_mem_free(void *ptr);
 extern _Atomic uint64_t iron_list_pin_count;
 uint64_t iron_list_pin(const void *buf);
 void     iron_list_unpin(const void *buf, uint64_t gen);
+void     iron_list_iter_pin(const void *buf);     /* a for loop over the list (#734) */
+void     iron_list_iter_unpin(const void *buf);
 void     iron_list_pinned_panic(const void *buf);
 bool     iron_list_is_pinned(const void *buf);
 /* Receiver pins of interface values (#650): a method dispatched on an
@@ -143,7 +145,7 @@ IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_null_box(void) {
 #define iron_panic_null_box() iron_dbg_panic_null_box()
 #endif
 /* FileHandle.open(path) (write mode) / close: the descriptor, or -1. */
-int    iron_filehandle_open(const char *path);
+int    iron_filehandle_open(const char *path, size_t len);
 void   iron_filehandle_close(int fd);
 
 /* ── Atomics: C11 on every platform ──────────────────────────────────────── */
@@ -1102,8 +1104,23 @@ IRON_CHECK_FN void iron_check_ptr(Iron_FatPtr fp, const char *deref_file, int de
  * Every runtime thread (spawned tasks, the language server's workers) gets
  * the main thread's usual 8 MB stack: secondary threads otherwise get the
  * platform default (512 KB on macOS), where deep recursion overflowed. */
+/* Sanitizer builds give a stack frame many times its release size (the
+ * type checker's check_expr_impl is 2.5 KB in a release build and 66 KB
+ * under ASan at -O0), so nesting a release build handles overflowed 8 MB
+ * there (#590): their threads get 256 MB of (lazily committed) stack. */
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#define IRON_SANITIZED_BUILD 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+#define IRON_SANITIZED_BUILD 1
+#endif
+#endif
 #ifndef IRON_THREAD_STACK_SIZE
+#ifdef IRON_SANITIZED_BUILD
+#define IRON_THREAD_STACK_SIZE ((size_t)256 * 1024 * 1024)
+#else
 #define IRON_THREAD_STACK_SIZE ((size_t)8 * 1024 * 1024)
+#endif
 #endif
 typedef struct { _Alignas(16) unsigned char opaque[64];  } iron_mutex_t;
 typedef struct { _Alignas(16) unsigned char opaque[64];  } iron_cond_t;
@@ -1202,6 +1219,8 @@ size_t       iron_string_codepoint_count(const Iron_String *s);
 bool         iron_string_equals(const Iron_String *a, const Iron_String *b);
 int          iron_string_compare(const Iron_String *a, const Iron_String *b);
 Iron_String  iron_string_concat(const Iron_String *a, const Iron_String *b);
+/* `s += t`: like concat, growing a uniquely owned buffer in place (#597). */
+Iron_String  iron_string_concat_append(const Iron_String *a, const Iron_String *b);
 Iron_String  iron_string_intern(Iron_String s);
 /* Consumes one owned string value. Heap-backed interned literals remain owned
  * by the runtime and are ignored; non-interned heap storage is freed. Any
@@ -2310,6 +2329,19 @@ Iron_List_Iron_String iron_runtime_args(void);
 /* os.iron (iron_os.c). */
 bool        Iron_os_has_env(Iron_String name);
 Iron_String Iron_os_env_or(Iron_String name, Iron_String fallback);
+void        Iron_os_trap_shutdown_signals(void);
+int64_t     Iron_os_shutdown_signal(void);
+int64_t     Iron_os_pid(void);
+void        Iron_os_exit(int64_t code);
+int64_t     Iron_os_cpu_count(void);
+/* atomic.iron (iron_threads.c): a heap int64 operated on atomically. */
+int64_t     Iron_atomicnative_new(int64_t v);
+void        Iron_atomicnative_free(int64_t h);
+int64_t     Iron_atomicnative_load(int64_t h);
+void        Iron_atomicnative_store(int64_t h, int64_t v);
+int64_t     Iron_atomicnative_add(int64_t h, int64_t d);
+int64_t     Iron_atomicnative_swap(int64_t h, int64_t v);
+bool        Iron_atomicnative_cas(int64_t h, int64_t expected, int64_t desired);
 IRON_LIST_DECL(Iron_Closure, Iron_Closure)
 /* Phase 68 (Plan 68-01): ABI-FLOAT32 + ABI-UINT8 primitive list types.
  * Suffix matches ironc's emit_type_to_c output (emit_helpers.c:151):

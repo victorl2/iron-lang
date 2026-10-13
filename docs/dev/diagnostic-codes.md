@@ -541,12 +541,25 @@ parser/typecheck sites land in Plan 27-02.
 | E0334 | `IRON_ERR_NOT_STRINGABLE` | type 'T' cannot be interpolated into a string | `{x}` where x is not a number, Bool, String, enum, their nullable, or an object with a readonly `to_string() -> String`; also fired when `to_string()` is not readonly. Replaced the W0602 warning, which let invalid C through. |
 | E0335 | `IRON_ERR_LOOP_JUMP_OUTSIDE` | 'break' outside a loop / 'continue' in a parallel for | `break` or `continue` outside a `while` or `for` of the same function body (including inside a lambda, `defer` or `spawn` body within a loop), or in a `parallel` loop. |
 | E0336 | `IRON_ERR_RETURN_IN_DEFER` | 'return' inside a defer body | `return` in a `defer` statement or block, which runs while its scope exits (a lambda inside the defer body may return from itself). |
+| E0346 | `IRON_ERR_LIST_CHANGED_IN_LOOP` | cannot add to list 'xs' inside a for loop over it | `push`, `insert`, `pop`, `remove`, `clear`, `take` or an assignment to the list binding a `for` loop of the same body iterates (not inside a lambda, which the loop's run-time pin covers). |
 
 ## Global initialization (§5.7)
 
 | Code | Symbol | Message | Notes |
 |------|--------|---------|-------|
-| E0345 | `IRON_ERR_GLOBAL_INIT_CYCLE` | initialization cycle: global 'A' depends on 'B', which depends on 'A' | A global's initializer reads the global itself, directly or through the functions, methods and initializers it calls. Globals are otherwise initialized after the globals they read, whatever file declares them. |
+| E0345 | `IRON_ERR_GLOBAL_INIT_CYCLE` | initialization cycle: global 'A' depends on 'B', which depends on 'A' | A global's initializer reads the global itself, directly or through the functions, methods and initializers it calls. Globals are otherwise initialized after the globals they read, whatever file declares them and whether they are declared above or below. |
+
+## Static functions and Self in interfaces (#455)
+
+| Code | Symbol | Message | When |
+|---|---|---|---|
+| E0350 | `IRON_ERR_STATIC_ON_VALUE` | 'f' is a static function of 'T', not a method | `v.f()` on a static function; it is called on the type, `T.f()`. |
+| E0351 | `IRON_ERR_METHOD_ON_TYPE` | 'm' is a method of 'T' and needs a value to call it on | `T.m()` on a method of a program's own type: there is no value for `self` (it used to run on an uninitialized one). |
+| E0352 | `IRON_ERR_IFACE_STATIC_MISMATCH` | 'T.f' implements static function 'I.f' but is not static (or the reverse) | The implementor's `static` differs from the interface signature. |
+| E0353 | `IRON_ERR_IFACE_SIGNATURE` | parameter N of 'T.f' is 'X' but 'I.f' declares 'Y' / 'T.f' returns 'X' but 'I.f' declares 'Y' | The implementor's parameters (types, `var`, count) or result differ from the interface signature, with `Self` standing for the implementor. |
+| E0354 | `IRON_ERR_IFACE_VALUE_CALL` | 'f' is a static function of interface 'I' and cannot be called through an interface value | Calling a static function, a method with a `Self` parameter or a method returning a type built from `Self` (other than `-> Self`) through a value of interface type. |
+| E0355 | `IRON_ERR_CONSTRAINT_NO_STATIC` | constraint 'I' of type parameter 'T' declares no static function 'f' | `T.f()` in a generic body where T's constraint does not declare `static func f` (or T has no constraint). |
+| E0356 | `IRON_ERR_GENERATED_ONLY` | '__fields' is reserved for code the compiler generates | `T.__fields(...)` (memberwise construction without an init) or a member named `__fields` outside compiler-generated code. |
 
 ## Adding new codes
 

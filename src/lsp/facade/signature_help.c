@@ -80,8 +80,27 @@ static const char *render_type_ann(Iron_Node *n, Iron_Arena *arena) {
     if (n->kind == IRON_NODE_TYPE_ANNOTATION) {
         Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)n;
         SB tmp; sb_init(&tmp, arena);
+        /* Wrappers hold their type in an inner annotation and have no
+         * name of their own: `rc T`, `weak rc T`, `*T`, `[rc T]`. */
+        if (ta->is_pointer && ta->pointer_pointee) {
+            if (ta->is_nullable) sb_append(&tmp, "?");
+            sb_append(&tmp, ta->is_var_pointer ? "*var " : "*");
+            if (ta->is_unchecked) sb_append(&tmp, "unchecked ");
+            sb_append(&tmp, render_type_ann(ta->pointer_pointee, arena));
+            return tmp.buf ? tmp.buf : "Unknown";
+        }
         if (ta->is_array) sb_append(&tmp, "[");
-        sb_append(&tmp, ta->name ? ta->name : "Unknown");
+        if (ta->is_weak_rc && ta->weak_rc_inner) {
+            sb_append(&tmp, "weak rc ");
+            sb_append(&tmp, render_type_ann(ta->weak_rc_inner, arena));
+        } else if (ta->is_rc && ta->rc_inner) {
+            sb_append(&tmp, "rc ");
+            sb_append(&tmp, render_type_ann(ta->rc_inner, arena));
+        } else if (ta->is_array && !ta->name && ta->array_elem_ann) {
+            sb_append(&tmp, render_type_ann(ta->array_elem_ann, arena));
+        } else {
+            sb_append(&tmp, ta->name ? ta->name : "Unknown");
+        }
         if (ta->is_array) sb_append(&tmp, "]");
         if (ta->is_nullable) sb_append(&tmp, "?");
         return tmp.buf ? tmp.buf : "Unknown";
@@ -196,7 +215,10 @@ static void build_sig_info(IronLsp_SignatureInfo *out,
     }
 
     out->label = label.buf ? label.buf : "";
-    out->documentation = fd ? fd->doc_comment : (md ? md->doc_comment : NULL);
+    /* Copied: the declaration lives in the analysis arena, freed before
+     * the caller serializes the result. */
+    const char *dc = fd ? fd->doc_comment : (md ? md->doc_comment : NULL);
+    out->documentation = dc ? iron_arena_strdup(arena, dc, strlen(dc)) : NULL;
     out->parameter_offsets = offs;
     out->parameter_count   = total;
 }
@@ -365,6 +387,11 @@ static bool find_call_visit(Iron_Visitor *v, Iron_Node *n) {
 static void sig_from_label(IronLsp_SignatureInfo *out, const char *label,
                            const char *doc_comment, Iron_Arena *arena) {
     memset(out, 0, sizeof(*out));
+    /* Copied into the caller's arena: a doc comment (and some labels)
+     * live in the analysis arena, which is freed before the caller
+     * serializes the result. */
+    if (label) label = iron_arena_strdup(arena, label, strlen(label));
+    if (doc_comment) doc_comment = iron_arena_strdup(arena, doc_comment, strlen(doc_comment));
     out->label = label ? label : "";
     out->documentation = doc_comment;
     if (!label) return;

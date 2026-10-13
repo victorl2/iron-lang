@@ -271,6 +271,9 @@ void iron_list_unpin(const void *buf, uint64_t gen) {
 }
 
 bool iron_list_is_pinned(const void *buf) { return addr_is_pinned(buf, 0); }
+/* A for loop over a list pins its buffer while it runs (#734). */
+void iron_list_iter_pin(const void *buf) { if (buf) addr_pin(buf, 0); }
+void iron_list_iter_unpin(const void *buf) { if (buf) addr_unpin(buf, 0); }
 void iron_recv_pin(const void *addr) { if (addr) addr_pin(addr, 1); }
 void iron_recv_unpin(const void *addr) { if (addr) addr_unpin(addr, 1); }
 bool iron_recv_is_pinned(const void *addr) { return addr_is_pinned(addr, 1); }
