@@ -649,6 +649,55 @@ A generic enum value takes the type arguments its payload does not fix from
 where it is used: `return Maybe.Nothing` in a function returning
 `Maybe[Int]`, an argument, an assignment or an annotated binding.
 
+The same holds for a generic construction or call: type arguments that
+neither are written nor follow from the arguments come from the expected
+type, the type the value is checked against. That is the annotation of a
+`val` or `var`, the target of an assignment, the parameter at a call
+(functions, methods, constructors), the return type of the enclosing
+function, the field in an object construction, or the element of a list
+or tuple whose type is known; an `rc` or `T?` expected type gives its
+inner type. This covers the library containers (`Channel`, `Mutex`,
+`RWLock`, `Box`, `Map`, `Set`), generic objects and generic functions
+whose type parameters appear in the return type. Written type arguments
+and those the arguments fix are never replaced: when they disagree with
+the expected type the program is rejected with a type mismatch naming
+both (`E0202`).
+
+```iron
+object Stack[T] {
+    var items: [T]
+    init() {
+        self.items = []
+    }
+}
+
+func empty[T]() -> [T] {
+    return []
+}
+
+func counts() -> Map[String, Int] {
+    return Map()
+}
+
+func size(s: Set[Int]) -> Int {
+    return s.len()
+}
+
+func main() {
+    val ch: Channel[Int] = Channel(4)
+    var seen: Set[String] = Set()
+    val st: Stack[Int] = Stack()
+    val xs: [Int] = empty()
+    val shared: rc Map[String, Int] = rc Map()
+    ch.send(len(xs) + len(st.items))
+    println("{ch.recv()} {seen.add("a")} {counts().len()} {size(Set())} {shared.len()}")
+}
+```
+
+```output
+0 true 0 0 0
+```
+
 ### 2.9 Type conversions
 
 Calling a primitive type name like a function converts a value:
@@ -2943,8 +2992,8 @@ C optimizer from reasoning about it; it exists for benchmarks.
 
 These are always available and are described in sections 6 and 7. Each
 one is constructed like any object, `Type(args)` or `Type[T](args)` when
-no argument carries the element type; there is no `.new` method
-(`E0333`):
+no argument carries the element type and no expected type gives it
+(section 2.8); there is no `.new` method (`E0333`):
 
 | Type | API |
 |---|---|
@@ -2960,9 +3009,10 @@ no argument carries the element type; there is no `.new` method
 ### 9.10 `Hashable`, `Map` and `Set`
 
 `Map[K, V]` is a hash table from keys of type `K` to values of type `V`;
-`Set[T]` is a hash set of `T`. Both are constructed empty with their type
-arguments written out (`Map[String, Int]()`, `Set[Int]()`; nothing else
-carries them) and both are library objects: there is no literal and no
+`Set[T]` is a hash set of `T`. Both are constructed empty, with their type
+arguments written out (`Map[String, Int]()`, `Set[Int]()`) or taken from
+the expected type (`var m: Map[String, Int] = Map()`, `return Set()` in
+a function returning `Set[Int]`, section 2.8), and both are library objects: there is no literal and no
 `m[k]` indexing. The key type must satisfy `Hashable` (`E0206`): the
 integer types, `Bool` and `String` do, and an object does when it declares
 `impl Hashable` with `pure func hash() -> Int` and `pure func
