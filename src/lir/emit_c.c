@@ -388,6 +388,20 @@ void emit_drop_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx, Iron_Type *t, cons
     }
 }
 
+/* The layout of a list just made with _create(): that of the list it was
+ * derived from (`src`, a C expression, for a slice or a filter), or else
+ * the one its type asks for. Lists that cannot hold columns have none. */
+static void emit_new_list_layout(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
+                                 IronLIR_ValueId result, const Iron_Type *rt,
+                                 const char *src) {
+    if (!emit_list_has_columns(ctx, rt)) return;
+    if (!src && rt->array.layout_hint != 1) return;
+    emit_indent(sb, ind);
+    emit_val(sb, result);
+    if (src) iron_strbuf_appendf(sb, ".soa = (%s).soa;\n", src);
+    else     iron_strbuf_appendf(sb, ".soa = true;\n");
+}
+
 /* map / filter / forEach / reduce on a flat list, as an inline loop typed
  * by the lambda (#192). The runtime's Iron_List_<T>_map exists only for
  * numeric lists and can only produce a list of the same T; here the
@@ -438,8 +452,14 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
         iron_strbuf_appendf(sb, ".%s; _i++) ", f_count);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " += ");
-        emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ".%s[_i];\n", f_items);
+        if (emit_list_has_columns(ctx, lt)) {
+            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", _i);\n ");
+        } else {
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ".%s[_i];\n", f_items);
+        }
         return true;
     }
     IronLIR_ValueId fn_arg = instr->call.args[m == M_REDUCE ? 2 : 1];
@@ -452,6 +472,14 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", rt_c);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = %s_create();\n", rt_c);
+        if (m == M_FILTER && !is_bvec && emit_list_has_columns(ctx, lt)) {
+            Iron_StrBuf src = iron_strbuf_create(64);
+            emit_expr_to_buf(&src, self_arg, fn, ctx, ctx->current_block_id, 0);
+            emit_new_list_layout(sb, ind, ctx, instr->id, rt, iron_strbuf_get(&src));
+            iron_strbuf_free(&src);
+        } else {
+            emit_new_list_layout(sb, ind, ctx, instr->id, rt, NULL);
+        }
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "{\n");
         emit_indent(sb, ind + 1);
@@ -472,8 +500,14 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
             iron_strbuf_appendf(sb, "%s _r = _hof_fn%u(", ret_c, id);
             emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ".env, ");
+            if (emit_list_has_columns(ctx, lt)) {
+            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", _i));\n ");
+        } else {
             emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
+        }
             emit_indent(sb, ind + 2);
             iron_strbuf_appendf(sb, "%s_push(&", rt_c);
             emit_val(sb, instr->id);
@@ -483,12 +517,24 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
             iron_strbuf_appendf(sb, "if (_hof_fn%u(", id);
             emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ".env, ");
+            if (emit_list_has_columns(ctx, lt)) {
+            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", _i))) {\n ");
+        } else {
             emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ".%s[_i])) {\n", f_items);
+        }
             emit_indent(sb, ind + 3);
             iron_strbuf_appendf(sb, "%s _k = ", et_c);
+            if (emit_list_has_columns(ctx, lt)) {
+            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", _i);\n ");
+        } else {
             emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ".%s[_i];\n", f_items);
+        }
             emit_copy_fixup_lvalue(sb, ind + 3, ctx, et, "_k");
             emit_indent(sb, ind + 3);
             iron_strbuf_appendf(sb, "%s_push(&", rt_c);
@@ -518,8 +564,14 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
         iron_strbuf_appendf(sb, ".%s; _i++) _hof_fn%u(", f_count, id);
         emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ".env, ");
-        emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
+        if (emit_list_has_columns(ctx, lt)) {
+            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", _i));\n ");
+        } else {
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
+        }
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "}\n");
         return true;
@@ -551,8 +603,14 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
     iron_strbuf_appendf(sb, ".env, ");
     emit_val(sb, instr->id);
     iron_strbuf_appendf(sb, ", ");
-    emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-    iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
+    if (emit_list_has_columns(ctx, lt)) {
+            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", _i));\n ");
+        } else {
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
+        }
     emit_indent(sb, ind);
     iron_strbuf_appendf(sb, "}\n");
     return true;
@@ -944,6 +1002,31 @@ static void emit_spawn_env_cell_retains(Iron_StrBuf *sb, EmitCtx *ctx, int ind, 
     }
 }
 
+/* ASCII case-insensitive string equality. */
+static bool emit_ascii_caseeq(const char *a, const char *b) {
+    for (; *a && *b; a++, b++) {
+        char x = (*a >= 'A' && *a <= 'Z') ? (char)(*a + 32) : *a;
+        char y = (*b >= 'A' && *b <= 'Z') ? (char)(*b + 32) : *b;
+        if (x != y) return false;
+    }
+    return *a == *b;
+}
+
+/* The value a `val` capture stores into an environment. Scalar copy
+ * coalescing may hand the capture the variable's slot in place of a load
+ * from it; a read-only parameter's slot is not declared (the parameter
+ * stands for it), so name the parameter. */
+static void emit_capture_val(Iron_StrBuf *sb, IronLIR_ValueId cap_vid, EmitCtx *ctx) {
+    if (ctx->param_alias_ids) {
+        ptrdiff_t pa = hmgeti(ctx->param_alias_ids, cap_vid);
+        if (pa >= 0) {
+            emit_val(sb, ctx->param_alias_ids[pa].value);
+            return;
+        }
+    }
+    emit_val(sb, cap_vid);
+}
+
 static void emit_capture_rhs(Iron_StrBuf *sb, IronLIR_ValueId cap_vid,
                               Iron_CaptureEntry *cap, EmitCtx *ctx) {
     /* Check if this is a stack-array value */
@@ -960,7 +1043,7 @@ static void emit_capture_rhs(Iron_StrBuf *sb, IronLIR_ValueId cap_vid,
         emit_val(sb, cap_vid);
         iron_strbuf_appendf(sb, "_len }");
     } else {
-        emit_val(sb, cap_vid);
+        emit_capture_val(sb, cap_vid, ctx);
     }
 }
 
@@ -1158,6 +1241,54 @@ static void emit_view_elem(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
     iron_strbuf_appendf(sb, ".len, IRON_SITE)]");
 }
 
+/* The index of GET_INDEX `in` into a list with columns, checked like any
+ * other element access: `count_of` receives the list expression. */
+static void emit_column_index(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
+                              IronLIR_Instr *in, IronLIR_BlockId block,
+                              const char *count_expr) {
+    if (in->index.bounds_elide) {
+        emit_expr_to_buf(sb, in->index.index, fn, ctx, block, 0);
+        return;
+    }
+    iron_strbuf_appendf(sb, in->index.bounds_unchecked ? "IRON_UNCHECKED_IDX("
+                                                        : "iron_bounds_idx(");
+    emit_expr_to_buf(sb, in->index.index, fn, ctx, block, 0);
+    iron_strbuf_appendf(sb, ", ");
+    if (count_expr) {
+        iron_strbuf_appendf(sb, "%s", count_expr);
+    } else {
+        emit_expr_to_buf(sb, in->index.array, fn, ctx, block, 0);
+        iron_strbuf_appendf(sb, ".count");
+    }
+    iron_strbuf_appendf(sb, ", IRON_SITE)");
+}
+
+/* `&ps[i].field` for a list with columns: the address inside the field's
+ * column (or inside the element, for a list holding whole elements). A
+ * dotted name reaches into the member it starts with (`_base.x`). */
+static bool emit_column_field_addr(Iron_StrBuf *sb, IronLIR_Func *fn,
+                                    EmitCtx *ctx, IronLIR_ValueId obj,
+                                    const char *field, IronLIR_BlockId block) {
+    IronLIR_Instr *in = emit_def_instr(fn, obj);
+    if (!in || in->kind != IRON_LIR_GET_INDEX || !field) return false;
+    if (ctx->split_collection_ids &&
+        hmgeti(ctx->split_collection_ids, in->index.array) >= 0) return false;
+    Iron_Type *at = emit_get_value_type(fn, in->index.array);
+    if (!emit_list_has_columns(ctx, at)) return false;
+    /* a list kept as a C array on the stack has no header */
+    if (get_stack_array_origin(ctx, in->index.array) != IRON_LIR_VALUE_INVALID) return false;
+    const char *dot = strchr(field, '.');
+    int head = dot ? (int)(dot - field) : (int)strlen(field);
+    if (dot) iron_strbuf_appendf(sb, "&((*");
+    iron_strbuf_appendf(sb, "%s_field_%.*s(", emit_type_to_c(at, ctx), head, field);
+    emit_expr_to_buf(sb, in->index.array, fn, ctx, block, 0);
+    iron_strbuf_appendf(sb, ", ");
+    emit_column_index(sb, fn, ctx, in, block, NULL);
+    iron_strbuf_appendf(sb, ")");
+    if (dot) iron_strbuf_appendf(sb, ")%s)", dot);
+    return true;
+}
+
 static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
                                IronLIR_ValueId vid, IronLIR_BlockId use_block_id) {
     {
@@ -1302,6 +1433,26 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
          * loaded copy of it is not where the element lives; address it
          * inside the vector's own storage. */
         Iron_Type *at = emit_get_value_type(fn, in->index.array);
+        if (emit_list_has_columns(ctx, at) &&
+            get_stack_array_origin(ctx, in->index.array) == IRON_LIR_VALUE_INVALID) {
+            /* A whole element of a list that may hold columns has no
+             * address. Lend a gathered copy, held in the temporaries
+             * declared for this GET_INDEX at the top of the function;
+             * emit_instr writes it back after the call it is lent to. */
+            const char *lc = emit_type_to_c(at, ctx);
+            char b[32], cnt[64];
+            snprintf(b, sizeof(b), "_sb%u", (unsigned)in->id);
+            snprintf(cnt, sizeof(cnt), "%s_l->count", b);
+            iron_strbuf_appendf(sb, "(%s_l = ", b);
+            emit_receiver_addr(sb, fn, ctx, in->index.array, use_block_id);
+            iron_strbuf_appendf(sb, ", %s_i = ", b);
+            emit_column_index(sb, fn, ctx, in, use_block_id, cnt);
+            iron_strbuf_appendf(sb, ", %s = %s_read(*%s_l, %s_i), &%s)",
+                                b, lc, b, b, b);
+            struct EmitSoaBorrow sbw = { in->id, IRON_LIR_VALUE_INVALID, lc, false };
+            arrput(ctx->soa_borrows, sbw);
+            return;
+        }
         if (at && at->kind == IRON_TYPE_ARRAY && at->array.is_bounded &&
             emit_vid_is_storage_path(fn, in->index.array)) {
             iron_strbuf_appendf(sb, "&((*");
@@ -1324,6 +1475,8 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
         return;
     }
     if (in && in->kind == IRON_LIR_GET_FIELD && in->field.field) {
+        if (emit_column_field_addr(sb, fn, ctx, in->field.object,
+                                   in->field.field, use_block_id)) return;
         IronLIR_ValueId obj = in->field.object;
         bool obj_is_fat = emit_val_is_any_fat_ptr(fn, obj) ||
                           emit_val_is_checked_ptr_typed(fn, obj);
@@ -1596,7 +1749,9 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
     const char *bv_c = emit_type_to_c(bt, ctx);
     const char *elem_c = emit_type_to_c(bt->array.elem, ctx);
     bool has_result = instr->type && instr->type->kind != IRON_TYPE_VOID;
-    if (has_result) {
+    /* A hoisted result is declared already: `_vN;` alone was an unused
+     * expression statement (clang warned on the generated C). */
+    if (has_result && (!is_hoisted || strcmp(m, "contains") == 0)) {
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
@@ -1866,6 +2021,75 @@ static void emit_shift_expr(Iron_StrBuf *sb, IronLIR_Instr *instr, IronLIR_Func 
     emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
     if (ucount) iron_strbuf_appendf(sb, ")");
     iron_strbuf_appendf(sb, ", IRON_SITE)");
+}
+
+/* The GET_FIELD reads a boxed slot of a recursive enum payload (field path
+ * "data.Variant._N" with slot N boxed): the C field is a pointer to the value.
+ * Both the statement and the inlined expression forms dereference it. */
+static bool emit_field_is_boxed_payload(IronLIR_Func *fn, IronLIR_Instr *instr) {
+    bool needs_deref = false;
+    if (instr->field.field) {
+        const char *last_dot = strrchr(instr->field.field, '.');
+        if (last_dot && last_dot[1] == '_' && last_dot[2] >= '0' && last_dot[2] <= '9') {
+            const char *data_pos = strstr(instr->field.field, "data.");
+            if (data_pos) {
+                const char *vname_start = data_pos + 5; /* skip "data." */
+                const char *vname_end = strchr(vname_start, '.');
+                if (vname_end) {
+                    int slot_idx = atoi(last_dot + 2);
+                    /* Resolve the object's enum type through LOAD/ALLOCA */
+                    Iron_Type *obj_enum_type = NULL;
+                    IronLIR_ValueId obj_vid = instr->field.object;
+                    /* First try direct type */
+                    Iron_Type *direct_t = emit_get_value_type(fn, obj_vid);
+                    if (direct_t && direct_t->kind == IRON_TYPE_ENUM) {
+                        obj_enum_type = direct_t;
+                    } else if (obj_vid != IRON_LIR_VALUE_INVALID &&
+                               obj_vid < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                               fn->value_table[obj_vid] &&
+                               fn->value_table[obj_vid]->kind == IRON_LIR_LOAD) {
+                        /* LOAD from ALLOCA: look at the alloca type */
+                        IronLIR_ValueId ptr = fn->value_table[obj_vid]->load.ptr;
+                        if (ptr != IRON_LIR_VALUE_INVALID &&
+                            ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                            fn->value_table[ptr] &&
+                            fn->value_table[ptr]->kind == IRON_LIR_ALLOCA) {
+                            Iron_Type *at = fn->value_table[ptr]->alloca.alloc_type;
+                            if (at && at->kind == IRON_TYPE_ENUM) obj_enum_type = at;
+                        }
+                    }
+                    if (obj_enum_type && obj_enum_type->enu.decl &&
+                        obj_enum_type->enu.payload_is_boxed) {
+                        Iron_EnumDecl *ged = obj_enum_type->enu.decl;
+                        size_t vname_len = (size_t)(vname_end - vname_start);
+                        char vname[128];
+                        if (vname_len < sizeof(vname)) {
+                            memcpy(vname, vname_start, vname_len);
+                            vname[vname_len] = '\0';
+                            for (int vi = 0; vi < ged->variant_count; vi++) {
+                                /* PROT-03 row 34 (AUDIT-01 M-severity):
+                                 * loop-bound + non-NULL assert before the
+                                 * Iron_EnumVariant cast from a void**
+                                 * variants array. */
+                                assert(vi >= 0 && vi < ged->variant_count);
+                                assert(ged->variants[vi] != NULL);
+                                Iron_EnumVariant *gev = (Iron_EnumVariant *)ged->variants[vi];
+                                if (strcmp(gev->name, vname) == 0) {
+                                    if (obj_enum_type->enu.payload_is_boxed[vi] &&
+                                        slot_idx < gev->payload_count &&
+                                        obj_enum_type->enu.payload_is_boxed[vi][slot_idx]) {
+                                        needs_deref = true;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return needs_deref;
 }
 
 void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
@@ -2400,6 +2624,30 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
 
     /* GET_FIELD */
     case IRON_LIR_GET_FIELD: {
+        /* `ps[i].field` of a list that may hold columns reads the field's
+         * column; the element is not gathered for one field. (An element
+         * already held in a temporary is read from the temporary.) */
+        if (ctx->soa_object_types && ctx->inline_eligible &&
+            hmgeti(ctx->inline_eligible, instr->field.object) >= 0) {
+            Iron_StrBuf col = iron_strbuf_create(128);
+            if (emit_column_field_addr(&col, fn, ctx, instr->field.object,
+                                       instr->field.field, use_block_id)) {
+                iron_strbuf_appendf(sb, "(*%s)", iron_strbuf_get(&col));
+                iron_strbuf_free(&col);
+                break;
+            }
+            iron_strbuf_free(&col);
+        }
+        /* .count of a split collection is ._total_count, as in the
+         * statement form (inlined when the LIR passes left the read in an
+         * expression). */
+        if (instr->field.field && strcmp(instr->field.field, "count") == 0 &&
+            ctx->split_collection_ids &&
+            hmgeti(ctx->split_collection_ids, instr->field.object) >= 0) {
+            emit_val(sb, instr->field.object);
+            iron_strbuf_appendf(sb, "._total_count");
+            break;
+        }
         /* Phase 23 VEC-01: bounded vector .count in expression context → .len */
         {
             Iron_Type *bvec_expr_t = emit_get_value_type(fn, instr->field.object);
@@ -2454,6 +2702,12 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             iron_strbuf_appendf(sb, "((%s *)", obj_type ? obj_type : "void");
             emit_expr_to_buf(sb, instr->field.object, fn, ctx, use_block_id, depth+1);
             iron_strbuf_appendf(sb, ".addr)->%s", instr->field.field);
+        } else if (emit_field_is_boxed_payload(fn, instr)) {
+            /* a boxed recursive payload: the slot holds a pointer (the
+             * statement form dereferenced it, this one passed the pointer) */
+            iron_strbuf_appendf(sb, "(*(");
+            emit_expr_to_buf(sb, instr->field.object, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, "%s%s))", obj_is_ptr ? "->" : ".", instr->field.field);
         } else {
             emit_expr_to_buf(sb, instr->field.object, fn, ctx, use_block_id, depth+1);
             iron_strbuf_appendf(sb, "%s%s", obj_is_ptr ? "->" : ".", instr->field.field);
@@ -2499,6 +2753,21 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         } else {
             /* Check direct array type — also handles parameter values (NULL in value_table) */
             Iron_Type *arr_t_expr = emit_get_value_type(fn, instr->index.array);
+            if (emit_list_has_columns(ctx, arr_t_expr)) {
+                iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(arr_t_expr, ctx));
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth + 1);
+                iron_strbuf_appendf(sb, ", ");
+                if (!instr->index.bounds_elide) iron_strbuf_appendf(sb,
+                    instr->index.bounds_unchecked ? "IRON_UNCHECKED_IDX(" : "iron_bounds_idx(");
+                emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth + 1);
+                if (!instr->index.bounds_elide) {
+                    iron_strbuf_appendf(sb, ", ");
+                    emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth + 1);
+                    iron_strbuf_appendf(sb, ".count, IRON_SITE)");
+                }
+                iron_strbuf_appendf(sb, ")");
+                break;
+            }
             bool use_bvec_expr = (arr_t_expr && arr_t_expr->kind == IRON_TYPE_ARRAY &&
                                   arr_t_expr->array.is_bounded);
             bool use_direct = (arr_t_expr && arr_t_expr->kind == IRON_TYPE_ARRAY && !use_bvec_expr);
@@ -2957,14 +3226,235 @@ static void emit_ff_spawn_call(Iron_StrBuf *out, EmitCtx *ctx, const char *func_
 static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx);
 
+/* The members of self (its first parameter) that `callee` may write: the
+ * ones it assigns, the ones whose storage it hands to a call or takes the
+ * address of, and those of the methods it calls on self. `all` when self
+ * is used in any way this does not follow (stored, passed on as another
+ * argument, a recursive call). A lent column list element writes back
+ * only these members; the rest of its columns are left alone. */
+/* The instruction defining `vid` in `fn`, which need not be the function
+ * being emitted (emit_def_instr reads that one's cache). */
+static IronLIR_Instr *self_writes_def(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID || (ptrdiff_t)vid >= arrlen(fn->value_table)) return NULL;
+    return fn->value_table[vid];
+}
+
+static void self_writes_add(EmitCtx *ctx, struct EmitSelfWrites *w, const char *field) {
+    if (!field) { w->all = true; return; }
+    const char *dot = strchr(field, '.');
+    size_t n = dot ? (size_t)(dot - field) : strlen(field);
+    for (ptrdiff_t i = 0; i < arrlen(w->members); i++)
+        if (strlen(w->members[i]) == n && strncmp(w->members[i], field, n) == 0) return;
+    const char *copy = iron_arena_strdup(ctx->arena, field, n);
+    if (!copy) iron_oom_abort("emit_c.c:self_writes_add");
+    arrput(w->members, copy);
+}
+
+/* Whether a value of type `t` can still reach the storage it was read
+ * from: a number, a Bool or a String is a plain copy and cannot. */
+static bool self_writes_type_aliases(const Iron_Type *t) {
+    if (!t) return true;
+    return !(iron_type_is_numeric(t) || t->kind == IRON_TYPE_BOOL ||
+             t->kind == IRON_TYPE_STRING || t->kind == IRON_TYPE_VOID);
+}
+
+static const struct EmitSelfWrites *emit_self_writes(EmitCtx *ctx, IronLIR_Func *callee) {
+    static const struct EmitSelfWrites everything = { true, NULL };
+    if (!callee || !callee->name || callee->is_extern || callee->block_count == 0 ||
+        callee->param_count < 1)
+        return &everything;
+    ptrdiff_t ci = shgeti(ctx->soa_self_writes, callee->name);
+    if (ci >= 0) return ctx->soa_self_writes[ci].value;
+    struct EmitSelfWrites *w = (struct EmitSelfWrites *)iron_arena_alloc(
+        ctx->arena, sizeof(*w), _Alignof(struct EmitSelfWrites));
+    if (!w) iron_oom_abort("emit_c.c:emit_self_writes");
+    w->all = true;          /* what a recursive call sees */
+    w->members = NULL;
+    shput(ctx->soa_self_writes, callee->name, w);
+
+    /* from[v]: the member of self that value v was read from and may still
+     * reach: `self.m` itself, and whatever is derived from it that is not a
+     * plain copy (`self.inner`, an unwrapped `self.opt`, `self.xs[i]`). */
+    const IronLIR_ValueId self = 1;
+    ptrdiff_t nv = arrlen(callee->value_table);
+    const char **from = (const char **)calloc((size_t)(nv > 0 ? nv : 1), sizeof(char *));
+    if (!from) iron_oom_abort("emit_c.c:emit_self_writes from");
+    IronLIR_ValueId *derived = NULL;        /* the values with from[v] set */
+    bool all = false;
+    for (bool changed = true; changed && !all; ) {
+        changed = false;
+        for (int bi = 0; bi < callee->block_count; bi++) {
+            IronLIR_Block *blk = callee->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (!in || in->id == IRON_LIR_VALUE_INVALID || (ptrdiff_t)in->id >= nv ||
+                    from[in->id]) continue;
+                const char *m = NULL;
+                if (in->kind == IRON_LIR_GET_FIELD && in->field.object == self) {
+                    m = in->field.field;
+                } else if (self_writes_type_aliases(in->type)) {
+                    for (ptrdiff_t d = 0; d < arrlen(derived) && !m; d++)
+                        if (iron_lir_instr_uses_value(in, derived[d])) m = from[derived[d]];
+                }
+                if (m) {
+                    from[in->id] = m;
+                    arrput(derived, in->id);
+                    changed = true;
+                }
+            }
+        }
+    }
+#define FROM(v) ((v) != IRON_LIR_VALUE_INVALID && (ptrdiff_t)(v) < nv ? from[v] : NULL)
+    for (int bi = 0; bi < callee->block_count && !all; bi++) {
+        IronLIR_Block *blk = callee->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count && !all; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            if (!in) continue;
+            switch ((int)in->kind) {
+            case IRON_LIR_GET_FIELD:
+            case IRON_LIR_GET_INDEX:
+                break;                                   /* reads */
+            case IRON_LIR_SET_FIELD:
+                if (in->field.value == self) { all = true; break; }
+                if (in->field.object == self) self_writes_add(ctx, w, in->field.field);
+                else if (FROM(in->field.object)) self_writes_add(ctx, w, FROM(in->field.object));
+                break;
+            case IRON_LIR_SET_INDEX:
+                if (in->index.value == self || in->index.array == self) { all = true; break; }
+                if (FROM(in->index.array)) self_writes_add(ctx, w, FROM(in->index.array));
+                break;
+            case IRON_LIR_ADDR_OF:
+                if (in->addr_of.target == self) { all = true; break; }
+                if (FROM(in->addr_of.target)) self_writes_add(ctx, w, FROM(in->addr_of.target));
+                break;
+            case IRON_LIR_CALL:
+                if (in->call.func_ptr == self) { all = true; break; }
+                for (int a = 0; a < in->call.arg_count && !all; a++) {
+                    IronLIR_ValueId av = in->call.args[a];
+                    if (av == self) {
+                        IronLIR_Instr *fr = self_writes_def(callee, in->call.func_ptr);
+                        IronLIR_Func *inner = (a == 0 && fr && fr->kind == IRON_LIR_FUNC_REF &&
+                                               fr->func_ref.func_name)
+                            ? emit_find_ir_func(ctx, fr->func_ref.func_name) : NULL;
+                        const struct EmitSelfWrites *iw = emit_self_writes(ctx, inner);
+                        if (iw->all) { all = true; break; }
+                        for (ptrdiff_t k = 0; k < arrlen(iw->members); k++)
+                            self_writes_add(ctx, w, iw->members[k]);
+                    } else if (FROM(av)) {
+                        self_writes_add(ctx, w, FROM(av));
+                    }
+                }
+                break;
+            case IRON_LIR_STORE:
+            case IRON_LIR_MAKE_CLOSURE:
+            case IRON_LIR_SPAWN:
+            case IRON_LIR_PARALLEL_FOR:
+                /* a member's storage kept in a slot or captured */
+                if (iron_lir_instr_uses_value(in, self)) { all = true; break; }
+                for (ptrdiff_t d = 0; d < arrlen(derived); d++)
+                    if (iron_lir_instr_uses_value(in, derived[d]))
+                        self_writes_add(ctx, w, from[derived[d]]);
+                break;
+            default:
+                /* self stored, returned, compared, captured or converted
+                 * as a whole: not followed */
+                if (iron_lir_instr_uses_value(in, self)) all = true;
+                break;
+            }
+        }
+    }
+#undef FROM
+    free(from);
+    arrfree(derived);
+    w->all = all;
+    return w;
+}
+
+/* Ends the loans of whole column list elements (see emit_receiver_addr)
+ * that `instr` settles: the ones it took as a method receiver, and the
+ * `&ps[i]` pointers it received as arguments. The gathered copy goes back
+ * into the list unless the borrower could only read it; the index is
+ * checked again, because the call may have shortened the list. A loan
+ * made by an ADDR_OF waits for the call that takes the pointer. */
+static void emit_soa_write_back(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                                IronLIR_Func *fn, EmitCtx *ctx, ptrdiff_t lent_before) {
+    for (ptrdiff_t i = 0; i < arrlen(ctx->soa_borrows); ) {
+        struct EmitSoaBorrow *b = &ctx->soa_borrows[i];
+        bool settle = false;
+        if (i >= lent_before) {
+            /* lent while emitting this instruction */
+            if (instr->kind == IRON_LIR_ADDR_OF && instr->id != IRON_LIR_VALUE_INVALID) {
+                Iron_Type *pt = instr->type;
+                b->ptr = instr->id;
+                b->read_only = pt && pt->kind == IRON_TYPE_PTR && !pt->ptr.is_var;
+            } else {
+                if (instr->kind == IRON_LIR_CALL && instr->call.func_decl &&
+                    instr->call.func_decl->is_readonly && instr->call.arg_count > 0) {
+                    IronLIR_ValueId a0 = instr->call.args[0];
+                    if (a0 == b->vid) b->read_only = true;
+                }
+                settle = true;
+            }
+        } else if (b->ptr != IRON_LIR_VALUE_INVALID) {
+            bool used = false;
+            if (instr->kind == IRON_LIR_CALL) {
+                for (int a = 0; a < instr->call.arg_count; a++)
+                    if (instr->call.args[a] == b->ptr) used = true;
+                if (instr->call.func_ptr == b->ptr) used = true;
+                settle = used;
+            } else if (iron_lir_instr_uses_value(instr, b->ptr)) {
+                /* wrapped (`?*T`, a cast) on its way to the call */
+                if (instr->id != IRON_LIR_VALUE_INVALID) b->ptr = instr->id;
+                else settle = true;
+            }
+        } else {
+            settle = true;
+        }
+        if (!settle) { i++; continue; }
+        /* A method that received the element as self, and in no other
+         * argument, wrote at most the members its body can reach. */
+        const struct EmitSelfWrites *sw = NULL;
+        if (!b->read_only && instr->kind == IRON_LIR_CALL && instr->call.arg_count > 0 &&
+            instr->call.args[0] == b->vid && b->ptr == IRON_LIR_VALUE_INVALID) {
+            bool again = false;
+            for (int a = 1; a < instr->call.arg_count; a++)
+                if (instr->call.args[a] == b->vid) again = true;
+            for (ptrdiff_t o = 0; o < arrlen(ctx->soa_borrows); o++)
+                if (o != i && ctx->soa_borrows[o].vid == b->vid) again = true;
+            IronLIR_Instr *fr = emit_def_instr(fn, instr->call.func_ptr);
+            if (!again && fr && fr->kind == IRON_LIR_FUNC_REF && fr->func_ref.func_name)
+                sw = emit_self_writes(ctx, emit_find_ir_func(ctx, fr->func_ref.func_name));
+        }
+        if (!b->read_only && !(sw && !sw->all && arrlen(sw->members) == 0)) {
+            char v[32];
+            snprintf(v, sizeof(v), "_sb%u", (unsigned)b->vid);
+            emit_indent(sb, ctx->indent);
+            if (sw && !sw->all) {
+                iron_strbuf_appendf(sb, "if ((uint64_t)%s_i < (uint64_t)%s_l->count) {", v, v);
+                for (ptrdiff_t k = 0; k < arrlen(sw->members); k++)
+                    iron_strbuf_appendf(sb, " %s_put_%s(%s_l, %s_i, &%s);",
+                                        b->list_c, sw->members[k], v, v, v);
+                iron_strbuf_appendf(sb, " }\n");
+            } else {
+                iron_strbuf_appendf(sb,
+                    "if ((uint64_t)%s_i < (uint64_t)%s_l->count) %s_write(%s_l, %s_i, %s);\n",
+                    v, v, b->list_c, v, v, v);
+            }
+        }
+        arrdel(ctx->soa_borrows, i);
+    }
+}
+
 void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx) {
     bool list_site = emit_call_is_checked_list_method(fn, ctx, instr);
+    ptrdiff_t lent_before = arrlen(ctx->soa_borrows);
     emit_instr_inner(sb, instr, fn, ctx);  /* records the site after IRON_SITE */
     if (list_site) {
         emit_indent(sb, ctx->indent);
         iron_strbuf_appendf(sb, "iron_list_call_line = 0;\n");
     }
+    if (arrlen(ctx->soa_borrows) > 0) emit_soa_write_back(sb, instr, fn, ctx, lent_before);
     /* --debug: a local declared up front takes the function's first line
      * (below). What follows it outside any instruction, such as the phi
      * copies that end the entry block, belongs to the statement before
@@ -3590,9 +4080,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = -(");
+        /* The explicit conversion: C computes `-` on 8 and 16 bit values in
+         * int, and clang warns when a constant result, such as -(-128) on
+         * Int8, does not fit the variable (the value wraps, as Iron's does). */
+        iron_strbuf_appendf(sb, " = (%s)(-(", emit_type_to_c(instr->type, ctx));
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ");\n");
+        iron_strbuf_appendf(sb, "));\n");
         break;
 
     case IRON_LIR_NOT:
@@ -3608,9 +4101,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = ~(");
+        /* The explicit conversion: C computes `~` on 8 and 16 bit values in
+         * int, and clang warns when a constant result, such as -(-128) on
+         * Int8, does not fit the variable (the value wraps, as Iron's does). */
+        iron_strbuf_appendf(sb, " = (%s)(~(", emit_type_to_c(instr->type, ctx));
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ");\n");
+        iron_strbuf_appendf(sb, "));\n");
         break;
 
     /* ── Memory ─────────────────────────────────────────────────────────── */
@@ -3671,7 +4167,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
             }
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s%s *", is_const_origin ? "const " : "", elem_c);
+            iron_strbuf_appendf(sb, "%s%s *", elem_c, is_const_origin ? " const" : "");
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, ";\n");
             /* Also emit companion length variable for this alloca */
@@ -3809,7 +4305,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
             }
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s%s *", is_const_origin ? "const " : "", elem_c);
+            iron_strbuf_appendf(sb, "%s%s *", elem_c, is_const_origin ? " const" : "");
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
             emit_val(sb, instr->load.ptr);
@@ -3970,6 +4466,20 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
     /* ── Field / Index ──────────────────────────────────────────────────── */
 
     case IRON_LIR_GET_FIELD: {
+        if (ctx->soa_object_types && ctx->inline_eligible &&
+            hmgeti(ctx->inline_eligible, instr->field.object) >= 0) {
+            Iron_StrBuf col = iron_strbuf_create(128);
+            if (emit_column_field_addr(&col, fn, ctx, instr->field.object,
+                                       instr->field.field, ctx->current_block_id)) {
+                emit_indent(sb, ind);
+                if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = (*%s);\n", iron_strbuf_get(&col));
+                iron_strbuf_free(&col);
+                break;
+            }
+            iron_strbuf_free(&col);
+        }
         /* Phase 41: .count on split collection → ._total_count */
         if (instr->field.field && strcmp(instr->field.field, "count") == 0 &&
             ctx->split_collection_ids) {
@@ -4061,68 +4571,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
         /* Check if this field access is on a boxed recursive ADT slot:
          * field path format is "data.VariantName._N" — if slot N is boxed, wrap with *() */
-        bool needs_deref = false;
-        if (instr->field.field) {
-            const char *last_dot = strrchr(instr->field.field, '.');
-            if (last_dot && last_dot[1] == '_' && last_dot[2] >= '0' && last_dot[2] <= '9') {
-                const char *data_pos = strstr(instr->field.field, "data.");
-                if (data_pos) {
-                    const char *vname_start = data_pos + 5; /* skip "data." */
-                    const char *vname_end = strchr(vname_start, '.');
-                    if (vname_end) {
-                        int slot_idx = atoi(last_dot + 2);
-                        /* Resolve the object's enum type through LOAD/ALLOCA */
-                        Iron_Type *obj_enum_type = NULL;
-                        IronLIR_ValueId obj_vid = instr->field.object;
-                        /* First try direct type */
-                        Iron_Type *direct_t = emit_get_value_type(fn, obj_vid);
-                        if (direct_t && direct_t->kind == IRON_TYPE_ENUM) {
-                            obj_enum_type = direct_t;
-                        } else if (obj_vid != IRON_LIR_VALUE_INVALID &&
-                                   obj_vid < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                                   fn->value_table[obj_vid] &&
-                                   fn->value_table[obj_vid]->kind == IRON_LIR_LOAD) {
-                            /* LOAD from ALLOCA: look at the alloca type */
-                            IronLIR_ValueId ptr = fn->value_table[obj_vid]->load.ptr;
-                            if (ptr != IRON_LIR_VALUE_INVALID &&
-                                ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                                fn->value_table[ptr] &&
-                                fn->value_table[ptr]->kind == IRON_LIR_ALLOCA) {
-                                Iron_Type *at = fn->value_table[ptr]->alloca.alloc_type;
-                                if (at && at->kind == IRON_TYPE_ENUM) obj_enum_type = at;
-                            }
-                        }
-                        if (obj_enum_type && obj_enum_type->enu.decl &&
-                            obj_enum_type->enu.payload_is_boxed) {
-                            Iron_EnumDecl *ged = obj_enum_type->enu.decl;
-                            size_t vname_len = (size_t)(vname_end - vname_start);
-                            char vname[128];
-                            if (vname_len < sizeof(vname)) {
-                                memcpy(vname, vname_start, vname_len);
-                                vname[vname_len] = '\0';
-                                for (int vi = 0; vi < ged->variant_count; vi++) {
-                                    /* PROT-03 row 34 (AUDIT-01 M-severity):
-                                     * loop-bound + non-NULL assert before the
-                                     * Iron_EnumVariant cast from a void**
-                                     * variants array. */
-                                    assert(vi >= 0 && vi < ged->variant_count);
-                                    assert(ged->variants[vi] != NULL);
-                                    Iron_EnumVariant *gev = (Iron_EnumVariant *)ged->variants[vi];
-                                    if (strcmp(gev->name, vname) == 0) {
-                                        if (obj_enum_type->enu.payload_is_boxed[vi] &&
-                                            slot_idx < gev->payload_count &&
-                                            obj_enum_type->enu.payload_is_boxed[vi][slot_idx]) {
-                                            needs_deref = true;
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        bool needs_deref = emit_field_is_boxed_payload(fn, instr);
 
         if (obj_is_fat_ptr) {
             /* Phase 21 Pitfall 1: fat-ptr (HEAP_ALLOC or ADDR_OF) needs .addr cast.
@@ -4147,6 +4596,22 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
 
     case IRON_LIR_SET_FIELD: {
+        /* `ps[i].field = v` on a list that may hold columns writes the
+         * field's column. */
+        if (ctx->soa_object_types) {
+            Iron_StrBuf col = iron_strbuf_create(128);
+            if (emit_column_field_addr(&col, fn, ctx, instr->field.object, instr->field.field,
+                                       ctx->current_block_id)) {
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "(*%s) = ", iron_strbuf_get(&col));
+                emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ";\n");
+                iron_strbuf_free(&col);
+                break;
+            }
+            iron_strbuf_free(&col);
+        }
+
         /* When the object is a LOAD from a mutable var-capture alloca, write
          * through the captured pointer: _e->capturename->fieldname = value.
          * Otherwise use the standard object.field or object->field emission. */
@@ -4486,7 +4951,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
              * read bv.data[i] directly.  Pitfall: check against len, not array size. */
             bool use_bvec = (arr_t && arr_t->kind == IRON_TYPE_ARRAY &&
                              arr_t->array.is_bounded);
-            bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY && !use_bvec);
+            bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY && !use_bvec &&
+                               !emit_list_has_columns(ctx, arr_t));
             if (arr_t && arr_t->kind == IRON_TYPE_VIEW) {
                 emit_indent(sb, ind);
                 if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
@@ -4566,6 +5032,16 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, "];\n");
                 }
+            } else if (emit_list_has_columns(ctx, arr_t)) {
+                /* A list that may hold columns: gather the element inline. */
+                emit_indent(sb, ind);
+                if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = %s_read(", emit_type_to_c(arr_t, ctx));
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ", ");
+                emit_column_index(sb, fn, ctx, instr, ctx->current_block_id, NULL);
+                iron_strbuf_appendf(sb, ");\n");
             } else {
                 /* Fallback: result = Iron_List_<suffix>_get(&array, index) */
                 const char *list_type = "Iron_List_int64_t"; /* default fallback */
@@ -4659,7 +5135,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             bool use_bvec = (arr_t && arr_t->kind == IRON_TYPE_ARRAY &&
                              arr_t->array.is_bounded);
             bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY &&
-                               !use_bvec);
+                               !use_bvec && !emit_list_has_columns(ctx, arr_t));
             if (arr_t && arr_t->kind == IRON_TYPE_VIEW) {
                 emit_indent(sb, ind);
                 emit_view_elem(sb, fn, ctx, instr, ctx->current_block_id, 0);
@@ -4751,6 +5227,16 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
                 emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ";\n");
+            } else if (emit_list_has_columns(ctx, arr_t)) {
+                /* A list that may hold columns: scatter the element inline. */
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "%s_write(&", emit_type_to_c(arr_t, ctx));
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ", ");
+                emit_column_index(sb, fn, ctx, instr, ctx->current_block_id, NULL);
+                iron_strbuf_appendf(sb, ", ");
+                emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ");\n");
             } else {
                 /* Fallback: Iron_List_<suffix>_set(&array, index, value) */
                 const char *list_type = "Iron_List_int64_t"; /* default fallback */
@@ -5153,7 +5639,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "%s ", list_type);
                         emit_val(sb, instr->id);
-                        iron_strbuf_appendf(sb, " = %s_create();\n", list_type);
+                        iron_strbuf_appendf(sb, " = %s_create%s();\n", list_type,
+                emit_list_has_columns(ctx, instr->type) && instr->type->array.layout_hint == 1
+                    ? "_soa" : "");
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "for (int64_t _fill_i = 0; _fill_i < ");
                         emit_expr_to_buf(sb, instr->call.args[0], fn, ctx, ctx->current_block_id, 0);
@@ -5729,12 +6217,14 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 }
                             }
 
-                            emit_indent(sb, ind);
+                            /* A hoisted result is declared already: `_vN;`
+                             * alone was an unused expression statement. */
                             if (!is_hoisted) {
+                                emit_indent(sb, ind);
                                 iron_strbuf_appendf(sb, "%s ", pop_type);
+                                emit_val(sb, instr->id);
+                                iron_strbuf_appendf(sb, ";\n");
                             }
-                            emit_val(sb, instr->id);
-                            iron_strbuf_appendf(sb, ";\n");
 
                             if (any_soa) {
                                 /* SoA fallback: known limitation — pop on split
@@ -5848,12 +6338,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 }
                             }
 
-                            emit_indent(sb, ind);
                             if (!is_hoisted) {
+                                emit_indent(sb, ind);
                                 iron_strbuf_appendf(sb, "%s ", get_type);
+                                emit_val(sb, instr->id);
+                                iron_strbuf_appendf(sb, ";\n");
                             }
-                            emit_val(sb, instr->id);
-                            iron_strbuf_appendf(sb, ";\n");
 
                             if (any_soa) {
                                 /* SoA fallback: known limitation — get on split
@@ -6037,12 +6527,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (emit_func_use_sret(callee_fn)) {
                     /* sret call: declare stack slot, call with &slot as first arg */
                     const char *array_c_type = emit_type_to_c(callee_fn->return_type, ctx);
-                    emit_indent(sb, ind);
                     if (!is_hoisted) {
+                        emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "%s ", array_c_type);
+                        emit_val(sb, instr->id);
+                        iron_strbuf_appendf(sb, ";\n");
                     }
-                    emit_val(sb, instr->id);
-                    iron_strbuf_appendf(sb, ";\n");
                     /* Emit the call: callee_c(&_vID, args...) */
                     emit_indent(sb, ind);
                     const char *callee_c_name;
@@ -7070,12 +7560,14 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * never compiled (masked by the corpus' broken weak-rc fixtures). */
         if (instr->type && instr->type->kind == IRON_TYPE_NULLABLE) {
             const char *inner_c = emit_type_to_c(instr->type->nullable.inner, ctx);
-            emit_indent(sb, ind);
+            /* (a hoisted value is declared already: a bare `_vN;` was an
+             * unused expression statement) */
             if (!is_hoisted) {
+                emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "%s ", val_type);
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, ";\n");
             }
-            emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, ";\n");
             emit_indent(sb, ind);
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, ".value = (%s)iron_rc_upgrade((void *)", inner_c);
@@ -7464,7 +7956,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_indent(sb, ind);
             iron_strbuf_appendf(sb, "%s ", list_type);
             emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = %s_create();\n", list_type);
+            iron_strbuf_appendf(sb, " = %s_create%s();\n", list_type,
+                emit_list_has_columns(ctx, instr->type) && instr->type->array.layout_hint == 1
+                    ? "_soa" : "");
             for (int i = 0; i < instr->array_lit.element_count; i++) {
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "%s_push(&", list_type);
@@ -7513,6 +8007,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", list_c);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = %s_create();\n", list_c);
+        emit_new_list_layout(sb, ind, ctx, instr->id, lt,
+            sa == IRON_LIR_VALUE_INVALID && !src_bvec && emit_list_has_columns(ctx, src_t)
+                ? src_s : NULL);
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "{ int64_t _sl_n = ");
         if (sa != IRON_LIR_VALUE_INVALID) {
@@ -7535,6 +8032,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "  for (int64_t _sl_i = _sl_s; _sl_i < _sl_e; _sl_i++) {\n");
         emit_indent(sb, ind);
+        if (sa == IRON_LIR_VALUE_INVALID && !src_bvec && emit_list_has_columns(ctx, src_t))
+            iron_strbuf_appendf(sb, "    %s _sl_el = %s_read(%s, _sl_i);\n",
+                                elem_c, emit_type_to_c(src_t, ctx), src_s);
+        else
         iron_strbuf_appendf(sb, "    %s _sl_el = %s%s[_sl_i];\n", elem_c, src_s,
                             sa != IRON_LIR_VALUE_INVALID ? "" : src_bvec ? ".data" : ".items");
         emit_copy_fixup_lvalue(sb, ind + 2, ctx, et, "_sl_el");
@@ -8124,7 +8625,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                        ctx->current_block_id);
                 } else {
                     /* val capture: store loaded value */
-                    emit_val(sb, instr->make_closure.captures[ci]);
+                    emit_capture_val(sb, instr->make_closure.captures[ci], ctx);
                 }
                 iron_strbuf_appendf(sb, ";\n");
                 if (cap_meta[ci].is_mutable && cap_meta[ci].is_boxed) {
@@ -8781,7 +9282,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             /* hoisted (used across blocks): declared at function entry */
             if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
             emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = (%s)iron_future_await(",
+            /* back through intptr_t, as the wrapper published it: a direct
+             * cast of void * to an enum or a narrow integer warned
+             * (-Wvoid-pointer-to-enum-cast) */
+            iron_strbuf_appendf(sb, " = (%s)(intptr_t)iron_future_await(",
                                 emit_type_to_c(instr->type, ctx));
         } else {
             iron_strbuf_appendf(sb, "iron_future_await(");
@@ -8849,6 +9353,19 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 bool obj_ptr = !obj_fat &&
                     (emit_val_is_heap_ptr(fn, obj) ||
                      emit_val_is_unchecked_ptr_typed(fn, obj));
+                if (!obj_fat && !obj_ptr) {
+                    Iron_StrBuf col = iron_strbuf_create(128);
+                    if (emit_column_field_addr(&col, fn, ctx, obj, tgt_def->field.field,
+                                               ctx->current_block_id)) {
+                        iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)%s, .gen = %s };\n",
+                            iron_strbuf_get(&col),
+                            emit_vid_roots_at_global(fn, obj, 0) ? "IRON_STACK_GEN_INIT"
+                                                                 : "iron_stack_gen");
+                        iron_strbuf_free(&col);
+                        break;
+                    }
+                    iron_strbuf_free(&col);
+                }
                 iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)&(");
                 if (obj_fat) {
                     const char *ot = emit_fat_ptr_pointee_type_c(fn, obj, ctx);
@@ -9178,7 +9695,7 @@ void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
                 ArrayParamMode pmode = emit_get_array_param_mode(ctx, fn->name, i);
                 if (pmode == ARRAY_PARAM_CONST_PTR) {
                     const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
-                    iron_strbuf_appendf(sb, "const %s *%s, int64_t %s_len",
+                    iron_strbuf_appendf(sb, "%s const *%s, int64_t %s_len",
                                         elem_c, emit_vname(param_val_id), emit_vname(param_val_id));
                 } else if (pmode == ARRAY_PARAM_MUT_PTR) {
                     const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
@@ -9234,7 +9751,7 @@ void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
             pmode = emit_get_array_param_mode(ctx, fn->name, i);
         if (pmode == ARRAY_PARAM_CONST_PTR) {
             const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
-            iron_strbuf_appendf(sb, "const %s *%s, int64_t %s_len",
+            iron_strbuf_appendf(sb, "%s const *%s, int64_t %s_len",
                                 elem_c, emit_vname(param_val_id), emit_vname(param_val_id));
         } else if (pmode == ARRAY_PARAM_MUT_PTR) {
             const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
@@ -11120,6 +11637,31 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
     hmfree(ctx->phi_hoisted);
     ctx->phi_hoisted = NULL;
 
+    /* A whole element of a list that may hold columns is lent as a
+     * gathered copy (emit_receiver_addr): the copy, the list it came from
+     * and its index live in function-scope temporaries, so a pointer to
+     * the copy is as good as a pointer to a local. */
+    arrfree(ctx->soa_borrows);
+    ctx->soa_borrows = NULL;
+    if (ctx->soa_object_types) {
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->kind != IRON_LIR_GET_INDEX || in->id == IRON_LIR_VALUE_INVALID) continue;
+                Iron_Type *lt = emit_get_value_type(fn, in->index.array);
+                if (!emit_list_has_columns(ctx, lt) ||
+                    get_stack_array_origin(ctx, in->index.array) != IRON_LIR_VALUE_INVALID) continue;
+                emit_indent(sb, 1);
+                iron_strbuf_appendf(sb,
+                    "%s _sb%u; %s *_sb%u_l; int64_t _sb%u_i; (void)_sb%u; (void)_sb%u_l; (void)_sb%u_i;\n",
+                    emit_type_to_c(lt->array.elem, ctx), (unsigned)in->id,
+                    emit_type_to_c(lt, ctx), (unsigned)in->id, (unsigned)in->id,
+                    (unsigned)in->id, (unsigned)in->id, (unsigned)in->id);
+            }
+        }
+    }
+
     /* A C while introduces a lexical scope that the label-only backend did
      * not have.  Predeclare loop-produced values at function scope so nested
      * loop exits and later CFG blocks retain the original SSA visibility.
@@ -11850,6 +12392,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                             bool report_compression) {
     if (!module) return NULL;
     if (diags && diags->error_count > 0) return NULL;
+    emit_plan_func_renames(module);
 
     /* Initialize context */
     EmitCtx ctx;
@@ -11932,6 +12475,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         "#endif\n\n");
 
     /* ── Phase 48: Module-level prescan for split collections & layout analysis */
+    emit_prescan_object_soa(&ctx);
     emit_prescan_split_collections(&ctx);
 
     /* ── Phase 53: Interprocedural return type collection ────────────────────
@@ -12945,7 +13489,16 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                             IronLIR_Func *f = ctx.module->funcs[fi];
                             if (!f || !f->name) continue;
                             const char *cname = emit_mangle_func_name(f->name, ctx.arena);
-                            if (cname && strcmp(cname, want) == 0) {
+                            /* The method of a generic instance keeps the case
+                             * of its type arguments (Iron_gh__Gp__Int_show for
+                             * GH[Gp[Int]]): call it by its own name. */
+                            if (cname && emit_ascii_caseeq(cname, want)) {
+                                size_t cl = strlen(cname) - strlen(sig->name) - 1;
+                                char *own = (char *)iron_arena_alloc(ctx.arena, cl + 1, 1);
+                                if (!own) iron_oom_abort("emit_c.c:iface dispatch impl name");
+                                memcpy(own, cname, cl);
+                                own[cl] = '\0';
+                                impl_lower = own;
                                 /* Same predicate emit_func_signature uses to
                                  * decide `T *_v1` for the receiver slot. */
                                 recv_is_ptr = f->is_mut_receiver_method &&

@@ -586,6 +586,9 @@ struct IronHIR_Func {
     /* An empty-bodied function or method declared in a stdlib wrapper file:
      * the runtime provides its C body, so lowering emits no body for it.
      * Empty-bodied user functions are ordinary functions. */
+    /* A free function of the program (not the standard library, not
+     * extern): its C name avoids the runtime's symbols (#524). */
+    bool               is_user_func;
     bool               is_runtime_stub;
     Iron_CaptureEntry *captures;       /* from capture analysis; NULL for non-capturing */
     int                capture_count;

@@ -1153,6 +1153,9 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         }
 
         iron_expect(p, IRON_TOK_RBRACKET);
+        /* `[T]?`: a nullable list (manual 2.2: `T?` for any non-pointer
+         * type); the `?` was left unparsed. */
+        if (!ann->is_nullable) ann->is_nullable = iron_match(p, IRON_TOK_QUESTION);
         ann->span = iron_span_merge(iron_token_span(p, start),
                                     iron_prev_token_span(p, iron_token_span(p, start)));
         return (Iron_Node *)ann;
@@ -1703,17 +1706,27 @@ static bool iron_elem_is_nullable_type(Iron_Parser *p) {
             if (k == IRON_TOK_RPAREN && parens > 0) parens--;
         } else if (depth == 0 && (k == IRON_TOK_COMMA || k == IRON_TOK_SEMICOLON))
             return false;
-        else if (k == IRON_TOK_QUESTION && parens == 0) {
+        else if (parens == 0 && (k == IRON_TOK_QUESTION ||
+                 (k == IRON_TOK_COLON && depth > 0 && j > p->pos &&
+                  p->tokens[j - 1].value &&
+                  strcmp(p->tokens[j - 1].value, "layout") == 0))) {
             if (j == p->pos) return false;
             /* The type ends the element unless it is constructed or
              * called: `[Map[String, Int?]()]` and `[Box[Int?](x)]` are
              * expressions whose type arguments hold the `?`. */
             for (int m = j + 1; m < p->token_count; m++) {
                 Iron_TokenKind km = p->tokens[m].kind;
-                if (km == IRON_TOK_LBRACKET) depth++;
+                if (km == IRON_TOK_LBRACKET || (km == IRON_TOK_LPAREN && depth > 0)) depth++;
                 else if (km == IRON_TOK_RBRACKET || km == IRON_TOK_RPAREN) {
                     if (depth == 0) return true;
                     depth--;
+                    /* `]` then `(` or `.` at any depth constructs or calls
+                     * the generic the `?` is an argument of: the element
+                     * `[Gp[Int?, Int](1, 2)]` is a list literal. */
+                    if (km == IRON_TOK_RBRACKET && m + 1 < p->token_count &&
+                        (p->tokens[m + 1].kind == IRON_TOK_LPAREN ||
+                         p->tokens[m + 1].kind == IRON_TOK_DOT))
+                        return false;
                 } else if (depth == 0 && (km == IRON_TOK_LPAREN || km == IRON_TOK_DOT))
                     return false;
                 else if (depth == 0 && km != IRON_TOK_QUESTION)
@@ -1725,9 +1738,34 @@ static bool iron_elem_is_nullable_type(Iron_Parser *p) {
     return false;
 }
 
+/* A parenthesized element holding a `?` and ending the element (`,` or
+ * `]` after its `)`, or a `?` of its own) is a tuple type in expression
+ * position: `Gp[Int, (Bool, Int?)](...)`. */
+static bool iron_elem_is_nullable_tuple_type(Iron_Parser *p) {
+    if (!iron_check(p, IRON_TOK_LPAREN)) return false;
+    int depth = 0;
+    bool has_q = false;
+    for (int j = p->pos; j < p->token_count; j++) {
+        Iron_TokenKind k = p->tokens[j].kind;
+        if (k == IRON_TOK_EOF || k == IRON_TOK_NEWLINE || k == IRON_TOK_LBRACE) return false;
+        if (k == IRON_TOK_LPAREN || k == IRON_TOK_LBRACKET) depth++;
+        else if (k == IRON_TOK_RPAREN || k == IRON_TOK_RBRACKET) {
+            depth--;
+            if (depth == 0) {
+                if (!has_q) return false;
+                Iron_TokenKind nk = j + 1 < p->token_count ? p->tokens[j + 1].kind : IRON_TOK_EOF;
+                return nk == IRON_TOK_COMMA || nk == IRON_TOK_RBRACKET || nk == IRON_TOK_QUESTION;
+            }
+        } else if (k == IRON_TOK_QUESTION) has_q = true;
+    }
+    return false;
+}
+
 static Iron_Node *iron_parse_expr_or_nullable_type(Iron_Parser *p) {
     if ((iron_check(p, IRON_TOK_IDENTIFIER) || iron_check(p, IRON_TOK_LBRACKET)) &&
         iron_elem_is_nullable_type(p))
+        return iron_parse_type_annotation(p);
+    if (iron_elem_is_nullable_tuple_type(p))
         return iron_parse_type_annotation(p);
     return iron_parse_expr(p);
 }

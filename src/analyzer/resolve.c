@@ -134,6 +134,13 @@ static void define_sym(ResolveCtx *ctx, const char *name, Iron_SymbolKind kind,
     }
 }
 
+/* A top-level binding Pass 1a defined already (this very declaration). */
+static bool global_predefined(ResolveCtx *ctx, const char *name, Iron_Node *decl) {
+    if (!name || ctx->current_scope != ctx->global_scope) return false;
+    Iron_Symbol *sym = iron_scope_lookup_local(ctx->global_scope, name);
+    return sym && sym->decl_node == decl;
+}
+
 /* Emit an "undefined variable" diagnostic for an unresolved identifier.
  * Phase 4 Plan 04-01 (EDIT-07): enrich with .suggestion = best Levenshtein
  * candidate from the visible scope chain (max distance 2).
@@ -263,6 +270,23 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
              * target_type_name, so no global symbol is needed here. */
             if (od->is_patch) break;
             check_runtime_type_name(ctx, od->name, od->span);
+            /* A field named twice (the C struct had a duplicate member). */
+            for (int i = 0; i < od->field_count; i++) {
+                Iron_Field *fi = (Iron_Field *)od->fields[i];
+                if (!fi || !fi->name) continue;
+                for (int j = 0; j < i; j++) {
+                    Iron_Field *fj = (Iron_Field *)od->fields[j];
+                    if (!fj || !fj->name || strcmp(fi->name, fj->name) != 0) continue;
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "object '%s' declares field '%s' twice",
+                             od->name ? od->name : "?", fi->name);
+                    const char *mc = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_DUPLICATE_DECL, fi->span,
+                                   mc ? mc : "duplicate field", NULL);
+                    break;
+                }
+            }
             /* Create an object type and attach to symbol */
             Iron_Type *ty = iron_type_make_object(ctx->arena, od);
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, od->name,
@@ -314,6 +338,25 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
         case IRON_NODE_INTERFACE_DECL: {
             Iron_InterfaceDecl *id = (Iron_InterfaceDecl *)node;
             check_runtime_type_name(ctx, id->name, id->span);
+            /* A method declared twice (the C defined its dispatcher twice). */
+            for (int i = 0; i < id->method_count; i++) {
+                Iron_Node *mi = id->method_sigs[i];
+                if (!mi || mi->kind != IRON_NODE_FUNC_DECL || !((Iron_FuncDecl *)mi)->name) continue;
+                for (int j = 0; j < i; j++) {
+                    Iron_Node *mj = id->method_sigs[j];
+                    if (!mj || mj->kind != IRON_NODE_FUNC_DECL || !((Iron_FuncDecl *)mj)->name ||
+                        strcmp(((Iron_FuncDecl *)mi)->name, ((Iron_FuncDecl *)mj)->name) != 0)
+                        continue;
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "interface '%s' declares method '%s' twice",
+                             id->name ? id->name : "?", ((Iron_FuncDecl *)mi)->name);
+                    const char *mc = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_DUPLICATE_DECL, mi->span,
+                                   mc ? mc : "duplicate interface method", NULL);
+                    break;
+                }
+            }
             Iron_Type *ty = iron_type_make_interface(ctx->arena, id);
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, id->name,
                                                    IRON_SYM_INTERFACE,
@@ -363,8 +406,22 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
                  * pub bit. This matches the locked decision in CONTEXT.md
                  * (no per-variant visibility). */
                 vsym->is_pub = ed->is_pub;
-                /* Silently skip duplicate variant names — a separate check can
-                 * catch this later. For now just attempt to define. */
+                /* A variant named twice in one enum (the C defined its tag
+                 * twice, #640). Variant names of different enums may repeat:
+                 * the global define just keeps the first. */
+                for (int j = 0; j < i; j++) {
+                    Iron_EnumVariant *pv = (Iron_EnumVariant *)ed->variants[j];
+                    if (pv && pv->name && ev->name && strcmp(pv->name, ev->name) == 0) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "enum '%s' declares variant '%s' twice",
+                                 ed->name ? ed->name : "?", ev->name);
+                        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                       IRON_ERR_DUPLICATE_DECL, ev->span,
+                                       iron_arena_strdup(ctx->arena, msg, strlen(msg)),
+                                       NULL);
+                        break;
+                    }
+                }
                 iron_scope_define(ctx->global_scope, ctx->arena, vsym);
             }
             break;
@@ -403,6 +460,34 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
                                mc ? mc : "import aliases are not supported",
                                "remove `as ...` and use the module's names directly, "
                                "e.g. Math.sqrt after `import math`");
+            }
+            break;
+        }
+        /* Global bindings are visible throughout the file, before their
+         * declaration too (manual 5): define them here, not when Pass 2
+         * reaches them. Pass 2 resolves the initializer and keeps this
+         * symbol. A destructuring `val (a, b)` is not a module global. */
+        case IRON_NODE_VAL_DECL: {
+            Iron_ValDecl *vd = (Iron_ValDecl *)node;
+            if (vd->name && vd->binding_count == 0) {
+                define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
+                           /*is_mutable=*/false, /*is_private=*/false);
+                if (vd->is_pub) {
+                    Iron_Symbol *ds = iron_scope_lookup_local(ctx->global_scope, vd->name);
+                    if (ds && ds->decl_node == node) ds->is_pub = true;
+                }
+            }
+            break;
+        }
+        case IRON_NODE_VAR_DECL: {
+            Iron_VarDecl *vd = (Iron_VarDecl *)node;
+            if (vd->name) {
+                define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
+                           /*is_mutable=*/true, /*is_private=*/false);
+                if (vd->is_pub) {
+                    Iron_Symbol *ds = iron_scope_lookup_local(ctx->global_scope, vd->name);
+                    if (ds && ds->decl_node == node) ds->is_pub = true;
+                }
             }
             break;
         }
@@ -823,7 +908,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                                    /*is_mutable=*/false, /*is_private=*/false);
                     }
                 }
-            } else if (vd->name) {
+            } else if (vd->name && !global_predefined(ctx, vd->name, node)) {
                 define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
                            /*is_mutable=*/false, /*is_private=*/false);
                 if (vd->is_pub) {
@@ -837,8 +922,9 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
         case IRON_NODE_VAR_DECL: {
             Iron_VarDecl *vd = (Iron_VarDecl *)node;
             if (vd->init) resolve_expr(ctx, vd->init);
-            define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
-                       /*is_mutable=*/true, /*is_private=*/false);
+            if (!global_predefined(ctx, vd->name, node))
+                define_sym(ctx, vd->name, IRON_SYM_VARIABLE, node, vd->span,
+                           /*is_mutable=*/true, /*is_private=*/false);
             if (vd->is_pub) {
                 Iron_Symbol *ds = iron_scope_lookup_local(ctx->current_scope, vd->name);
                 if (ds) ds->is_pub = true;
@@ -1422,6 +1508,186 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
     }
 }
 
+/* ── Global initialization order ─────────────────────────────────────────── */
+
+/* Globals are visible throughout the file (manual 5), so an initializer may
+ * read a global declared after it, directly or through the functions it
+ * calls. They are initialized before main in an order where each one's
+ * initializer runs after those of the globals it reads; declaration order
+ * among the rest. Initializers that depend on each other are an error
+ * (E0345, reported by global_order.c): no order initializes them all before
+ * they are read.
+ *
+ * The dependencies come from the resolved identifiers of the initializer
+ * and, transitively, of the functions it names (hard edges, also used to
+ * find cycles). A method call is not resolved yet: every method of that
+ * name, and the init of a constructed object, adds soft edges, used for
+ * the order only when they do not close a cycle. The program's declaration
+ * list is reordered (only the globals' slots), and every later stage
+ * initializes in that order. */
+
+typedef struct { Iron_Node *key; int value; } GlobalIdxEntry;
+typedef struct { Iron_Node *key; bool value; } VisitedEntry;
+
+typedef struct {
+    Iron_Program   *program;
+    GlobalIdxEntry *gidx;
+    VisitedEntry   *visited;
+    bool            hard;
+    int           **hard_deps;   /* per global: stb_ds array of indices */
+    int           **soft_deps;
+    int             cur;
+} GlobalDepCtx;
+
+static void gdep_add(GlobalDepCtx *g, int dep) {
+    int **deps = g->hard ? g->hard_deps : g->soft_deps;
+    for (int i = 0; i < (int)arrlen(deps[g->cur]); i++)
+        if (deps[g->cur][i] == dep) return;
+    arrput(deps[g->cur], dep);
+}
+
+static void gdep_walk(GlobalDepCtx *g, Iron_Node *node, bool hard);
+
+static bool gdep_visit(Iron_Visitor *v, Iron_Node *node) {
+    GlobalDepCtx *g = (GlobalDepCtx *)v->ctx;
+    if (node->kind == IRON_NODE_IDENT) {
+        Iron_Symbol *sym = ((Iron_Ident *)node)->resolved_sym;
+        if (!sym || !sym->decl_node) return true;
+        ptrdiff_t gi = hmgeti(g->gidx, sym->decl_node);
+        if (gi >= 0) {
+            gdep_add(g, g->gidx[gi].value);
+        } else if (sym->sym_kind == IRON_SYM_FUNCTION &&
+                   sym->decl_node->kind == IRON_NODE_FUNC_DECL) {
+            gdep_walk(g, sym->decl_node, g->hard);
+        } else if (sym->sym_kind == IRON_SYM_TYPE && sym->name) {
+            for (int i = 0; i < g->program->decl_count; i++) {
+                Iron_Node *d = g->program->decls[i];
+                if (d && d->kind == IRON_NODE_METHOD_DECL &&
+                    ((Iron_MethodDecl *)d)->is_init &&
+                    ((Iron_MethodDecl *)d)->type_name &&
+                    strcmp(((Iron_MethodDecl *)d)->type_name, sym->name) == 0)
+                    gdep_walk(g, d, false);
+            }
+        }
+    } else if (node->kind == IRON_NODE_METHOD_CALL) {
+        const char *m = ((Iron_MethodCallExpr *)node)->method;
+        for (int i = 0; m && i < g->program->decl_count; i++) {
+            Iron_Node *d = g->program->decls[i];
+            if (d && d->kind == IRON_NODE_METHOD_DECL &&
+                ((Iron_MethodDecl *)d)->method_name &&
+                strcmp(((Iron_MethodDecl *)d)->method_name, m) == 0)
+                gdep_walk(g, d, false);
+        }
+    }
+    return true;
+}
+
+/* Walk a function or method body once per global (a soft visit does not
+ * stop a later hard one). */
+static void gdep_walk(GlobalDepCtx *g, Iron_Node *decl, bool hard) {
+    ptrdiff_t vi = hmgeti(g->visited, decl);
+    if (vi >= 0 && (g->visited[vi].value || !hard)) return;
+    hmput(g->visited, decl, hard);
+    Iron_Node *body = decl->kind == IRON_NODE_FUNC_DECL ? ((Iron_FuncDecl *)decl)->body
+                    : decl->kind == IRON_NODE_METHOD_DECL ? ((Iron_MethodDecl *)decl)->body
+                    : decl;
+    if (!body) return;
+    bool saved = g->hard;
+    g->hard = hard;
+    Iron_Visitor v = { .ctx = g, .visit_node = gdep_visit, .post_visit = NULL };
+    iron_ast_walk(body, &v);
+    g->hard = saved;
+}
+
+static Iron_Node *global_init_of(Iron_Node *d) {
+    return d->kind == IRON_NODE_VAL_DECL ? ((Iron_ValDecl *)d)->init
+                                         : ((Iron_VarDecl *)d)->init;
+}
+
+/* Kahn's algorithm over `use_soft` ? hard+soft : hard edges, taking the
+ * earliest declared ready global each step. Returns how many were placed
+ * (into order[]). */
+static int gdep_sort(int n, int **hard, int **soft, bool use_soft, int *order) {
+    int placed = 0;
+    bool *done = (bool *)calloc((size_t)n, sizeof(bool));
+    if (!done) return 0;
+    while (placed < n) {
+        int pick = -1;
+        for (int i = 0; i < n && pick < 0; i++) {
+            if (done[i]) continue;
+            bool ready = true;
+            for (int k = 0; ready && k < (int)arrlen(hard[i]); k++)
+                if (!done[hard[i][k]]) ready = false;
+            for (int k = 0; ready && use_soft && k < (int)arrlen(soft[i]); k++)
+                if (soft[i][k] != i && !done[soft[i][k]]) ready = false;
+            if (ready) pick = i;
+        }
+        if (pick < 0) break;
+        done[pick] = true;
+        order[placed++] = pick;
+    }
+    free(done);
+    return placed;
+}
+
+static void order_global_inits(Iron_Program *program) {
+    int *slots = NULL;   /* decl indices of the globals, in declaration order */
+    GlobalDepCtx g = { .program = program };
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d) continue;
+        if ((d->kind == IRON_NODE_VAL_DECL && ((Iron_ValDecl *)d)->name &&
+             ((Iron_ValDecl *)d)->binding_count == 0) ||
+            (d->kind == IRON_NODE_VAR_DECL && ((Iron_VarDecl *)d)->name)) {
+            hmput(g.gidx, d, (int)arrlen(slots));
+            arrput(slots, i);
+        }
+    }
+    int n = (int)arrlen(slots);
+    if (n == 0) { hmfree(g.gidx); arrfree(slots); return; }
+    g.hard_deps = (int **)calloc((size_t)n, sizeof(int *));
+    g.soft_deps = (int **)calloc((size_t)n, sizeof(int *));
+    int *order = (int *)calloc((size_t)n, sizeof(int));
+    if (!g.hard_deps || !g.soft_deps || !order) goto out;
+    for (int k = 0; k < n; k++) {
+        Iron_Node *init = global_init_of(program->decls[slots[k]]);
+        if (!init) continue;
+        g.cur = k;
+        hmfree(g.visited);
+        g.hard = true;
+        Iron_Visitor v = { .ctx = &g, .visit_node = gdep_visit, .post_visit = NULL };
+        iron_ast_walk(init, &v);
+    }
+    if (gdep_sort(n, g.hard_deps, g.soft_deps, true, order) < n) {
+        int placed = gdep_sort(n, g.hard_deps, g.soft_deps, false, order);
+        if (placed < n) {
+            /* Initializers that depend on each other: the declaration
+             * order stays, and the analyzer reports the cycle (E0345,
+             * global_order.c) once the program type-checks. */
+            goto out;
+        }
+    }
+    {
+        Iron_Node **sorted = (Iron_Node **)calloc((size_t)n, sizeof(Iron_Node *));
+        if (sorted) {
+            for (int k = 0; k < n; k++) sorted[k] = program->decls[slots[order[k]]];
+            for (int k = 0; k < n; k++) program->decls[slots[k]] = sorted[k];
+            free(sorted);
+        }
+    }
+out:
+    for (int k = 0; k < n; k++) {
+        if (g.hard_deps) arrfree(g.hard_deps[k]);
+        if (g.soft_deps) arrfree(g.soft_deps[k]);
+    }
+    free(g.hard_deps);
+    free(g.soft_deps);
+    free(order);
+    hmfree(g.visited);
+    hmfree(g.gidx);
+    arrfree(slots);
+}
+
 /* ── Phase 86 PATCH-02/04: program-global patch registry ─────────────────── */
 
 /* One entry per `patch object T { ... }` contribution. `target` is the
@@ -1997,6 +2263,8 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
                 break;
         }
     }
+
+    order_global_inits(program);
 
     /* Phase 4 Plan 04-01 (EDIT-07): post-pass — flag any aliased imports
      * that never resolved a reference. Runs after Pass 2 so every

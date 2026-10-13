@@ -665,6 +665,8 @@ struct IronLIR_Func {
     /* IRON_HINT_* (parser/ast.h): `//iron:inline` emits always_inline,
      * `noinline` noinline (and keeps the LIR inliner away), `cold` cold. */
     uint8_t            hints;
+    /* From IronHIR_Func.is_user_func (#524). */
+    bool               is_user_func;
 
     /* PARM-02: see the block comment above web_frame_captures. */
     bool              *param_is_var;

@@ -1246,6 +1246,12 @@ if(NOT WIN32)
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_values_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
   set_tests_properties(debug_values_smoke PROPERTIES TIMEOUT 120)
+  # The list formatters gather the elements of a layout: soa list from its
+  # columns.
+  add_test(NAME debug_soa_smoke
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_soa_smoke.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_soa_smoke PROPERTIES TIMEOUT 120)
   # #388: the compiler's temporaries carry no debug info, so gdb and lldb
   # used directly list only Iron names (IRON_DEBUG_TEMPORARIES=1 keeps them).
   add_test(NAME debug_temporaries_smoke
@@ -1668,6 +1674,22 @@ if(Python3_EXECUTABLE)
     set_tests_properties(prog_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
     # The same for numeric types, generics, pointers and Box, and comptime
     # (expected compile errors and panics included).
+    # layout: soa lists: the v4/soa fixtures print the same with the layout
+    # annotations removed, and the generated C stores what was asked (#679).
+    if(NOT WIN32)
+        add_test(NAME test_soa_parity
+            COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/soa_parity.sh $<TARGET_FILE:iron>)
+        set_tests_properties(test_soa_parity PROPERTIES LABELS "codegen" TIMEOUT 1800)
+        add_test(NAME test_soa_storage
+            COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/soa_storage.sh $<TARGET_FILE:ironc>)
+        set_tests_properties(test_soa_storage PROPERTIES LABELS "codegen" TIMEOUT 120)
+    endif()
+    add_test(NAME prog_fuzz_soa
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            soa $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_soa 1 8 -j2
+            --cached-runtime ${CMAKE_BINARY_DIR}/prog_fuzz_soa_runtime)
+    # (about a minute on an idle machine: 8 programs, each built twice)
+    set_tests_properties(prog_fuzz_soa PROPERTIES LABELS "codegen" TIMEOUT 900)
     add_test(NAME prog_fuzz_types
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_types
@@ -1784,6 +1806,7 @@ if(UNIX)
         COMMAND ${CMAKE_SOURCE_DIR}/tests/fmt/migrate/run.sh $<TARGET_FILE:ironc>)
     set_tests_properties(test_fmt_migrate_comments PROPERTIES LABELS "unit" TIMEOUT 600)
 endif()
+include(${CMAKE_SOURCE_DIR}/tests/fuzz/cg_tests.cmake)
 # The standard library prelude, parsed by every compile, stays within the
 # section 13 grammar of the manual (#324).
 if(Python3_EXECUTABLE)

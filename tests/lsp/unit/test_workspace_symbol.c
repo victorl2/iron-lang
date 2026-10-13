@@ -176,9 +176,8 @@ static void test_path_prefix_filter(void) {
     fx_destroy(&f);
 }
 
-/* Regression for #818: workspace/symbol candidates come from the on-disk
- * index, but their ranges must be valid for an open buffer with unsaved
- * edits. */
+/* Regression for #818: workspace/symbol must parse an open buffer instead of
+ * returning ranges from its stale on-disk index. */
 static void test_open_document_range_uses_live_text(void) {
     fx_t f; fx_init(&f);
 
@@ -190,7 +189,9 @@ static void test_open_document_range_uses_live_text(void) {
     TEST_ASSERT_GREATER_OR_EQUAL_size_t(1, first_n);
 
     const char *uri = first[0].uri;
-    IronLsp_Document *doc = ilsp_document_create(uri, "x", 1, 2);
+    const char *live = "pub func greeter() {}\n";
+    size_t live_len = strlen(live);
+    IronLsp_Document *doc = ilsp_document_create(uri, live, live_len, 2);
     TEST_ASSERT_NOT_NULL(doc);
     sh_new_strdup(f.server.documents);
     shput(f.server.documents, uri, doc);
@@ -204,8 +205,10 @@ static void test_open_document_range_uses_live_text(void) {
     TEST_ASSERT_GREATER_OR_EQUAL_size_t(1, n);
     TEST_ASSERT_EQUAL_UINT32(0, out[0].range.start.line);
     TEST_ASSERT_EQUAL_UINT32(0, out[0].range.end.line);
-    TEST_ASSERT_LESS_OR_EQUAL_UINT32(1, out[0].range.start.character);
-    TEST_ASSERT_LESS_OR_EQUAL_UINT32(1, out[0].range.end.character);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32((uint32_t)live_len,
+                                     out[0].range.start.character);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32((uint32_t)live_len,
+                                     out[0].range.end.character);
 
     iron_arena_free(&arena);
     shfree(f.server.documents);

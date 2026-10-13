@@ -91,7 +91,7 @@ typedef struct {
  * the struct body for these names so the runtime header owns the layout.
  * Keyed on the surface type NAME (pre-mangle); the matching C typedefs are
  * Iron_Arena / Iron_ArenaSave / Iron_Box. */
-static bool ir_is_runtime_provided_type(const char *name) {
+bool ir_is_runtime_provided_type(const char *name) {
     if (!name) return false;
     return strcmp(name, "Arena")     == 0 ||
            strcmp(name, "ArenaSave") == 0 ||
@@ -138,13 +138,75 @@ static void ir_topo_visit(IrTopoState *state, int idx);
  * or an ADT enum (a generic enum instance is registered under its mangled
  * name, which the annotation-based walk below cannot see: `Pair[Opt[Bool],
  * Int]` was emitted before Iron_Opt_Bool, an incomplete type). */
+static void ir_topo_visit_type(IrTopoState *state, int idx, const Iron_Type *t);
+
+/* A key or value type of a Map or Set: the table's functions (copy, drop,
+ * the drop thunk of its cells) name every type inside it, also through a
+ * growable list (`Map[String, [Gb[Int]]]` called Iron_List_Iron_Gb__Int_free
+ * before the list was declared with its element's struct). */
+static void ir_topo_visit_in_table(IrTopoState *state, int idx, const Iron_Type *t, int depth) {
+    if (!t || depth > 12) return;
+    if (t->kind == IRON_TYPE_NULLABLE) {
+        ir_topo_visit_in_table(state, idx, t->nullable.inner, depth + 1);
+    } else if (t->kind == IRON_TYPE_ARRAY) {
+        ir_topo_visit_in_table(state, idx, t->array.elem, depth + 1);
+    } else if (t->kind == IRON_TYPE_TUPLE) {
+        for (int i = 0; i < t->tuple.elem_count; i++)
+            ir_topo_visit_in_table(state, idx, t->tuple.elem_types[i], depth + 1);
+    } else if (t->kind == IRON_TYPE_OBJECT && t->object.decl && t->object.decl->name &&
+               t->object.elem && (strcmp(t->object.decl->name, "Map") == 0 ||
+                                  strcmp(t->object.decl->name, "Set") == 0)) {
+        ir_topo_visit_in_table(state, idx, t->object.elem, depth + 1);
+        ir_topo_visit_in_table(state, idx, t->object.elem2, depth + 1);
+    } else {
+        ir_topo_visit_type(state, idx, t);
+    }
+}
+
 static void ir_topo_visit_type(IrTopoState *state, int idx, const Iron_Type *t) {
     for (int guard = 0; t && guard < 8; guard++) {
         if (t->kind == IRON_TYPE_NULLABLE) { t = t->nullable.inner; continue; }
         if (t->kind == IRON_TYPE_ARRAY && t->array.size >= 0) { t = t->array.elem; continue; }
+        /* A growable list holds a pointer, but a list of `T?` gets its
+         * Iron_Optional_T typedef (T inline) with the struct that holds it
+         * (`[Mb[Bool]?]` was emitted before Iron_Mb_Bool). */
+        if (t->kind == IRON_TYPE_ARRAY && t->array.elem &&
+            t->array.elem->kind == IRON_TYPE_NULLABLE) { t = t->array.elem; continue; }
         break;
     }
     if (!t) return;
+    /* A tuple holds its components inline. */
+    if (t->kind == IRON_TYPE_TUPLE) {
+        for (int i = 0; i < t->tuple.elem_count; i++)
+            ir_topo_visit_type(state, idx, t->tuple.elem_types[i]);
+        return;
+    }
+    /* A Map or Set instance is emitted with the struct that holds it, and
+     * its table stores the key and value inline (sizeof): they come first.
+     * An object field `Map[String, Opt[[Int]]]` was emitted before the
+     * enum's struct, an incomplete type. */
+    if (t->kind == IRON_TYPE_OBJECT && t->object.decl && t->object.decl->name &&
+        t->object.elem && (strcmp(t->object.decl->name, "Map") == 0 ||
+                           strcmp(t->object.decl->name, "Set") == 0)) {
+        ir_topo_visit_in_table(state, idx, t->object.elem, 0);
+        if (t->object.elem2) ir_topo_visit_in_table(state, idx, t->object.elem2, 0);
+        return;
+    }
+    /* A list of Maps or Sets: the table instance is still emitted with the
+     * struct holding the list (`[Map[String, E]]` came before E). */
+    if (t->kind == IRON_TYPE_ARRAY && t->array.elem) {
+        const Iron_Type *e = t->array.elem;
+        for (int guard = 0; e && guard < 8; guard++) {
+            if (e->kind == IRON_TYPE_ARRAY) e = e->array.elem;
+            else if (e->kind == IRON_TYPE_NULLABLE) e = e->nullable.inner;
+            else break;
+        }
+        if (e && e->kind == IRON_TYPE_OBJECT && e->object.decl && e->object.decl->name &&
+            e->object.elem && (strcmp(e->object.decl->name, "Map") == 0 ||
+                               strcmp(e->object.decl->name, "Set") == 0))
+            ir_topo_visit_type(state, idx, e);
+        return;
+    }
     const char *name = NULL;
     if (t->kind == IRON_TYPE_OBJECT && t->object.decl) name = t->object.decl->name;
     else if (t->kind == IRON_TYPE_ENUM)
@@ -174,12 +236,15 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
                 Iron_Node *ann = ev->payload_type_anns ? ev->payload_type_anns[k] : NULL;
                 if (!ann || ann->kind != IRON_NODE_TYPE_ANNOTATION) continue;
                 Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)ann;
-                if (!ta->name || ta->is_rc || ta->is_weak_rc || ta->is_pointer || ta->is_array) continue;
+                if (ta->is_rc || ta->is_weak_rc || ta->is_pointer) continue;
                 bool boxed = td->type->enu.payload_is_boxed && td->type->enu.payload_is_boxed[j] &&
                              td->type->enu.payload_is_boxed[j][k];
                 if (boxed) continue;
+                /* (also a nameless payload: a tuple, `[E?]`, whose
+                 * components are inline) */
                 if (td->type->enu.variant_payload_types && td->type->enu.variant_payload_types[j])
                     ir_topo_visit_type(state, idx, td->type->enu.variant_payload_types[j][k]);
+                if (!ta->name || ta->is_array) continue;
                 int dep = find_ir_type_decl_idx(state->module, ta->name);
                 if (dep >= 0 && dep != idx) ir_topo_visit(state, dep);
             }
@@ -213,8 +278,10 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
              * dependency (and their wrapper annotation has no name). A
              * `T?` field holds T inline (Iron_Optional_T), so it depends
              * on T like a plain field. */
-            if (!ta->name || ta->is_rc || ta->is_weak_rc || ta->is_pointer) continue;
-            if (!ta->is_array) ir_topo_visit_type(state, idx, f->resolved_type);
+            if (ta->is_rc || ta->is_weak_rc || ta->is_pointer) continue;
+            /* (also for a nameless annotation: a tuple, `[E?]`) */
+            ir_topo_visit_type(state, idx, f->resolved_type);
+            if (!ta->name) continue;
             int dep = find_ir_type_decl_idx(state->module, ta->name);
             if (dep >= 0 && dep != idx) ir_topo_visit(state, dep);
         }
@@ -430,6 +497,274 @@ static bool list_struct_predeclared(EmitCtx *ctx, const char *mangled) {
     return false;
 }
 
+/* layout: soa lists of a concrete object type (#679).
+ *
+ * Every list of an element type that is used with layout: soa somewhere in
+ * the module shares one C type, Iron_List_<T>, so a list of either layout
+ * can be passed, returned and stored wherever a [T] is expected. The
+ * layout travels with the value in the header's `soa` flag:
+ *
+ *   soa == false   items points at capacity whole elements
+ *   soa == true    items points at one block holding a column per member:
+ *                  capacity values of the first member, then capacity
+ *                  values of the next, and so on
+ *
+ * Columns are ordered by decreasing alignment (declaration order among
+ * equals), so column m starts at byte capacity * K_m of the block, where
+ * K_m is the total size of the members placed before it: a compile-time
+ * constant of the C program, and every column is aligned without padding.
+ * The header is a plain value like that of any other list: a copy of it
+ * (a borrowed parameter, a captured list) reads the same storage.
+ *
+ * Gathering and scattering move member bits only. Ownership stays with the
+ * list, exactly as for items[]: copy and drop glue run where the element
+ * array runs them (clone, clear, free), never on a gather.
+ *
+ * _read, _write and _field_<m> do not check the index: the emitter wraps
+ * it in iron_bounds_idx at the call site, so a panic names the Iron line.
+ * _get, _set, _remove and _insert check it and name themselves with line
+ * 0, like the runtime list bodies, so the panic shows the line the emitter
+ * recorded for the call. */
+static bool ir_has_subtype(IronLIR_Module *module, const char *type_name);
+
+typedef struct {
+    const char *name;      /* C member name */
+    bool        is_array;  /* a C array member: copied with memcpy */
+} SoaMember;
+
+/* The members of the element's C struct, in declaration order (see
+ * emit_object_struct_body): the hidden parent or type tag, then the
+ * fields. */
+static SoaMember *soa_members(EmitCtx *ctx, Iron_ObjectDecl *od, const char *bare) {
+    SoaMember *ms = NULL;
+    if (od->extends_name) {
+        SoaMember m = { "_base", false };
+        arrput(ms, m);
+    } else if (ir_has_subtype(ctx->module, bare)) {
+        SoaMember m = { "iron_type_tag", false };
+        arrput(ms, m);
+    }
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->name) continue;
+        Iron_Type *ft = f->resolved_type;
+        SoaMember m = { f->name, ft && ft->kind == IRON_TYPE_ARRAY &&
+                                 ft->array.size >= 0 && !ft->array.is_bounded };
+        arrput(ms, m);
+    }
+    return ms;
+}
+
+/* Appends `text` with @ replaced by the list type and $ by the element. */
+static void soa_template(Iron_StrBuf *sb, const char *text, const char *elem) {
+    for (const char *p = text; *p; p++) {
+        if (*p == '@') iron_strbuf_appendf(sb, "Iron_List_%s", elem);
+        else if (*p == '$') iron_strbuf_appendf(sb, "%s", elem);
+        else { char c[2] = {*p, 0}; iron_strbuf_appendf(sb, "%s", c); }
+    }
+}
+
+static void emit_object_soa_impl(EmitCtx *ctx, const char *m, Iron_ObjectDecl *od,
+                                 const char *bare, bool drop, bool copy) {
+    Iron_StrBuf *sb = &ctx->struct_bodies;
+    SoaMember *ms = soa_members(ctx, od, bare);
+    const int n = (int)arrlen(ms);
+#define SOA(text) soa_template(sb, text, m)
+#define EACH for (int f = 0; f < n; f++)
+    if (drop) iron_strbuf_appendf(sb, "static void %s_drop(%s *);\n", m, m);
+    if (copy) iron_strbuf_appendf(sb, "static void %s_copied(%s *);\n", m, m);
+
+    /* Sizes, alignments and column offsets per element of capacity. */
+    iron_strbuf_appendf(sb, "enum {\n");
+    EACH iron_strbuf_appendf(sb,
+        "  Iron_List_%s_S%d = sizeof(((%s *)0)->%s),"
+        " Iron_List_%s_A%d = _Alignof(__typeof__(((%s *)0)->%s)),\n",
+        m, f, m, ms[f].name, m, f, m, ms[f].name);
+    iron_strbuf_appendf(sb, "  Iron_List_%s_ROW = 0", m);
+    EACH iron_strbuf_appendf(sb, " + Iron_List_%s_S%d", m, f);
+    iron_strbuf_appendf(sb, "\n};\nenum {\n");
+    EACH {
+        iron_strbuf_appendf(sb, "  Iron_List_%s_K%d = 0", m, f);
+        for (int g = 0; g < n; g++) {
+            if (g == f) continue;
+            iron_strbuf_appendf(sb, " + (Iron_List_%s_A%d %s Iron_List_%s_A%d ? Iron_List_%s_S%d : 0)",
+                                m, g, g < f ? ">=" : ">", m, f, m, g);
+        }
+        iron_strbuf_appendf(sb, ",\n");
+    }
+    iron_strbuf_appendf(sb, "  Iron_List_%s_NCOL = %d\n};\n", m, n);
+
+    /* Column m of a soa list. */
+    EACH iron_strbuf_appendf(sb,
+        "static inline __typeof__(((%s *)0)->%s) *Iron_List_%s_col%d(const Iron_List_%s *self) {\n"
+        "  return (__typeof__(((%s *)0)->%s) *)((char *)self->items +"
+        " (size_t)self->capacity * Iron_List_%s_K%d);\n}\n",
+        m, ms[f].name, m, f, m, m, ms[f].name, m, f);
+
+    /* Element access. */
+    SOA("static inline $ @_read(@ self, int64_t i) {\n"
+        "  if (!self.soa) return self.items[i];\n"
+        "  $ out;\n  __builtin_memset(&out, 0, sizeof out);\n");
+    EACH {
+        if (ms[f].is_array)
+            iron_strbuf_appendf(sb, "  __builtin_memcpy(&out.%s, &Iron_List_%s_col%d(&self)[i], sizeof out.%s);\n",
+                                ms[f].name, m, f, ms[f].name);
+        else
+            iron_strbuf_appendf(sb, "  out.%s = Iron_List_%s_col%d(&self)[i];\n", ms[f].name, m, f);
+    }
+    SOA("  return out;\n}\n"
+        "static inline void @_write(@ *self, int64_t i, $ v) {\n"
+        "  if (!self->soa) { self->items[i] = v; return; }\n");
+    EACH {
+        if (ms[f].is_array)
+            iron_strbuf_appendf(sb, "  __builtin_memcpy(&Iron_List_%s_col%d(self)[i], &v.%s, sizeof v.%s);\n",
+                                m, f, ms[f].name, ms[f].name);
+        else
+            iron_strbuf_appendf(sb, "  Iron_List_%s_col%d(self)[i] = v.%s;\n", m, f, ms[f].name);
+    }
+    SOA("}\n");
+
+    /* The address of one member of an element: inside its column. */
+    EACH iron_strbuf_appendf(sb,
+        "static inline __typeof__(((%s *)0)->%s) *Iron_List_%s_field_%s(Iron_List_%s self, int64_t i) {\n"
+        "  return self.soa ? &Iron_List_%s_col%d(&self)[i] : &self.items[i].%s;\n}\n",
+        m, ms[f].name, m, ms[f].name, m, m, f, ms[f].name);
+
+    /* Stores one member of *v into element i: what a lent element writes
+     * back when the borrower can only have changed that member. */
+    EACH {
+        iron_strbuf_appendf(sb,
+            "static inline void Iron_List_%s_put_%s(Iron_List_%s *self, int64_t i, const %s *v) {\n",
+            m, ms[f].name, m, m);
+        if (ms[f].is_array)
+            iron_strbuf_appendf(sb,
+                "  __builtin_memcpy(Iron_List_%s_field_%s(*self, i), &v->%s, sizeof v->%s);\n}\n",
+                m, ms[f].name, ms[f].name, ms[f].name);
+        else
+            iron_strbuf_appendf(sb, "  *Iron_List_%s_field_%s(*self, i) = v->%s;\n}\n",
+                                m, ms[f].name, ms[f].name);
+    }
+
+    /* Moves count elements from index src to index dst inside the list's
+     * storage (the ranges may overlap): one memmove per column. */
+    SOA("static void @_move(@ *self, int64_t dst, int64_t src, int64_t count) {\n"
+        "  if (count <= 0) return;\n"
+        "  if (!self->soa) {\n"
+        "    iron_mem_move(&self->items[dst], &self->items[src], (size_t)count * sizeof($));\n"
+        "    return;\n  }\n");
+    EACH iron_strbuf_appendf(sb,
+        "  iron_mem_move(&Iron_List_%s_col%d(self)[dst], &Iron_List_%s_col%d(self)[src],"
+        " (size_t)count * Iron_List_%s_S%d);\n", m, f, m, f, m, f);
+    SOA("}\n");
+
+    /* Construction and capacity. Growing a soa list moves every column to
+     * its place in a block of the new capacity. */
+    SOA("@ @_create(void) {\n"
+        "  @ out;\n  out.items = NULL; out.count = 0; out.capacity = 0; out.soa = false;\n"
+        "  return out;\n}\n"
+        "@ @_create_soa(void) {\n  @ out = @_create();\n  out.soa = true;\n  return out;\n}\n"
+        "static void @_reserve_impl(@ *self, int64_t cap) {\n"
+        "  if (cap <= self->capacity) return;\n"
+        "  if ((uint64_t)cap > SIZE_MAX / (sizeof($) ? sizeof($) : 1))\n"
+        "    iron_oom_abort(\"Iron_List_$_push: capacity overflow\");\n"
+        "  if (!self->soa) {\n"
+        "    $ *items = ($ *)iron_mem_realloc(self->items, (size_t)cap * sizeof($));\n"
+        "    if (!items) iron_oom_abort(\"Iron_List_$_push\");\n"
+        "    self->items = items;\n"
+        "    self->capacity = cap;\n"
+        "    return;\n  }\n"
+        "  @ grown = *self;\n"
+        "  grown.capacity = cap;\n"
+        "  grown.items = ($ *)iron_mem_alloc((size_t)cap * (@_ROW ? @_ROW : 1));\n"
+        "  if (!grown.items) iron_oom_abort(\"Iron_List_$_push\");\n"
+        "  if (self->count > 0) {\n");
+    EACH iron_strbuf_appendf(sb,
+        "    iron_mem_copy(Iron_List_%s_col%d(&grown), Iron_List_%s_col%d(self),"
+        " (size_t)self->count * Iron_List_%s_S%d);\n", m, f, m, f, m, f);
+    SOA("  }\n"
+        "  iron_mem_free(self->items);\n"
+        "  *self = grown;\n}\n"
+        "@ @_create_with_capacity(int64_t cap) {\n"
+        "  @ out = @_create();\n  if (cap > 0) @_reserve_impl(&out, cap);\n  return out;\n}\n");
+
+    /* Mutation. */
+    SOA("void @_push(@ *self, $ v) {\n"
+        "  if (self->count >= self->capacity) {\n"
+        "    int64_t cap = self->capacity ? self->capacity * 2 : 8;\n"
+        "    if (cap < self->capacity) iron_oom_abort(\"Iron_List_$_push: capacity overflow\");\n"
+        "    @_reserve_impl(self, cap);\n"
+        "  }\n"
+        "  @_write(self, self->count++, v);\n}\n"
+        "$ @_get(const @ *self, int64_t i) {\n"
+        "  if ((uint64_t)i >= (uint64_t)self->count)\n"
+        "    iron_panic_index_oob(\"Iron_List_$_get\", 0, i, self->count);\n"
+        "  return @_read(*self, i);\n}\n"
+        "void @_set(@ *self, int64_t i, $ v) {\n"
+        "  if ((uint64_t)i >= (uint64_t)self->count)\n"
+        "    iron_panic_index_oob(\"Iron_List_$_set\", 0, i, self->count);\n"
+        "  @_write(self, i, v);\n}\n"
+        "$ @_pop(@ *self) {\n"
+        "  if (self->count <= 0) iron_panic_index_oob(\"Iron_List_$_pop\", 0, -1, self->count);\n"
+        "  return @_read(*self, --self->count);\n}\n"
+        "$ @_remove(@ *self, int64_t i) {\n"
+        "  if ((uint64_t)i >= (uint64_t)self->count)\n"
+        "    iron_panic_index_oob(\"Iron_List_$_remove\", 0, i, self->count);\n"
+        "  $ out = @_read(*self, i);\n"
+        "  @_move(self, i, i + 1, self->count - i - 1);\n"
+        "  self->count--;\n  return out;\n}\n"
+        "void @_insert(@ *self, int64_t i, $ v) {\n"
+        "  if ((uint64_t)i > (uint64_t)self->count)\n"
+        "    iron_panic_index_oob(\"Iron_List_$_insert\", 0, i, self->count + 1);\n"
+        "  @_push(self, v);\n"
+        "  @_move(self, i + 1, i, self->count - 1 - i);\n"
+        "  @_write(self, i, v);\n}\n"
+        "void @_reverse(@ *self) {\n"
+        "  for (int64_t i = 0, j = self->count - 1; i < j; i++, j--) {\n"
+        "    $ t = @_read(*self, i);\n"
+        "    @_write(self, i, @_read(*self, j));\n"
+        "    @_write(self, j, t);\n"
+        "  }\n}\n"
+        "int64_t @_len(const @ *self) { return self->count; }\n");
+
+    /* Ownership: clear and free drop each element once, clone copies each
+     * one into a list of the same layout, take leaves an empty list of the
+     * same layout behind. */
+    SOA("void @_clear(@ *self) {\n");
+    if (drop)
+        SOA("  for (int64_t i = 0; i < self->count; i++) { $ v = @_read(*self, i); $_drop(&v); }\n");
+    SOA("  self->count = 0;\n}\n"
+        "void @_free(@ *self) {\n"
+        "  @_clear(self);\n"
+        "  iron_mem_free(self->items);\n"
+        "  self->items = NULL; self->capacity = 0;\n}\n"
+        "@ @_take(@ *self) {\n"
+        "  @ out = *self;\n"
+        "  self->items = NULL; self->count = 0; self->capacity = 0;\n"
+        "  return out;\n}\n"
+        "@ @_clone(const @ *self) {\n"
+        "  @ out = @_create();\n"
+        "  out.soa = self->soa;\n"
+        "  if (self->count <= 0) return out;\n"
+        "  @_reserve_impl(&out, self->count);\n"
+        "  out.count = self->count;\n"
+        "  if (!self->soa) {\n"
+        "    iron_mem_copy(out.items, self->items, (size_t)self->count * sizeof($));\n"
+        "  } else {\n");
+    EACH iron_strbuf_appendf(sb,
+        "    iron_mem_copy(Iron_List_%s_col%d(&out), Iron_List_%s_col%d(self),"
+        " (size_t)self->count * Iron_List_%s_S%d);\n", m, f, m, f, m, f);
+    SOA("  }\n");
+    if (copy)
+        SOA("  for (int64_t i = 0; i < out.count; i++) {\n"
+            "    $ v = @_read(out, i);\n"
+            "    $_copied(&v);\n"
+            "    @_write(&out, i, v);\n  }\n");
+    SOA("  return out;\n}\n");
+#undef EACH
+#undef SOA
+    arrfree(ms);
+}
+
 /* The Iron_List_<Obj> typedef, prototypes and implementation for a list
  * of a concrete object type, once per type. Called for every object
  * ARRAY_LIT in the module and by the Map/Set glue for keys() / values(). */
@@ -504,10 +839,17 @@ void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et) {
         "    %s    *items;\n"
         "    int64_t count;\n"
         "    int64_t capacity;\n"
+        "%s"
         "} Iron_List_%s;\n",
-        mangled, mangled, mangled, mangled);
+        mangled, mangled, mangled,
+        shgeti(ctx->soa_object_types, mangled) >= 0 ? "    bool soa;\n" : "",
+        mangled);
 
-    /* Emit IRON_LIST_DECL(T, suffix) — function prototypes. */
+    /* Emit IRON_LIST_DECL(T, suffix) — function prototypes (unless a
+     * table holding such a list declared them, early_nested_list_decls). */
+    char early_key[256];
+    snprintf(early_key, sizeof(early_key), "early:%s", mangled);
+    if (shgeti(ctx->emitted_mono_list_types, early_key) < 0)
     iron_strbuf_appendf(&ctx->struct_bodies,
         "IRON_LIST_DECL(%s, %s)\n",
         mangled, mangled);
@@ -516,8 +858,10 @@ void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et) {
      * type owns a drop/copy, else the fast free(items)/memcpy path
      * (Pitfall 5).  Safe at TU level: each mangled name is unique
      * per compilation unit. */
-    emit_list_impl_lifecycle(ctx, mangled,
-                             elem_has_drop, elem_has_copy);
+    if (shgeti(ctx->soa_object_types, mangled) >= 0)
+        emit_object_soa_impl(ctx, mangled, et->object.decl, bare_type, elem_has_drop, elem_has_copy);
+    else
+        emit_list_impl_lifecycle(ctx, mangled, elem_has_drop, elem_has_copy);
 }
 
 /* The Iron_List_<Enum> typedef and implementation for a list of an ADT
@@ -525,7 +869,30 @@ void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et) {
  * <Enum>_drop / <Enum>_copied, emitted with its struct. The stdlib's
  * Address list is declared by the runtime header. */
 static void emit_ensure_enum_list(EmitCtx *ctx, const Iron_Type *et) {
-    if (!et || et->kind != IRON_TYPE_ENUM || !et->enu.decl || !et->enu.decl->has_payloads) return;
+    if (!et || et->kind != IRON_TYPE_ENUM || !et->enu.decl) return;
+    if (!et->enu.decl->has_payloads) {
+        /* A list of a plain enum (`[Color]`): its struct wrapper has no
+         * forward-declared list, and the list was never declared (the C
+         * named an unknown Iron_List_Iron_Color, #643). */
+        const char *mangled = et->enu.mangled_name ? et->enu.mangled_name
+                                                   : emit_mangle_name(et->enu.decl->name, ctx->arena);
+        if (shgeti(ctx->emitted_mono_list_types, mangled) >= 0) return;
+        shput(ctx->emitted_mono_list_types, mangled, true);
+        /* The typedef goes with the enum's (before every struct body: an
+         * object field may be a [Color]); the functions at the end. */
+        iron_strbuf_appendf(&ctx->enum_defs,
+            "typedef struct Iron_List_%s {\n"
+            "    %s    *items;\n"
+            "    int64_t count;\n"
+            "    int64_t capacity;\n"
+            "} Iron_List_%s;\n",
+            mangled, mangled, mangled);
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "IRON_LIST_DECL(%s, %s)\n"
+            "IRON_LIST_IMPL(%s, %s)\n\n",
+            mangled, mangled, mangled, mangled);
+        return;
+    }
     const char *mangled = et->enu.mangled_name ? et->enu.mangled_name
                                                : emit_mangle_name(et->enu.decl->name, ctx->arena);
     if (shgeti(ctx->emitted_mono_list_types, mangled) >= 0) return;
@@ -540,6 +907,104 @@ static void emit_ensure_enum_list(EmitCtx *ctx, const Iron_Type *et) {
                             mangled, mangled);
     emit_list_impl_lifecycle(ctx, mangled, enum_needs_glue(ctx, et, false),
                              enum_needs_glue(ctx, et, true));
+}
+
+/* emit_ensure_enum_list / emit_ensure_object_list for every growable list
+ * of an enum or object inside t. */
+static void ensure_lists_in_type(EmitCtx *ctx, const Iron_Type *t, int depth) {
+    if (!t || depth > 12) return;
+    switch ((int)t->kind) {
+    case IRON_TYPE_ARRAY: {
+        const Iron_Type *e = t->array.elem;
+        if (e && t->array.size < 0 && !t->array.is_bounded) {
+            if (e->kind == IRON_TYPE_ENUM) emit_ensure_enum_list(ctx, e);
+            else if (e->kind == IRON_TYPE_OBJECT && e->object.decl &&
+                     !ir_is_runtime_provided_type(e->object.decl->name))
+                emit_ensure_object_list(ctx, e);
+        }
+        ensure_lists_in_type(ctx, e, depth + 1);
+        break;
+    }
+    case IRON_TYPE_NULLABLE: ensure_lists_in_type(ctx, t->nullable.inner, depth + 1); break;
+    case IRON_TYPE_RC:       ensure_lists_in_type(ctx, t->rc.inner, depth + 1); break;
+    case IRON_TYPE_TUPLE:
+        for (int i = 0; i < t->tuple.elem_count; i++)
+            ensure_lists_in_type(ctx, t->tuple.elem_types[i], depth + 1);
+        break;
+    case IRON_TYPE_OBJECT:
+        if (t->object.elem) {
+            ensure_lists_in_type(ctx, t->object.elem, depth + 1);
+            ensure_lists_in_type(ctx, t->object.elem2, depth + 1);
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+/* The prototypes of a list of an ADT enum nested in t below its top level
+ * (a Map's value, an optional, a tuple component), declared early with the
+ * same "early:" key emit_enum_decl uses for direct list payloads. */
+static void early_nested_list_decls(EmitCtx *ctx, const Iron_Type *t, int depth) {
+    if (!t || depth > 12) return;
+    const Iron_Type *sub[2] = { NULL, NULL };
+    if (t->kind == IRON_TYPE_NULLABLE) sub[0] = t->nullable.inner;
+    else if (t->kind == IRON_TYPE_OBJECT && t->object.elem) {
+        sub[0] = t->object.elem;
+        sub[1] = t->object.elem2;
+    } else if (t->kind == IRON_TYPE_TUPLE) {
+        for (int i = 0; i < t->tuple.elem_count; i++)
+            early_nested_list_decls(ctx, t->tuple.elem_types[i], depth + 1);
+        return;
+    } else if (t->kind == IRON_TYPE_ARRAY) sub[0] = t->array.elem;
+    for (int s = 0; s < 2; s++) {
+        const Iron_Type *x = sub[s];
+        if (!x) continue;
+        if (depth > 0 || t->kind != IRON_TYPE_ARRAY) {
+            /* A list of objects too: `Map[String, [Gb[Int]]]` in a field
+             * wrote the table's cell drop before the list's prototypes. */
+            if (x->kind == IRON_TYPE_ARRAY && x->array.size < 0 && !x->array.is_bounded &&
+                x->array.elem && x->array.elem->kind == IRON_TYPE_OBJECT &&
+                x->array.elem->object.decl && x->array.elem->object.decl->name &&
+                !emit_type_is_container_elem(x->array.elem) &&
+                !ir_is_runtime_provided_type(x->array.elem->object.decl->name)) {
+                const char *em = emit_mangle_name(x->array.elem->object.decl->name, ctx->arena);
+                if (shgeti(ctx->emitted_mono_list_types, em) < 0 &&
+                    list_struct_predeclared(ctx, em)) {
+                    size_t kl = strlen(em) + 7;
+                    char *key = (char *)iron_arena_alloc(ctx->arena, kl, 1);
+                    if (!key) iron_oom_abort("emit_structs.c:early_nested_list_decls key");
+                    snprintf(key, kl, "early:%s", em);
+                    if (shgeti(ctx->emitted_mono_list_types, key) < 0) {
+                        shput(ctx->emitted_mono_list_types, key, true);
+                        iron_strbuf_appendf(&ctx->struct_bodies,
+                                            "IRON_LIST_DECL(%s, %s)\n", em, em);
+                    }
+                }
+            }
+            if (x->kind == IRON_TYPE_ARRAY && x->array.size < 0 && !x->array.is_bounded &&
+                x->array.elem && x->array.elem->kind == IRON_TYPE_ENUM &&
+                x->array.elem->enu.decl && x->array.elem->enu.decl->has_payloads &&
+                !(x->array.elem->enu.decl->name &&
+                  strcmp(x->array.elem->enu.decl->name, "Address") == 0)) {
+                const Iron_Type *el = x->array.elem;
+                const char *em = el->enu.mangled_name ? el->enu.mangled_name
+                                                      : emit_mangle_name(el->enu.decl->name, ctx->arena);
+                if (shgeti(ctx->emitted_mono_list_types, em) < 0) {
+                    size_t kl = strlen(em) + 7;
+                    char *key = (char *)iron_arena_alloc(ctx->arena, kl, 1);
+                    if (!key) iron_oom_abort("emit_structs.c:early_nested_list_decls key");
+                    snprintf(key, kl, "early:%s", em);
+                    if (shgeti(ctx->emitted_mono_list_types, key) < 0) {
+                        shput(ctx->emitted_mono_list_types, key, true);
+                        iron_strbuf_appendf(&ctx->struct_bodies,
+                                            "IRON_LIST_DECL(%s, %s)\n", em, em);
+                    }
+                }
+            }
+        }
+        early_nested_list_decls(ctx, x, depth + 1);
+    }
 }
 
 static void emit_mono_list_decls(EmitCtx *ctx) {
@@ -796,6 +1261,44 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
 
     #undef PLAN_63_04_EMIT_LIST_FOR
 
+    /* Scan C: lists of enums and objects reached only through types: a
+     * field or payload `[Mb[String]]` of a generic instance, a parameter,
+     * a value's type. Their typedef comes with the forward declarations;
+     * the prototypes and bodies were never emitted (undeclared
+     * Iron_List_Iron_Mb_String_free). */
+    for (int i = 0; i < module->type_decl_count; i++) {
+        IronLIR_TypeDecl *td = module->type_decls[i];
+        if (!td || !td->type) continue;
+        if (td->type->kind == IRON_TYPE_OBJECT && td->type->object.decl &&
+            !ir_is_runtime_provided_type(td->name)) {
+            Iron_ObjectDecl *od = td->type->object.decl;
+            for (int fi = 0; fi < od->field_count; fi++) {
+                Iron_Field *f = (Iron_Field *)od->fields[fi];
+                if (f) ensure_lists_in_type(ctx, f->resolved_type, 0);
+            }
+        } else if (td->type->kind == IRON_TYPE_ENUM && td->type->enu.decl &&
+                   td->type->enu.variant_payload_types) {
+            Iron_EnumDecl *ed = td->type->enu.decl;
+            for (int vi = 0; vi < ed->variant_count; vi++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
+                if (!ev || !td->type->enu.variant_payload_types[vi]) continue;
+                for (int k = 0; k < ev->payload_count; k++)
+                    ensure_lists_in_type(ctx, td->type->enu.variant_payload_types[vi][k], 0);
+            }
+        }
+    }
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (!fn) continue;
+        for (int pi = 0; pi < fn->param_count; pi++)
+            ensure_lists_in_type(ctx, fn->params[pi].type, 0);
+        ensure_lists_in_type(ctx, fn->return_type, 0);
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++)
+                ensure_lists_in_type(ctx, blk->instrs[ii]->type, 0);
+        }
+    }
 }
 
 /* Check if any type_decl's object extends the given name */
@@ -847,8 +1350,11 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
         if (!f || !f->type_ann || !f->resolved_type ||
             f->resolved_type->kind == IRON_TYPE_ERROR) continue;
         Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
+        early_nested_list_decls(ctx, f->resolved_type, 0);
         if (ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || ta->is_pointer ||
-            (ta->is_array && (ta->bounded || ta->array_size || ta->array_elem_ann)))
+            ta->is_tuple || !ta->name ||
+            (ta->is_array && (ta->bounded || ta->array_size || ta->array_elem_ann ||
+                              ta->is_nullable)))
             (void)emit_type_to_c(f->resolved_type, ctx);
         /* A `T?` field of a user type: its Iron_Optional_T typedef wraps
          * T by value, so it is declared here, after T's struct (the
@@ -896,8 +1402,11 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                     f->resolved_type->kind == IRON_TYPE_ARRAY &&
                     f->resolved_type->array.elem &&
                     f->resolved_type->array.elem->kind == IRON_TYPE_INTERFACE;
+                /* (A tuple field has no name: its resolved type spells
+                 * Iron_Tuple_..., the annotation path dereferenced NULL.) */
                 if ((ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || iface_list ||
-                     ta->is_pointer ||
+                     ta->is_pointer || ta->is_tuple || !ta->name ||
+                     (ta->is_array && ta->is_nullable) ||
                      (ta->is_array && (ta->bounded || ta->array_size || ta->array_elem_ann))) &&
                     f->resolved_type && f->resolved_type->kind != IRON_TYPE_ERROR) {
                     /* Box[T], a generic enum, weak rc T, a pointer (`*T` is
@@ -1051,6 +1560,14 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
          * emitted with the other lists, after every struct, and the C did
          * not compile. */
         bool self_list = false;
+        /* (Also a list inside a payload's Map, optional or tuple:
+         * `C(Map[String, [W2]])` emitted the table's drop thunk naming
+         * Iron_List_Iron_W2_free before its prototype.) */
+        for (int j = 0; vpt && j < ed->variant_count; j++) {
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            for (int k = 0; vpt[j] && k < ev->payload_count; k++)
+                if (vpt[j][k]) early_nested_list_decls(ctx, vpt[j][k], 0);
+        }
         for (int j = 0; vpt && j < ed->variant_count; j++) {
             Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
             for (int k = 0; vpt[j] && k < ev->payload_count; k++) {
@@ -1390,8 +1907,11 @@ void emit_type_decls(EmitCtx *ctx) {
                     "    %s *items;\n"
                     "    int64_t count;\n"
                     "    int64_t capacity;\n"
+                    "%s"
                     "} Iron_List_%s;\n",
-                    type_name, type_name, type_name);
+                    type_name, type_name,
+                    shgeti(ctx->soa_object_types, type_name) >= 0 ? "    bool soa;\n" : "",
+                    type_name);
         }
     }
     if (ctx->forward_decls.len > 0) {

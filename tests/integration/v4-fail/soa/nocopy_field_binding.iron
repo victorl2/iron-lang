@@ -1,0 +1,11 @@
+-- #682: a list of nocopy elements cannot duplicate one.
+nocopy object P { val x: Int }
+object H { val p: P
+    init() { self.p = P(1) } }
+func main() {
+    var ps: [P, layout: soa] = []
+    ps.push(P(1))
+    val h = H()
+    val one = h.p
+    println("{ps.len()} {h.p.x}")
+}

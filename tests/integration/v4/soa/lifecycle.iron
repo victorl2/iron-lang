@@ -1,0 +1,30 @@
+-- Motivating Incident: #679 concrete layouts need real element lifecycle glue.
+-- Layout Diagram: columns own field bits; gathered values borrow those bits.
+-- Fix Summary: clone runs copy glue, clear/free run drop glue in index order.
+-- Severity: H, incorrect ownership causes leaks and double frees.
+object D {
+    val n: Int
+    val s: String
+    copy { println("copy {self.n}") }
+    drop { println("drop {self.n}") }
+}
+func main() {
+    var ps: [D, layout: soa] = []
+    ps.push(D(1, "long heap string for the first element"))
+    ps.push(D(2, "long heap string for the second element"))
+    {
+        val cp = ps.copy()
+        println("copied {cp.len()}")
+    }
+    {
+        val p = ps.remove(0)
+        println("removed {p.n}")
+    }
+    {
+        val p = ps.pop()
+        println("popped {p.n}")
+    }
+    ps.push(D(3, "long heap string for the third element"))
+    ps.clear()
+    println("empty {ps.len()}")
+}

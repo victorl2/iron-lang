@@ -1,0 +1,9 @@
+-- An interface method declared twice (E0201).
+interface Show {
+    readonly func show() -> String
+    readonly func show() -> String
+}
+
+func main() {
+    println("x")
+}

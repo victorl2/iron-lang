@@ -1,0 +1,22 @@
+-- A generic constructed with a T? type argument inside a nested list
+-- literal, or followed by a tuple type argument, was read as a type and
+-- failed to parse.
+object Gp[A, B] {
+    val a: A
+    val b: B
+}
+
+object Bx[T] {
+    val v: T
+}
+
+func main() {
+    val nested = [[Gp[Bool?, Bool](true, false), Gp[Bool?, Bool](null, true)]]
+    val tup = [Gp[Int?, (Bool, Int)](1, (true, 65536))]
+    val inner = Gp[[Bx[Int?]], Int]([Bx[Int?](null)], 2)
+    val m = Map[String, [Int?]]()
+    println("{len(nested[0])} {nested[0][1].b}")
+    val (flag, n) = tup[0].b
+    println("{flag} {n}")
+    println("{len(inner.a)} {inner.b} {m.len()}")
+}

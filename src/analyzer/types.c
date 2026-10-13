@@ -599,10 +599,12 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
              * `Iron_Tuple__object__Int` causing silent C-level name
              * collisions. */
             if (t->object.decl && t->object.decl->name) {
-                /* Map[K, V] and Set[T] print their element types, which is
-                 * how a user wrote them. */
+                /* Map[K, V], Set[T] and the runtime containers (Channel[T],
+                 * Mutex[T], Box[T], ...) print their element types, which is
+                 * how a user wrote them ("expected 'Channel', got 'Channel'"
+                 * named neither). */
                 const char *on = t->object.decl->name;
-                if (t->object.elem && (strcmp(on, "Map") == 0 || strcmp(on, "Set") == 0)) {
+                if (t->object.elem) {
                     const char *k = iron_type_to_string(t->object.elem, a);
                     const char *v = t->object.elem2 ? iron_type_to_string(t->object.elem2, a) : NULL;
                     size_t n = strlen(on) + strlen(k) + (v ? strlen(v) + 2 : 0) + 3;
