@@ -60,18 +60,19 @@ add_subdirectory(migrated-from-v3)
 # (macOS) or valgrind (Linux); the few that leak on purpose carry a
 # `-- @leaks-by-design` marker.
 if(NOT WIN32)
-    file(GLOB _leak_dirs LIST_DIRECTORIES true ${CMAKE_SOURCE_DIR}/tests/integration/v4/*/ ${CMAKE_SOURCE_DIR}/tests/integration/v4/*/*/)
+    file(GLOB_RECURSE _leak_sources CONFIGURE_DEPENDS
+        ${CMAKE_SOURCE_DIR}/tests/integration/v4/*.iron)
     set(_leak_shard 1)
-    foreach(_leak_dir IN LISTS _leak_dirs)
-        list(APPEND _leak_dirs_${_leak_shard} "${_leak_dir}")
+    foreach(_leak_source IN LISTS _leak_sources)
+        list(APPEND _leak_sources_${_leak_shard} "${_leak_source}")
         math(EXPR _leak_shard "(${_leak_shard} % 8) + 1")
     endforeach()
     foreach(_shard RANGE 1 8)
-        if(_leak_dirs_${_shard})
+        if(_leak_sources_${_shard})
             add_test(
                 NAME test_leak_check_${_shard}
                 COMMAND ${CMAKE_SOURCE_DIR}/tests/oracles/leak_check.sh
-                        ${CMAKE_BINARY_DIR}/iron ${_leak_dirs_${_shard}}
+                        ${CMAKE_BINARY_DIR}/iron ${_leak_sources_${_shard}}
                 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
             )
             set_tests_properties(test_leak_check_${_shard} PROPERTIES

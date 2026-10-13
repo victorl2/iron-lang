@@ -42,6 +42,19 @@ def main() -> int:
         leak_labels = properties(tests[name])["LABELS"]
         assert "v4-acceptance" not in leak_labels, "the acceptance gate must not run valgrind"
 
+    leak_fixtures: set[Path] = set()
+    for name in leaks:
+        command = tests[name]["command"]
+        fixtures = {Path(argument) for argument in command[2:]}
+        assert all(path.suffix == ".iron" for path in fixtures), (
+            f"{name} contains a non-fixture argument"
+        )
+        assert not leak_fixtures & fixtures, f"{name} overlaps another leak shard"
+        leak_fixtures.update(fixtures)
+    source_dir = Path(sys.argv[2]).resolve().parents[2]
+    expected_leaks = set((source_dir / "tests/integration/v4").rglob("*.iron"))
+    assert leak_fixtures == expected_leaks, "leak shards must partition every v4 fixture"
+
     workflow = Path(sys.argv[2]).read_text(encoding="utf-8")
     timeout = re.search(r"^\s*timeout-minutes:\s*(\d+)\s*$", workflow, re.MULTILINE)
     assert timeout and int(timeout.group(1)) >= 60, "the acceptance job needs 60 minutes"
