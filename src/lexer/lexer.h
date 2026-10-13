@@ -165,7 +165,34 @@ typedef struct {
     uint32_t        len;
     const char     *filename;  /* NULL = inherit from parser */
     bool            from_stdlib_prepend; /* token lies in a stdlib prepend region */
+    /* Comments. Iron has one comment form, `//` to the end of the line
+     * (`--` and `///` are still accepted while code migrates; see
+     * docs/language_definition.md section 1.2). A line comment never makes
+     * a token of its own: it is folded into the NEWLINE token that ends its
+     * line, which then carries `comment` flags, the comment text after the
+     * two-character marker in `value` (trailing whitespace and '\r'
+     * removed, nothing else); its `offset` is that of the marker. A `///`
+     * line keeps its IRON_TOK_DOC_COMMENT token
+     * (value: the body with one leading space removed), flagged
+     * IRON_COMMENT_PRESENT | IRON_COMMENT_TRIPLE. `comment` is 0 on every
+     * other token. */
+    uint8_t         comment;      /* IRON_COMMENT_* flags */
+    uint32_t        offset;       /* byte offset of the token's first
+                                   * character in the lexed buffer */
 } Iron_Token;
+
+/* Iron_Token.comment flags. */
+enum {
+    IRON_COMMENT_PRESENT   = 1u << 0, /* the token carries a comment */
+    IRON_COMMENT_OWN_LINE  = 1u << 1, /* only whitespace precedes it on its line */
+    IRON_COMMENT_DIRECTIVE = 1u << 2, /* `//key:value`: no space after `//`, key
+                                       * matches [a-z][a-z0-9_]* and is followed
+                                       * directly by ':' */
+    IRON_COMMENT_MARKER    = 1u << 3, /* a `@file:` line marker the toolchain
+                                       * inserts; never documentation */
+    IRON_COMMENT_DASH      = 1u << 4, /* written `--` (transitional spelling) */
+    IRON_COMMENT_TRIPLE    = 1u << 5  /* written `///` (transitional spelling) */
+};
 
 /* ── Lexer ───────────────────────────────────────────────────────────────── */
 
@@ -195,6 +222,9 @@ typedef struct {
                                          * (from_stdlib_prepend = false). */
     bool                in_stdlib_prepend; /* current region is a synthetic
                                             * stdlib prepend (see Iron_Token) */
+    Iron_FileMarkerGate file_markers;   /* which `@file:` comments are file
+                                         * markers (diagnostics.h); in user
+                                         * source, none */
 } Iron_Lexer;
 
 /* ── API ─────────────────────────────────────────────────────────────────── */
@@ -202,6 +232,14 @@ typedef struct {
 /* Create a lexer over `src` (not copied; must outlive the lexer). */
 Iron_Lexer iron_lexer_create(const char *src, const char *filename,
                               Iron_Arena *arena, Iron_DiagList *diags);
+
+/* The buffer has a compiler-written prelude above the user's source (the
+ * prepended standard library and the marker naming the user's file): the
+ * user's part starts on physical line `line`. The file markers before that
+ * line are honored; so are, when the source was packed by `iron`
+ * (--packed-source), those between its files. Without this call (and
+ * outside multi-file test mode) an `@file:` comment is a plain comment. */
+void iron_lexer_set_user_start_line(Iron_Lexer *l, uint32_t line);
 
 /* HARD-05: attach a caller-owned _Atomic bool *cancel flag to the lexer.
  * NULL means "never cancel" (the default from iron_lexer_create). When the

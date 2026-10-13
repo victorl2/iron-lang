@@ -138,3 +138,5 @@
 ; ── Comments ──────────────────────────────────────────────────────────
 (line_comment) @comment
 (doc_comment)  @comment.doc
+; `//key:value` directives and `//iron:<hint>` compiler hints
+(directive_comment) @preproc

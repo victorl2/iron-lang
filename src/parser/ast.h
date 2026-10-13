@@ -159,6 +159,44 @@ void iron_node_assert_kind_impl(const Iron_Node *node,
  * The token kind values fit in an int; use int here and cast at use sites. */
 typedef int Iron_OpKind;  /* stores Iron_TokenKind values for operators */
 
+/* ── Documentation and directive comments ────────────────────────────────
+ *
+ * Every node that can be documented (import, object, interface, enum,
+ * func, method, top-level val/var, object field, enum variant, interface
+ * method signature) carries:
+ *
+ *   doc_comment      the documentation text, or NULL: the run of `//`
+ *                    comment lines directly above the node (no blank line
+ *                    between them or before the node), one leading space
+ *                    removed from each line, joined with '\n'. `--` and
+ *                    `///` lines count while code migrates to `//`.
+ *                    Directive lines are not part of it.
+ *   directives       the node's directive comments, in source order, and
+ *   directive_count  how many there are (0 and NULL when none).
+ *
+ * A directive is a comment written `//key:value`: no space after `//`, a
+ * key matching [a-z][a-z0-9_]* and then ':' (Go's `//go:embed` style). It
+ * belongs to a node when it sits in the comment run directly above it
+ * (own line), or to a field when it ends the field's line (trailing):
+ *
+ *     object Item {
+ *         //db:primary_key
+ *         pub val item_id: Int  //json:id
+ *     }
+ *
+ * gives the field `item_id` two directives, {db, primary_key, line 2,
+ * own line} and {json, id, line 3, trailing}. The value is the text after
+ * the ':' up to the end of the line (trailing whitespace removed), kept as
+ * written; the compiler gives directives no meaning of its own, they are
+ * there for compile-time reflection (issue #455) and tools. All strings
+ * are arena-owned. */
+typedef struct {
+    const char *key;       /* "json" */
+    const char *value;     /* "id" */
+    uint32_t    line;      /* 1-based line of the comment */
+    bool        trailing;  /* at the end of the node's first line */
+} Iron_Directive;
+
 /* ── Top-level declarations ──────────────────────────────────────────────── */
 
 typedef struct {
@@ -214,8 +252,10 @@ typedef struct {
     Iron_NodeKind kind;  /* IRON_NODE_IMPORT_DECL */
     const char   *path;
     const char   *alias;  /* NULL if no alias */
-    /* Phase 3 NAV-14: arena-interned `///` run (lines joined by '\n'); NULL if none. */
+    /* Phase 3 NAV-14: documentation text (see Iron_Directive); NULL if none. */
     const char   *doc_comment;
+    Iron_Directive *directives;       /* see Iron_Directive */
+    int             directive_count;
 } Iron_ImportDecl;
 
 typedef struct Iron_ObjectDecl {
@@ -243,8 +283,10 @@ typedef struct Iron_ObjectDecl {
      *                   lookup site. */
     bool          is_patch;           /* PATCH-01 */
     const char   *target_type_name;   /* PATCH-02 */
-    /* NAV-14: arena-interned `///` run; NULL if none. */
+    /* NAV-14: documentation text (see Iron_Directive); NULL if none. */
     const char   *doc_comment;
+    Iron_Directive *directives;       /* see Iron_Directive */
+    int             directive_count;
     /* True when the object was declared `pub object T {...}` or
      * `pub patch object T {...}`. Default false. Does NOT propagate
      * visibility to members. Resolver reads this onto Iron_Symbol.is_pub
@@ -264,8 +306,10 @@ typedef struct Iron_InterfaceDecl {
     const char   *name;
     Iron_Node   **method_sigs;
     int           method_count;
-    /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
+    /* Phase 3 NAV-14: documentation text (see Iron_Directive); NULL if none. */
     const char   *doc_comment;
+    Iron_Directive *directives;       /* see Iron_Directive */
+    int             directive_count;
 } Iron_InterfaceDecl;
 
 typedef struct Iron_EnumDecl {
@@ -277,8 +321,10 @@ typedef struct Iron_EnumDecl {
     bool          has_payloads;       /* true if any variant has payload_count > 0 */
     Iron_Node   **generic_params;     /* NULL for non-generic enums */
     int           generic_param_count; /* 0 for non-generic enums */
-    /* NAV-14: arena-interned `///` run; NULL if none. */
+    /* NAV-14: documentation text (see Iron_Directive); NULL if none. */
     const char   *doc_comment;
+    Iron_Directive *directives;       /* see Iron_Directive */
+    int             directive_count;
     /* True when the enum was declared `pub enum E {...}`. Default false.
      * Resolver propagates onto Iron_Symbol.is_pub for both the enum and
      * its variants. */
@@ -316,8 +362,10 @@ typedef struct {
      * flag. Defaults false at every allocation site. */
     bool               is_readonly;
     bool               is_pure;
-    /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
+    /* Phase 3 NAV-14: documentation text (see Iron_Directive); NULL if none. */
     const char        *doc_comment;
+    Iron_Directive *directives;       /* see Iron_Directive */
+    int             directive_count;
     /* Phase 20 PTR-10 (Plan 20-02a): set by mark_takes_local_addr_pass after
      * typecheck when the function body contains either an explicit `&local`
      * unary expression OR an is_auto_address_target flag rooted at a stack-
@@ -396,8 +444,10 @@ typedef struct {
      * is_init is true and init_name != NULL, method_name == init_name so
      * the symbol-table lookup for `Type.<init_name>` hits naturally. */
     const char        *init_name;
-    /* NAV-14: arena-interned `///` run; NULL if none. */
+    /* NAV-14: documentation text (see Iron_Directive); NULL if none. */
     const char        *doc_comment;
+    Iron_Directive *directives;       /* see Iron_Directive */
+    int             directive_count;
     /* True when this method was produced by flattening an in-patch
      * method (`pub patch object T { pub func ... }`). Set in
      * iron_parse_patch_decl; defaults false everywhere else (in-block on
@@ -473,8 +523,10 @@ typedef struct {
      * to decide whether to synthesize accessor methods. Default false;
      * Phase 88 BREAK may flip the default to public-by-default. */
     bool          is_pub;
-    /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
+    /* Phase 3 NAV-14: documentation text (see Iron_Directive); NULL if none. */
     const char   *doc_comment;
+    Iron_Directive *directives;       /* see Iron_Directive */
+    int             directive_count;
     /* Set by the type checker: the field's resolved type. Struct emission
      * uses it for annotations the name alone cannot spell (Box[T],
      * weak rc T). NULL until type checking. */
@@ -495,8 +547,10 @@ typedef struct {
     Iron_Node   **payload_type_anns;   /* array of IRON_NODE_TYPE_ANNOTATION nodes; NULL if plain */
     int           payload_count;       /* 0 for plain variants */
     bool         *payload_is_boxed;    /* [payload_count]; true if field is recursive (auto-boxed) */
-    /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
+    /* Phase 3 NAV-14: documentation text (see Iron_Directive); NULL if none. */
     const char   *doc_comment;
+    Iron_Directive *directives;       /* see Iron_Directive */
+    int             directive_count;
 } Iron_EnumVariant;
 
 typedef struct {
@@ -605,6 +659,11 @@ typedef struct {
      * NULL entries in binding_names[] mean wildcard (`_`). */
     const char       **binding_names;
     int                binding_count;
+    /* Documentation and directives are populated for top-level bindings;
+     * local bindings leave these empty. See Iron_Directive. */
+    const char        *doc_comment;
+    Iron_Directive    *directives;
+    int                directive_count;
     /* A top-level binding (a global), and whether it was declared `pub`:
      * globals are private to their file unless pub (#547). */
     bool               is_global;
@@ -630,6 +689,11 @@ typedef struct {
     /* Set by capture analysis: a closure captures this var, so it lives in
      * a counted cell the closure env shares (#210). */
     bool               is_boxed;
+    /* Documentation and directives are populated for top-level bindings;
+     * local bindings leave these empty. See Iron_Directive. */
+    const char        *doc_comment;
+    Iron_Directive    *directives;
+    int                directive_count;
     /* A top-level binding (a global), and whether it was declared `pub`. */
     bool               is_global;
     bool               is_pub;
@@ -1105,6 +1169,12 @@ bool iron_iface_sig_dispatchable(const Iron_FuncDecl *sig);
 
 /* Return a human-readable name for the node kind. */
 const char *iron_node_kind_str(Iron_NodeKind kind);
+
+/* The documentation and directives of a node (see Iron_Directive). Returns
+ * false, with *doc = NULL, *dirs = NULL and *count = 0, for a node kind
+ * that carries none. Any out pointer may be NULL. */
+bool iron_node_doc(const Iron_Node *n, const char **doc,
+                   const Iron_Directive **dirs, int *count);
 
 /* ── Expression prefix layout enforcement (PROT-01) ──────────────────────────
  * Each expression AST type must begin with {Iron_Span span; Iron_NodeKind kind;

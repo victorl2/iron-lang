@@ -1,0 +1,127 @@
+-- Omitted type arguments of a generic construction or call come from the
+-- expected type (#626): an annotation, an assignment target, a parameter,
+-- a return type, a field type, a list or tuple element, and through rc and
+-- T?. Explicit type arguments are never replaced.
+object Stack[T] {
+    var items: [T]
+    init() {
+        self.items = []
+    }
+    func push(x: T) {
+        self.items.push(x)
+    }
+    readonly func size() -> Int {
+        return len(self.items)
+    }
+}
+
+object Holder {
+    var m: Map[String, Int]
+    var n: Int
+    init(n: Int) {
+        self.m = Map()
+        self.n = n
+    }
+}
+
+object Reg {
+    val m: Map[String, Int]
+    val s: Set[Int]
+}
+
+object Bag {
+    var n: Int
+    init() {
+        self.n = 0
+    }
+    func add_all(s: Set[String]) {
+        self.n += s.len()
+    }
+}
+
+object Intake {
+    var n: Int
+    init(s: Set[String]) {
+        self.n = s.len()
+    }
+}
+
+func empty[T]() -> [T] {
+    return []
+}
+
+func make() -> Map[String, Int] {
+    return Map()
+}
+
+func fresh() -> Stack[String] {
+    return Stack()
+}
+
+func pair() -> (Map[String, Int], Int) {
+    return (Map(), 1)
+}
+
+func total(s: Set[Int]) -> Int {
+    return s.len()
+}
+
+func size_of(st: Stack[String]) -> Int {
+    return st.size()
+}
+
+func twice(x: Int) -> Int {
+    return x * 2
+}
+
+func main() {
+    -- annotations
+    val ch: Channel[func(Int) -> Int] = Channel(4)
+    ch.send(twice)
+    val f: func(Int) -> Int = ch.recv()
+    var m: Map[String, Int] = Map()
+    m.put("a", 1)
+    val xs: [Int] = empty()
+    var st: Stack[Int] = Stack()
+    st.push(3)
+    val mu: Mutex[[Int]] = Mutex([1, 2])
+    val bx: Box[String] = Box("boxed")
+    println("annotations {f(3)} {m.len()} {len(xs)} {st.size()} {bx.is_null()}")
+
+    -- assignment targets, a field included
+    var c: Channel[Int] = Channel[Int](1)
+    c = Channel(2)
+    c.send(5)
+    val n: Int = c.recv()
+    var later: Set[Int]
+    later = Set()
+    val h = Holder(1)
+    println("assignments {n} {later.len()} {h.m.len()}")
+
+    -- returns, arguments, method arguments, field construction
+    var m2 = make()
+    m2.put("b", 2)
+    val s = fresh()
+    val (pm, k) = pair()
+    var b = Bag()
+    b.add_all(Set())
+    val intake = Intake(Set())
+    val r = Reg(Map(), Set())
+    val mk = func() -> Map[String, Int] {
+        return Map()
+    }
+    println("calls {m2.len()} {s.size()} {pm.len()} {k} {total(Set())} {size_of(Stack())} {b.n} {intake.n} {r.m.len()} {mk().len()}")
+
+    -- rc, T?, list elements
+    val shared: rc Map[String, Int] = rc Map()
+    shared.put("x", 1)
+    val opt: Map[String, Int]? = Map()
+    val sets: [Set[Int]] = [Set(), Set()]
+    println("wrapped {shared.len()} {opt != null} {len(sets)}")
+
+    -- explicit type arguments still apply
+    val e: Channel[Int] = Channel[Int](1)
+    e.send(9)
+    val got: Int = e.recv()
+    println("explicit {got}")
+}

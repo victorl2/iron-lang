@@ -1,0 +1,10 @@
+-- A nullable expected type supplies its inner type to the omitted type
+-- arguments of a generic function return (#694).
+func make[K: Hashable, V]() -> Map[K, V] {
+    return Map[K, V]()
+}
+
+func main() {
+    val x: Map[String, Int]? = make()
+    println("{x != null}")
+}

@@ -73,7 +73,9 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3,
         stdlib_prepended_lines + 1,
         target);
 
-    /* 4. Print all diagnostics */
+    /* 4. Print all diagnostics (the excerpts follow the prelude's file
+     * markers, as the lexer did) */
+    iron_diag_set_user_start_line((uint32_t)stdlib_prepended_lines + 1);
     iron_diag_print_all(&diags, source);
 
     /* 5. Verbose: print analysis summary */

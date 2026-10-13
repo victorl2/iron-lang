@@ -1,0 +1,27 @@
+// Transitional comment forms, rewritten to `//`.
+// (The header above main has a blank line after it.)
+
+// Doubles x.
+// Second doc line.
+func twice(x: Int) -> Int {
+    return x * 2   // trailing, aligned
+}
+
+object Point {
+    // The x coordinate.
+    pub val x: Int   // aligned one
+    pub val yy: Int  // aligned two
+}
+
+// json:x would read as a directive: a space keeps it a comment
+//-------- a rule line
+// / would read as a doc line
+// /quad
+// k:v
+
+func main() {
+    val s = "-- inside /// a string //k:v http://x"
+    val d = 10 - -2//no space after code
+    println("{twice(d)} {s}")
+    println("{Point(1, 2).x}")
+}

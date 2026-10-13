@@ -46,21 +46,34 @@ types and list literals (`[Int; 4]`).
 
 ### 1.2 Comments
 
-A line comment starts with `--` and runs to the end of the line. There are
-no block comments, and `//` and `#` are not comments.
+Iron has one comment form: `//` starts a comment that runs to the end of
+the line. There are no block comments, and `#` is not a comment. A `//`
+inside a string literal is string text (`"http://example.com"`).
 
-A line starting with `///` is a documentation comment. A run of `///`
-lines directly above a declaration, field, enum variant or interface method
-(no blank line in between) is attached to it and shown by the language
-server; a blank line breaks the association. The compiler otherwise ignores
-doc comments.
+**Documentation.** A run of `//` comment lines directly above a
+declaration, an object field, an enum variant or an interface method, with
+no blank line between the lines or before the declaration, is its
+documentation. The language server shows it on hover, in completion and in
+signature help, with one leading space removed from each line. A blank line
+breaks the association, and a comment at the end of a line of code is never
+documentation. The compiler otherwise ignores comments.
+
+A comment never changes what a program means. One comment has a meaning to
+the compiler's own tests: a comment whose text starts with `@file:` (a
+*file marker*) tells the test harness's multi-file mode that the source
+after it belongs to another file. Only that mode
+(`IRON_MULTI_FILE_TEST=1`) honors it; in any other compile it is an
+ordinary comment, and diagnostics after it still name the file it is
+written in.
 
 ```iron
-/// Doubles its argument.
-/// Attached to `twice` because no blank line separates them.
+// Doubles its argument.
+// Attached to `twice` because no blank line separates them.
 func twice(x: Int) -> Int {
-    return x * 2   -- a line comment
+    return x * 2   // a comment at the end of a line
 }
+
+// A comment followed by a blank line documents nothing.
 
 func main() {
     println("{twice(21)}")
@@ -70,6 +83,58 @@ func main() {
 ```output
 42
 ```
+
+**Directives.** A comment written `//key:value`, with no space after `//`,
+a key of lowercase letters, digits and `_` starting with a letter, and a
+`:` right after the key, is a directive. A directive belongs to the
+declaration or field it sits directly above, as part of its comment run. It
+may instead trail an object field on that field's line. Directive lines are
+not part of the documentation. The value is the rest of the line.
+`// json:id`, with a space, is an ordinary comment.
+
+```iron
+object Item {
+    // The catalog number.
+    //db:primary_key
+    pub val item_id: Int  //json:id
+    pub val name: String  //json:name
+}
+
+func main() {
+    val it = Item(7, "lamp")
+    println("{it.item_id} {it.name}")
+}
+```
+
+```output
+7 lamp
+```
+
+The compiler keeps this metadata on each relevant AST node as its
+`doc_comment` text and a source-ordered `directives` list. Each directive is
+`(key, value, line, trailing)`; `line` is one-based and `trailing` can be true
+only for an object field. This is the representation available to the later
+compile-time reflection work in issue #455. Directives have no meaning of
+their own, except the `iron` key: `//iron:<hint>` is a compiler hint. A hint
+changes only how the compiler represents or optimizes a declaration (a
+function, object or field), never what the program does;
+anything that is part of a type or changes what type checks, such as
+`[T, layout: soa]` or `[I, unordered]`, is language syntax instead. The
+hints are:
+
+| Hint | On | Meaning |
+|------|----|---------|
+| `//iron:fusible` | a function or method, on the line above `func` | eligible for loop fusion of chained list operations (section 5.2) |
+
+An `//iron:` hint the compiler does not know, or one written above a
+declaration it does not apply to, is warning W0617, so a misspelling such
+as `//iron:fusable` does not pass silently.
+
+**Transition.** Earlier versions wrote line comments with `--`,
+documentation lines with `///` and the fusion hint as `@fusible`. These
+are still accepted, with the same meaning as `//`, `//` and
+`//iron:fusible`, while code moves over; `iron fmt --migrate-comments
+[paths]` rewrites them (section 10) and a later version will reject them.
 
 ### 1.3 Identifiers and keywords
 
@@ -103,10 +168,11 @@ implemented). `init`, `copy`, `drop`, `null` and `free` may additionally
 appear as method names after a `.` or after `func` inside an object body,
 which is how `Box.null()` and `b.free()` are spelled.
 
-The words `as`, `fusible`, `layout`, `soa`, `aos`, `unordered`,
-`allow_drop_skip` and `Self` are ordinary identifiers with a special meaning
-in specific positions (import aliases, `@fusible`, list attributes, `heap`
-options and the receiver type).
+The words `as`, `layout`, `soa`, `aos`, `unordered`, `allow_drop_skip`
+and `Self` are ordinary identifiers with a special meaning in specific
+positions (import aliases, list attributes, `heap` options and the
+receiver type). `fusible` is an ordinary identifier too; it is special only
+after `@` in the transitional `@fusible` (section 1.2).
 
 ### 1.4 Literals
 
@@ -646,6 +712,55 @@ func main() {
 A generic enum value takes the type arguments its payload does not fix from
 where it is used: `return Maybe.Nothing` in a function returning
 `Maybe[Int]`, an argument, an assignment or an annotated binding.
+
+The same holds for a generic construction or call: type arguments that
+neither are written nor follow from the arguments come from the expected
+type, the type the value is checked against. That is the annotation of a
+`val` or `var`, the target of an assignment, the parameter at a call
+(functions, methods, constructors), the return type of the enclosing
+function, the field in an object construction, or the element of a list
+or tuple whose type is known; an `rc` or `T?` expected type gives its
+inner type. This covers the library containers (`Channel`, `Mutex`,
+`RWLock`, `Box`, `Map`, `Set`), generic objects and generic functions
+whose type parameters appear in the return type. Written type arguments
+and those the arguments fix are never replaced: when they disagree with
+the expected type the program is rejected with a type mismatch naming
+both (`E0202`).
+
+```iron
+object Stack[T] {
+    var items: [T]
+    init() {
+        self.items = []
+    }
+}
+
+func empty[T]() -> [T] {
+    return []
+}
+
+func counts() -> Map[String, Int] {
+    return Map()
+}
+
+func size(s: Set[Int]) -> Int {
+    return s.len()
+}
+
+func main() {
+    val ch: Channel[Int] = Channel(4)
+    var seen: Set[String] = Set()
+    val st: Stack[Int] = Stack()
+    val xs: [Int] = empty()
+    val shared: rc Map[String, Int] = rc Map()
+    ch.send(len(xs) + len(st.items))
+    println("{ch.recv()} {seen.add("a")} {counts().len()} {size(Set())} {shared.len()}")
+}
+```
+
+```output
+0 true 0 0 0
+```
 
 ### 2.9 Type conversions
 
@@ -1359,8 +1474,10 @@ func main() {
 A top-level function name is a function value: `val f = twice`,
 `apply(twice, 4)` and `[twice]` work like the equivalent lambdas.
 
-`@fusible` before a `func` marks it as eligible for loop fusion of chained
-list operations; it changes nothing else about the function.
+The compiler hint `//iron:fusible` on the line directly above a `func`
+marks it as eligible for loop fusion of chained list operations; it changes
+nothing else about the function. The older `@fusible` before `func` means
+the same and is accepted while code migrates (section 1.2).
 
 ### 5.3 Objects
 
@@ -3020,8 +3137,8 @@ C optimizer from reasoning about it; it exists for benchmarks.
 
 These are always available and are described in sections 6 and 7. Each
 one is constructed like any object, `Type(args)` or `Type[T](args)` when
-no argument carries the element type; there is no `.new` method
-(`E0333`):
+no argument carries the element type and no expected type gives it
+(section 2.8); there is no `.new` method (`E0333`):
 
 | Type | API |
 |---|---|
@@ -3037,9 +3154,10 @@ no argument carries the element type; there is no `.new` method
 ### 9.10 `Hashable`, `Map` and `Set`
 
 `Map[K, V]` is a hash table from keys of type `K` to values of type `V`;
-`Set[T]` is a hash set of `T`. Both are constructed empty with their type
-arguments written out (`Map[String, Int]()`, `Set[Int]()`; nothing else
-carries them) and both are library objects: there is no literal and no
+`Set[T]` is a hash set of `T`. Both are constructed empty, with their type
+arguments written out (`Map[String, Int]()`, `Set[Int]()`) or taken from
+the expected type (`var m: Map[String, Int] = Map()`, `return Set()` in
+a function returning `Set[Int]`, section 2.8), and both are library objects: there is no literal and no
 `m[k]` indexing. The key type must satisfy `Hashable` (`E0206`): the
 integer types, `Bool` and `String` do, and an object does when it declares
 `impl Hashable` with `pure func hash() -> Int` and `pure func
@@ -3304,7 +3422,13 @@ runs the package's `test "name" { ... }` blocks (section 10.2.1) and every
 `tests/test_*.iron` program, and `iron fmt file.iron` reformats a file
 (`--check` only reports, and exits with 0 when the file is formatted, 1
 when it would change, 2 when it does not parse and 3 when it cannot be
-read). In a package, `iron build`, `iron run` and `iron
+read). `iron fmt --migrate-comments [paths]` rewrites
+the transitional `--` comments, `///` documentation lines and `@fusible`
+in every `.iron` file under the given files or directories (the current
+directory by default) to `//` and `//iron:fusible` (section 1.2); it
+changes only comments as the lexer reads them, checks that every rewritten
+file still lexes, parses and documents the same, and with `--check` only
+lists the files it would change. In a package, `iron build`, `iron run` and `iron
 check` take no file argument (program arguments follow `--` in `iron
 run`), and `iron test` takes one, a name filter (`iron test -- -name` for
 a filter that starts with `-`); any other argument is an error, as is a
@@ -3569,6 +3693,7 @@ codes cited in this manual:
 | E0700 to E0703 | web main loop rules |
 | W0601, W0604, W0605, W0606 | narrowing cast; spawn data race; arena skips `drop`; heap value never freed |
 | W0611, W0613, W0614 | unused import; `var` never reassigned; `var` parameter never reassigned |
+| W0617 | unknown `//iron:` compiler hint, or one on a declaration it does not apply to |
 
 `docs/dev/diagnostic-codes.md` lists every code with its message.
 
@@ -3600,6 +3725,20 @@ or one of the keywords allowed in name position. Newlines and comments are
 not part of the grammar: the parser skips them between any two tokens (see
 section 1.6). The grammar is checked against the fixture corpus by
 `scripts/grammar_check.py`.
+
+Comments are lexical (section 1.2):
+
+```text
+comment        ::= '//' { any character except newline }
+directive      ::= '//' KEY ':' { any character except newline }
+KEY            ::= 'a'..'z' { 'a'..'z' | '0'..'9' | '_' }
+doc_run        ::= { own-line comment, one per line, no blank line between }
+                   (documents the declaration, field, enum variant or
+                    interface method on the next line)
+```
+
+`--` and `///` are transitional spellings of `//`, and `@fusible` of the
+directive `//iron:fusible` (section 1.2).
 
 ```ebnf
 program        ::= { decl }
@@ -3712,7 +3851,7 @@ type           ::= 'weak' 'rc' type
                  | named_type
 ptr_type       ::= '*' [ 'var' ] [ 'unchecked' ] type
 tuple_type     ::= '(' type ',' type { ',' type } ')'
-list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']'
+list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']' [ '?' ]
 elem_type      ::= func_type | 'rc' type | 'weak' 'rc' type | list_type | ptr_type | tuple_type | named_type
 list_attr      ::= 'layout' ':' ( 'soa' | 'aos' ) | 'unordered'
 func_type      ::= 'func' [ '(' [ type { ',' type } ] ')' ] [ '->' type ]

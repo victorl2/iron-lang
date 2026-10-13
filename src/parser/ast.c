@@ -363,6 +363,34 @@ void iron_ast_walk(Iron_Node *root, Iron_Visitor *v) {
     if (v->post_visit) v->post_visit(v, root);
 }
 
+bool iron_node_doc(const Iron_Node *n, const char **doc,
+                   const Iron_Directive **dirs, int *count) {
+    const char *d = NULL;
+    const Iron_Directive *x = NULL;
+    int c = 0;
+    bool ok = true;
+    switch (n ? (int)n->kind : -1) {
+#define TAKE(T) { const T *p = (const T *)n; d = p->doc_comment; \
+                  x = p->directives; c = p->directive_count; break; }
+        case IRON_NODE_IMPORT_DECL:    TAKE(Iron_ImportDecl)
+        case IRON_NODE_OBJECT_DECL:    TAKE(Iron_ObjectDecl)
+        case IRON_NODE_INTERFACE_DECL: TAKE(Iron_InterfaceDecl)
+        case IRON_NODE_ENUM_DECL:      TAKE(Iron_EnumDecl)
+        case IRON_NODE_FUNC_DECL:      TAKE(Iron_FuncDecl)
+        case IRON_NODE_METHOD_DECL:    TAKE(Iron_MethodDecl)
+        case IRON_NODE_VAL_DECL:       TAKE(Iron_ValDecl)
+        case IRON_NODE_VAR_DECL:       TAKE(Iron_VarDecl)
+        case IRON_NODE_FIELD:          TAKE(Iron_Field)
+        case IRON_NODE_ENUM_VARIANT:   TAKE(Iron_EnumVariant)
+#undef TAKE
+        default: ok = false; break;
+    }
+    if (doc) *doc = d;
+    if (dirs) *dirs = x;
+    if (count) *count = c;
+    return ok;
+}
+
 bool iron_type_ann_mentions_self(Iron_Node *n) {
     if (!n || n->kind != IRON_NODE_TYPE_ANNOTATION) return false;
     Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)n;
