@@ -87,6 +87,10 @@ static IronLsp_Position endpoint_to_lsp(const char *text, size_t text_len,
     if (iron_line == 0) return p;
     /* Iron is 1-based; LSP is 0-based. */
     uint32_t lsp_line = iron_line - 1;
+    if (idx) {
+        uint32_t last_line = ilsp_line_of_byte(idx, text_len);
+        if (lsp_line > last_line) lsp_line = last_line;
+    }
     p.line = lsp_line;
 
     /* Resolve line's byte offset. */

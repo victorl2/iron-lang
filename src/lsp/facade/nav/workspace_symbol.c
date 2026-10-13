@@ -21,6 +21,7 @@
 #include "lsp/facade/nav/fuzzy.h"
 #include "lsp/facade/nav/symbol_id.h"
 #include "lsp/facade/nav/visibility.h"
+#include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h"
 #include "lsp/server/server.h"
 #include "analyzer/analyzer.h"
@@ -332,11 +333,31 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
         ws.fuzzy_score    = c->score;
         ws.kind_rank      = c->kind_rank;
 
-        IronLsp_IndexEntry *entry =
-            ilsp_workspace_index_lookup(wi, c->canonical_path);
-        if (entry) {
-            ws.range           = ilsp_nav_entry_span_to_range(entry, c->span,     enc);
-            ws.selection_range = ilsp_nav_entry_span_to_range(entry, c->sel_span, enc);
+        /* The workspace index describes the on-disk file. For an open
+         * document, unsaved edits can make that source and its line index
+         * stale. Convert the indexed declaration span against the live
+         * buffer so the location always remains a valid LSP range. */
+        ptrdiff_t doc_i = server->documents
+            ? shgeti(server->documents, c->uri)
+            : -1;
+        IronLsp_Document *doc = doc_i >= 0
+            ? server->documents[doc_i].value
+            : NULL;
+        if (doc) {
+            ilsp_document_lock(doc);
+            ws.range = ilsp_nav_span_to_range_via_lineidx(
+                c->span, doc->text, doc->text_len, &doc->line_idx, enc);
+            ws.selection_range = ilsp_nav_span_to_range_via_lineidx(
+                c->sel_span, doc->text, doc->text_len, &doc->line_idx, enc);
+            ilsp_document_unlock(doc);
+        } else {
+            IronLsp_IndexEntry *entry =
+                ilsp_workspace_index_lookup(wi, c->canonical_path);
+            if (entry) {
+                ws.range = ilsp_nav_entry_span_to_range(entry, c->span, enc);
+                ws.selection_range = ilsp_nav_entry_span_to_range(
+                    entry, c->sel_span, enc);
+            }
         }
         arr[i] = ws;
     }
