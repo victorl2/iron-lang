@@ -78,6 +78,9 @@ def main() -> int:
     assert properties(tests["json_fuzz"]).get("PROCESSORS") == 2, (
         "json_fuzz must reserve two CTest slots"
     )
+    assert properties(tests["prog_fuzz_soa"]).get("PROCESSORS") == 2, (
+        "prog_fuzz_soa must reserve two CTest slots"
+    )
     for name in ("lsp_fuzz_short", "fmt_fuzz_short"):
         props = properties(tests[name])
         assert props.get("PROCESSORS") == 3, f"{name} must reserve three CTest slots"

@@ -316,6 +316,61 @@ async def test_tuple_binding_symbol_has_a_name(client, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_workspace_symbol_uses_unsaved_document_ranges(lsp_binary, tmp_path):
+    # The workspace index is built from disk. After an unsaved edit made a
+    # declaration shorter, workspace/symbol returned the saved declaration's
+    # stale range, one UTF-16 unit beyond the end of the edited line.
+    from pytest_lsp import ClientServerConfig
+    (tmp_path / "iron.toml").write_text(
+        '[package]\nname="range_repro"\nversion="0.1.0"\n', encoding="utf-8")
+    source = tmp_path / "main.iron"
+    saved = "pub func alphabeticallyLongName() {}\n"
+    current = "pub func a() {}\n"
+    source.write_text(saved, encoding="utf-8")
+
+    c = await ClientServerConfig(server_command=[lsp_binary]).start()
+    _install_register_capability_handler(c)
+    params = _default_init_params()
+    params.capabilities.general.position_encodings = [types.PositionEncodingKind.Utf16]
+    params.root_uri = tmp_path.as_uri()
+    params.workspace_folders = [
+        types.WorkspaceFolder(uri=tmp_path.as_uri(), name="range-repro")]
+    await c.initialize_session(params)
+    try:
+        uri = source.as_uri()
+        _open(c, uri, saved)
+
+        # Wait for warm seeding to make the saved symbol observable. This
+        # makes the test fail on the old implementation instead of passing
+        # vacuously when the background index has not finished yet.
+        loop = asyncio.get_running_loop()
+        end = loop.time() + 10.0
+        while True:
+            saved_symbols = await c.workspace_symbol_async(
+                types.WorkspaceSymbolParams(query="alphabeticallyLongName"))
+            if saved_symbols:
+                break
+            if loop.time() >= end:
+                pytest.fail("workspace index did not expose the saved symbol")
+            await asyncio.sleep(0.05)
+
+        c.text_document_did_change(types.DidChangeTextDocumentParams(
+            text_document=types.VersionedTextDocumentIdentifier(uri=uri, version=2),
+            content_changes=[types.TextDocumentContentChangeWholeDocument(text=current)]))
+        symbols = await asyncio.wait_for(c.workspace_symbol_async(
+            types.WorkspaceSymbolParams(query="a")), timeout=10.0)
+        assert symbols
+        in_file = [s for s in symbols if s.location.uri == uri]
+        assert in_file
+        for symbol in in_file:
+            _assert_in_document(current, symbol.location.range, "utf-16")
+        assert any(s.name == "a" for s in in_file)
+        assert all(s.name != "alphabeticallyLongName" for s in in_file)
+    finally:
+        await _stop(c)
+
+
+@pytest.mark.asyncio
 async def test_close_clears_published_diagnostics(client, tmp_path):
     # Closing a document left its last diagnostics in the client (and a
     # publish its worker sent before stopping could arrive after a reopen):

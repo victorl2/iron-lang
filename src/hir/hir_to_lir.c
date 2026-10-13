@@ -1237,6 +1237,40 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
     }
 }
 
+/* A Channel, Mutex, RWLock or FileHandle value: it owns a runtime handle
+ * that its destroy helper releases (they are not covered by
+ * type_needs_drop). */
+static const char *resource_destroy_helper(const Iron_Type *t, const Iron_Type **res_elem) {
+    *res_elem = NULL;
+    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || !t->object.decl->name)
+        return NULL;
+    const char *n = t->object.decl->name;
+    if (strcmp(n, "FileHandle") == 0) return "Iron_FileHandle_drop";
+    if (!t->object.elem) return NULL;
+    *res_elem = t->object.elem;
+    if (strcmp(n, "Mutex") == 0) return "Iron_Mutex_%s_destroy";
+    if (strcmp(n, "Channel") == 0) return "Iron_Channel_%s_destroy";
+    if (strcmp(n, "RWLock") == 0) return "Iron_RWLock_%s_destroy";
+    *res_elem = NULL;
+    return NULL;
+}
+
+/* Destroy the resource held in `slot` (a reassignment replacing it). */
+static void emit_resource_destroy(HIR_to_LIR_Ctx *ctx, IronLIR_ValueId slot,
+                                  const Iron_Type *t, Iron_Span span) {
+    const Iron_Type *res_elem = NULL;
+    const char *helper = resource_destroy_helper(t, &res_elem);
+    if (!helper || !ctx->current_block || block_is_terminated(ctx->current_block)) return;
+    IronLIR_Instr *dref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
+                                            helper, NULL, span);
+    if (!dref) return;
+    dref->func_ref.res_elem = res_elem;
+    IronLIR_ValueId dargs[1] = { slot };
+    IronLIR_Instr *dcall = iron_lir_call(ctx->current_func, ctx->current_block, NULL,
+                                         dref->id, dargs, 1, NULL, span);
+    if (dcall) dcall->call.self_by_addr = true;
+}
+
 /* Emit defers from current scope down to target_depth (exclusive).
  * Used at scope exit (non-return) to run defers for the exiting scope only. */
 static void emit_scope_defers(HIR_to_LIR_Ctx *ctx, int target_depth, Iron_Span span) {
@@ -2561,13 +2595,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
              * alloca; emit_c renders it "&_vN". E0267 already guarantees
              * the source is mutable. IDENT sources (var local or var
              * param) own an alloca slot and get full reference semantics.
-             * KNOWN GAP: E0267's other accepted shape — a `var` FIELD of a
-             * mutable object (arg_source_is_mutable FIELD_ACCESS arm) —
-             * falls back to by-value lowering below, so callee mutations
-             * do not write back to the field. No fixture exercises it;
-             * fixing it needs a raw field-address arg form (the ADDR_OF
-             * machinery produces fat pointers, not the bare `T *` the
-             * var-param ABI takes). */
+             * A `var` field or an element (`f(obj.field)`, `f(xs[i])`,
+             * the other shapes E0267 accepts) is lowered as the place's
+             * value chain and flagged by address too: emit_c addresses
+             * the field or element in its own storage, so the callee's
+             * writes land there (passed by value it was invalid C, a
+             * struct handed to a pointer parameter). */
             if (by_addr_flags && i < callee_hf->param_count &&
                 callee_hf->param_is_var[i] &&
                 expr->call.args[i] &&
@@ -2582,6 +2615,15 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 }
             }
             IronLIR_ValueId av = lower_expr(ctx, expr->call.args[i]);
+            if (by_addr_flags && i < callee_hf->param_count &&
+                callee_hf->param_is_var[i] && expr->call.args[i] &&
+                (expr->call.args[i]->kind == IRON_HIR_EXPR_FIELD_ACCESS ||
+                 expr->call.args[i]->kind == IRON_HIR_EXPR_INDEX)) {
+                arrput(args, av);
+                by_addr_flags[i] = true;
+                any_by_addr = true;
+                continue;
+            }
             /* An owned temporary is noted with its own type, before it is
              * wrapped for a T? parameter: the drop slot was typed T and
              * stored the optional (C type error for an object argument). */
@@ -3230,6 +3272,29 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                  * call never reaches lowering (check errors stop the build),
                  * the guard here only keeps malformed IR out of the fallback
                  * Iron_List_* name path. */
+                /* `xs.set(i, v)` on a list is `xs[i] = v`: the list owns
+                 * the stored value from then on and the element it replaces
+                 * is dropped. As a plain method call the argument was
+                 * released after the call while the list kept its bits (a
+                 * use after free for any element owning memory) and the old
+                 * element leaked. set_unchecked takes the same road unless
+                 * the element is a plain number or Bool, which owns nothing. */
+                {
+                    const char *sm = expr->method_call.method;
+                    Iron_Type *se = obj_type->array.elem;
+                    bool is_set = sm && strcmp(sm, "set") == 0;
+                    bool is_setu = sm && strcmp(sm, "set_unchecked") == 0 && se &&
+                                   !iron_type_is_numeric(se) && se->kind != IRON_TYPE_BOOL;
+                    if ((is_set || is_setu) && expr->method_call.arg_count == 2 &&
+                        obj_type->array.size < 0 && !obj_type->array.is_bounded &&
+                        se && se->kind != IRON_TYPE_INTERFACE) {
+                        IronHIR_Expr *tgt = iron_hir_expr_index(ctx->hir,
+                            expr->method_call.object, expr->method_call.args[0], se, span);
+                        lower_stmt(ctx, iron_hir_stmt_assign(ctx->hir, tgt,
+                            expr->method_call.args[1], span));
+                        return IRON_LIR_VALUE_INVALID;
+                    }
+                }
                 if (expr->method_call.method &&
                     strcmp(expr->method_call.method, "get_unchecked") == 0 &&
                     expr->method_call.arg_count == 1) {
@@ -4515,6 +4580,28 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
             }
 
+            if (!stmt->let.init && !boxed && !var_is_capture(ctx, vid) && type &&
+                (type_needs_drop(type, ctx->program) || type_is_rc_like(type) ||
+                 type->kind == IRON_TYPE_FUNC ||
+                 resource_destroy_helper(type, &(const Iron_Type *){NULL})) &&
+                ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                /* `var m: Map[K, V]` assigned later: the first assignment
+                 * drops the slot's old value, which was uninitialized
+                 * stack memory (a crash for a map, set, rc handle or
+                 * closure). Start from the zero value, which drops as a
+                 * no-op. */
+                IronLIR_Instr *z = iron_lir_const_null(ctx->current_func,
+                                                       ctx->current_block, type, span);
+                if (z) iron_lir_store(ctx->current_func, ctx->current_block,
+                                      alloca_id, z->id, span);
+                /* An rc-like var is released at scope exit like one with an
+                 * initializer (the handle assigned later leaked). */
+                if (type_is_rc_like(type) && ctx->defer_depth > 0 && ctx->drop_stacks &&
+                    ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
+                    IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false };
+                    arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
+                }
+            }
             if (stmt->let.init) {
                 IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
                 tag_arena_ctor_binding(ctx, init_val, vid);
@@ -4752,6 +4839,11 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                     val = copy_for_new_owner(ctx, stmt->assign.value, val,
                                              tgt_type, span);
                 }
+                /* `c = Channel[Int](2)`: the channel, lock or file it
+                 * replaces is destroyed (it leaked). */
+                if (!tgt_rc && !(ctx->current_func && ctx->current_func->name &&
+                                 strcmp(ctx->current_func->name, "__iron_module_init") == 0))
+                    emit_resource_destroy(ctx, slot, tgt_type, span);
                 if (tgt_rc) {
                     if (!rc_expr_transfers_ownership(stmt->assign.value)) {
                         emit_rc_retain_for_type(ctx, tgt_type, val, span);
