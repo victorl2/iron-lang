@@ -1,0 +1,45 @@
+-- layout: soa lists with static functions, Self in an interface and a global
+-- declared after its first use.
+-- The same program with the layout annotations removed prints the same
+-- (tests/integration/soa_parity.sh).
+interface Shape {
+    static func unit() -> Self
+    readonly func area() -> Int
+}
+object Sq impl Shape {
+    var side: Int
+    var name: String
+    init(side: Int) {
+        self.side = side
+        self.name = "sq-{side}-long-long-long-long-long-long"
+    }
+    static func unit() -> Sq { return Sq(1) }
+    static func row(n: Int) -> [Sq, layout: soa] {
+        var out: [Sq, layout: soa] = []
+        for i in range(n) { out.push(Sq(i + 1)) }
+        return out
+    }
+    static func total(xs: [Sq, layout: soa]) -> Int {
+        var t = 0
+        for i in range(xs.len()) { t += xs[i].side }
+        return t
+    }
+    readonly func area() -> Int { return self.side * self.side }
+    func grow(d: Int) { self.side += d }
+}
+func make[T: Shape](n: Int) -> [T] {
+    var out: [T] = []
+    for i in range(n) { out.push(T.unit()) }
+    return out
+}
+func later() -> Int { return BOARD.len() + BOARD[0].side }
+var BOARD: [Sq, layout: soa] = []
+func main() {
+    var xs = Sq.row(4)
+    xs[1].grow(10)
+    xs.push(Sq.unit())
+    BOARD.push(Sq(9))
+    BOARD[0].grow(1)
+    val units: [Sq, layout: soa] = make[Sq](3)
+    println("{Sq.total(xs)} {xs[1].area()} {xs[4].name} {later()} {units.len()} {units[2].side}")
+}
