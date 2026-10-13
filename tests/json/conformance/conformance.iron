@@ -1,0 +1,107 @@
+-- conformance.iron -- runs the manifests written by gen_cases.py through the
+-- json module (see run_conformance.sh).
+--
+-- usage: conformance <manifest.tsv>...
+--
+-- For each case: parse (with the case's limits), compare accept/reject and
+-- the error code with the expectation, compare Json.to_string() with the
+-- expected output, and for every accepted document check that the compact
+-- and the pretty output parse back to an equal value and that the compact
+-- output is a fixed point. Prints "FAIL <category> <line> ..." per failing
+-- case and "SUMMARY <category> <passed> <total>" per manifest.
+import io
+import json
+import encoding
+
+func hex_or_empty(h: String) -> String {
+    if h == "-" {
+        return ""
+    }
+    return Hex.decode(h).data
+}
+
+func shown(s: String) -> String {
+    if s.byte_len() > 160 {
+        return Hex.encode(s.byte_slice(0, 80)) + "..."
+    }
+    return Hex.encode(s)
+}
+
+-- "" when the case passes, otherwise what went wrong.
+func check(expect: String, input: String, want_out: String, has_out: Bool, opts: String) -> String {
+    var limits = Json.default_limits()
+    if opts != "-" {
+        val parts = opts.split(",")
+        val depth = parts[0].substring(6, parts[0].len()).to_int()
+        val bytes = parts[1].substring(6, parts[1].len()).to_int()
+        limits = JsonLimits(depth, bytes)
+    }
+    val r = Json.parse_with(input, limits)
+    if expect.starts_with("reject") {
+        if r.error == 0 {
+            return "expected reject, accepted as {shown(r.value.to_string())}"
+        }
+        if expect.len() > 6 {
+            val code = expect.substring(7, expect.len()).to_int()
+            if r.error != code {
+                return "expected error {code}, got {r.error} ({r.error_message})"
+            }
+        }
+        return ""
+    }
+    if r.error != 0 {
+        return "expected accept, got {r.error} ({r.error_message})"
+    }
+    val text = r.value.to_string()
+    if has_out and text != want_out {
+        return "output {shown(text)} expected {shown(want_out)}"
+    }
+    val again = Json.parse_with(text, JsonLimits(limits.max_depth, -1))
+    if again.error != 0 {
+        return "compact output does not parse: {again.error_message}"
+    }
+    if not again.value.equals(r.value) {
+        return "compact output parses to another value"
+    }
+    if again.value.to_string() != text {
+        return "compact output is not a fixed point"
+    }
+    val pretty = Json.parse_with(r.value.pretty(), JsonLimits(limits.max_depth, -1))
+    if pretty.error != 0 {
+        return "pretty output does not parse: {pretty.error_message}"
+    }
+    if not pretty.value.equals(r.value) {
+        return "pretty output parses to another value"
+    }
+    return ""
+}
+
+func main(args: [String]) {
+    for path in args {
+        val name = IO.basename(path).replace(".tsv", "")
+        val file = IO.read_bytes(path, 1073741824)
+        if file.error != 0 {
+            println("FAIL {name} 0 unreadable: {file.error_message}")
+            continue
+        }
+        val lines = file.data.split("\n")
+        var passed = 0
+        var total = 0
+        for i in range(lines.len()) {
+            val line = lines[i]
+            if line == "" {
+                continue
+            }
+            val f = line.split("\t")
+            total += 1
+            val input = hex_or_empty(f[1])
+            val why = check(f[0], input, hex_or_empty(f[2]), f[2] != "-", f[3])
+            if why == "" {
+                passed += 1
+            } else {
+                println("FAIL {name} {i + 1} {f[4]}: {why}")
+            }
+        }
+        println("SUMMARY {name} {passed} {total}")
+    }
+}
