@@ -344,12 +344,12 @@ static int connect_to(int port) {
 }
 
 static int exchange_one(int fd) {
+    enum { RESPONSE_LEN = 105 };
     static const char request[] =
         "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n";
-    static const size_t response_len = 105;
-    uint8_t response[response_len];
+    uint8_t response[RESPONSE_LEN];
     return write_all(fd, (const uint8_t *)request, strlen(request)) &&
-           read_all(fd, response, response_len);
+           read_all(fd, response, RESPONSE_LEN);
 }
 
 static int run_load(const char *implementation, int port,
