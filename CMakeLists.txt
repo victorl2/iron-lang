@@ -1750,6 +1750,7 @@ if(Python3_EXECUTABLE)
     set_tests_properties(json_fuzz PROPERTIES PROCESSORS 2)
     if(NOT WIN32)
         set_tests_properties(
+            stdlib_fuzz_io stdlib_fuzz_num stdlib_fuzz_net log_fuzz
             mod_fuzz_pkg mod_fuzz_incr mod_fuzz_tests cli_fuzz
             PROPERTIES PROCESSORS 4)
     endif()
