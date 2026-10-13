@@ -9,6 +9,8 @@ import asyncio
 import pytest
 from lsprotocol import types
 
+from request_timeout import REQUEST_TIMEOUT_SECONDS
+
 # (source with `|` at the cursor, labels that must appear, labels that must not)
 CASES = [
     # Bindings of the enclosing function only, declared before the cursor.
@@ -74,7 +76,8 @@ async def complete(client, tmp_path, src):
         text_document=types.TextDocumentItem(uri=uri, language_id="iron", version=1, text=text)))
     result = await asyncio.wait_for(client.text_document_completion_async(types.CompletionParams(
         text_document=types.TextDocumentIdentifier(uri=uri),
-        position=types.Position(line=line, character=character))), timeout=10.0)
+        position=types.Position(line=line, character=character))),
+        timeout=REQUEST_TIMEOUT_SECONDS)
     return result.items if hasattr(result, "items") else (result or [])
 
 

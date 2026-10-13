@@ -225,25 +225,18 @@ typedef struct {
     bool                    cap_hit;
 } WalkCtx;
 
-/* Insert or replace an entry for `full_path` with freshly-parsed
- * contents. Takes wi->lock internally. */
-static void add_or_replace_entry(IronLsp_WorkspaceIndex *wi,
-                                  const char *full_path) {
-    /* 1. realpath */
-    char *canon = canonicalize(full_path);
-    if (!canon) return;
-
-    /* 2. slurp source */
-    size_t src_len = 0;
-    char *src = slurp_file(canon, &src_len);
-    if (!src) { free(canon); return; }
-
-    /* 3. Allocate heap arena (entry owns it). */
+/* Insert or replace an entry from owned path and source buffers. Takes
+ * wi->lock internally and consumes both buffers on every return path. */
+static void add_or_replace_owned_entry(IronLsp_WorkspaceIndex *wi,
+                                        char *canon,
+                                        char *src,
+                                        size_t src_len) {
+    /* 1. Allocate heap arena (entry owns it). */
     Iron_Arena *arena = (Iron_Arena *)malloc(sizeof(Iron_Arena));
     if (!arena) { free(src); free(canon); return; }
     *arena = iron_arena_create(64 * 1024);
 
-    /* 4. Throw-away diaglist for parse-only; we don't emit to the client
+    /* 2. Throw-away diaglist for parse-only; we don't emit to the client
      *    at warm-seed time (D-01 leaves analyze for on-demand). */
     Iron_DiagList diags = iron_diaglist_create();
     Iron_Program *prog  = parse_only(src, src_len, canon, arena, &diags, NULL);
@@ -256,7 +249,7 @@ static void add_or_replace_entry(IronLsp_WorkspaceIndex *wi,
         return;
     }
 
-    /* 5. LineIndex for span translation. */
+    /* 3. LineIndex for span translation. */
     IronLsp_IndexEntry *e = (IronLsp_IndexEntry *)calloc(1, sizeof(*e));
     if (!e) {
         iron_arena_free(arena);
@@ -277,11 +270,25 @@ static void add_or_replace_entry(IronLsp_WorkspaceIndex *wi,
     e->analyzed         = false;
     e->last_used_tick   = atomic_fetch_add(&wi->tick, 1);
 
-    /* 6. Insert under mutex; replace if already present. */
+    /* 4. Insert under mutex; replace if already present. */
     IRON_MUTEX_LOCK(wi->lock);
     invalidate_path_locked(wi, e->canonical_path);
     shput(wi->entries, e->canonical_path, e);
     IRON_MUTEX_UNLOCK(wi->lock);
+}
+
+/* Insert or replace an entry for `full_path` with freshly-parsed disk
+ * contents. */
+static void add_or_replace_entry(IronLsp_WorkspaceIndex *wi,
+                                  const char *full_path) {
+    char *canon = canonicalize(full_path);
+    if (!canon) return;
+
+    size_t src_len = 0;
+    char *src = slurp_file(canon, &src_len);
+    if (!src) { free(canon); return; }
+
+    add_or_replace_owned_entry(wi, canon, src, src_len);
 }
 
 /* Recursive readdir walker. Follows directories (skipping excluded
@@ -403,6 +410,35 @@ void ilsp_workspace_index_invalidate_path(IronLsp_WorkspaceIndex *wi,
     IRON_MUTEX_LOCK(wi->lock);
     invalidate_path_locked(wi, canonical_path);
     IRON_MUTEX_UNLOCK(wi->lock);
+}
+
+void ilsp_workspace_index_update_buffer(IronLsp_WorkspaceIndex *wi,
+                                         const char *path,
+                                         const char *source,
+                                         size_t source_len) {
+    if (!wi || !path || !source || !str_ends_with(path, ".iron")) return;
+    char *canon = canonicalize(path);
+    if (!canon) return;
+
+    char *src = (char *)malloc(source_len + 1);
+    if (!src) { free(canon); return; }
+    memcpy(src, source, source_len);
+    src[source_len] = '\0';
+    add_or_replace_owned_entry(wi, canon, src, source_len);
+}
+
+void ilsp_workspace_index_refresh_path(IronLsp_WorkspaceIndex *wi,
+                                        const char *path) {
+    if (!wi || !path || !str_ends_with(path, ".iron")) return;
+
+    /* A closed unsaved buffer stops shadowing the file. Drop its entry even
+     * when the file disappeared, then restore the current disk contents. */
+    char *canon = canonicalize(path);
+    if (canon) {
+        ilsp_workspace_index_invalidate_path(wi, canon);
+        free(canon);
+    }
+    add_or_replace_entry(wi, path);
 }
 
 void ilsp_workspace_index_invalidate_dep(IronLsp_WorkspaceIndex *wi,

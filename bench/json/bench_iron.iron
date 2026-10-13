@@ -1,0 +1,141 @@
+-- bench_iron.iron -- the json module's side of bench/json (see README.md).
+--
+-- usage: bench_iron <mode> <file> <warmup> <samples> [cold]
+--
+-- Prints "RESULT iron <mode> <file> <bytes> <ns>,<ns>,..." (one time per
+-- sample) and "CHECK <value>" (a checksum, so no work is optimized away).
+-- Modes on a whole document: parse (to a Json tree), validate (JsonReader:
+-- scan and check, no tree), serialize (to_string of the parsed tree),
+-- traverse (parse, then visit every value). Modes on a file of one small
+-- document per line (an HTTP service's request bodies): small_parse,
+-- small_validate, small_select (parse, read three fields), small_serialize.
+-- With "cold", a 128 MiB buffer is swept before every sample.
+import io
+import json
+import time
+
+func traverse(v: Json) -> Int {
+    var stack: [Json] = [v]
+    var acc = 0
+    while stack.len() > 0 {
+        val x = stack.pop()
+        match x.node {
+            JsonNode.Null -> acc += 1
+            JsonNode.Bool(b) -> {
+                if b {
+                    acc += 3
+                } else {
+                    acc += 2
+                }
+            }
+            JsonNode.Int(i) -> acc += i & 1023
+            JsonNode.Float(f) -> acc += Int(f) & 1023
+            JsonNode.Str(s) -> acc += s.byte_len()
+            JsonNode.Arr(xs) -> {
+                for y in xs {
+                    stack.push(y)
+                }
+            }
+            JsonNode.Obj(o) -> {
+                for i in range(o.keys.len()) {
+                    acc += o.keys[i].byte_len()
+                    stack.push(o.values[i])
+                }
+            }
+        }
+    }
+    return acc
+}
+
+func flush(buf: [Int]) -> Int {
+    var s = 0
+    var i = 0
+    while i < buf.len() {
+        s += buf[i]
+        i += 8
+    }
+    return s
+}
+
+func main(args: [String]) {
+    val mode = args[0]
+    val path = args[1]
+    val warmup = args[2].to_int()
+    val samples = args[3].to_int()
+    val cold = args.len() > 4 and args[4] == "cold"
+    val text = IO.read_bytes(path, 2000000000).data
+    var docs: [String] = []
+    var bytes = text.byte_len()
+    if mode.starts_with("small_") {
+        bytes = 0
+        for line in text.split("\n") {
+            if line != "" {
+                bytes += line.byte_len()
+                docs.push(line)
+            }
+        }
+    }
+    var flushbuf: [Int] = []
+    if cold {
+        for i in range(16777216) {
+            flushbuf.push(i)
+        }
+    }
+    val tree = Json.parse(text).value
+    var smalltrees: [Json] = []
+    if mode == "small_serialize" {
+        for d in docs {
+            smalltrees.push(Json.parse(d).value)
+        }
+    }
+    var check = 0
+    var times: [String] = []
+    for it in range(warmup + samples) {
+        if cold {
+            check += flush(flushbuf) & 1
+        }
+        val t0 = Time.now_ns()
+        if mode == "parse" {
+            val r = Json.parse(text)
+            check += r.error + r.value.len()
+        } elif mode == "validate" {
+            val r = JsonReader.with_limits(text, JsonLimits(512, -1))
+            check += r.error + 1
+        } elif mode == "serialize" {
+            check += tree.to_string().byte_len()
+        } elif mode == "traverse" {
+            check += traverse(Json.parse(text).value)
+        } elif mode == "small_parse" {
+            for d in docs {
+                check += Json.parse(d).value.len()
+            }
+        } elif mode == "small_validate" {
+            for d in docs {
+                val r = JsonReader.with_limits(d, JsonLimits(512, -1))
+                check += r.error + 1
+            }
+        } elif mode == "small_select" {
+            for d in docs {
+                val v = Json.parse(d).value
+                check += v.get("id").int_or(0) & 1023
+                check += v.get("email").string_or("").byte_len()
+                if v.get("active").bool_or(false) {
+                    check += 1
+                }
+            }
+        } elif mode == "small_serialize" {
+            for v in smalltrees {
+                check += v.to_string().byte_len()
+            }
+        } else {
+            println("unknown mode {mode}")
+            return
+        }
+        val dt = Time.now_ns() - t0
+        if it >= warmup {
+            times.push("{dt}")
+        }
+    }
+    println("RESULT iron {mode} {IO.basename(path)} {bytes} " + ",".join(times))
+    println("CHECK {check}")
+}
