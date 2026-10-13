@@ -1,0 +1,150 @@
+-- layout: soa lists: a method called on an element writes back every field
+-- it can change, however it reaches it (the emitter stores back only the
+-- fields the method's body can write).
+-- The same program with the layout annotations removed prints the same
+-- (tests/integration/soa_parity.sh).
+enum Mode { Idle, Busy(Int), Named(String) }
+object Inner {
+    var n: Int
+    var label: String
+    init(n: Int) {
+        self.n = n
+        self.label = "inner-{n}-long-long-long-long-long"
+    }
+    func inc(d: Int) { self.n += d }
+    func relabel() { self.label = "relabel-{self.n}-long-long-long-long" }
+}
+func bump_int(var n: Int, d: Int) { n += d }
+func poke(var i: Inner) { i.n += 100 }
+func through(p: *var Inner) { p.n += 1000 }
+func whole(var u: Unit) { u.a += 7 }
+object Unit {
+    var a: Int
+    var b: Int
+    var s: String
+    var inner: Inner
+    var opt: Inner?
+    var fixed: [Int; 3]
+    var bv: [Int; <=4]
+    var nums: [Int]
+    var mode: Mode
+    var f: Float
+    init(a: Int) {
+        self.a = a
+        self.b = a * 2
+        self.s = "unit-{a}-long-long-long-long-long-long"
+        self.inner = Inner(a)
+        self.opt = Inner(a + 1)
+        self.fixed = [a, a, a]
+        self.bv = [a]
+        self.nums = [a]
+        self.mode = Mode.Idle
+        self.f = 0.5
+    }
+    readonly func sum() -> Int { return self.a + self.b + self.inner.n + self.nums.len() }
+    func set_a(v: Int) { self.a = v }
+    func both() {
+        self.a += 1
+        self.b += 1
+    }
+    func text() { self.s = "text-{self.a}-long-long-long-long-long-long" }
+    func nested() { self.inner.n = 50 }
+    func nested_call() { self.inner.inc(3) }
+    func nested_text() { self.inner.relabel() }
+    func optional() {
+        if self.opt != null { self.opt.n = 77 }
+    }
+    func optional_off() { self.opt = null }
+    func array() { self.fixed[1] = 42 }
+    func vector() { self.bv.push(9) }
+    func list() {
+        self.nums.push(1)
+        self.nums[0] = 500
+    }
+    func enumerated() {
+        match self.mode {
+            Mode.Idle -> self.mode = Mode.Busy(3)
+            Mode.Busy(n) -> self.mode = Mode.Named("named-{n}-long-long-long-long-long")
+            Mode.Named(t) -> self.mode = Mode.Idle
+        }
+    }
+    func by_var() { bump_int(self.a, 5) }
+    func by_var_object() { poke(self.inner) }
+    func by_pointer() { through(&self.inner) }
+    func chained() {
+        self.both()
+        self.text()
+        self.nested_call()
+    }
+    func conditional(flag: Bool) {
+        if flag { self.b = -1 } else { self.f = 9.5 }
+    }
+    func looped(n: Int) {
+        for i in range(n) { self.a += i }
+    }
+    func as_whole() { whole(self) }
+    func recursive(n: Int) {
+        if n > 0 {
+            self.b += n
+            self.recursive(n - 1)
+        }
+    }
+    func local_copy() -> Int {
+        var dup = self.inner
+        dup.n = 12345
+        return dup.n + self.inner.n
+    }
+}
+func modestr(m: Mode) -> String {
+    match m {
+        Mode.Idle -> return "idle"
+        Mode.Busy(n) -> return "busy{n}"
+        Mode.Named(t) -> return t
+    }
+    return "?"
+}
+func optn(o: Inner?) -> Int {
+    if o != null { return o.n }
+    return -1
+}
+func show(us: [Unit, layout: soa]) {
+    for u in us {
+        println("{u.a} {u.b} {u.s} {u.inner.n} {u.inner.label} {optn(u.opt)} {u.fixed[1]} {u.bv.len()} {u.nums.len()}:{u.nums[0]} {modestr(u.mode)} {u.f} {u.sum()}")
+    }
+}
+func main() {
+    var us: [Unit, layout: soa] = []
+    for i in range(3) { us.push(Unit(i + 1)) }
+    us[0].set_a(10)
+    us[1].both()
+    us[2].text()
+    show(us)
+    us[0].nested()
+    us[1].nested_call()
+    us[2].nested_text()
+    show(us)
+    us[0].optional()
+    us[1].optional_off()
+    us[1].optional()
+    us[2].array()
+    show(us)
+    us[0].vector()
+    us[1].list()
+    us[2].enumerated()
+    us[2].enumerated()
+    us[1].enumerated()
+    show(us)
+    us[0].by_var()
+    us[1].by_var_object()
+    us[2].by_pointer()
+    show(us)
+    us[0].chained()
+    us[1].conditional(true)
+    us[1].conditional(false)
+    us[2].looped(4)
+    show(us)
+    us[0].as_whole()
+    us[1].recursive(3)
+    println("{us[2].local_copy()}")
+    show(us)
+}

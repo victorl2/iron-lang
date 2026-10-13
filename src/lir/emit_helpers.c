@@ -1534,6 +1534,9 @@ const char *emit_annotation_to_c(const char *name, EmitCtx *ctx) {
 /* Look up the ArrayParamMode for a given function + param index. */
 ArrayParamMode emit_get_array_param_mode(EmitCtx *ctx, const char *func_name,
                                           int param_index) {
+    IronLIR_Func *fn = emit_find_ir_func(ctx, func_name);
+    if (fn && param_index >= 0 && param_index < fn->param_count &&
+        emit_list_has_columns(ctx, fn->params[param_index].type)) return ARRAY_PARAM_LIST;
     return iron_lir_get_array_param_mode(ctx->opt_info, func_name, param_index,
                                          ctx->arena);
 }
@@ -2655,6 +2658,11 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
     shfree(ctx->reduced_storage_types);
     shfree(ctx->iface_elem_assigned);
     shfree(ctx->soa_types);
+    shfree(ctx->soa_object_types);
+    arrfree(ctx->soa_borrows);
+    for (ptrdiff_t wi = 0; wi < shlen(ctx->soa_self_writes); wi++)
+        arrfree(ctx->soa_self_writes[wi].value->members);
+    shfree(ctx->soa_self_writes);
 
     /* Fusion chain cleanup */
     if (ctx->fusion_chains) {
@@ -2940,5 +2948,57 @@ void emit_resolve_hash_calls(EmitCtx *ctx) {
             snprintf(out, n, "%s_%s", tc, method);
             ref->func_ref.func_name = out;
         }
+    }
+}
+
+/* Layout travels with the value, while lists of one element type keep a
+ * common C ABI so parameters and nested containers can accept either mode. */
+bool emit_list_has_columns(EmitCtx *ctx, const Iron_Type *t) {
+    if (!t || t->kind != IRON_TYPE_ARRAY || t->array.size >= 0 ||
+        t->array.is_bounded || !t->array.elem ||
+        t->array.elem->kind != IRON_TYPE_OBJECT || !t->array.elem->object.decl)
+        return false;
+    const char *name = emit_mangle_name(t->array.elem->object.decl->name, ctx->arena);
+    return shgeti(ctx->soa_object_types, name) >= 0;
+}
+static void prescan_soa_type(EmitCtx *ctx, Iron_Type *t, int depth) {
+    if (!t || depth > 32) return;
+    if (t->kind == IRON_TYPE_ARRAY) {
+        Iron_Type *e = t->array.elem;
+        if (t->array.layout_hint == 1 && t->array.size < 0 &&
+            !t->array.is_bounded && e && e->kind == IRON_TYPE_OBJECT &&
+            e->object.decl && !ir_is_runtime_provided_type(e->object.decl->name) &&
+            !emit_type_is_container_elem(e)) {
+            shput(ctx->soa_object_types,
+                  emit_mangle_name(e->object.decl->name, ctx->arena), true);
+        }
+        prescan_soa_type(ctx, e, depth + 1);
+    } else if (t->kind == IRON_TYPE_RC || t->kind == IRON_TYPE_WEAK_RC) {
+        prescan_soa_type(ctx, t->rc.inner, depth + 1);
+    } else if (t->kind == IRON_TYPE_OBJECT && t->object.decl && depth < 4) {
+        Iron_ObjectDecl *od = t->object.decl;
+        for (int i = 0; i < od->field_count; i++) {
+            Iron_Field *f = (Iron_Field *)od->fields[i];
+            if (f) prescan_soa_type(ctx, f->resolved_type, depth + 1);
+        }
+    } else if (t->kind == IRON_TYPE_NULLABLE) {
+        prescan_soa_type(ctx, t->nullable.inner, depth + 1);
+    }
+}
+void emit_prescan_object_soa(EmitCtx *ctx) {
+    for (int i = 0; i < ctx->module->type_decl_count; i++)
+        prescan_soa_type(ctx, ctx->module->type_decls[i]->type, 0);
+    for (int i = 0; i < ctx->module->func_count; i++) {
+        IronLIR_Func *fn = ctx->module->funcs[i];
+        prescan_soa_type(ctx, fn->return_type, 0);
+        for (int j = 0; j < fn->param_count; j++)
+            prescan_soa_type(ctx, fn->params[j].type, 0);
+        for (int b = 0; b < fn->block_count; b++)
+            for (int j = 0; j < fn->blocks[b]->instr_count; j++) {
+                IronLIR_Instr *in = fn->blocks[b]->instrs[j];
+                prescan_soa_type(ctx, in->type, 0);
+                if (in->kind == IRON_LIR_ALLOCA)
+                    prescan_soa_type(ctx, in->alloca.alloc_type, 0);
+            }
     }
 }

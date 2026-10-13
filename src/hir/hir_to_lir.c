@@ -3307,6 +3307,29 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                  * call never reaches lowering (check errors stop the build),
                  * the guard here only keeps malformed IR out of the fallback
                  * Iron_List_* name path. */
+                /* `xs.set(i, v)` on a list is `xs[i] = v`: the list owns
+                 * the stored value from then on and the element it replaces
+                 * is dropped. As a plain method call the argument was
+                 * released after the call while the list kept its bits (a
+                 * use after free for any element owning memory) and the old
+                 * element leaked. set_unchecked takes the same road unless
+                 * the element is a plain number or Bool, which owns nothing. */
+                {
+                    const char *sm = expr->method_call.method;
+                    Iron_Type *se = obj_type->array.elem;
+                    bool is_set = sm && strcmp(sm, "set") == 0;
+                    bool is_setu = sm && strcmp(sm, "set_unchecked") == 0 && se &&
+                                   !iron_type_is_numeric(se) && se->kind != IRON_TYPE_BOOL;
+                    if ((is_set || is_setu) && expr->method_call.arg_count == 2 &&
+                        obj_type->array.size < 0 && !obj_type->array.is_bounded &&
+                        se && se->kind != IRON_TYPE_INTERFACE) {
+                        IronHIR_Expr *tgt = iron_hir_expr_index(ctx->hir,
+                            expr->method_call.object, expr->method_call.args[0], se, span);
+                        lower_stmt(ctx, iron_hir_stmt_assign(ctx->hir, tgt,
+                            expr->method_call.args[1], span));
+                        return IRON_LIR_VALUE_INVALID;
+                    }
+                }
                 if (expr->method_call.method &&
                     strcmp(expr->method_call.method, "get_unchecked") == 0 &&
                     expr->method_call.arg_count == 1) {

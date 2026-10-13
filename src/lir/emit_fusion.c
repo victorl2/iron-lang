@@ -116,7 +116,9 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
             const char *res_list_type = emit_type_to_c(terminal_instr->type, ctx);
             if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", res_list_type);
             emit_val(sb, terminal_instr->id);
-            iron_strbuf_appendf(sb, " = %s_create();\n", res_list_type);
+            iron_strbuf_appendf(sb, " = %s_create%s();\n", res_list_type,
+                emit_list_has_columns(ctx, terminal_instr->type) &&
+                terminal_instr->type->array.layout_hint == 1 ? "_soa" : "");
         }
 
         /* 2. Open scoped block with lambda typedefs + memcpy casts */
@@ -167,8 +169,14 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
         /* Element extraction */
         emit_indent(sb, ind + 2);
         iron_strbuf_appendf(sb, "%s _fuse_elem = ", source_elem_c);
+        if (emit_list_has_columns(ctx, src_t)) {
+            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(src_t, ctx));
+            emit_expr_to_buf(sb, chain->source, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", _fi);\n");
+        } else {
         emit_expr_to_buf(sb, chain->source, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ".%s[_fi];\n", src_bvec ? "data" : "items");
+        }
 
         /* Apply each chain operation */
         const char *cur_var = "_fuse_elem";

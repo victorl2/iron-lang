@@ -1071,6 +1071,11 @@ static bool apply_replacements(IronLIR_Instr *instr, ValueReplEntry *repl_map) {
     return changed;
 }
 
+static bool instr_uses_value(const IronLIR_Instr *instr, IronLIR_ValueId value);
+bool iron_lir_instr_uses_value(const IronLIR_Instr *instr, IronLIR_ValueId value) {
+    return instr_uses_value(instr, value);
+}
+
 /* Collect all ValueId operands of instr into out[].
  * Mirrors verify.c's collect_operands exactly. */
 static void opt_collect_operands(const IronLIR_Instr *instr,
@@ -1463,6 +1468,17 @@ static LirRecvLoadEntry *lir_collect_receiver_loads(IronLIR_Func *fn) {
             IronLIR_Instr *in = blk->instrs[ii];
             if (!in) continue;
             IronLIR_ValueId chain = IRON_LIR_VALUE_INVALID;
+            /* A field or element handed to a `var` parameter is addressed
+             * in its own storage too (`f(obj.field)`). */
+            if (in->kind == IRON_LIR_CALL && in->call.args_by_addr) {
+                for (int ai = 0; ai < in->call.arg_count; ai++) {
+                    if (!in->call.args_by_addr[ai]) continue;
+                    IronLIR_ValueId arg_load = IRON_LIR_VALUE_INVALID;
+                    if (lir_storage_chain_root(fn, in->call.args[ai], &arg_load) !=
+                            IRON_LIR_VALUE_INVALID && arg_load != IRON_LIR_VALUE_INVALID)
+                        hmput(set, arg_load, true);
+                }
+            }
             if (in->kind == IRON_LIR_CALL && in->call.self_by_addr &&
                 in->call.arg_count > 0)
                 chain = in->call.args[0];
