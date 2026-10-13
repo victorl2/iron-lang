@@ -7045,22 +7045,6 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 /* Direct call via known function name — honor extern_c_name */
                 const char *c_name = emit_resolve_func_c_name(
                     ctx, fn->value_table[fptr]->func_ref.func_name);
-                /* A list of Box[T] (#576): the lowering names its methods
-                 * after the surface type (Iron_List_Iron_Box_push); the list
-                 * type is the per-T Iron_List_Iron_Box_<T>. */
-                if (c_name && strncmp(c_name, "Iron_List_Iron_Box_", 19) == 0 &&
-                    instr->call.arg_count > 0) {
-                    Iron_Type *lt = emit_get_value_type(fn, instr->call.args[0]);
-                    if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.elem &&
-                        lt->array.elem->kind == IRON_TYPE_OBJECT && lt->array.elem->object.elem) {
-                        const char *bname = emit_type_to_c(lt->array.elem, ctx);
-                        size_t n = strlen(bname) + strlen(c_name) + 16;
-                        char *buf = (char *)iron_arena_alloc(ctx->arena, n, 1);
-                        if (!buf) iron_oom_abort("emit_c.c:box list call");
-                        snprintf(buf, n, "Iron_List_%s_%s", bname, c_name + 19);
-                        c_name = buf;
-                    }
-                }
                 if (dbg_list.method) dbg_list.call_at = sb->len;
                 iron_strbuf_appendf(sb, "%s(", c_name);
                 emitted_direct = true;
