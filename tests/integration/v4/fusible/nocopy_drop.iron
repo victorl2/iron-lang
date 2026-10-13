@@ -1,0 +1,24 @@
+// @fusion-loops: 1
+
+nocopy object Ticket {
+    val n: Int
+
+    drop {
+        println("release {self.n}")
+    }
+}
+
+//iron:fusible
+func ticket(x: Int) -> Ticket {
+    return Ticket(x)
+}
+
+//iron:fusible
+func ticket_number(x: Ticket) -> Int {
+    return x.n
+}
+
+func main() {
+    val total = [4, 5].map(ticket).map(ticket_number).sum()
+    println("sum {total}")
+}
