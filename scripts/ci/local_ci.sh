@@ -18,6 +18,7 @@ CI_IMAGE=${CI_IMAGE:-localhost/iron-dev:latest}
 CI_MEMORY=${CI_MEMORY:-24g}
 CI_MYSQL_IMAGE=${CI_MYSQL_IMAGE:-docker.io/library/mysql:8.4}
 CI_MYSQL_MEMORY=${CI_MYSQL_MEMORY:-3g}
+CI_RETRY_JOBS=${CI_RETRY_JOBS:-2}
 CI_LOG_DIR=${CI_LOG_DIR:-$here/.local-ci}
 CI_POLL_SECONDS=${CI_POLL_SECONDS:-15}
 JOBS_LOCAL=${JOBS_LOCAL:-$(sysctl -n hw.ncpu 2>/dev/null || nproc)}
@@ -34,6 +35,7 @@ remote_ci() {
     ssh "$CI_HOST" env \
         CI_IMAGE="$CI_IMAGE" CI_MEMORY="$CI_MEMORY" \
         CI_MYSQL_IMAGE="$CI_MYSQL_IMAGE" CI_MYSQL_MEMORY="$CI_MYSQL_MEMORY" \
+        CI_RETRY_JOBS="$CI_RETRY_JOBS" \
         bash "$CI_REMOTE_DIR/scripts/ci/remote_linux_ci.sh" "$action" "$@"
 }
 

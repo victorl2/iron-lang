@@ -140,7 +140,7 @@ start)
         esac
         podman run -d --name "$prefix-$leg" --network "$network" \
             --memory="$memory" \
-            -e CI_JOBS="$jobs" -e CI_RETRY_JOBS=2 \
+            -e CI_JOBS="$jobs" -e CI_RETRY_JOBS="${CI_RETRY_JOBS:-2}" \
             -e IRON_TEST_TIMEOUT_SCALE="$scale" \
             -e CI_RESULT_DIR="/work/.local-ci/runs/$run_id" \
             -e CI_BUILD_LOCK="/work/.local-ci/runs/$run_id/build.lock" \

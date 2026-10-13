@@ -1637,6 +1637,13 @@ else()
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 endif()
 if(UNIX)
+    add_test(NAME test_local_ci_contract
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_local_ci_contract.py
+            ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_local_ci_contract PROPERTIES
+        LABELS "unit;ci" TIMEOUT 30)
+
     add_test(NAME test_v4_sharding
         COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/ci/test_v4_sharding.py
