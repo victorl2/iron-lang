@@ -1,0 +1,139 @@
+-- Structured logging: one JSON object per line on standard output.
+--
+--   logger_info("listening").int("port", 8080).str("host", host).emit()
+--
+-- Every line carries `ts` (RFC 3339, UTC, milliseconds), `level` and `msg`.
+-- A line below the configured level is built as a no-op and never written.
+import io
+import json
+import time
+
+-- 0 debug, 1 info, 2 warn, 3 error. Set once at startup, before any task
+-- is spawned, and only read afterwards.
+var LOG_LEVEL = 1
+
+pub func set_log_level(name: String) {
+    if name == "debug" {
+        LOG_LEVEL = 0
+    } elif name == "warn" {
+        LOG_LEVEL = 2
+    } elif name == "error" {
+        LOG_LEVEL = 3
+    } else {
+        LOG_LEVEL = 1
+    }
+}
+
+pub func log_enabled(level: Int) -> Bool {
+    return level >= LOG_LEVEL
+}
+
+func two(n: Int) -> String {
+    if n < 10 {
+        return "0{n}"
+    }
+    return "{n}"
+}
+
+func three(n: Int) -> String {
+    if n < 10 {
+        return "00{n}"
+    }
+    if n < 100 {
+        return "0{n}"
+    }
+    return "{n}"
+}
+
+-- Unix milliseconds to RFC 3339 UTC (days-from-civil inverse, Howard
+-- Hinnant's algorithm).
+pub func format_utc_ms(ms: Int) -> String {
+    val secs = ms / 1000
+    val millis = ms % 1000
+    val days = secs / 86400
+    val rem = secs % 86400
+    val z = days + 719468
+    val era = z / 146097
+    val doe = z - era * 146097
+    val yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+    val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+    val mp = (5 * doy + 2) / 153
+    val d = doy - (153 * mp + 2) / 5 + 1
+    var m = mp + 3
+    if mp >= 10 {
+        m = mp - 9
+    }
+    var y = yoe + era * 400
+    if m <= 2 {
+        y += 1
+    }
+    return "{y}-{two(m)}-{two(d)}T{two(rem / 3600)}:{two(rem % 3600 / 60)}:{two(rem % 60)}.{three(millis)}Z"
+}
+
+pub object LogLine {
+    val w: JsonWriter
+    val on: Bool
+
+    pub readonly func str(k: String, v: String) -> LogLine {
+        if self.on {
+            self.w.field_string(k, v)
+        }
+        return self
+    }
+
+    pub readonly func int(k: String, v: Int) -> LogLine {
+        if self.on {
+            self.w.field_int(k, v)
+        }
+        return self
+    }
+
+    pub readonly func float(k: String, v: Float) -> LogLine {
+        if self.on {
+            self.w.field_float(k, v)
+        }
+        return self
+    }
+
+    pub readonly func bool(k: String, v: Bool) -> LogLine {
+        if self.on {
+            self.w.field_bool(k, v)
+        }
+        return self
+    }
+
+    pub func emit() {
+        if self.on {
+            self.w.end_object()
+            IO.write_stdout(self.w.finish() + "\n")
+        }
+    }
+}
+
+func log_line(level: Int, name: String, msg: String) -> LogLine {
+    val on = level >= LOG_LEVEL
+    val w = JsonWriter.compact()
+    if on {
+        w.begin_object()
+        w.field_string("ts", format_utc_ms(Time.unix_ms()))
+        w.field_string("level", name)
+        w.field_string("msg", msg)
+    }
+    return LogLine(w, on)
+}
+
+pub func logger_debug(msg: String) -> LogLine {
+    return log_line(0, "debug", msg)
+}
+
+pub func logger_info(msg: String) -> LogLine {
+    return log_line(1, "info", msg)
+}
+
+pub func logger_warn(msg: String) -> LogLine {
+    return log_line(2, "warn", msg)
+}
+
+pub func logger_error(msg: String) -> LogLine {
+    return log_line(3, "error", msg)
+}

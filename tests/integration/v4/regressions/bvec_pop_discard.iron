@@ -1,0 +1,11 @@
+-- pop() on a bounded vector with its result unused: the C has no unused
+-- expression statement (#579; the test also builds with --no-optimize).
+func main() {
+    var c: [Int; <=4] = [1, 2, 3]
+    for i in range(2) {
+        if len(c) > 0 {
+            c.pop()
+        }
+    }
+    println("{len(c)} {c[0]}")
+}

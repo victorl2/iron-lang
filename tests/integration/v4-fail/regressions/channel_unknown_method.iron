@@ -1,0 +1,5 @@
+-- A method a Channel or a lock does not have (E0220).
+func main() {
+    val ch = Channel[Int](1)
+    ch.close()
+}

@@ -263,7 +263,10 @@ module.exports = grammar({
       field('body', $.block),
     ),
 
+    // `pub val` / `pub var` at the top level share a global with the
+    // package's other files; the compiler rejects `pub` on a local.
     val_declaration: $ => seq(
+      optional($.visibility_modifier),
       'val',
       field('binding', choice($.identifier, $.tuple_binding)),
       optional(seq(':', field('type', $._type))),
@@ -271,6 +274,7 @@ module.exports = grammar({
     ),
 
     var_declaration: $ => seq(
+      optional($.visibility_modifier),
       'var',
       field('binding', choice($.identifier, $.tuple_binding, '_')),
       optional(seq(':', field('type', $._type))),
@@ -784,7 +788,8 @@ module.exports = grammar({
       ']',
     )),
 
-    // [T] or [T; Size]
+    // [T], [T]? or [T; Size] (the parser permits the nullable suffix on
+    // every bracketed collection type).
     array_type: $ => prec(3, seq(
       '[',
       $._type,
@@ -795,6 +800,7 @@ module.exports = grammar({
         'unordered',
       ))),
       ']',
+      optional(field('nullable', '?')),
     )),
 
     // Phase 35 GRM-06 (Plan 35-01): bounded vector type `[T; <=N]` (VEC-01).
@@ -803,6 +809,7 @@ module.exports = grammar({
     // lookahead. Strict form `[T; N]` stays in array_type.
     bounded_vector_type: $ => prec(3, seq(
       '[', $._type, ';', '<=', $._expression, ']',
+      optional(field('nullable', '?')),
     )),
 
     // Phase 35 GRM-06 (Plan 35-01): pointer_type covers the Iron v4 checked

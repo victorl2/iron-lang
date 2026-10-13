@@ -4,6 +4,7 @@
  * arena owns every string returned through these helpers. */
 
 #include "lsp/facade/nav/nav_common.h"
+#include "lsp/facade/nav/node_at.h"
 
 #include "lsp/store/utf.h"
 #include "lsp/transport/json.h"
@@ -473,7 +474,10 @@ Iron_Symbol *ilsp_nav_symbol_of_decl(const Iron_Program *program, const Iron_Nod
     if (!program || !decl) return NULL;
     SymFind f = { decl, NULL };
     Iron_Visitor v = { .ctx = &f, .visit_node = sym_find_visit, .post_visit = NULL };
-    for (int i = 0; i < program->decl_count && !f.sym; i++) {
+    /* The document's uses first, then those of the files analyzed with it
+     * (the package's other files): a declaration only other files use
+     * still has a symbol. */
+    for (int i = 0; i < all_decl_count(program) && !f.sym; i++) {
         if (program->decls[i]) iron_ast_walk(program->decls[i], &v);
     }
     return f.sym;
@@ -713,6 +717,9 @@ static bool occ_visit(Iron_Visitor *v, Iron_Node *n) {
             break;
         case IRON_NODE_TYPE_ANNOTATION: {
             Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)n;
+            /* `rc T`, `*T`, `[rc T]`, function and tuple types: the names
+             * inside are occurrences too. */
+            ilsp_nav_walk_type_inner(n, v);
             Iron_Node *d = ta->name ? find_type_decl(c->program, ta->name) : NULL;
             if (!d) break;
             size_t start = occ_offset(doc, n->span.line, n->span.col);

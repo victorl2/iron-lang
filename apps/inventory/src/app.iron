@@ -1,0 +1,64 @@
+-- Shared application state, handed to every request task as an rc App.
+import http
+import mysql
+
+val STATE_LOCK = Mutex(0)
+
+-- Lifecycle state guarded by STATE_LOCK: whether the schema is ready and
+-- how many serving threads are still running (shutdown waits for them).
+pub object ServiceState {
+    var db_ready: Bool
+    var workers: Int
+
+    pub init() {
+        self.db_ready = false
+        self.workers = 0
+    }
+
+    pub readonly func is_db_ready() -> Bool {
+        val g = STATE_LOCK.lock()
+        return self.db_ready
+    }
+
+    pub func set_db_ready(v: Bool) {
+        val g = STATE_LOCK.lock()
+        self.db_ready = v
+    }
+
+    pub func worker_started() {
+        val g = STATE_LOCK.lock()
+        self.workers += 1
+    }
+
+    pub func worker_stopped() {
+        val g = STATE_LOCK.lock()
+        self.workers -= 1
+    }
+
+    pub readonly func running_workers() -> Int {
+        val g = STATE_LOCK.lock()
+        return self.workers
+    }
+}
+
+pub object App {
+    pub val cfg: Config
+    pub val db: rc MysqlPool
+    pub val rates: rc RateService
+    pub val metrics_set: rc MetricsSet
+    -- The shard for work outside the serving threads (rate refreshes).
+    pub val metrics: rc Metrics
+    pub val state: rc ServiceState
+    pub val poller: HttpPoller
+    pub val reports: rc ReportCache
+}
+
+-- What one serving thread keeps at hand: its metrics shard and the
+-- request limits, read once instead of through app.cfg on every request.
+pub object Worker {
+    pub val metrics: rc Metrics
+    pub val max_header_bytes: Int
+    pub val max_body_bytes: Int
+    pub val request_timeout_ms: Int
+    pub val log_requests: Bool
+}

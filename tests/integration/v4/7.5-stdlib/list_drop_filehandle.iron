@@ -2,15 +2,26 @@ import io
 -- section: 7.5-stdlib
 -- @req: STDLIB-02, STDLIB-09
 -- @expected-pass-after: phase-33 (Wave 4 container element-destructors + Wave 5 FileHandle)
--- A List[FileHandle] dropped at scope exit must run each element's drop (close fd).
--- RED until Wave 4 (per-element container destructors) + Wave 5 (FileHandle nocopy) land.
+-- A List[FileHandle] dropped at scope exit must run each element's drop
+-- (close fd): opening the files again reuses both descriptors.
 
 func main() {
-    var handles: [FileHandle] = []
-    handles.push(FileHandle.open("iron_lh_a.txt"))
-    handles.push(FileHandle.open("iron_lh_b.txt"))
-    println("opened: {handles.len()}")
-    -- scope exit: List drop iterates and closes each FileHandle
+    var fds: [Int] = []
+    {
+        var handles: [FileHandle] = []
+        handles.push(FileHandle.open("iron_lh_a.txt"))
+        handles.push(FileHandle.open("iron_lh_b.txt"))
+        println("opened: {handles.len()}")
+        fds.push(handles[0].fd)
+        fds.push(handles[1].fd)
+        -- scope exit: List drop iterates and closes each FileHandle
+    }
+    {
+        var again: [FileHandle] = []
+        again.push(FileHandle.open("iron_lh_a.txt"))
+        again.push(FileHandle.open("iron_lh_b.txt"))
+        println("reused: {again[0].fd == fds[0] and again[1].fd == fds[1]}")
+    }
     IO.delete_file("iron_lh_a.txt")
     IO.delete_file("iron_lh_b.txt")
 }
