@@ -68,9 +68,56 @@ class LexError(Exception):
     pass
 
 
+def scan_string(src: str, i: int, sl: int, sc: int) -> int:
+    """Return the index after a string, including nested interpolations.
+
+    This module-level helper is also used by spec_coverage.py when it scans
+    source without tokenizing it.
+    """
+    n = len(src)
+    multiline = src.startswith('"""', i)
+    i += 3 if multiline else 1
+    depth = 0
+    while True:
+        if i >= n:
+            raise LexError(f"{sl}:{sc}: unterminated string")
+        d = src[i]
+        if not multiline and d == "\n":
+            raise LexError(f"{sl}:{sc}: unterminated string")
+        if d == "\\":
+            i += 1
+            if i >= n:
+                raise LexError(f"{sl}:{sc}: unterminated string")
+            if src[i] == "u" and i + 1 < n and src[i + 1] == "{":
+                i += 2
+                while i < n and src[i] != "}":
+                    i += 1
+                if i < n:
+                    i += 1
+                continue
+            if src[i] == "x":
+                i = min(i + 3, n)
+                continue
+            i += 1
+            continue
+        if depth > 0 and d == '"':
+            i = scan_string(src, i, sl, sc)
+            continue
+        if depth == 0:
+            if multiline and src.startswith('"""', i):
+                return i + 3
+            if not multiline and d == '"':
+                return i + 1
+        if d == "{":
+            depth += 1
+        elif d == "}" and depth > 0:
+            depth -= 1
+        i += 1
+
+
 def lex(src: str) -> List[Token]:
     """Tokenize Iron source the way src/lexer/lexer.c does, minus newlines
-    (the parser skips them everywhere) and doc comments."""
+    (the parser skips them everywhere) and comments."""
     toks: List[Token] = []
     i, n = 0, len(src)
     line, col = 1, 1
@@ -85,53 +132,6 @@ def lex(src: str) -> List[Token]:
                 col += 1
             i += 1
 
-    def scan_escape(sl: int, sc: int) -> None:
-        """Skip one string escape without treating its braces as interpolation."""
-        adv()  # backslash
-        if i >= n:
-            raise LexError(f"{sl}:{sc}: unterminated string")
-        if src[i] == "u" and i + 1 < n and src[i + 1] == "{":
-            adv(2)
-            while i < n and src[i] != "}":
-                adv()
-            if i < n:
-                adv()
-            return
-        if src[i] == "x":
-            adv(min(3, n - i))
-            return
-        adv()
-
-    def scan_string(sl: int, sc: int) -> None:
-        """Skip a string, recursively including strings in interpolations."""
-        multiline = src.startswith('"""', i)
-        adv(3 if multiline else 1)
-        depth = 0
-        while True:
-            if i >= n:
-                raise LexError(f"{sl}:{sc}: unterminated string")
-            d = src[i]
-            if not multiline and d == "\n":
-                raise LexError(f"{sl}:{sc}: unterminated string")
-            if d == "\\":
-                scan_escape(sl, sc)
-                continue
-            if depth > 0 and d == '"':
-                scan_string(line, col)
-                continue
-            if depth == 0:
-                if multiline and src.startswith('"""', i):
-                    adv(3)
-                    return
-                if not multiline and d == '"':
-                    adv()
-                    return
-            if d == "{":
-                depth += 1
-            elif d == "}" and depth > 0:
-                depth -= 1
-            adv()
-
     while i < n:
         c = src[i]
         if c in " \t\r\n":
@@ -141,14 +141,15 @@ def lex(src: str) -> List[Token]:
             while i < n and src[i] != "\n":
                 adv()
             continue
-        if c == "/" and src.startswith("///", i):
+        if c == "/" and src.startswith("//", i):  # `//`, and `///` while code migrates
             while i < n and src[i] != "\n":
                 adv()
             continue
         sl, sc = line, col
         if c == '"':
             start = i
-            scan_string(sl, sc)
+            end = scan_string(src, i, sl, sc)
+            adv(end - i)
             toks.append(Token("STRING", src[start:i], sl, sc))
             continue
         if c.isdigit():

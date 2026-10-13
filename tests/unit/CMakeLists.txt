@@ -342,6 +342,22 @@ endif()
 add_test(NAME test_stdlib_mysql COMMAND test_stdlib_mysql)
 set_tests_properties(test_stdlib_mysql PROPERTIES LABELS "unit;networking;mysql" TIMEOUT 120)
 
+add_executable(test_mysql_conformance ${CMAKE_SOURCE_DIR}/tests/mysql/conformance.c)
+target_link_libraries(test_mysql_conformance iron_stdlib iron_runtime unity)
+if(WIN32)
+    target_link_libraries(test_mysql_conformance ws2_32 iphlpapi)
+endif()
+add_test(NAME test_mysql_conformance COMMAND test_mysql_conformance)
+set_tests_properties(test_mysql_conformance PROPERTIES
+    LABELS "unit;mysql;conformance" TIMEOUT 180)
+
+add_executable(mysql_protocol_bench EXCLUDE_FROM_ALL
+    ${CMAKE_SOURCE_DIR}/bench/mysql/bench.c)
+target_link_libraries(mysql_protocol_bench iron_stdlib iron_runtime)
+if(WIN32)
+    target_link_libraries(mysql_protocol_bench ws2_32 iphlpapi)
+endif()
+
 # MySQL client against a live server: tests/mysql/run.sh skips (exit 77)
 # unless IRON_MYSQL_URL names one. scripts/ci/local_ci.sh and ci.yml start a
 # MySQL container and set it for the Linux legs.
@@ -351,6 +367,11 @@ if(NOT WIN32)
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     set_tests_properties(test_mysql_integration PROPERTIES
         LABELS "integration;networking;mysql" TIMEOUT 1800 SKIP_RETURN_CODE 77)
+    add_test(NAME test_mysql_differential
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/mysql/differential.py ${CMAKE_BINARY_DIR}/ironc
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_mysql_differential PROPERTIES
+        LABELS "integration;networking;mysql;differential" TIMEOUT 600 SKIP_RETURN_CODE 77)
 
     # apps/inventory, a complete service (HTTP server, upstream API client,
     # MySQL), built and driven by its integration suite against the same
@@ -1786,3 +1807,10 @@ if(IRON_ENABLE_SANITIZERS)
         test_leakcheck_release
         PROPERTIES DISABLED TRUE)
 endif()
+
+# `//` comments, Go style documentation, directives, compiler hints and
+# `fmt --migrate-comments` (manual section 1.2).
+add_executable(test_comments test_comments.c)
+target_link_libraries(test_comments iron_compiler unity)
+add_test(NAME test_comments COMMAND test_comments)
+set_tests_properties(test_comments PROPERTIES LABELS "unit")

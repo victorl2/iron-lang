@@ -45,6 +45,18 @@ if(NOT WIN32)
         PROCESSORS 4
         RESOURCE_LOCK iron_exhaustive_corpus
         TIMEOUT 7200)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_EXECUTABLE)
+        add_test(
+            NAME test_opt_parity_scheduler_contract
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/integration/v4/test_scheduler_contract.py
+                    ${CMAKE_CTEST_COMMAND}
+                    ${CMAKE_BINARY_DIR}
+        )
+        set_tests_properties(test_opt_parity_scheduler_contract PROPERTIES
+            LABELS "oracle;unit")
+    endif()
 endif()
 
 # Phase 35 MIG-09: migrated-from-v3/ subdir hosts the hand-migrated v3 corpus.
