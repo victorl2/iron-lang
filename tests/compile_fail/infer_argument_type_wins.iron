@@ -1,0 +1,5 @@
+-- A type argument fixed by an argument is not replaced by the expected
+-- type (#626).
+func main() {
+    val m: Mutex[String] = Mutex(5)
+}

@@ -1265,6 +1265,40 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
     }
 }
 
+/* A Channel, Mutex, RWLock or FileHandle value: it owns a runtime handle
+ * that its destroy helper releases (they are not covered by
+ * type_needs_drop). */
+static const char *resource_destroy_helper(const Iron_Type *t, const Iron_Type **res_elem) {
+    *res_elem = NULL;
+    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || !t->object.decl->name)
+        return NULL;
+    const char *n = t->object.decl->name;
+    if (strcmp(n, "FileHandle") == 0) return "Iron_FileHandle_drop";
+    if (!t->object.elem) return NULL;
+    *res_elem = t->object.elem;
+    if (strcmp(n, "Mutex") == 0) return "Iron_Mutex_%s_destroy";
+    if (strcmp(n, "Channel") == 0) return "Iron_Channel_%s_destroy";
+    if (strcmp(n, "RWLock") == 0) return "Iron_RWLock_%s_destroy";
+    *res_elem = NULL;
+    return NULL;
+}
+
+/* Destroy the resource held in `slot` (a reassignment replacing it). */
+static void emit_resource_destroy(HIR_to_LIR_Ctx *ctx, IronLIR_ValueId slot,
+                                  const Iron_Type *t, Iron_Span span) {
+    const Iron_Type *res_elem = NULL;
+    const char *helper = resource_destroy_helper(t, &res_elem);
+    if (!helper || !ctx->current_block || block_is_terminated(ctx->current_block)) return;
+    IronLIR_Instr *dref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
+                                            helper, NULL, span);
+    if (!dref) return;
+    dref->func_ref.res_elem = res_elem;
+    IronLIR_ValueId dargs[1] = { slot };
+    IronLIR_Instr *dcall = iron_lir_call(ctx->current_func, ctx->current_block, NULL,
+                                         dref->id, dargs, 1, NULL, span);
+    if (dcall) dcall->call.self_by_addr = true;
+}
+
 /* Emit defers from current scope down to target_depth (exclusive).
  * Used at scope exit (non-return) to run defers for the exiting scope only. */
 static void emit_scope_defers(HIR_to_LIR_Ctx *ctx, int target_depth, Iron_Span span) {
@@ -4621,6 +4655,28 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
             }
 
+            if (!stmt->let.init && !boxed && !var_is_capture(ctx, vid) && type &&
+                (type_needs_drop(type, ctx->program) || type_is_rc_like(type) ||
+                 type->kind == IRON_TYPE_FUNC ||
+                 resource_destroy_helper(type, &(const Iron_Type *){NULL})) &&
+                ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                /* `var m: Map[K, V]` assigned later: the first assignment
+                 * drops the slot's old value, which was uninitialized
+                 * stack memory (a crash for a map, set, rc handle or
+                 * closure). Start from the zero value, which drops as a
+                 * no-op. */
+                IronLIR_Instr *z = iron_lir_const_null(ctx->current_func,
+                                                       ctx->current_block, type, span);
+                if (z) iron_lir_store(ctx->current_func, ctx->current_block,
+                                      alloca_id, z->id, span);
+                /* An rc-like var is released at scope exit like one with an
+                 * initializer (the handle assigned later leaked). */
+                if (type_is_rc_like(type) && ctx->defer_depth > 0 && ctx->drop_stacks &&
+                    ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
+                    IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false };
+                    arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
+                }
+            }
             if (stmt->let.init) {
                 IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
                 tag_arena_ctor_binding(ctx, init_val, vid);
@@ -4863,6 +4919,11 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                     val = copy_for_new_owner(ctx, stmt->assign.value, val,
                                              tgt_type, span);
                 }
+                /* `c = Channel[Int](2)`: the channel, lock or file it
+                 * replaces is destroyed (it leaked). */
+                if (!tgt_rc && !(ctx->current_func && ctx->current_func->name &&
+                                 strcmp(ctx->current_func->name, "__iron_module_init") == 0))
+                    emit_resource_destroy(ctx, slot, tgt_type, span);
                 if (tgt_rc) {
                     if (!rc_expr_transfers_ownership(stmt->assign.value)) {
                         emit_rc_retain_for_type(ctx, tgt_type, val, span);
