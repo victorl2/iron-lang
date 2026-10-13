@@ -6136,6 +6136,26 @@ static bool func_has_self_call(IronLIR_Func *fn) {
  *   8. Split call_block at CALL site; wire JUMP edges.
  *   9. Propagate load_result_id -> call_id replacement to continuation.
  */
+/* The rc and weak rc operand of `instr`, `from` replaced by `to`.
+ * apply_replacements() leaves these operands alone (see the note there),
+ * but the result of an inlined call must be renamed in them too: the
+ * release of an `rc T?` temporary (`count(none())`) named the removed
+ * call and the C did not compile. */
+static void replace_rc_operand(IronLIR_Instr *instr, IronLIR_ValueId from,
+                               IronLIR_ValueId to) {
+    IronLIR_ValueId *op = NULL;
+    switch ((int)instr->kind) {
+    case IRON_LIR_RC_RETAIN:         op = &instr->rc_retain.target; break;
+    case IRON_LIR_RC_RELEASE:        op = &instr->rc_release.target; break;
+    case IRON_LIR_WEAK_RC_RETAIN:    op = &instr->weak_rc_retain.target; break;
+    case IRON_LIR_WEAK_RC_RELEASE:   op = &instr->weak_rc_release.target; break;
+    case IRON_LIR_WEAK_RC_DOWNGRADE: op = &instr->weak_rc_downgrade.source; break;
+    case IRON_LIR_WEAK_RC_UPGRADE:   op = &instr->weak_rc_upgrade.source; break;
+    default: break;
+    }
+    if (op && *op == from) *op = to;
+}
+
 static void inline_call_site(IronLIR_Func *fn,
                               IronLIR_Block *call_block,
                               int call_idx,
@@ -6485,12 +6505,16 @@ static void inline_call_site(IronLIR_Func *fn,
         for (int bi2 = 0; bi2 < cloned_block_start; bi2++) {
             if (fn->blocks[bi2] == call_block) continue;  /* call removed, skip */
             IronLIR_Block *blk = fn->blocks[bi2];
-            for (int ii = 0; ii < blk->instr_count; ii++)
+            for (int ii = 0; ii < blk->instr_count; ii++) {
                 apply_replacements(blk->instrs[ii], result_remap);
+                replace_rc_operand(blk->instrs[ii], call_instr->id, load_result_id);
+            }
         }
         /* Also apply to continuation block */
-        for (int ii = 0; ii < cont->instr_count; ii++)
+        for (int ii = 0; ii < cont->instr_count; ii++) {
             apply_replacements(cont->instrs[ii], result_remap);
+            replace_rc_operand(cont->instrs[ii], call_instr->id, load_result_id);
+        }
         hmfree(result_remap);
     }
 

@@ -2,13 +2,10 @@
 Token                    | Scope
 -------------------------|--------------------------------
 // plain line comment    | comment.line.double-slash.iron
-/* block comment */      | comment.block.iron
+-- transitional comment  | comment.line.double-dash.iron
 /// doc comment          | comment.block.documentation.iron
+//json:id directive      | meta.directive.iron (key: keyword.other.directive.iron)
 
-Covers UI-SPEC S6 all three comment forms. The doc-comment scope
-comment.block.documentation.iron is the theme-distinction win called
-out in CONTEXT D-02 specifics — themes surface /// distinctly from //.
-
-Note: grammar ordering in iron.tmLanguage.json places doc-comments BEFORE
-line-comments so /// matches first (otherwise // would swallow the /// as
-a plain line comment).
+Iron has one comment form, `//`; `--` and `///` are accepted while code
+migrates (manual 1.2). There is no block comment. Comment markers inside a
+string stay string text.
