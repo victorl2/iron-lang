@@ -558,8 +558,8 @@ class IronEval:
             raise IronEvalError("no variable `%s` here" % path)
         b = r.get("body") or {}
         text = str(b.get("result", ""))
-        if not text and b.get("variablesReference"):
-            text = self.proxy.struct_text("", b["variablesReference"], b.get("type"))
+        if b.get("variablesReference"):
+            text = self.proxy.struct_text(text, b["variablesReference"], b.get("type"))
         return self.value(path, text, b.get("variablesReference", 0))
 
     @staticmethod
@@ -1175,8 +1175,9 @@ class Proxy:
             r = self.request("evaluate", a, timeout=30)
             if r.get("success") or frame_id is None or raw:
                 b = r.get("body") or {}
-                if r.get("success") and not b.get("result") and b.get("variablesReference"):
-                    b = dict(b, result=self.struct_text("", b["variablesReference"], b.get("type")))
+                if r.get("success") and b.get("variablesReference"):
+                    b = dict(b, result=self.struct_text(str(b.get("result", "")),
+                                                        b["variablesReference"], b.get("type")))
                     r = dict(r, body=b)
                 if r.get("success") and frame_id is not None and \
                         re.fullmatch(r"[A-Za-z_]\w*", text) and POINTER.match(str(b.get("result", ""))):
@@ -1371,8 +1372,9 @@ class Proxy:
         by_name = {v.get("name"): v for v in variables}
         out = []
         for v in variables:
-            if not v.get("value") and v.get("variablesReference"):
-                v = dict(v, value=self.struct_text("", v["variablesReference"], v.get("type")))
+            if v.get("variablesReference"):
+                v = dict(v, value=self.struct_text(str(v.get("value", "")),
+                                                   v["variablesReference"], v.get("type")))
             name = str(v.get("name", ""))
             if name.endswith("_len") and POINTER.match(str(by_name.get(name[:-4], {}).get("value", ""))):
                 continue
@@ -1400,8 +1402,15 @@ class Proxy:
         return text, (self.synthetic(elems) if elems else 0), len(elems)
 
     def struct_text(self, value, ref, type_name):
-        """gdb shows a struct without a printer as an empty value: write it
-        as LLDB's object summary does, Point {x = 3, y = 4}."""
+        """Write a GDB struct as LLDB's Point {x = 3, y = 4} summary.
+
+        GDB DAP serializes a pretty-printer whose to_string returns Python
+        None as the literal text "None". Native GDB needs that None to keep
+        its nested `{x = 3, y = 4}` rendering, so treat it as the missing
+        summary that it is only at this DAP boundary.
+        """
+        if self.kind == "gdb" and value == "None" and ref:
+            value = ""
         if value or not ref:
             return value
         r = self.request("variables", {"variablesReference": ref})
