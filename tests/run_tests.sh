@@ -530,11 +530,36 @@ fi
 RESULTS_DIR="${WORK_DIR}/results"
 mkdir -p "${RESULTS_DIR}"
 _ordered_files=""
+_shard_number=1
+_shard_count=1
+if [ -n "${IRON_TEST_SHARD:-}" ]; then
+    if [[ ! "${IRON_TEST_SHARD}" =~ ^[1-9][0-9]*/[1-9][0-9]*$ ]]; then
+        echo "invalid IRON_TEST_SHARD: ${IRON_TEST_SHARD}" >&2
+        exit 2
+    fi
+    _shard_number=${IRON_TEST_SHARD%/*}
+    _shard_count=${IRON_TEST_SHARD#*/}
+    if [ "${_shard_number}" -gt "${_shard_count}" ]; then
+        echo "invalid IRON_TEST_SHARD: ${IRON_TEST_SHARD}" >&2
+        exit 2
+    fi
+    echo "Shard: ${_shard_number}/${_shard_count}"
+fi
+_fixture_index=0
 for test_file in ${_main_loop_files}; do
     [ -f "${test_file}" ] || continue
-    _ordered_files="${_ordered_files}${test_file}
+    if [ $((_fixture_index % _shard_count + 1)) -eq "${_shard_number}" ]; then
+        _ordered_files="${_ordered_files}${test_file}
 "
+    fi
+    _fixture_index=$((_fixture_index + 1))
 done
+if [ "${IRON_TEST_LIST_ONLY:-0}" = 1 ]; then
+    for test_file in ${_ordered_files}; do
+        echo "FIXTURE ${test_file}"
+    done
+    exit 0
+fi
 if [ -n "${_ordered_files}" ] && [ "${JOBS}" -gt 1 ]; then
     printf '%s' "${_ordered_files}" \
         | IRON_TEST_RESULTS="${RESULTS_DIR}" IRON_TEST_CATEGORY="${CATEGORY}" \

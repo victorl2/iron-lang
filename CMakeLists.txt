@@ -1637,6 +1637,13 @@ else()
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 endif()
 if(UNIX)
+    add_test(NAME test_v4_sharding
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_v4_sharding.py
+            ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_v4_sharding PROPERTIES
+        LABELS "unit;ci" TIMEOUT 60)
+
     add_test(NAME test_ctest_with_retry
         COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/ci/test_ctest_with_retry.py

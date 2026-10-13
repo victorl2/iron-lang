@@ -26,17 +26,21 @@ def main() -> int:
     )
     tests = {test["name"]: test for test in json.loads(listed.stdout)["tests"]}
 
-    names = ("test_v4_acceptance", "test_opt_parity", "test_leak_check")
-    for name in names:
+    acceptance = tuple(f"test_v4_acceptance_{i}" for i in range(1, 9))
+    leaks = tuple(f"test_leak_check_{i}" for i in range(1, 9))
+    for name in acceptance + leaks:
         props = properties(tests[name])
-        assert props.get("PROCESSORS", 0) >= 1, f"{name} must reserve CTest slots"
-        assert props.get("RESOURCE_LOCK") == ["iron_exhaustive_corpus"], (
-            f"{name} must share the exhaustive-corpus resource lock"
-        )
+        assert props.get("PROCESSORS", 1) == 1, f"{name} must use one CTest slot"
         assert props.get("TIMEOUT", 0) >= 7200, f"{name} needs two hours of headroom"
 
-    leak_labels = properties(tests["test_leak_check"])["LABELS"]
-    assert "v4-acceptance" not in leak_labels, "the acceptance gate must not run valgrind"
+    parity = properties(tests["test_opt_parity"])
+    assert parity.get("PROCESSORS", 0) >= 1, "optimizer parity must reserve its worker pool"
+    assert parity.get("RESOURCE_LOCK") == ["iron_exhaustive_corpus"]
+    assert parity.get("TIMEOUT", 0) >= 7200
+
+    for name in leaks:
+        leak_labels = properties(tests[name])["LABELS"]
+        assert "v4-acceptance" not in leak_labels, "the acceptance gate must not run valgrind"
 
     workflow = Path(sys.argv[2]).read_text(encoding="utf-8")
     timeout = re.search(r"^\s*timeout-minutes:\s*(\d+)\s*$", workflow, re.MULTILINE)
