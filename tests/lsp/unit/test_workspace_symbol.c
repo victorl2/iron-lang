@@ -13,9 +13,12 @@
 #include "unity.h"
 
 #include "lsp/facade/nav/nav_core.h"
+#include "lsp/facade/nav/nav_common.h"
+#include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h"
 #include "lsp/server/server.h"
 #include "util/arena.h"
+#include "vendor/stb_ds.h"
 
 #include <errno.h>
 #include <stdatomic.h>
@@ -87,6 +90,12 @@ static void fx_init(fx_t *f) {
 }
 
 static void fx_destroy(fx_t *f) {
+    if (f->server.documents) {
+        for (ptrdiff_t i = 0; i < shlen(f->server.documents); i++) {
+            ilsp_document_destroy(f->server.documents[i].value);
+        }
+        shfree(f->server.documents);
+    }
     if (f->wi) ilsp_workspace_index_destroy(f->wi);
     rm_tree(f->root);
 }
@@ -173,11 +182,51 @@ static void test_path_prefix_filter(void) {
     fx_destroy(&f);
 }
 
+/* ── Test 05: edited open documents do not expose stale ranges ── */
+
+static void test_open_document_uses_current_source(void) {
+    fx_t f; fx_init(&f);
+
+    Iron_Arena path_arena = iron_arena_create(1024);
+    char main_path[640];
+    snprintf(main_path, sizeof(main_path), "%s/main.iron", f.root);
+    const char *uri = ilsp_nav_path_to_uri(main_path, &path_arena);
+    TEST_ASSERT_NOT_NULL(uri);
+
+    IronLsp_Document *doc = ilsp_document_create(
+        uri, "pub func x() {}\n", strlen("pub func x() {}\n"), 2);
+    TEST_ASSERT_NOT_NULL(doc);
+    sh_new_strdup(f.server.documents);
+    shput(f.server.documents, uri, doc);
+
+    Iron_Arena arena = iron_arena_create(16 * 1024);
+    IronLsp_WorkspaceSymbol *out = NULL;
+    size_t n = 0;
+    ilsp_facade_nav_workspace_symbol(&f.server, "greeter", NULL, &arena,
+                                       &out, &n);
+
+    TEST_ASSERT_EQUAL_size_t(0, n);
+
+    out = NULL;
+    n = 0;
+    ilsp_facade_nav_workspace_symbol(&f.server, "x", NULL, &arena,
+                                       &out, &n);
+    TEST_ASSERT_EQUAL_size_t(1, n);
+    TEST_ASSERT_EQUAL_STRING("x", out[0].name);
+    TEST_ASSERT_EQUAL_UINT32(0, out[0].range.start.line);
+    TEST_ASSERT_LESS_THAN_UINT32(16, out[0].range.end.character);
+
+    iron_arena_free(&arena);
+    iron_arena_free(&path_arena);
+    fx_destroy(&f);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_fuzzy_returns_best_match);
     RUN_TEST(test_query_too_long_returns_empty);
     RUN_TEST(test_no_workspace_index_empty);
     RUN_TEST(test_path_prefix_filter);
+    RUN_TEST(test_open_document_uses_current_source);
     return UNITY_END();
 }

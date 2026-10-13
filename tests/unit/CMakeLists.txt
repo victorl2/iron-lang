@@ -34,6 +34,11 @@ target_link_libraries(test_lexer_v4_keywords iron_compiler unity)
 add_test(NAME test_lexer_v4_keywords COMMAND test_lexer_v4_keywords)
 set_tests_properties(test_lexer_v4_keywords PROPERTIES LABELS "unit")
 
+add_executable(test_c_name_mangling test_c_name_mangling.c)
+target_link_libraries(test_c_name_mangling iron_compiler unity)
+add_test(NAME test_c_name_mangling COMMAND test_c_name_mangling)
+set_tests_properties(test_c_name_mangling PROPERTIES LABELS "unit")
+
 # Phase 16 Wave 0: v4 keyword binding-position rejection (RED until Plan 16-02 lands parser helper).
 add_executable(test_parser_v4_keyword_rejection test_parser_v4_keyword_rejection.c)
 target_link_libraries(test_parser_v4_keyword_rejection iron_compiler unity)

@@ -23,13 +23,136 @@ const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem);
 
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
 
+/* C23 keywords (including the underscore compatibility spellings), the
+ * alternative operator spellings from <iso646.h>, and unprefixed macros and
+ * declarations commonly visible through libc and platform headers. Runtime
+ * and emitted-prelude macros were audited from src/runtime/iron_runtime.h and
+ * the include block in emit_c.c: all of their spellings are covered by the
+ * Iron_, iron_, or IRON_ prefix checks below. */
+static bool emit_c_name_is_reserved(const char *name) {
+    static const char *const exact[] = {
+        "_Alignas", "_Alignof", "_Atomic", "_BitInt", "_Bool", "_Complex",
+        "_Decimal128", "_Decimal32", "_Decimal64", "_Generic", "_Imaginary",
+        "_Noreturn", "_Pragma", "_Static_assert", "_Thread_local",
+        "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand",
+        "bitor", "bool", "break", "case", "char", "compl", "const",
+        "constexpr", "continue", "default", "do", "double", "else", "enum",
+        "extern", "false", "float", "for", "goto", "if", "inline", "int",
+        "long", "not", "not_eq", "nullptr", "or", "or_eq", "register",
+        "restrict", "return", "short", "signed", "sizeof", "static",
+        "static_assert", "struct", "switch", "thread_local", "true", "typedef",
+        "typeof", "typeof_unqual", "union", "unsigned", "void", "volatile",
+        "while", "xor", "xor_eq",
+        "CHAR_BIT", "EOF", "EXIT_FAILURE", "EXIT_SUCCESS", "FP_INFINITE",
+        "FP_NAN", "FP_NORMAL", "FP_SUBNORMAL", "FP_ZERO", "HUGE_VAL",
+        "HUGE_VALF", "HUGE_VALL", "INFINITY", "MATH_ERRNO", "MATH_ERREXCEPT",
+        "NAN", "NULL", "RAND_MAX", "SEEK_CUR", "SEEK_END", "SEEK_SET",
+        "SIG_ATOMIC_MAX", "SIG_ATOMIC_MIN", "SIG_DFL", "SIG_ERR", "SIG_IGN",
+        "WCHAR_MAX", "WCHAR_MIN", "errno", "environ", "stderr", "stdin",
+        "stdout", "assert", "offsetof", "va_arg", "va_copy",
+        "va_end", "va_start", "complex", "imaginary", "I", "isfinite",
+        "isinf", "isnan", "isnormal", "signbit", "fpclassify",
+        "APIENTRY", "CALLBACK", "DELETE", "ERROR", "IN", "OUT", "OPTIONAL",
+        "RGB", "STRICT", "TRUE", "FALSE", "interface", "small", "near",
+        "far", "min", "max", NULL
+    };
+    static const char *const prefixes[] = {
+        "Iron_", "iron_", "IRON_", "__", "_v", "_ref_", "_sb", "_Hof",
+        "_Sp", "_iron_", "lambda_", "spawn_", "parallel_", NULL
+    };
+    if (!name || !*name) return true;
+    /* C reserves every identifier beginning with an underscore followed by
+     * either another underscore or an uppercase letter. This also covers
+     * platform macros consumed by the runtime, such as _WIN32. */
+    if (name[0] == '_' && (name[1] == '_' ||
+                           (name[1] >= 'A' && name[1] <= 'Z')))
+        return true;
+    for (int i = 0; prefixes[i]; i++) {
+        size_t n = strlen(prefixes[i]);
+        if (strncmp(name, prefixes[i], n) == 0) return true;
+    }
+    for (int i = 0; exact[i]; i++)
+        if (strcmp(name, exact[i]) == 0) return true;
+    return false;
+}
+
+const char *emit_c_user_identifier(const char *name, Iron_Arena *arena) {
+    static const char hex[] = "0123456789abcdef";
+    if (!name) return "NULL";
+    if (!emit_c_name_is_reserved(name)) return name;
+    size_t len = strlen(name);
+    size_t prefix_len = strlen("Iron__id_");
+    char *buf = (char *)iron_arena_alloc(arena, prefix_len + len * 2 + 1, 1);
+    if (!buf) iron_oom_abort("emit_helpers.c:emit_c_user_identifier");
+    memcpy(buf, "Iron__id_", prefix_len);
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)name[i];
+        buf[prefix_len + i * 2] = hex[c >> 4];
+        buf[prefix_len + i * 2 + 1] = hex[c & 15];
+    }
+    buf[prefix_len + len * 2] = '\0';
+    return buf;
+}
+
+const char *emit_c_lower_user_identifier(const char *name, Iron_Arena *arena) {
+    const char *encoded = emit_c_user_identifier(name, arena);
+    size_t len = strlen(encoded);
+    bool needs_copy = false;
+    for (size_t i = 0; i < len; i++) {
+        if (encoded[i] >= 'A' && encoded[i] <= 'Z') {
+            needs_copy = true;
+            break;
+        }
+    }
+    if (!needs_copy) return encoded;
+    char *lower = (char *)iron_arena_alloc(arena, len + 1, 1);
+    if (!lower) iron_oom_abort("emit_helpers.c:emit_c_lower_user_identifier");
+    for (size_t i = 0; i < len; i++) {
+        char c = encoded[i];
+        lower[i] = (char)((c >= 'A' && c <= 'Z') ? c + 32 : c);
+    }
+    lower[len] = '\0';
+    return lower;
+}
+
+const char *iron_lir_emit_c_user_identifier(const char *name,
+                                             Iron_Arena *arena) {
+    return emit_c_user_identifier(name, arena);
+}
+
+const char *emit_c_user_member_path(const char *path, Iron_Arena *arena) {
+    if (!path || !strchr(path, '.')) return emit_c_user_identifier(path, arena);
+    Iron_StrBuf out = iron_strbuf_create(strlen(path) + 16);
+    const char *part = path;
+    for (;;) {
+        const char *dot = strchr(part, '.');
+        size_t len = dot ? (size_t)(dot - part) : strlen(part);
+        const char *piece = iron_arena_strdup(arena, part, len);
+        if (!piece) iron_oom_abort("emit_helpers.c:emit_c_user_member_path piece");
+        if (out.len) iron_strbuf_appendf(&out, ".");
+        iron_strbuf_appendf(&out, "%s", emit_c_user_identifier(piece, arena));
+        if (!dot) break;
+        part = dot + 1;
+    }
+    const char *result = iron_arena_strdup(arena, iron_strbuf_get(&out), out.len);
+    if (!result) iron_oom_abort("emit_helpers.c:emit_c_user_member_path result");
+    iron_strbuf_free(&out);
+    return result;
+}
+
 const char *emit_mangle_name(const char *name, Iron_Arena *arena) {
-    size_t len   = strlen(name);
+    /* __RcList is a compiler-synthesized generic wrapper, not a spelling
+     * selected by an Iron program. Keep its established generated-C ABI;
+     * source identifiers with reserved prefixes still go through the
+     * central encoder at their raw-name emission sites. */
+    const char *c_name = name && strncmp(name, "__RcList", 8) == 0
+                         ? name : emit_c_user_identifier(name, arena);
+    size_t len   = strlen(c_name);
     size_t total = 5 + len + 1;
     char  *buf   = (char *)iron_arena_alloc(arena, total, 1);
     if (!buf) iron_oom_abort("emit_helpers.c:emit_mangle_name");
     memcpy(buf, "Iron_", 5);
-    memcpy(buf + 5, name, len + 1);
+    memcpy(buf + 5, c_name, len + 1);
     return buf;
 }
 
@@ -72,6 +195,17 @@ void iron_lir_emit_add_reserved_c_name(const char *name) {
     if (k) shput(g_reserved_c_names, k, true);
 }
 
+const char *emit_c_static_member_identifier(const char *type_c,
+                                             const char *member,
+                                             Iron_Arena *arena) {
+    Iron_StrBuf full = iron_strbuf_create(strlen(type_c) + strlen(member) + 2);
+    iron_strbuf_appendf(&full, "%s_%s", type_c, member);
+    bool runtime_owned = g_reserved_c_names &&
+                         shgeti(g_reserved_c_names, iron_strbuf_get(&full)) >= 0;
+    iron_strbuf_free(&full);
+    return runtime_owned ? member : emit_c_user_identifier(member, arena);
+}
+
 void emit_plan_func_renames(IronLIR_Module *module) {
     for (ptrdiff_t i = 0; i < shlen(g_func_renames); i++) free(g_func_renames[i].value);
     shfree(g_func_renames);
@@ -93,6 +227,14 @@ void emit_plan_func_renames(IronLIR_Module *module) {
 
 const char *emit_mangle_func_name(const char *name, Iron_Arena *arena) {
     if (!name) return "NULL";
+    /* The generated process entry point calls this exact C symbol. */
+    if (strcmp(name, "main") == 0) return "Iron_main";
+    /* Builtins already have an Iron_ namespace and cannot be redeclared by
+     * user code. Keep their established ABI even when the unprefixed word is
+     * also a platform macro. */
+    if (strcmp(name, "assert") == 0) return "Iron_assert";
+    if (strcmp(name, "min") == 0) return "Iron_min";
+    if (strcmp(name, "max") == 0) return "Iron_max";
     if (g_func_renames) {
         ptrdiff_t ri = shgeti(g_func_renames, name);
         if (ri >= 0) return g_func_renames[ri].value;
@@ -1524,7 +1666,7 @@ IronLIR_Func *emit_find_ir_func(EmitCtx *ctx, const char *ir_name) {
 const char *emit_make_block_label(IronLIR_BlockId id, const char *raw_label,
                                    Iron_Arena *arena) {
     /* Sanitize dots first */
-    const char *san = emit_sanitize_label(raw_label, arena);
+    const char *san = emit_c_user_identifier(emit_sanitize_label(raw_label, arena), arena);
     /* Allocate "label_b<id>\0" */
     size_t san_len = strlen(san);
     /* Max digits for a 32-bit int = 10 + "b" prefix + "_" + NUL = 14 extra */
@@ -1875,20 +2017,21 @@ void emit_ensure_iface_glue(EmitCtx *ctx, const Iron_Type *it, bool drop) {
         Iron_IfaceImpl *im = &e->impls[j];
         if (!im->is_alive || !im->decl) continue;
         const char *tc = emit_mangle_name(im->type_name, ctx->arena);
+        const char *impl_c = emit_c_user_identifier(im->type_name, ctx->arena);
         bool ind = iface_variant_indirect(ctx, ic, im->type_name);
         bool need = drop ? od_needs_drop(ctx, im->decl) : od_needs_copy_fixup(ctx, im->decl);
         if (!ind && !need) continue;
-        iron_strbuf_appendf(sb, "    case %s_TAG_%s:\n", ic, im->type_name);
+        iron_strbuf_appendf(sb, "    case %s_TAG_%s:\n", ic, impl_c);
         if (drop) {
             if (ind) {
-                iron_strbuf_appendf(sb, "        if (self->data.%s) {\n", im->type_name);
+                iron_strbuf_appendf(sb, "        if (self->data.%s) {\n", impl_c);
                 if (need) iron_strbuf_appendf(sb, "            %s_drop(self->data.%s);\n",
-                                              tc, im->type_name);
+                                              tc, impl_c);
                 iron_strbuf_appendf(sb, "            iron_mem_free(self->data.%s);\n"
                                         "            self->data.%s = NULL;\n        }\n",
-                                    im->type_name, im->type_name);
+                                    impl_c, impl_c);
             } else {
-                iron_strbuf_appendf(sb, "        %s_drop(&self->data.%s);\n", tc, im->type_name);
+                iron_strbuf_appendf(sb, "        %s_drop(&self->data.%s);\n", tc, impl_c);
             }
         } else {
             if (ind) {
@@ -1897,12 +2040,12 @@ void emit_ensure_iface_glue(EmitCtx *ctx, const Iron_Type *it, bool drop) {
                     "            %s *cell = (%s *)iron_mem_alloc(sizeof(%s));\n"
                     "            if (!cell) iron_oom_abort(\"%s copy\");\n"
                     "            *cell = *self->data.%s;\n",
-                    im->type_name, tc, tc, tc, ic, im->type_name);
+                    impl_c, tc, tc, tc, ic, impl_c);
                 if (need) iron_strbuf_appendf(sb, "            %s_copied(cell);\n", tc);
                 iron_strbuf_appendf(sb, "            self->data.%s = cell;\n        }\n",
-                                    im->type_name);
+                                    impl_c);
             } else {
-                iron_strbuf_appendf(sb, "        %s_copied(&self->data.%s);\n", tc, im->type_name);
+                iron_strbuf_appendf(sb, "        %s_copied(&self->data.%s);\n", tc, impl_c);
             }
         }
         iron_strbuf_appendf(sb, "        break;\n");
@@ -2231,37 +2374,38 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
         Iron_Field *f = (Iron_Field *)od->fields[i];
         Iron_Type *ft = emit_field_type(f);
         if (!ft || !f->name) continue;
+        const char *field_name_c = emit_c_user_identifier(f->name, ctx->arena);
         if (emit_type_is_rc_like(ft)) {
-            emit_rc_field_op(sb, ft, f->name, false);
+            emit_rc_field_op(sb, ft, field_name_c, false);
         } else if (emit_type_is_string_like(ft)) {
-            emit_string_field_op(sb, ft, f->name, false);
+            emit_string_field_op(sb, ft, field_name_c, false);
         } else if (ft->kind == IRON_TYPE_FUNC) {
-            iron_strbuf_appendf(sb, "    iron_closure_retain(self->%s);\n", f->name);
+            iron_strbuf_appendf(sb, "    iron_closure_retain(self->%s);\n", field_name_c);
         } else if (ft->kind == IRON_TYPE_INTERFACE) {
             if (iface_needs_glue(ctx, ft, true))
                 iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
         } else if (emit_type_is_bvec(ft)) {
             if (bvec_needs_glue(ctx, ft, true))
                 iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
         } else if (ft->kind == IRON_TYPE_NULLABLE && !emit_type_is_string_like(ft) &&
                    !emit_type_is_rc_like(ft)) {
             if (optional_needs_glue(ctx, ft, true))
                 iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
         } else if (ft->kind == IRON_TYPE_ENUM) {
             if (enum_needs_glue(ctx, ft, true))
                 iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
         } else if (emit_field_is_owned_list(ft)) {
             const char *lt = emit_type_to_c(ft, ctx);
             iron_strbuf_appendf(sb, "    self->%s = %s_clone(&self->%s);\n",
-                                f->name, lt, f->name);
+                                field_name_c, lt, field_name_c);
         } else if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
                    od_needs_copy_fixup(ctx, ft->object.decl)) {
             iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
-                                emit_type_to_c(ft, ctx), f->name);
+                                emit_type_to_c(ft, ctx), field_name_c);
         }
     }
     char lir_name[256];
@@ -2353,58 +2497,59 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
         Iron_Field *f = (Iron_Field *)od->fields[i];
         Iron_Type *ft = emit_field_type(f);
         if (!ft || !f->name) continue;
+        const char *field_name_c = emit_c_user_identifier(f->name, ctx->arena);
         if (emit_type_is_rc_like(ft)) {
-            emit_rc_field_op(&ctx->lifted_funcs, ft, f->name, true);
+            emit_rc_field_op(&ctx->lifted_funcs, ft, field_name_c, true);
             continue;
         }
         if (emit_type_is_string_like(ft)) {
-            emit_string_field_op(&ctx->lifted_funcs, ft, f->name, true);
+            emit_string_field_op(&ctx->lifted_funcs, ft, field_name_c, true);
             continue;
         }
         if (ft->kind == IRON_TYPE_FUNC) {
-            iron_strbuf_appendf(&ctx->lifted_funcs, "    iron_closure_release(self->%s);\n", f->name);
+            iron_strbuf_appendf(&ctx->lifted_funcs, "    iron_closure_release(self->%s);\n", field_name_c);
             continue;
         }
         if (emit_field_is_owned_list(ft)) {
             iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_free(&self->%s);\n",
-                                emit_type_to_c(ft, ctx), f->name);
+                                emit_type_to_c(ft, ctx), field_name_c);
             continue;
         }
         if (emit_field_is_box(ft)) {
             emit_ensure_box(ctx, ft->object.elem);
             iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_free(&self->%s);\n",
-                                emit_type_to_c(ft, ctx), f->name);
+                                emit_type_to_c(ft, ctx), field_name_c);
             continue;
         }
         if (ft->kind == IRON_TYPE_INTERFACE) {
             if (iface_needs_glue(ctx, ft, false))
                 iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
             continue;
         }
         if (emit_type_is_bvec(ft)) {
             if (bvec_needs_glue(ctx, ft, false))
                 iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
             continue;
         }
         if (ft->kind == IRON_TYPE_NULLABLE) {
             if (optional_needs_glue(ctx, ft, false))
                 iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
             continue;
         }
         if (ft->kind == IRON_TYPE_ENUM) {
             if (enum_needs_glue(ctx, ft, false))
                 iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
-                                    emit_type_to_c(ft, ctx), f->name);
+                                    emit_type_to_c(ft, ctx), field_name_c);
             continue;
         }
         const char *resource = emit_resource_field_kind(ft);
         if (resource) {
             (void)emit_type_to_c(ft, ctx);   /* seats the resource's helpers */
             iron_strbuf_appendf(&ctx->lifted_funcs, "    Iron_%s_%s_destroy(&self->%s);\n",
-                                resource, emit_elem_c_escaped(ctx, ft->object.elem), f->name);
+                                resource, emit_elem_c_escaped(ctx, ft->object.elem), field_name_c);
             continue;
         }
         if (ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;
@@ -2416,7 +2561,7 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
              * No call-site wrap needed — just invoke the synthesized drop. */
             iron_strbuf_appendf(&ctx->lifted_funcs,
                 "    %s_drop(&self->%s);\n",
-                field_c_name, f->name);
+                field_c_name, field_name_c);
         }
     }
     iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
@@ -2524,9 +2669,10 @@ void emit_ensure_copy(EmitCtx *ctx, const char *obj_c_name,
         Iron_Type *ft = f->field_type_cached;
         if (!ft->has_user_copy_cached || !ft->has_user_copy_transitive) continue;
         const char *field_c_name = emit_type_to_c(ft, ctx);
+        const char *field_name_c = emit_c_user_identifier(f->name, ctx->arena);
         iron_strbuf_appendf(&ctx->lifted_funcs,
             "    %s_copy(&dest->%s, &src->%s);\n",
-            field_c_name, f->name, f->name);
+            field_c_name, field_name_c, field_name_c);
     }
     iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
 }

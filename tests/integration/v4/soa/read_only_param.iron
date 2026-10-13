@@ -1,0 +1,14 @@
+-- A short layout: soa list passed to a read-only parameter keeps the common
+-- list header ABI even when the literal itself uses stack storage (#824).
+object ReadOnlyParamItem {
+    val x: Int
+}
+
+func total(xs: [ReadOnlyParamItem, layout: soa]) -> Int {
+    return xs[0].x
+}
+
+func main() {
+    val xs: [ReadOnlyParamItem, layout: soa] = [ReadOnlyParamItem(2)]
+    println("{total(xs)}")
+}

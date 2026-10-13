@@ -986,6 +986,10 @@ typedef struct {
     /* Parsed from compiler-generated source (see Iron_MethodCallExpr):
      * may assign a `val` field of a local being built (#455). */
     bool               is_generated;
+    /* The parser cannot distinguish `Enum.lowercase_variant` from a static
+     * member access. The resolver uses this bit to reinterpret the node once
+     * it knows that the receiver names an enum. */
+    bool               is_enum_candidate;
 } Iron_FieldAccess;
 
 typedef struct {

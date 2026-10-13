@@ -20,6 +20,7 @@
  */
 
 #include "lir/layout_analysis.h"
+#include "lir/emit_helpers.h"
 #include "vendor/stb_ds.h"
 
 #include <stdio.h>
@@ -237,13 +238,8 @@ static void analyze_method_fields(LayoutAnalysis *la, IronLIR_Module *module,
         for (ptrdiff_t si = 0; si < hmlen(split_collection_ids); si++) {
             /* The split_collection_ids maps vid -> mangled interface name.
              * We need to check if this matches the current interface. */
-            const char *iface_name = entry->iface_name;
             const char *stored_name = split_collection_ids[si].value;
-            /* stored_name is mangled (Iron_Shape), iface_name is raw (Shape).
-             * Compare by checking if stored_name ends with _<iface_name>
-             * or starts with Iron_<iface_name> */
-            char mangled[512];
-            snprintf(mangled, sizeof(mangled), "Iron_%s", iface_name);
+            const char *mangled = emit_mangle_name(entry->iface_name, la->arena);
             if (strcmp(stored_name, mangled) == 0) {
                 arrput(coll_vids, split_collection_ids[si].key);
             }
@@ -412,8 +408,7 @@ void iron_layout_analyze(LayoutAnalysis *la,
     if (iface_reg && split_collection_ids) {
         for (int ri = 0; ri < (int)shlen(iface_reg->map); ri++) {
             Iron_IfaceEntry *entry = &iface_reg->map[ri].value;
-            char mangled[512];
-            snprintf(mangled, sizeof(mangled), "Iron_%s", entry->iface_name);
+            const char *mangled = emit_mangle_name(entry->iface_name, la->arena);
             for (ptrdiff_t si = 0; si < hmlen(split_collection_ids); si++) {
                 if (strcmp(split_collection_ids[si].value, mangled) != 0) continue;
                 IronLIR_ValueId cv = split_collection_ids[si].key;
@@ -568,8 +563,7 @@ void iron_layout_select(LayoutAnalysis *la,
             /* For each implementor type of this interface, compute access ratio */
             for (int ri = 0; ri < (int)shlen(iface_reg->map); ri++) {
                 Iron_IfaceEntry *entry = &iface_reg->map[ri].value;
-                char mangled_buf[512];
-                snprintf(mangled_buf, sizeof(mangled_buf), "Iron_%s", entry->iface_name);
+                const char *mangled_buf = emit_mangle_name(entry->iface_name, la->arena);
                 if (strcmp(mangled_buf, iface_mangled) != 0) continue;
 
                 for (int ji = 0; ji < entry->impl_count; ji++) {

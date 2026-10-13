@@ -2510,9 +2510,11 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
             }
 
             if (iron_check(p, IRON_TOK_LPAREN)) {
-                /* Heuristic: if the LHS is a simple identifier starting with
-                 * an uppercase letter, treat as enum construction:
-                 *   EnumType.Variant(args) -> IRON_NODE_ENUM_CONSTRUCT
+                /* Heuristic: if the LHS and member both start uppercase,
+                 * treat as enum construction. Lowercase enum variants are
+                 * initially method calls and the resolver reclassifies them
+                 * once it knows the receiver is an enum.
+                 *   EnumType.variant(args) -> IRON_NODE_ENUM_CONSTRUCT
                  * Otherwise treat as method call:
                  *   variable.method(args) -> IRON_NODE_METHOD_CALL
                  * The resolver in Phase 33 will reclassify if needed. */
@@ -2535,6 +2537,10 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                         ec->variant_name  = name;
                         ec->args          = args;
                         ec->arg_count     = arg_count;
+                        ec->reserved_flags[0] = true; /* source had call parentheses */
+                        ec->reserved_flags[1] = p->generated;
+                        ec->reserved_generic_args = NULL;
+                        ec->reserved_generic_arg_count = 0;
                         left = (Iron_Node *)ec;
                     } else {
                         int arg_count = 0;
@@ -2576,7 +2582,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                     left = (Iron_Node *)mc;
                 }
             } else {
-                /* Check for unit enum variant: UppercaseType.UppercaseVariant (no parens) */
+                /* Check for a unit enum variant: UppercaseType.UppercaseVariant. */
                 if (left->kind == IRON_NODE_IDENT) {
                     Iron_Ident *ident_node = (Iron_Ident *)left;
                     bool looks_like_type    = (ident_node->name[0] >= 'A' && ident_node->name[0] <= 'Z');
@@ -2592,12 +2598,25 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                         ec->variant_name  = name;
                         ec->args          = NULL;
                         ec->arg_count     = 0;
+                        ec->reserved_flags[0] = false;
+                        ec->reserved_flags[1] = false;
+                        ec->reserved_generic_args = NULL;
+                        ec->reserved_generic_arg_count = 0;
                         left = (Iron_Node *)ec;
                         continue;
                     }
                 }
                 /* Field access: obj.field */
-                Iron_FieldAccess *fa = ARENA_ALLOC(p->arena, Iron_FieldAccess);
+                bool enum_candidate = left->kind == IRON_NODE_IDENT &&
+                                      ((Iron_Ident *)left)->name[0] >= 'A' &&
+                                      ((Iron_Ident *)left)->name[0] <= 'Z';
+                /* A lowercase enum variant is represented as FieldAccess
+                 * until name resolution. Reserve enough storage for the
+                 * in-place EnumConstruct rewrite used there. */
+                Iron_FieldAccess *fa = enum_candidate
+                    ? (Iron_FieldAccess *)iron_arena_alloc(
+                          p->arena, sizeof(Iron_EnumConstruct), _Alignof(Iron_EnumConstruct))
+                    : ARENA_ALLOC(p->arena, Iron_FieldAccess);
                 if (!fa) { /* HARD-09 REPLACE (iron_parse_expr_prec FieldAccess) */ p->in_error_recovery = true; return iron_make_error(p); }
                 fa->kind          = IRON_NODE_FIELD_ACCESS;
                 fa->span          = iron_span_merge(left->span,
@@ -2608,6 +2627,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                  * pub-field reads so HIR routes through synthesized getter. */
                 fa->is_pub_access = false;
                 fa->is_generated  = p->generated;
+                fa->is_enum_candidate = enum_candidate;
                 left = (Iron_Node *)fa;
             }
             continue;

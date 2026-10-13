@@ -156,15 +156,17 @@ static void ew_clear_capture_alias_map(EmitCtx *ctx) {
  * Field names are fn->web_frame_captures[i].name (C identifiers set by Phase 5).
  */
 static void ew_emit_frame_state_struct(EmitCtx *ctx, IronLIR_Func *fn) {
+    const char *fn_c = emit_c_user_identifier(fn->name, ctx->arena);
     iron_strbuf_appendf(&ctx->struct_bodies,
-        "typedef struct FrameState_%s {\n", fn->name);
+        "typedef struct FrameState_%s {\n", fn_c);
     for (int i = 0; i < fn->web_frame_capture_count; i++) {
         Iron_CaptureEntry *cap = &fn->web_frame_captures[i];
         const char *c_type = emit_type_to_c(cap->type, ctx);
-        iron_strbuf_appendf(&ctx->struct_bodies, "    %s %s;\n", c_type, cap->name);
+        iron_strbuf_appendf(&ctx->struct_bodies, "    %s %s;\n", c_type,
+                            emit_c_user_identifier(cap->name, ctx->arena));
     }
     iron_strbuf_appendf(&ctx->struct_bodies,
-        "} FrameState_%s;\n\n", fn->name);
+        "} FrameState_%s;\n\n", fn_c);
 }
 
 /* Emit the frame callback function into ctx->implementations.
@@ -195,19 +197,20 @@ static void ew_emit_frame_state_struct(EmitCtx *ctx, IronLIR_Func *fn) {
 static void ew_emit_frame_callback(EmitCtx *ctx, IronLIR_Func *fn, int header_bi) {
     /* Build alias map: LOAD/STORE of captured allocas go through _e-> */
     ew_build_frame_capture_alias_map(ctx, fn);
+    const char *fn_c = emit_c_user_identifier(fn->name, ctx->arena);
 
     /* Callback signature */
     iron_strbuf_appendf(&ctx->implementations,
-        "static void %s_frame_cb(void *state_arg) {\n", fn->name);
+        "static void %s_frame_cb(void *state_arg) {\n", fn_c);
 
     /* State cast + _e alias */
     iron_strbuf_appendf(&ctx->implementations,
         "    FrameState_%s *state = (FrameState_%s *)state_arg;\n",
-        fn->name, fn->name);
+        fn_c, fn_c);
     iron_strbuf_appendf(&ctx->implementations,
         "    FrameState_%s *_e = state;"
         "  /* alias: emit_instr lambda-capture path emits _e-> = state-> */\n",
-        fn->name);
+        fn_c);
 
     /* Emit the loop header block's instructions (all except the terminating BRANCH) */
     if (header_bi >= 0 && header_bi < fn->block_count) {
@@ -268,6 +271,7 @@ static void ew_emit_frame_callback(EmitCtx *ctx, IronLIR_Func *fn, int header_bi
 static void ew_emit_main_wrapper(EmitCtx *ctx, IronLIR_Func *fn, int header_bi) {
     /* Build alias map for pre-loop preamble emission */
     ew_build_frame_capture_alias_map(ctx, fn);
+    const char *fn_c = emit_c_user_identifier(fn->name, ctx->arena);
 
     iron_strbuf_appendf(&ctx->main_wrapper,
         "int main(int argc, char **argv) {\n");
@@ -283,7 +287,7 @@ static void ew_emit_main_wrapper(EmitCtx *ctx, IronLIR_Func *fn, int header_bi) 
     iron_strbuf_appendf(&ctx->main_wrapper,
         "    FrameState_%s *state ="
         " (FrameState_%s *)iron_mem_alloc(sizeof(FrameState_%s));\n",
-        fn->name, fn->name, fn->name);
+        fn_c, fn_c, fn_c);
     /* FIX-01 Wasm-W1 (Phase 67-02): web main-loop wrapper malloc guard.
      * Pre-fix the next `memset(state, 0, ...)` dereferenced a possibly-NULL
      * pointer under Emscripten heap exhaustion. Same class as emit_c.c
@@ -291,11 +295,11 @@ static void ew_emit_main_wrapper(EmitCtx *ctx, IronLIR_Func *fn, int header_bi) 
     iron_strbuf_appendf(&ctx->main_wrapper,
         "    if (!state) iron_oom_abort(\"emit_web main-loop FrameState\");\n");
     iron_strbuf_appendf(&ctx->main_wrapper,
-        "    iron_mem_set(state, 0, sizeof(FrameState_%s));\n", fn->name);
+        "    iron_mem_set(state, 0, sizeof(FrameState_%s));\n", fn_c);
     iron_strbuf_appendf(&ctx->main_wrapper,
         "    FrameState_%s *_e = state;"
         "  /* alias: emit_instr lambda-capture path emits _e-> = state-> */\n",
-        fn->name);
+        fn_c);
 
     /* Pre-loop preamble: emit blocks 0..header_bi-1 */
     for (int bi = 0; bi < header_bi && bi < fn->block_count; bi++) {
@@ -312,7 +316,7 @@ static void ew_emit_main_wrapper(EmitCtx *ctx, IronLIR_Func *fn, int header_bi) 
     /* Start the Emscripten main loop */
     iron_strbuf_appendf(&ctx->main_wrapper,
         "    emscripten_set_main_loop_arg(%s_frame_cb, state, 0, 0);\n",
-        fn->name);
+        fn_c);
     iron_strbuf_appendf(&ctx->main_wrapper, "    return 0;\n");
     iron_strbuf_appendf(&ctx->main_wrapper, "}\n\n");
 
