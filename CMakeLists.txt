@@ -1654,6 +1654,9 @@ if(Python3_EXECUTABLE)
     # layout: soa lists: the v4/soa fixtures print the same with the layout
     # annotations removed, and the generated C stores what was asked (#679).
     if(NOT WIN32)
+        add_test(NAME test_fusible_parity
+            COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/fusible_parity.sh $<TARGET_FILE:iron>)
+        set_tests_properties(test_fusible_parity PROPERTIES LABELS "codegen" TIMEOUT 1800)
         add_test(NAME test_soa_parity
             COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/soa_parity.sh $<TARGET_FILE:iron>)
         set_tests_properties(test_soa_parity PROPERTIES LABELS "codegen" TIMEOUT 1800)
