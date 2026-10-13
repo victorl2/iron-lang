@@ -55,6 +55,8 @@ def main() -> int:
         if test is None:
             failures.append(f"{name} is not registered")
             continue
+        if any("pytest-lsp not installed" in part for part in test.get("command", [])):
+            continue  # skip shim registered when pytest-lsp is absent
         properties = {item["name"]: item["value"] for item in test["properties"]}
         timeout = properties.get("TIMEOUT")
         if not isinstance(timeout, (int, float)) or timeout < 120:
