@@ -1,0 +1,42 @@
+-- @expect-panic: stale pointer dereference
+-- A pointer to a captured var is stale once the cell is gone (the frame and
+-- every closure that shared it ended).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Hub {
+    var p: ?*P
+    var q: ?*Int
+    init() {
+        self.p = null
+        self.q = null
+    }
+}
+
+func clobber() -> Int {
+    val y = P(9)
+    val z = P(10)
+    return y.hp + z.hp
+}
+
+func mk(h: *var Hub) {
+    var x = P(5)
+    val f = func() {
+        x.hp += 1
+        h.p = &x
+    }
+    f()
+}
+func main() {
+    var hub = Hub()
+    mk(&hub)
+    println("{clobber()}")
+    val q = hub.p
+    if q != null {
+        println("{q.hp}")
+    }
+}

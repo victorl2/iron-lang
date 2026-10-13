@@ -1,0 +1,10 @@
+-- @expect-panic: list changed
+-- An rc list cleared through another handle inside a loop over it (#734).
+func main() {
+    val r: rc [Int] = rc [1, 2, 3]
+    val r2 = r
+    for x in r {
+        r2.clear()
+        println("{x}")
+    }
+}

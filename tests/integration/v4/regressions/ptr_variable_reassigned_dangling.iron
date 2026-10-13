@@ -1,0 +1,22 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A pointer variable reassigned to a block local: the read after the block
+-- must be checked again, not merged with the check of the earlier value
+-- (check elision keyed both reads to the variable's slot) (#537, #539).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+func main() {
+    val a = P(1)
+    var p: *P = &a
+    var s = p.hp
+    {
+        val b = P(2)
+        p = &b
+        s += p.hp
+    }
+    s += p.hp
+    println("{s}")
+}

@@ -39,6 +39,9 @@ func main() {
     editn(&ps[0].inner)
     editn(&grid[0][0].inner)
     println("{ps[1].x} {h.xs[0].x} {shared[0].x} {grid[0][0].x} {arr[0].x} {ps[0].inner.n} {grid[0][0].inner.n}")
-    val k = Keep(&ps[0])
+    -- An element pointer lives for the call it is passed to (manual 6.4):
+    -- the copy a constructor keeps is stale afterwards, in either layout
+    -- (regressions/ptr_list_soa_elem_kept, ptr_list_aos_elem_kept).
+    val k = Keep(&arr[1])
     println("{k.p.x}")
 }

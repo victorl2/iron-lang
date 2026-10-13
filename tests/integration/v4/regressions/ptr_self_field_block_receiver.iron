@@ -1,0 +1,42 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A pointer to a field of a receiver that is a local of an inner block
+-- dies with the block (#542, #537).
+object V {
+    val p: *Int
+}
+
+object Q {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func view() -> V {
+        return V(&self.n)
+    }
+    func view2() -> V {
+        return self.view()
+    }
+}
+
+object W {
+    var v: V?
+    init() {
+        self.v = null
+    }
+}
+
+func main() {
+    var w = W()
+    {
+        var q = Q(8)
+        w.v = q.view2()
+        val inner = w.v
+        if inner != null {
+            println("inside {inner.p}")
+        }
+    }
+    val after = w.v
+    if after != null {
+        println("{after.p}")
+    }
+}

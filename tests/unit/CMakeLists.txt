@@ -1385,6 +1385,13 @@ set_tests_properties(test_analyzer_addr_of_codegen PROPERTIES
     TIMEOUT 30
 )
 
+# The generation table, arena segments, list pins and the stack scope
+# registry: deep scopes, cross-thread checks, thread number reuse.
+add_executable(test_runtime_gen_table test_runtime_gen_table.c)
+target_link_libraries(test_runtime_gen_table iron_runtime unity)
+add_test(NAME test_runtime_gen_table COMMAND test_runtime_gen_table)
+set_tests_properties(test_runtime_gen_table PROPERTIES LABELS "unit" TIMEOUT 60)
+
 add_executable(test_runtime_stack_pointer_dangling test_runtime_stack_pointer_dangling.c)
 target_link_libraries(test_runtime_stack_pointer_dangling iron_runtime unity)
 add_test(NAME test_runtime_stack_pointer_dangling COMMAND test_runtime_stack_pointer_dangling)

@@ -1,0 +1,25 @@
+-- @expect-panic: stale pointer dereference
+-- The same as ptr_heap_in_field, the read happening in a callee that
+-- receives the object by value (#539).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object V {
+    val p: *P
+}
+
+func rd(v: V) -> Int {
+    return v.p.hp
+}
+
+func main() {
+    var h = heap P(7)
+    val v = V(&h)
+    println("live {rd(v)}")
+    free h
+    println("{rd(v)}")
+}

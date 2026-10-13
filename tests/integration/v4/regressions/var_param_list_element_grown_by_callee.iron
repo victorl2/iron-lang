@@ -1,0 +1,23 @@
+-- @expect-panic: list changed while a pointer
+-- The same when the callee grows the list through another path.
+object Bag {
+    var xs: [Int]
+    init() {
+        self.xs = [1, 2, 3]
+    }
+    func grow() {
+        for i in range(1000) {
+            self.xs.push(i)
+        }
+    }
+}
+func touch(var x: Int, b: *var Bag) {
+    b.grow()
+    x += 1
+    println("{x}")
+}
+func main() {
+    var b = Bag()
+    touch(b.xs[0], &b)
+    println("{b.xs[0]}")
+}

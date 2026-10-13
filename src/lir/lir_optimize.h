@@ -154,6 +154,9 @@ typedef struct {
 bool run_pointer_check_elimination(IronLIR_Module *module,
                                    IronLIR_GenCheckElisionStat *stat);
 void lower_genchecks(IronLIR_Module *module);
+/* Drop the scope markers of blocks none of whose locals has its address
+ * taken (#537). Runs first in iron_lir_optimize. */
+void iron_lir_prune_stack_scopes(IronLIR_Module *module);
 
 /* Look up the array parameter mode. Non-static so emit_c.c can call it.
  * Note: stb_ds shgeti modifies the map header internally, so info cannot be const. */

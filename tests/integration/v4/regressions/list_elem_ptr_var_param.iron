@@ -1,0 +1,13 @@
+-- @expect-panic: list changed while a pointer to one of its elements is in use
+-- The list passed again as a var parameter of the same call (#543).
+func f(p: *Int, var xs: [Int]) -> String {
+    for i in range(1000) {
+        xs.push(i)
+    }
+    return "{p}"
+}
+
+func main() {
+    var xs = [1, 2, 3]
+    println("{f(&xs[0], xs)}")
+}

@@ -229,7 +229,35 @@ typedef struct {
     /* defer bodies enclosing the statement, for return; 0 inside a lambda
      * or spawn body. */
     int                defer_depth;
+    /* The list bindings the enclosing `for` loops of this body iterate
+     * (#734); emptied inside a lambda, which runs on its own. */
+    Iron_Symbol       *iter_lists[16];
+    int                iter_list_count;
 } TypeCtx;
+
+static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
+                       const char *msg, const char *suggestion);
+/* `for x in xs { ... }`: the body must not add to, remove from or replace
+ * xs itself: the loop reads the elements in place, and the list would move
+ * or lose them under it. What the compiler cannot see (a call, a closure)
+ * is caught at run time by the loop's pin on the list. */
+static bool iterated_list_changed(TypeCtx *ctx, Iron_Node *place, Iron_Span span,
+                                  const char *what) {
+    if (!place || place->kind != IRON_NODE_IDENT || ctx->iter_list_count == 0) return false;
+    Iron_Symbol *sym = ((Iron_Ident *)place)->resolved_sym;
+    if (!sym) return false;
+    for (int i = 0; i < ctx->iter_list_count; i++) {
+        if (ctx->iter_lists[i] != sym) continue;
+        char msg[256];
+        snprintf(msg, sizeof(msg), "cannot %s list '%s' inside a for loop over it",
+                 what, ((Iron_Ident *)place)->name ? ((Iron_Ident *)place)->name : "?");
+        emit_error(ctx, IRON_ERR_LIST_CHANGED_IN_LOOP, span, msg,
+                   "collect the changes and apply them after the loop, or loop over"
+                   " `xs.copy()` or over indices with `while`");
+        return true;
+    }
+    return false;
+}
 
 static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
                        const char *msg, const char *suggestion);
@@ -729,7 +757,12 @@ static bool is_lvalue_expression(const Iron_Node *expr) {
 static bool address_roots_in_growable_list(Iron_Node *expr) {
     while (expr) {
         if (expr->kind == IRON_NODE_FIELD_ACCESS) {
-            expr = ((Iron_FieldAccess *)expr)->object;
+            /* A place reached through a pointer or an rc handle kept in an
+             * element is not stored in the list. */
+            Iron_Node *fo = ((Iron_FieldAccess *)expr)->object;
+            Iron_Type *ft = fo ? ((Iron_ExprNode *)fo)->resolved_type : NULL;
+            if (ft && (ft->kind == IRON_TYPE_PTR || ft->kind == IRON_TYPE_RC)) return false;
+            expr = fo;
         } else if (expr->kind == IRON_NODE_INDEX) {
             Iron_Node *obj = ((Iron_IndexExpr *)expr)->object;
             Iron_Type *t = obj ? ((Iron_ExprNode *)obj)->resolved_type : NULL;
@@ -3503,6 +3536,11 @@ static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc
         report_unordered_position(ctx, mc->span);
         return result;
     }
+    if (strcmp(m, "push") == 0 || strcmp(m, "pop") == 0 || strcmp(m, "insert") == 0 ||
+        strcmp(m, "remove") == 0 || strcmp(m, "clear") == 0 || strcmp(m, "take") == 0)
+        (void)iterated_list_changed(ctx, mc->object, mc->span,
+                                    strcmp(m, "push") == 0 || strcmp(m, "insert") == 0
+                                        ? "add to" : "remove from");
     /* Mutating a list or array needs a mutable path to it (#174). */
     if (strcmp(m, "push") == 0 || strcmp(m, "pop") == 0 || strcmp(m, "set") == 0 ||
         strcmp(m, "insert") == 0 || strcmp(m, "remove") == 0 ||
@@ -4650,6 +4688,14 @@ static void unify_generic(Iron_Node *ann_node, Iron_Type *actual,
         return;
     }
     Iron_Type *t = actual;
+    if (ta->is_pointer) {
+        /* `*T`, `*var Cell[T]`, `?*T` against a pointer argument (an
+         * auto-addressed binding has its own type): the pointee carries T. */
+        if (t->kind == IRON_TYPE_NULLABLE && t->nullable.inner) t = t->nullable.inner;
+        if (t->kind == IRON_TYPE_PTR && t->ptr.pointee) t = t->ptr.pointee;
+        if (ta->pointer_pointee) unify_generic(ta->pointer_pointee, t, gps, ngp, bind);
+        return;
+    }
     if (ta->is_nullable && t->kind == IRON_TYPE_NULLABLE) t = t->nullable.inner;
     if (ta->is_array) {
         if (t->kind != IRON_TYPE_ARRAY) return;
@@ -5422,7 +5468,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                             (iron_type_is_integer(st) || iron_type_is_float(st) ||
                              st->kind == IRON_TYPE_BOOL || st->kind == IRON_TYPE_STRING ||
                              st->kind == IRON_TYPE_ENUM || st->kind == IRON_TYPE_OBJECT ||
-                             st->kind == IRON_TYPE_ARRAY)) {
+                             st->kind == IRON_TYPE_ARRAY ||
+                             (st->kind == IRON_TYPE_PTR && !st->ptr.is_unchecked))) {
                             char msg[512];
                             snprintf(msg, sizeof(msg),
                                      "comparison with null is always %s: '%s' is never null",
@@ -5584,6 +5631,41 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     ue->resolved_type = result;
                     break;
                 }
+                /* `&make().field` or `&make()[i]`: a place inside a
+                 * temporary that is destroyed at the end of the statement.
+                 * A place reached through a pointer or an rc handle is the
+                 * pointee's, and is checked at run time. */
+                {
+                    const Iron_Node *base = ue->operand;
+                    bool temp_base = false;
+                    for (int guard = 0; base && guard < 64; guard++) {
+                        const Iron_Node *obj = NULL;
+                        if (base->kind == IRON_NODE_FIELD_ACCESS)
+                            obj = ((const Iron_FieldAccess *)base)->object;
+                        else if (base->kind == IRON_NODE_INDEX)
+                            obj = ((const Iron_IndexExpr *)base)->object;
+                        else
+                            break;
+                        Iron_Type *ot = obj ? ((const Iron_ExprNode *)obj)->resolved_type : NULL;
+                        if (ot && (ot->kind == IRON_TYPE_PTR || ot->kind == IRON_TYPE_RC)) break;
+                        if (!obj || (obj->kind != IRON_NODE_IDENT &&
+                                     obj->kind != IRON_NODE_FIELD_ACCESS &&
+                                     obj->kind != IRON_NODE_INDEX)) {
+                            temp_base = obj != NULL;
+                            break;
+                        }
+                        base = obj;
+                    }
+                    if (temp_base) {
+                        emit_error(ctx, IRON_ERR_PTR_AMP_ON_RVALUE, ue->span,
+                                   "cannot take address of a place inside a temporary",
+                                   "the temporary is destroyed at the end of the statement;"
+                                   " bind it first (`val t = make()`, then `&t.field`)");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        ue->resolved_type = result;
+                        break;
+                    }
+                }
                 /* A growable list moves its elements when it grows, and
                  * its buffer carries no generation the pointer could be
                  * checked against; only fixed-size arrays give stable
@@ -5598,6 +5680,24 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     ue->resolved_type = result;
                     break;
+                }
+                /* `&o` of a var narrowed from `T?` (or to one implementor
+                 * of an interface) points into the value the var holds now;
+                 * the next assignment destroys or replaces that value. As a
+                 * call argument the pointer lives for the call. */
+                if (!ue->is_call_arg && ue->operand && ue->operand->kind == IRON_NODE_IDENT) {
+                    const char *nk = narrowing_key(ctx, ue->operand);
+                    Iron_Symbol *nsym = ((Iron_Ident *)ue->operand)->resolved_sym;
+                    if (nk && narrowing_get(ctx, nk) && nsym && nsym->is_mutable) {
+                        emit_error(ctx, IRON_ERR_PTR_AMP_ON_RVALUE, ue->span,
+                                   "cannot keep the address of a narrowed 'var': "
+                                   "assigning to it would leave the pointer to a value that is gone",
+                                   "pass it directly as a call argument, or copy the value"
+                                   " into a binding and take that binding's address");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        ue->resolved_type = result;
+                        break;
+                    }
                 }
                 bool is_var_src = arg_source_is_mutable(ctx, ue->operand);
                 mark_requires_mutable(ctx, ue->operand);
@@ -7209,6 +7309,32 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_PTR &&
                 obj_type_mc->ptr.pointee &&
                 obj_type_mc->ptr.pointee->kind != IRON_TYPE_PTR) {
+                /* The methods of a list, a fixed array, a Map and a Set work
+                 * on the collection in place and are not lowered through a
+                 * pointer: such a call typed as Void, emitted C that did not
+                 * compile, or ran without the pointer check. */
+                Iron_Type *pte = obj_type_mc->ptr.pointee;
+                const char *coll = NULL;
+                if (pte->kind == IRON_TYPE_ARRAY) {
+                    coll = (pte->array.size < 0 && !pte->array.is_bounded) ? "list" : "array";
+                } else if (pte->kind == IRON_TYPE_OBJECT && pte->object.decl &&
+                           pte->object.decl->name &&
+                           (strcmp(pte->object.decl->name, "Map") == 0 ||
+                            strcmp(pte->object.decl->name, "Set") == 0)) {
+                    coll = pte->object.decl->name;
+                }
+                if (coll) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "method '%s' of a %s cannot be called through a pointer",
+                             mc->method ? mc->method : "?", coll);
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                               "reach the collection through a field of the value the pointer "
+                               "refers to (`p.items.len()`), or pass it to a `var` parameter");
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
                 obj_type_mc = obj_type_mc->ptr.pointee;
                 mc->is_auto_deref = true;
             }
@@ -7778,12 +7904,13 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
 
                     mc->resolved_type = result;
                     break;  /* skip decl scan — return type already resolved */
-                } else if (obj_id->resolved_type &&
-                           obj_id->resolved_type->kind == IRON_TYPE_INTERFACE &&
-                           obj_id->resolved_type->interface.decl) {
+                } else if (eff_recv_t &&
+                           eff_recv_t->kind == IRON_TYPE_INTERFACE &&
+                           eff_recv_t->interface.decl) {
                     /* Interface dispatch: find the method in the interface's
-                     * method signatures and resolve the return type. */
-                    Iron_InterfaceDecl *iface_mc = obj_id->resolved_type->interface.decl;
+                     * method signatures and resolve the return type (also
+                     * through a pointer to an interface value). */
+                    Iron_InterfaceDecl *iface_mc = eff_recv_t->interface.decl;
                     for (int mi = 0; mi < iface_mc->method_count; mi++) {
                         Iron_Node *msig = iface_mc->method_sigs[mi];
                         if (!msig || msig->kind != IRON_NODE_FUNC_DECL) continue;
@@ -9240,7 +9367,10 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 ctx->defer_depth = 0;
                 ctx->in_init_method = false;
                 ctx->in_drop_method = false;
+                int saved_iter_lists = ctx->iter_list_count;
+                ctx->iter_list_count = 0;
                 if (le->body) check_stmt(ctx, le->body);
+                ctx->iter_list_count = saved_iter_lists;
                 ctx->loop_depth = saved_depth;
                 ctx->defer_depth = saved_defer;
                 ctx->in_init_method = saved_init;
@@ -10493,6 +10623,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_ASSIGN: {
             Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+            (void)iterated_list_changed(ctx, as->target, as->span, "replace");
 
             /* Strings are immutable: `s[i] = ...` used to pass check and
              * call an undeclared Iron_String_set. */
@@ -11122,7 +11253,25 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 if (ue_ret->op == (Iron_OpKind)IRON_TOK_AMP) {
                     Iron_Symbol *root_sym =
                         iron_walk_to_root_binding(ue_ret->operand);
-                    if (root_sym && sym_is_stack_local(root_sym)) {
+                    /* A global is static storage, and a place reached
+                     * through a pointer or rc binding is not this frame's. */
+                    bool root_global = root_sym && ctx->global_scope &&
+                        root_sym->name &&
+                        iron_scope_lookup(ctx->global_scope, root_sym->name) == root_sym;
+                    bool root_indirect = root_sym && root_sym->type &&
+                        (root_sym->type->kind == IRON_TYPE_PTR ||
+                         root_sym->type->kind == IRON_TYPE_RC);
+                    /* The receiver of a mutating method is the caller's
+                     * storage, and a pointer into it carries the receiver's
+                     * lifetime (manual 6.4, #542). A readonly method's self
+                     * is a copy, and init, drop and copy run on temporaries. */
+                    bool root_mut_self = root_sym && root_sym->name &&
+                        strcmp(root_sym->name, "self") == 0 &&
+                        root_sym->sym_kind == IRON_SYM_PARAM &&
+                        ctx->current_method_type && !ctx->in_readonly_method &&
+                        !ctx->in_init_method && !ctx->in_drop_method && !ctx->in_copy_method;
+                    if (root_sym && sym_is_stack_local(root_sym) && !root_global &&
+                        !root_indirect && !root_mut_self) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
                                  "cannot return reference to stack-local "
@@ -11596,6 +11745,15 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             ctx->loop_is_parallel = fs->is_parallel;
             /* A binding the body assigns may be null on the next pass. */
             narrowing_kill_assigned_in(ctx, fs->body);
+            /* The growable list this loop reads in place (#734). */
+            bool iter_pushed = false;
+            if (!fs->is_parallel && iter_t && iter_t->kind == IRON_TYPE_ARRAY &&
+                iter_t->array.size < 0 && !iter_t->array.is_bounded && fs->iterable &&
+                fs->iterable->kind == IRON_NODE_IDENT &&
+                ((Iron_Ident *)fs->iterable)->resolved_sym && ctx->iter_list_count < 16) {
+                ctx->iter_lists[ctx->iter_list_count++] = ((Iron_Ident *)fs->iterable)->resolved_sym;
+                iter_pushed = true;
+            }
             if (ctx->in_init_method && ctx->unassigned_fields) {
                 InitUnassignedEntry *pre = NULL;
                 init_unassigned_clone(&pre, ctx->unassigned_fields);
@@ -11605,6 +11763,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             } else {
                 if (fs->body) check_stmt(ctx, fs->body);
             }
+            if (iter_pushed) ctx->iter_list_count--;
             ctx->loop_depth--;
             ctx->loop_is_parallel = saved_par;
             tc_pop_scope(ctx);

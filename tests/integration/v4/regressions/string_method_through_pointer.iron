@@ -1,0 +1,15 @@
+-- String and number methods called through a checked or unchecked pointer
+-- read the pointee, as field access through a pointer does; they typed as
+-- Void and their result could not be used. (#575)
+func main() {
+    val b = Box("hello")
+    val p: *var unchecked String = b.unwrap()
+    println("{p.byte_len()}")
+    var s = "abc"
+    val q = &s
+    println("{q.len()} {q.upper()}")
+    val n = 41
+    val r = &n
+    println("{r.to_string()}")
+    b.free()
+}

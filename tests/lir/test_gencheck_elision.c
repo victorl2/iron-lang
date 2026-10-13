@@ -568,7 +568,7 @@ void test_t4_extern_call_is_barrier(void) {
  * given barrier instruction between the checks. The `which` selector keeps the
  * cases share one body. Post-pass verify is clean. */
 typedef enum {
-    BAR_SPAWN, BAR_FREE, BAR_RC_RELEASE, BAR_HEAP_ALLOC, BAR_STORE
+    BAR_SPAWN, BAR_FREE, BAR_RC_RELEASE, BAR_HEAP_ALLOC, BAR_STORE, BAR_STORE_INT
 } BarrierKind;
 
 static void run_barrier_case(BarrierKind which) {
@@ -601,7 +601,16 @@ static void run_barrier_case(BarrierKind which) {
         iron_lir_heap_alloc(fn, entry, s2->id, false, false, int_type, sp());
         break;
     }
-    case BAR_STORE:
+    case BAR_STORE: {
+        /* Overwriting a slot that holds a String drops the old string. */
+        Iron_Type *str_type = iron_type_make_primitive(IRON_TYPE_STRING);
+        IronLIR_Instr *sslot = iron_lir_alloca(fn, entry, str_type, "sslot", sp());
+        IronLIR_Instr *sv = iron_lir_const_string(fn, entry, "x", str_type, sp());
+        iron_lir_store(fn, entry, sslot->id, sv->id, sp());
+        break;
+    }
+    case BAR_STORE_INT:
+        /* Overwriting an Int drops nothing: not a barrier. */
         iron_lir_store(fn, entry, slot->id, seed->id, sp());
         break;
     }
@@ -616,7 +625,7 @@ static void run_barrier_case(BarrierKind which) {
     memset(&stat, 0, sizeof(stat));
     run_pointer_check_elimination(mod, &stat);
 
-    TEST_ASSERT_EQUAL_INT(0, stat.checks_elided);   /* barrier preserves both */
+    TEST_ASSERT_EQUAL_INT(which == BAR_STORE_INT ? 1 : 0, stat.checks_elided);  /* barrier preserves both */
 
     Iron_DiagList diags = iron_diaglist_create();
     bool ok = iron_lir_verify(mod, &diags, &g_arena);
@@ -632,6 +641,7 @@ void test_barrier_straddle_preserved(void) {
     run_barrier_case(BAR_RC_RELEASE);
     run_barrier_case(BAR_HEAP_ALLOC);
     run_barrier_case(BAR_STORE);
+    run_barrier_case(BAR_STORE_INT);
 }
 
 /* ── OPT-08 microbench oracle (deterministic per-tier + elision-rate) ──────────

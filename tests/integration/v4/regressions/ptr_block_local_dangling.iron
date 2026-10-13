@@ -1,0 +1,31 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A pointer to a local of an inner block kept past the end of the block:
+-- the block's locals are gone (manual 6.1), so reading it panics. The
+-- check was per function, so it read whatever reused the slot (#537).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object V {
+    var p: ?*P
+    init() {
+        self.p = null
+    }
+}
+
+func main() {
+    var v = V()
+    {
+        val x = P(5)
+        v.p = &x
+    }
+    val y = P(9)
+    println("{y.hp}")
+    val q = v.p
+    if q != null {
+        println("{q.hp}")
+    }
+}

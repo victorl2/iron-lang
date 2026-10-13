@@ -1,0 +1,33 @@
+-- A field reached through a pointer passed to a var parameter.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Hub {
+    var p: ?*P
+    var q: ?*Int
+    init() {
+        self.p = null
+        self.q = null
+    }
+}
+
+func clobber() -> Int {
+    val y = P(9)
+    val z = P(10)
+    return y.hp + z.hp
+}
+
+func touch(var x: Int) {
+    x += 1
+    println("{x}")
+}
+func main() {
+    var o = P(5)
+    val p = &o
+    touch(p.hp)
+    println("{o.hp}")
+}

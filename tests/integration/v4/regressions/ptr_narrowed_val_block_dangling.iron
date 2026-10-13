@@ -1,0 +1,38 @@
+-- @expect-panic: dangling stack pointer to frame
+-- The address of a narrowed val of an inner block ends with the block.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Hub {
+    var p: ?*P
+    var q: ?*Int
+    init() {
+        self.p = null
+        self.q = null
+    }
+}
+
+func clobber() -> Int {
+    val y = P(9)
+    val z = P(10)
+    return y.hp + z.hp
+}
+
+func main() {
+    var hub = Hub()
+    {
+        val o2: P? = P(5)
+        if o2 != null {
+            hub.p = &o2
+        }
+    }
+    val y = P(9)
+    val q = hub.p
+    if q != null {
+        println("{q.hp} {y.hp}")
+    }
+}

@@ -1869,8 +1869,9 @@ void emit_ensure_iface_glue(EmitCtx *ctx, const Iron_Type *it, bool drop) {
             emit_ensure_copy_fixup(ctx, tc, im->decl);
     }
     Iron_StrBuf *sb = &ctx->lifted_funcs;
-    iron_strbuf_appendf(sb, "static void %s_%s(%s *self) {\n    switch (self->tag) {\n",
-                        ic, drop ? "drop" : "copied", ic);
+    iron_strbuf_appendf(sb, "static void %s_%s(%s *self) {\n", ic, drop ? "drop" : "copied", ic);
+    if (drop) iron_strbuf_appendf(sb, "    IRON_RECV_PIN_CHECK(self);\n");
+    iron_strbuf_appendf(sb, "    switch (self->tag) {\n");
     for (int j = 0; j < e->impl_count; j++) {
         Iron_IfaceImpl *im = &e->impls[j];
         if (!im->is_alive || !im->decl) continue;

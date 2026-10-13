@@ -1,0 +1,22 @@
+-- @expect-panic: stale pointer dereference
+-- A pointer to a heap value kept in an object field and read after the
+-- value was freed panics instead of reading freed memory: a pointer read
+-- out of a field is checked against its own generation (#539).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object V {
+    val p: *P
+}
+
+func main() {
+    var h = heap P(7)
+    val v = V(&h)
+    println("live {v.p.hp}")
+    free h
+    println("{v.p.hp}")
+}

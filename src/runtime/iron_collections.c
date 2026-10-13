@@ -61,6 +61,10 @@ typedef struct {
     void (*drop)(void *env);
     bool (*holds)(void *env, void *cell);
     void (*cycle_break)(void *env);
+    /* A capture cell's generation, 0 until a pointer to the captured var is
+     * taken (iron_cell_ptr_gen); ended when the cell is freed. */
+    _Atomic uint64_t gen;
+    uint64_t pad_;          /* keeps the value 16-byte aligned */
 } IronClosureEnvHdr;
 
 void *iron_closure_env_alloc(size_t env_size, void (*drop)(void *env)) {
@@ -70,6 +74,7 @@ void *iron_closure_env_alloc(size_t env_size, void (*drop)(void *env)) {
     h->drop = drop;
     h->holds = NULL;
     h->cycle_break = NULL;
+    atomic_init(&h->gen, 0);
     return (void *)(h + 1);
 }
 
@@ -141,8 +146,28 @@ void iron_cell_release(void *value) {
          * race with the other thread's decrement). */
         (void)IRON_ATOMIC_U64_LOAD_ACQUIRE(h->rc);
         if (h->drop) h->drop(value);
+        uint64_t g = atomic_load_explicit(&h->gen, memory_order_acquire);
+        if (g) (void)iron_gen_end(g);
         free(h);
     }
+}
+
+/* The generation of a pointer to a `var` that lives in a capture cell: the
+ * cell's own, created on first use and ended when the last share (the
+ * declaring frame's or a closure's) lets go. Such a pointer is valid for as
+ * long as the variable exists, also after the block that declared it. */
+uint64_t iron_cell_ptr_gen(void *value) {
+    if (!value) return 0;
+    IronClosureEnvHdr *h = ((IronClosureEnvHdr *)value) - 1;
+    uint64_t g = atomic_load_explicit(&h->gen, memory_order_acquire);
+    if (g) return g;
+    uint64_t fresh = iron_gen_new(false);
+    uint64_t expect = 0;
+    if (atomic_compare_exchange_strong_explicit(&h->gen, &expect, fresh,
+                                                memory_order_acq_rel, memory_order_acquire))
+        return fresh;
+    (void)iron_gen_end(fresh);
+    return expect;
 }
 
 void iron_closure_retain(Iron_Closure c) {

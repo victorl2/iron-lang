@@ -1,0 +1,16 @@
+-- A task awaited by the function whose local it reads through a pointer
+-- sees a live frame: no panic (#538).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+func main() {
+    val x = P(9)
+    val p = &x
+    val h = spawn("t") {
+        return p.hp
+    }
+    println("{await h}")
+}

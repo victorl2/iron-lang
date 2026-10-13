@@ -651,6 +651,7 @@ void iron_diag_set_user_start_line(uint32_t line);
 #define IRON_ERR_CTOR_SPELLING            333   /* `Channel.new(4)` / `Arena.with_capacity(n)`: containers are constructed as `Channel[Int](4)` / `Arena(n)` */
 #define IRON_ERR_LOOP_JUMP_OUTSIDE        335   /* `break` / `continue` outside a loop, in a lambda, defer or spawn body inside one, or in a parallel for */
 #define IRON_ERR_RETURN_IN_DEFER          336   /* `return` inside a defer body */
+#define IRON_ERR_LIST_CHANGED_IN_LOOP     346   /* a `for` loop body adds to, removes from or replaces the list it iterates (#734) */
 #define IRON_ERR_GLOBAL_INIT_CYCLE        345   /* a global depends on itself through its initializer */
 #define IRON_ERR_NOT_STRINGABLE           334   /* `{x}` where x has no text form: not a number, Bool, String, enum, their nullable, or an object with to_string() */
 /* Static functions and `Self` in interfaces (#455). */

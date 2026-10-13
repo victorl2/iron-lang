@@ -409,6 +409,21 @@ IronLIR_Instr *iron_lir_arena_pop(IronLIR_Func *fn, IronLIR_Block *block,
     return alloc_instr(fn, block, IRON_LIR_ARENA_POP, NULL, span, false);
 }
 
+/* Stack scopes (#537): void-result markers carrying the scope id. */
+IronLIR_Instr *iron_lir_scope_enter(IronLIR_Func *fn, IronLIR_Block *block,
+                                    int scope_id, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_SCOPE_ENTER, NULL, span, false);
+    i->scope.id = scope_id;
+    return i;
+}
+
+IronLIR_Instr *iron_lir_scope_leave(IronLIR_Func *fn, IronLIR_Block *block,
+                                    int scope_id, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_SCOPE_LEAVE, NULL, span, false);
+    i->scope.id = scope_id;
+    return i;
+}
+
 /* Phase 26 POL-06 (Plan 26-02): IRON_LIR_RC_RETAIN constructor.
  * Void-result opcode (produces_value = false) — wraps an atomic relaxed
  * increment of the refcount header. Emitted by HIR-to-LIR at copy sites

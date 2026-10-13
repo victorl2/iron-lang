@@ -1732,6 +1732,17 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_edges_mem ctedge dropord)
     set_tests_properties(prog_fuzz_edges_mem PROPERTIES LABELS "codegen" TIMEOUT 900)
+    # Pointer lifetimes (pf_ptrlife): the model decides which dereference
+    # panics; the --opts run builds each program with the default pipeline,
+    # --no-optimize and --debug and requires the same outcome from all.
+    add_test(NAME prog_fuzz_ptrlife
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_ptrlife ptrlife)
+    set_tests_properties(prog_fuzz_ptrlife PROPERTIES LABELS "codegen" TIMEOUT 900)
+    add_test(NAME prog_fuzz_ptrlife_opts
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_ptrlife_opts --opts ptrlife_opts)
+    set_tests_properties(prog_fuzz_ptrlife_opts PROPERTIES LABELS "codegen" TIMEOUT 900)
     # The json module against Python's json on random and corrupted
     # documents (tests/fuzz/json_fuzz.py). Fixed seeds.
     add_test(NAME json_fuzz

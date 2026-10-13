@@ -225,13 +225,34 @@ void *iron_rc_alloc(size_t size, void (*drop_fn)(void *)) {
 
     IronAllocHdr *ahd =
         (IronAllocHdr *)((char *)block + sizeof(Iron_RcHeader));
-    IRON_ATOMIC_U64_INIT(ahd->gen, iron_heap_next_gen());
+    /* No generation until a pointer into the object is taken
+     * (iron_rc_ptr_gen): most rc objects never pay for a table slot. */
+    IRON_ATOMIC_U64_INIT(ahd->gen, 0);
     ahd->size = (uint64_t)size;
 
     /* Phase 37 rc-balance: debug leak detector — count the live block. */
     iron_rc_leak_track_alloc();
 
     return (char *)block + IRON_RC_HEADER_TOTAL_SIZE;
+}
+
+/* ── iron_rc_ptr_gen — the generation of a pointer into an rc object ───────
+ *
+ * `&r.field` takes the object's generation, created on first use and ended
+ * when the last strong handle goes away (iron_rc_release). Two threads
+ * taking the first pointer at once agree through the CAS. */
+uint64_t iron_rc_ptr_gen(void *user_ptr) {
+    if (!user_ptr) return 0;
+    IronAllocHdr *ahd = (IronAllocHdr *)((char *)user_ptr - sizeof(IronAllocHdr));
+    uint64_t g = IRON_ATOMIC_U64_LOAD_ACQUIRE(ahd->gen);
+    if (g) return g;
+    uint64_t fresh = iron_gen_new(false);
+    uint64_t expect = 0;
+    if (atomic_compare_exchange_strong_explicit(&ahd->gen, &expect, fresh,
+                                                memory_order_acq_rel, memory_order_acquire))
+        return fresh;
+    (void)iron_gen_end(fresh);
+    return expect;
 }
 
 /* ── iron_rc_retain — relaxed-inc refcount bump ─────────────────────────────
@@ -313,6 +334,14 @@ void iron_rc_release(void *user_ptr) {
 
         if (rch->drop_fn) {
             rch->drop_fn(user_ptr);
+        }
+
+        /* The object is gone: a checked pointer into it (`&r.field`) is
+         * stale from here on, even while weak handles keep the block (#540). */
+        {
+            IronAllocHdr *ahd = (IronAllocHdr *)((char *)user_ptr - sizeof(IronAllocHdr));
+            uint64_t g = IRON_ATOMIC_U64_LOAD_ACQUIRE(ahd->gen);
+            if (g) (void)iron_gen_end(g);
         }
 
         /* Release the strong cohort's collective weak (initialized to 1 in

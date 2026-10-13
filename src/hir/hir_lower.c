@@ -2233,6 +2233,11 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 ot->kind != IRON_TYPE_WEAK_RC && ot->kind != IRON_TYPE_FUNC) {
                 return iron_hir_expr_bool_lit(mod, !eq, bool_ty, span);
             }
+            /* A checked pointer that is not `?*T` is never null either; it
+             * emitted a fat pointer compared against NULL. */
+            if (ot && ot->kind == IRON_TYPE_PTR && !ot->ptr.is_unchecked) {
+                return iron_hir_expr_bool_lit(mod, !eq, bool_ty, span);
+            }
         }
 
         /* Phase 96 STR-01: lower String + String as a runtime call to

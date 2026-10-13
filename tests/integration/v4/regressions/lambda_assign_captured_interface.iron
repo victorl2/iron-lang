@@ -1,0 +1,27 @@
+-- A lambda assigning an object to a captured interface variable wraps it in
+-- the interface's tagged union; it did not compile (#657).
+interface Act {
+    readonly func id() -> Int
+}
+object Small impl Act {
+    val n: Int
+    readonly func id() -> Int {
+        return self.n
+    }
+}
+object Other impl Act {
+    val m: Int
+    readonly func id() -> Int {
+        return self.m * 10
+    }
+}
+func main() {
+    var x: Act = Small(1)
+    x = Other(2)
+    println("{x.id()}")
+    val f = func() {
+        x = Small(3)
+    }
+    f()
+    println("{x.id()}")
+}

@@ -514,7 +514,10 @@ changes is where the bytes are:
   returns, what it may have changed is stored back (for a method, the
   fields its body can write; nothing for a `readonly` method or a `*T`
   parameter). During such a call the element read again through the list
-  itself still has its value from before the call.
+  itself still has its value from before the call. The pointer rules of
+  section 6.4 are those of the default layout: the pointer lives for the
+  call (a copy the callee keeps is stale afterwards), the list is pinned
+  while the call runs, and the address cannot be kept (`E0330`).
 - The layout belongs to the list value and is chosen where the list is
   made. A list literal, `[]` included, takes the layout of the type it is
   checked against: the annotation of the binding, field, parameter or
@@ -1139,6 +1142,18 @@ in 10` is an error: write `for i in range(10)`), nor over any other value
 (`E0202`). Appending `parallel` after the iterable runs the
 iterations on several threads (section 7.4).
 
+A loop over a growable list reads the elements in place, so the list must
+keep them where they are until the loop is done. The body may assign to
+elements (`xs[i] = v`) and change other lists, but adding to the iterated
+list, removing from it or replacing it in the body is an error (`E0346`):
+collect the changes and apply them after the loop, loop over `xs.copy()`,
+or use a `while` loop over indices. Where the compiler cannot see the
+change (a function or closure the body calls, another `rc` handle, a list
+reached through a field), the list is pinned while the loop runs: growing
+it past its capacity, removing, inserting, popping or clearing elements,
+or freeing it aborts with `list changed while a pointer to one of its
+elements is in use`. The pin ends on every way out of the loop.
+
 ```iron
 func main() {
     var total = 0
@@ -1418,7 +1433,11 @@ Parameters are `val` by default: a parameter cannot be reassigned or
 mutated (`E0266`, `E0234`). A parameter declared `var` is a copy that the
 body may assign to and mutate; when the function returns, the final value
 is written back to the caller's `var` binding, so `var` parameters behave
-like in-out arguments. A list parameter is lent (never copied); a `var`
+like in-out arguments. The argument is a `var` variable, or a field or an
+element of one (`E0267` for anything read-only); a field or element stays
+where it is for the call: changing the list it is in, or freeing or
+resetting the value it is in, aborts while the call runs (section 6.4). A
+list parameter is lent (never copied); a `var`
 list parameter lets the body grow or shrink the caller's list. Objects are
 passed by value. The result type follows `->`; omit it for a function that
 returns nothing. Argument count and types must match exactly (`E0216`,
@@ -2204,25 +2223,105 @@ drop Alice
 `&x` takes the address of a binding, field or fixed array element and
 yields a checked pointer: `*T` when `x` is a `val` and `*var T` when `x`
 is a `var`. `?*T` is a nullable pointer that may hold `null`. Fields are
-read and, through `*var T`, written with `p.field`; a pointer to a
-primitive prints its pointee when interpolated into a string, but there is
-no prefix `*` operator, so it cannot be assigned through. Passing a binding
-to a parameter of type `*T` takes its address automatically. A checked
-pointer carries the generation of the allocation it points to, and every
-dereference verifies it: reading through a pointer after the target was
-freed aborts with a "stale pointer dereference" message instead of reading
-garbage, even when the allocator has reused the address. A pointer to a
-local stays valid while the function that took it has not returned; read
-after that (kept in a closure or an object that outlived the call) it
-aborts with a "dangling stack pointer to frame" message. Checked pointers
-support no arithmetic (`E0268`, `E0295`); `&` cannot be applied to a
-temporary (`E0270`), a pointer to a local cannot be returned (`E0271`), `&`
-on an `rc` handle is rejected (`E0296`), and the address of an element of
-a growable list, or of anything stored inside one (`&list[i]`,
-`&list[i].field`, `&list[i].inner.field`, `&list[i].fixed[0]`), is
-rejected (`E0330`) unless it is written directly as a call argument,
-because the list may move its elements when it grows. This holds for
-either list layout (section 2.3).
+read and, through `*var T`, written with `p.field`, and methods are called
+with `p.m()`, also a `String` or number method on a pointer to one and a
+method of an interface value through a pointer to it; a
+pointer to a primitive prints its pointee when interpolated into a string,
+but there is no prefix `*` operator, so it cannot be assigned through. A
+pointer to a list, a fixed array, a `Map` or a `Set` can be stored and
+passed on, but the collection's methods, indexing and iteration are not
+available through it (`E0220`, `E0202`): reach the collection through a
+field of the value a pointer refers to (`p.items.push(x)`) or pass it to a
+`var` parameter. Inside a mutating method `self` may be passed to a
+pointer parameter, and `&self` is a pointer to the receiver.
+Passing a binding to a parameter of type `*T` takes its address
+automatically, and a generic parameter written `*T` infers `T` from the
+argument.
+
+**Lifetimes.** Every pointer refers to storage with a lifetime, and every
+dereference (a field read or write, a method called through the pointer,
+a value read out of it, `&p.field`) checks that the storage is still
+alive, whatever produced the pointer: an `&` in the same function, a
+parameter, a field, a list element, a call result, a capture. A
+dereference of dead storage aborts the program with a message naming the
+kind of storage:
+
+| The pointer was taken from | It stays valid while | Message after that |
+|---|---|---|
+| a local (`val`, `var`, a parameter, a pattern binding) | the local has not been destroyed: its block has not ended, see below | `dangling stack pointer to frame` |
+| a `var` that a closure captured (section 3.7) | the variable's cell exists: the declaring block has not ended, or a closure that captured it is alive | `stale pointer dereference` |
+| a global | always | |
+| a `heap` value or a field of one | the value has not been freed | `stale pointer dereference` |
+| an arena value or a field of one | the arena was not reset, restored to a save point taken before the value, or destroyed (section 6.6) | `stale pointer dereference (arena)` |
+| a field of an `rc` object | some strong handle to the object exists | `stale pointer dereference` |
+| a field of `self` in a method | the receiver is valid (the rules above, for the value the method was called on) | as for the receiver |
+| a list element (only as a call argument, below) | the call has not returned | `stale pointer dereference` |
+| through another pointer (`&p.field`) | `p`'s storage is valid | as for `p` |
+
+The block of a local is its innermost `{ ... }`: a function body, the body
+of an `if` or `else`, a loop body (each iteration has its own locals), a
+`match` arm, or a plain block. A pointer kept past the end of its block,
+in an object, a list, a closure, an enum payload or an interface value
+that outlives it, dangles even though the function is still running. The
+same holds for a pointer read on another thread: a task that reads a
+pointer to a local of a function that has returned panics, and one that
+is awaited inside the block that owns the local reads it normally. The
+check is exact for every program without data races; a program that frees
+or ends storage on one thread while another reads it races, and the race
+is not guaranteed to be detected.
+
+At the end of a block its `defer` statements run first, while every local
+is still alive, and then the locals are destroyed in reverse order of
+declaration (section 6.7). A `drop` block that runs then may dereference a
+pointer to a local declared before its own value, which is still alive (a
+guard holding a pointer to what it guards), and panics on a pointer to a
+local declared after it, which is already destroyed. A panic raised while
+a destructor runs is reported as `destructor panicked`, followed by the
+type, the `cause` (one of the messages above) and the site.
+
+The variable of a `for` loop is a local of the iteration. A `var` narrowed
+from `T?` by a null check, or to one implementor of an interface by `is`,
+holds a value that the next assignment destroys or replaces: its address
+(explicit, or taken automatically for a `*T` parameter) can only be a call
+argument (`E0270` otherwise), the pointer lives for that call, and so does
+a pointer a method called on the narrowed `var` takes from `self`. A `var`
+that is never assigned again and a narrowed `val` have no such limit.
+
+Inside a lambda, a captured `val` is the closure's own copy: a pointer to
+it taken in the lambda ends when the lambda returns. A captured `var` is
+the variable itself (the table above).
+
+**List elements.** The address of an element of a growable list, or of
+anything stored inside one (`&xs[i]`, `&xs[i].field`,
+`&xs[i].inner.field`, `&xs[i].fixed[0]`), is only allowed directly as a
+call argument (`E0330`), in either list layout (section 2.3), and so is
+passing an element to a `*T` parameter. The pointer lives for that call: a copy the
+callee keeps is stale once the call returns. While the call runs the list
+is pinned: growing it past its capacity, removing, inserting, popping or
+clearing elements, or freeing it, through any handle and on any thread,
+aborts with `list changed while a pointer to one of its elements is in
+use`. A `for` loop over a list pins it in the same way (section 4.6). A method called on a list element (`xs[i].m()`) pins the list in
+the same way when it might change a list.
+
+**Receivers.** A method called on an `rc` object read out of a field,
+a list or a global keeps the object alive until the method returns, even
+if the method drops the last other handle.
+
+**Compile-time rules.** Checked pointers support no arithmetic (`E0268`,
+`E0295`); `&` cannot be applied to a temporary or to a place inside one,
+such as `&make().field` (`E0270`); a pointer to a local cannot be returned
+directly (`E0271`; returning the address of a global or of a place reached
+through a pointer is fine); `&` on an `rc` handle is rejected (`E0296`;
+`&r.field` is allowed and checked as above); and `&list[i]` is restricted
+as described above (`E0330`). A checked pointer that is not `?*T` is never
+null: comparing it with `null` is a constant (`W0616`).
+
+**Limits.** A program can have 2^30 heap values, `rc` objects with a
+pointer into them and arena segments alive at once, 4095 running threads
+that have taken the address of a local, and scopes with addressed locals
+nested 1,048,575 deep; past any of them it aborts with a
+message naming the limit. No count of allocations, scope entries or
+threads over the life of the program makes a dead pointer valid again.
 
 ```iron
 object Player {
@@ -2254,6 +2353,63 @@ func main() {
 
 ```output
 90 90 true
+```
+
+A pointer into the receiver taken by a mutating method, an element borrow
+for a call, and a pointer to a local of an enclosing block are all valid
+while their storage is:
+
+```iron
+object Counter {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func handle() -> *var Int {
+        return &self.n
+    }
+}
+
+object Slot {
+    var p: ?*Int
+    init() {
+        self.p = null
+    }
+}
+
+func show(p: *Int) -> String {
+    return "{p}"
+}
+
+func main() {
+    var c = Counter(1)
+    val h = c.handle()
+    c.n = 5
+    println("{h}")
+
+    var xs = [10, 20, 30]
+    println(show(&xs[1]))
+    xs.push(40)
+
+    var slot = Slot()
+    val outer = 7
+    {
+        val inner = 8
+        slot.p = &outer
+        println("inner {inner}")
+    }
+    val q = slot.p
+    if q != null {
+        println("outer {q}")
+    }
+}
+```
+
+```output
+5
+20
+inner 8
+outer 7
 ```
 
 <!-- doctest-expect-error: E0271 -->
@@ -2329,7 +2485,13 @@ memory outside the arena (a list, a string, a map or set, an `rc` handle,
 a closure), which then leaks; the compiler warns about it (`W0605`) unless the
 allocation says `heap(in: a, allow_drop_skip: true) T(args)`. Accessing an
 arena value after `reset` or `restore` is a stale pointer error at run
-time. `rc` allocation inside an `in arena` block is an error (`E0301`).
+time, also through a pointer kept in another object or read in a callee
+(section 6.4). A save point is only valid while everything allocated
+before it is: restoring to one taken before a `reset`, or before an
+earlier `restore` to an older save point, or to a save point of another
+arena, aborts with `arena restored to a stale save point`. A value allocated after a restore never reuses the
+validity of one the restore ended. `rc` allocation inside an `in arena`
+block is an error (`E0301`).
 `a.used()` and `a.capacity()` report the arena's byte counts. An arena
 value releases its memory when its binding ends; a `heap Arena(bytes)` is
 freed with `free`, like any heap value.
@@ -2430,8 +2592,10 @@ rules, all enforced at compile time with `E0328`:
 - `val b = a` where `a` is a list, storing a list binding in a field or in
   another list, and returning a list parameter are rejected; write
   `a.copy()` or `a.take()`.
-- A function receives a list argument by reference for the duration of the
-  call; it may read it, and mutate it only through a `var` parameter. A list
+- A function or method receives a list argument by reference for the
+  duration of the call; it may read it, and mutate it only through a `var`
+  parameter. A pointer to one of its elements may only be passed to a call,
+  which pins the list until it returns (section 6.4). A list
   passed to a `var` parameter cannot be passed again in the same call (the
   callee may move its elements while the other parameter refers to them);
   pass `xs.copy()` for the other one.
@@ -2474,8 +2638,10 @@ spawn must be awaited in the same block (`E0328`). Writing a captured
 it captured alive until it finishes, even when the block that declared it
 ends first (always possible for a spawn that is never awaited): it holds its
 own reference to each captured `Mutex`, `Channel`, `RWLock`, `Arena`, `rc`
-value and `var`, and its own copy of the other values. A thread that is still
-running when the program ends is stopped with it. Named thread pools
+value and `var`, and its own copy of the other values. A checked pointer a
+thread reads is checked like on the thread that took it (section 6.4): a
+pointer to a local of a function that has returned dangles. A thread that
+is still running when the program ends is stopped with it. Named thread pools
 are not implemented: `spawn("name", pool)` is rejected (`E0326`).
 
 ```iron
@@ -3602,6 +3768,7 @@ codes cited in this manual:
 | E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element or of a field inside one |
 | E0335 | `break` / `continue` outside a loop, in a lambda, `defer` or `spawn` body inside one, or in a `parallel` loop |
 | E0336 | `return` inside a `defer` body |
+| E0346 | a `for` loop body adds to, removes from or replaces the list it iterates |
 | E0350, E0351 | static function called on a value; method called through the type name |
 | E0352, E0353 | implementor's function static where the interface's is not (or the reverse); implementor's parameters or result differ from the interface signature |
 | E0354 | static function, or method built from `Self`, called through an interface value |

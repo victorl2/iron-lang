@@ -42,6 +42,15 @@ static int s_iron_panic_format = 0;
  *   iron_init_cleanup_run_and_clear walks LIFO calling each drop_fn. */
 _Thread_local IronInitCleanupEntry *iron_init_cleanup_top = NULL;
 _Thread_local bool iron_in_destructor = false;
+
+/* A panic raised while a destructor runs is reported as "destructor
+ * panicked" with the type being destroyed; the panic that caused it and
+ * where it was raised go on the lines after it. */
+static _Thread_local const char *s_dtor_cause;
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+static void iron_destructor_panic(const char *cause, const char *file, int line);
 _Thread_local const char *iron_current_dropping_type = NULL;
 
 void iron_panic_init_from_env(void) {
@@ -79,7 +88,7 @@ void iron_panic_stale_stack_pointer(const char *deref_file,
     /* Phase 24 DROP-04/05 (Plan 24-03): init-time cleanup + drop-time abort divert */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
-        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        iron_destructor_panic("dangling stack pointer to frame", deref_file, deref_line);
         /* noreturn — abort() inside */
     }
     const char *df = deref_file ? deref_file : "<unknown>";
@@ -101,17 +110,32 @@ void iron_panic_stale_stack_pointer(const char *deref_file,
         fputs("iron: dangling stack pointer to frame\n", stderr);
         fprintf(stderr, "  deref site: %s:%d\n", df, deref_line);
         /* frame #id at depth d (iron_runtime.h, #471) */
+        unsigned owner = IRON_STACK_THREAD(captured_frame_gen);
+        unsigned self_no = iron_stack_thread_no();
+        unsigned cur = (unsigned)atomic_load_explicit(&iron_stk.depth, memory_order_relaxed);
         fprintf(stderr,
-                "  captured frame: #%llu at depth %llu (current depth: %u)\n",
+                "  captured frame: #%llu at depth %u (current depth: %u)\n",
                 (unsigned long long)(captured_frame_gen & IRON_STACK_ID_MASK),
-                (unsigned long long)((captured_frame_gen >> 47) & 0xFFFF),
-                (unsigned)iron_stack_depth);
+                (unsigned)IRON_STACK_DEPTH(captured_frame_gen), cur);
+        if (owner != self_no)
+            fprintf(stderr, "  the frame belonged to another thread (#%u)\n", owner);
     }
     /* Buffered stdout dies with abort(); flush it so a panicking program
      * keeps every line it printed before the panic. */
     fflush(stdout);
     fflush(stderr);
     abort();
+}
+
+/* A slot-form generation that ended (iron_runtime.h): a freed heap block,
+ * an rc object whose last handle went away, an arena segment after a reset,
+ * a restore or the arena's end. Same channels as iron_panic_stale_pointer;
+ * the arena form keeps its "(arena)" qualifier and JSON tag. */
+void iron_panic_stale_gen(const char *deref_file, int deref_line, uint64_t gen) {
+    if (gen & IRON_GEN_ARENA_BIT) {
+        iron_panic_arena_stale(deref_file, deref_line, NULL);
+    }
+    iron_panic_stale_pointer(deref_file, deref_line, NULL);
 }
 
 /* Phase 23 VEC-03: bounded vector out-of-bounds panic.
@@ -131,7 +155,7 @@ void iron_panic_bvec_oob(const char *deref_file,
     /* Phase 24 DROP-04/05 (Plan 24-03): init-time cleanup + drop-time abort divert */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
-        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        iron_destructor_panic("bounded vector access out of bounds", deref_file, deref_line);
         /* noreturn — abort() inside */
     }
     const char *df = deref_file ? deref_file : "<unknown>";
@@ -174,7 +198,7 @@ void iron_panic_index_oob_unchecked(const char *site_file, int site_line,
     fflush(stdout);  /* the program's earlier output comes first */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
-        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        iron_destructor_panic("index out of bounds", site_file, site_line);
         /* noreturn — abort() inside */
     }
     const char *sf = site_file ? site_file : "<unknown>";
@@ -226,7 +250,7 @@ void iron_panic_index_oob(const char *site_file, int site_line,
     fflush(stdout);  /* the program's earlier output comes first */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
-        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        iron_destructor_panic("index out of bounds", site_file, site_line);
         /* noreturn — abort() inside */
     }
     /* A list method's runtime body passes its own name with line 0; the
@@ -276,7 +300,7 @@ void iron_panic_key_missing(const char *site_file, int site_line) {
     fflush(stdout);  /* the program's earlier output comes first */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
-        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        iron_destructor_panic("key not found", site_file, site_line);
         /* noreturn: abort() inside */
     }
     const char *sf = site_file ? site_file : "<unknown>";
@@ -298,7 +322,7 @@ void iron_panic_iface_rebound(const char *site_file, int site_line,
     fflush(stdout);  /* the program's earlier output comes first */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
-        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        iron_destructor_panic("interface variable rebound during a method call", site_file, site_line);
         /* noreturn — abort() inside */
     }
     const char *sf = site_file ? site_file : "<unknown>";
@@ -327,7 +351,7 @@ void iron_panic_div_by_zero(const char *site_file, int site_line) {
     fflush(stdout);  /* the program's earlier output comes first */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
-        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        iron_destructor_panic("division by zero", site_file, site_line);
         /* noreturn — abort() inside */
     }
     const char *sf = site_file ? site_file : "<unknown>";
@@ -358,7 +382,7 @@ void iron_panic_negative_shift(const char *site_file, int site_line, int64_t cou
     fflush(stdout);  /* the program's earlier output comes first */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
-        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        iron_destructor_panic("negative shift count", site_file, site_line);
     }
     const char *sf = site_file ? site_file : "<unknown>";
     if (s_iron_panic_format == 1) {
@@ -422,6 +446,7 @@ void iron_panic_destructor_aborted(const char *type_name,
         /* JSON line — distinct "panic":"destructor_aborted" tag */
         fputs("{\"panic\":\"destructor_aborted\",", stderr);
         fprintf(stderr, "\"type\":\"%s\",", tn);
+        if (s_dtor_cause) fprintf(stderr, "\"cause\":\"%s\",", s_dtor_cause);
         fprintf(stderr, "\"drop_site\":{\"file\":\"%s\",\"line\":%d}",
                 df, drop_site_line);
         fputc('}', stderr);
@@ -430,7 +455,8 @@ void iron_panic_destructor_aborted(const char *type_name,
         /* Text format */
         fputs("iron: destructor panicked\n", stderr);
         fprintf(stderr, "  type: %s\n", tn);
-        fprintf(stderr, "  drop site: %s:%d\n", df, drop_site_line);
+        if (s_dtor_cause) fprintf(stderr, "  cause: %s\n", s_dtor_cause);
+        fprintf(stderr, "  %s: %s:%d\n", s_dtor_cause ? "site" : "drop site", df, drop_site_line);
     }
     /* Buffered stdout dies with abort(); flush it so a panicking program
      * keeps every line it printed before the panic. */
@@ -459,7 +485,7 @@ void iron_panic_arena_stale(const char *deref_file,
     /* Phase 24 DROP-04/05: init-time cleanup + drop-time abort divert */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
-        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        iron_destructor_panic("stale pointer dereference (arena)", deref_file, deref_line);
         /* noreturn — abort() inside */
     }
     const char *df = deref_file ? deref_file : "<unknown>";
@@ -493,6 +519,89 @@ void iron_panic_arena_stale(const char *deref_file,
     abort();
 }
 
+/* A value a method is running on was freed, or its arena reset or restored
+ * past it, or its last rc handle released, before the method returned. */
+void iron_panic_receiver_pinned(uint64_t gen) {
+    fflush(stdout);
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_destructor_panic("a value was freed or reset while one of its methods is running", NULL, 0);
+    }
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"receiver_freed\"}\n", stderr);
+    } else {
+        fprintf(stderr, "iron: %s while one of its methods is running\n",
+                (gen & IRON_GEN_ARENA_BIT) ? "an arena value was reset"
+                                           : "a value was freed");
+        fputs("  the method's receiver must outlive the call\n", stderr);
+    }
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
+/* An interface value was replaced or dropped while a method dispatched on it
+ * was running (#650). */
+void iron_recv_pinned_panic(void) {
+    fflush(stdout);
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_destructor_panic("an interface value was replaced while one of its methods is running", NULL, 0);
+    }
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"receiver_replaced\"}\n", stderr);
+    } else {
+        fputs("iron: an interface value was replaced while one of its methods is running\n", stderr);
+        fputs("  the method's receiver must outlive the call\n", stderr);
+    }
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
+/* A list whose element is borrowed by a call in progress was grown past its
+ * capacity, shrunk or freed (#543). */
+void iron_list_pinned_panic(const void *buf) {
+    (void)buf;
+    fflush(stdout);
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_destructor_panic("list changed while a pointer to one of its elements is in use", NULL, 0);
+    }
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"list_borrowed\"}\n", stderr);
+    } else {
+        fputs("iron: list changed while a pointer to one of its elements is in use\n", stderr);
+        fputs("  a call that received a pointer into the list, a method called on one of\n"
+              "  its elements or a for loop over the list is still running; the list cannot\n"
+              "  grow past its capacity, lose elements or be freed until it is done\n", stderr);
+    }
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
+/* restore() with a save point that is no longer valid: the arena was reset,
+ * or restored to an earlier save point, after it was taken. */
+void iron_panic_arena_stale_save(const char *arena_name) {
+    fflush(stdout);
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_destructor_panic("arena restored to a stale save point", NULL, 0);
+    }
+    const char *an = arena_name ? arena_name : "<unnamed>";
+    if (s_iron_panic_format == 1) {
+        fprintf(stderr, "{\"panic\":\"arena_stale_save\",\"arena\":\"%s\"}\n", an);
+    } else {
+        fputs("iron: arena restored to a stale save point\n", stderr);
+        fprintf(stderr, "  arena: %s (reset, or restored to an earlier save point, after the save,"
+                        " or the save point is another arena's)\n", an);
+    }
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
 /* Phase 28 ARENA-10 (Plan 28-02): arena out-of-memory panic helper.
  *
  * Fired by iron_arena_rt_alloc / iron_arena_rt_new when an allocation would exceed
@@ -507,7 +616,7 @@ void iron_panic_arena_oom(const char *arena_name,
     /* Phase 24 DROP-04/05: init-time cleanup + drop-time abort divert */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
-        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        iron_destructor_panic("arena out of memory", NULL, 0);
         /* noreturn — abort() inside */
     }
     const char *an = arena_name ? arena_name : "<unnamed>";
@@ -560,7 +669,7 @@ void iron_panic_double_free(const char *first_free_file,
     /* Phase 24 DROP-04/05: init-time cleanup + drop-time abort divert */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
-        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        iron_destructor_panic("double free", NULL, 0);
         /* noreturn — abort() inside */
     }
     const char *ff = first_free_file  ? first_free_file  : "<unknown>";
@@ -618,7 +727,7 @@ void iron_panic_stale_pointer(const char *deref_file,
     /* Phase 24 DROP-04/05 (Plan 24-03): init-time cleanup + drop-time abort divert */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
-        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        iron_destructor_panic("stale pointer dereference", deref_file, deref_line);
         /* noreturn — abort() inside */
     }
     const char *df = deref_file ? deref_file : "<unknown>";
@@ -669,4 +778,9 @@ void iron_panic_stale_pointer(const char *deref_file,
     fflush(stdout);
     fflush(stderr);
     abort();
+}
+
+static void iron_destructor_panic(const char *cause, const char *file, int line) {
+    s_dtor_cause = cause;
+    iron_panic_destructor_aborted(iron_current_dropping_type, file ? file : "<unknown>", line);
 }

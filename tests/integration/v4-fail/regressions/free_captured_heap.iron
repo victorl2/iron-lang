@@ -1,0 +1,18 @@
+-- A lambda that captured a heap binding works on its own copy of it, so
+-- `free h` inside the lambda cannot free the owner's value; it emitted C
+-- that did not compile (#545). E0212.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+func main() {
+    var h = heap P(3)
+    val f = func() {
+        free h
+    }
+    f()
+    println("{h.hp}")
+}

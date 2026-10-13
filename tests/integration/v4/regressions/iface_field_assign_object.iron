@@ -1,0 +1,31 @@
+-- A concrete object assigned to a field of interface type is wrapped into
+-- the interface value (#727); it was stored unwrapped, which the C
+-- compiler rejects.
+interface Shape {
+    func area() -> Int
+}
+object Sq impl Shape {
+    var s: Int
+    init(s: Int) {
+        self.s = s
+    }
+    func area() -> Int {
+        return self.s * self.s
+    }
+}
+object Big {
+    var sh: Shape
+    init() {
+        self.sh = Sq(3)
+    }
+}
+func main() {
+    var b = Big()
+    println("{b.sh.area()}")
+    b.sh = Sq(4)
+    println("{b.sh.area()}")
+    var h = heap Big()
+    h.sh = Sq(5)
+    println("{h.sh.area()}")
+    free h
+}

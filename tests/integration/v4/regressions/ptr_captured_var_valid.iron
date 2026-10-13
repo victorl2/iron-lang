@@ -1,0 +1,43 @@
+-- A var a closure captured lives in a counted cell. A pointer to it, taken
+-- in the lambda or in the declaring function, is valid while the cell is;
+-- it dangled as soon as the lambda returned.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Hub {
+    var p: ?*P
+    var q: ?*Int
+    init() {
+        self.p = null
+        self.q = null
+    }
+}
+
+func clobber() -> Int {
+    val y = P(9)
+    val z = P(10)
+    return y.hp + z.hp
+}
+
+func main() {
+    var hub = Hub()
+    var x = P(5)
+    val f = func() {
+        hub.p = &x
+    }
+    f()
+    val q = hub.p
+    if q != null {
+        println("{q.hp}")
+    }
+    x.hp = 6
+    val g = func() -> Int {
+        val p = &x
+        return p.hp
+    }
+    println("{g()}")
+}
