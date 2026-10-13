@@ -2360,8 +2360,10 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
 
             if (iron_check(p, IRON_TOK_LPAREN)) {
                 /* Heuristic: if the LHS is a simple identifier starting with
-                 * an uppercase letter, treat as enum construction:
-                 *   EnumType.Variant(args) -> IRON_NODE_ENUM_CONSTRUCT
+                 * an uppercase letter, treat as enum construction. Variant
+                 * names need not start uppercase: Iron names are not limited
+                 * by a target language's keyword or naming conventions.
+                 *   EnumType.variant(args) -> IRON_NODE_ENUM_CONSTRUCT
                  * Otherwise treat as method call:
                  *   variable.method(args) -> IRON_NODE_METHOD_CALL
                  * The resolver in Phase 33 will reclassify if needed. */
@@ -2369,8 +2371,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                     Iron_Ident *ident = (Iron_Ident *)left;
                     bool looks_like_type    = (ident->name[0] >= 'A' &&
                                                ident->name[0] <= 'Z');
-                    bool looks_like_variant = (name[0] >= 'A' && name[0] <= 'Z');
-                    if (looks_like_type && looks_like_variant) {
+                    if (looks_like_type) {
                         int arg_count = 0;
                         Iron_Span rp_sp = {0};
                         Iron_Node **args = iron_parse_call_args_ex(p, &arg_count, &rp_sp);
@@ -2384,6 +2385,10 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                         ec->variant_name  = name;
                         ec->args          = args;
                         ec->arg_count     = arg_count;
+                        ec->reserved_flags[0] = true; /* source had call parentheses */
+                        ec->reserved_flags[1] = p->generated;
+                        ec->reserved_generic_args = NULL;
+                        ec->reserved_generic_arg_count = 0;
                         left = (Iron_Node *)ec;
                     } else {
                         int arg_count = 0;
@@ -2425,12 +2430,11 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                     left = (Iron_Node *)mc;
                 }
             } else {
-                /* Check for unit enum variant: UppercaseType.UppercaseVariant (no parens) */
+                /* Check for a unit enum variant: UppercaseType.variant. */
                 if (left->kind == IRON_NODE_IDENT) {
                     Iron_Ident *ident_node = (Iron_Ident *)left;
                     bool looks_like_type    = (ident_node->name[0] >= 'A' && ident_node->name[0] <= 'Z');
-                    bool looks_like_variant = (name[0] >= 'A' && name[0] <= 'Z');
-                    if (looks_like_type && looks_like_variant) {
+                    if (looks_like_type) {
                         Iron_EnumConstruct *ec = ARENA_ALLOC(p->arena, Iron_EnumConstruct);
                         if (!ec) { /* HARD-09 REPLACE (iron_parse_expr_prec EnumConstruct unit) */ p->in_error_recovery = true; return iron_make_error(p); }
                         ec->kind          = IRON_NODE_ENUM_CONSTRUCT;
@@ -2441,6 +2445,10 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                         ec->variant_name  = name;
                         ec->args          = NULL;
                         ec->arg_count     = 0;
+                        ec->reserved_flags[0] = false;
+                        ec->reserved_flags[1] = false;
+                        ec->reserved_generic_args = NULL;
+                        ec->reserved_generic_arg_count = 0;
                         left = (Iron_Node *)ec;
                         continue;
                     }

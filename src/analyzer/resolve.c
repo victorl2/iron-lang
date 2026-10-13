@@ -1356,6 +1356,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 ident_node->resolved_type = NULL;
                 ident_node->resolved_sym = esym;
                 const char *member = ec->variant_name;
+                bool had_call_parentheses = ec->reserved_flags[0];
+                bool is_generated = ec->reserved_flags[1];
                 /* PROT-04 rewrite (ranks 7 and 8, AUDIT-01): allocate a fresh
                  * Iron_MethodCallExpr or Iron_FieldAccess node instead of
                  * reinterpreting Iron_EnumConstruct in place. The old pattern
@@ -1378,7 +1380,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                  * (span, args, arg_count) are captured before the cast-
                  * assignment to avoid aliasing issues when the target
                  * struct's layout overlaps the source fields. */
-                if (ec->arg_count > 0) {
+                if (had_call_parentheses) {
                     _Static_assert(sizeof(Iron_MethodCallExpr) <= sizeof(Iron_EnumConstruct),
                                    "enum-construct-to-method-call rewrite requires size fit");
                     Iron_Span    ec_span   = ec->span;
@@ -1396,6 +1398,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     mc_slot->is_builtin_to_string = false;
                     mc_slot->generic_args         = NULL;
                     mc_slot->generic_arg_count    = 0;
+                    mc_slot->is_generated         = is_generated;
                     resolve_expr(ctx, (Iron_Node *)ec);
                 } else {
                     _Static_assert(sizeof(Iron_FieldAccess) <= sizeof(Iron_EnumConstruct),

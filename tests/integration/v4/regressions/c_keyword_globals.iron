@@ -1,0 +1,70 @@
+-- Every C23 keyword spelling that is legal in Iron remains usable as a global.
+
+val _Alignas = 1
+val _Alignof = 2
+val _Atomic = 3
+val _BitInt = 4
+val _Bool = 5
+val _Complex = 6
+val _Decimal128 = 7
+val _Decimal32 = 8
+val _Decimal64 = 9
+val _Generic = 10
+val _Imaginary = 11
+val _Noreturn = 12
+val _Static_assert = 13
+val _Thread_local = 14
+val alignas = 15
+val alignof = 16
+val and_eq = 17
+val asm = 18
+val auto = 19
+val bitand = 20
+val bitor = 21
+val bool = 22
+val case = 23
+val char = 24
+val compl = 25
+val const = 26
+val constexpr = 27
+val default = 28
+val do = 29
+val double = 30
+val float = 31
+val goto = 32
+val inline = 33
+val int = 34
+val long = 35
+val not_eq = 36
+val nullptr = 37
+val or_eq = 38
+val register = 39
+val restrict = 40
+val short = 41
+val signed = 42
+val sizeof = 43
+val static_assert = 44
+val struct = 45
+val switch = 46
+val thread_local = 47
+val typedef = 48
+val typeof = 49
+val typeof_unqual = 50
+val union = 51
+val unsigned = 52
+val void = 53
+val volatile = 54
+val xor = 55
+val xor_eq = 56
+
+func main() {
+    val part0 = _Alignas + _Alignof + _Atomic + _BitInt + _Bool + _Complex + _Decimal128
+    val part1 = _Decimal32 + _Decimal64 + _Generic + _Imaginary + _Noreturn + _Static_assert + _Thread_local
+    val part2 = alignas + alignof + and_eq + asm + auto + bitand + bitor
+    val part3 = bool + case + char + compl + const + constexpr + default
+    val part4 = do + double + float + goto + inline + int + long
+    val part5 = not_eq + nullptr + or_eq + register + restrict + short + signed
+    val part6 = sizeof + static_assert + struct + switch + thread_local + typedef + typeof
+    val part7 = typeof_unqual + union + unsigned + void + volatile + xor + xor_eq
+    println("{part0 + part1 + part2 + part3 + part4 + part5 + part6 + part7}")
+}

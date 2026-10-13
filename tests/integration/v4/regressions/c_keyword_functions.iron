@@ -1,0 +1,70 @@
+-- Every C23 keyword spelling that is legal in Iron remains usable as a function name.
+
+func _Alignas() -> Int { return 1 }
+func _Alignof() -> Int { return 2 }
+func _Atomic() -> Int { return 3 }
+func _BitInt() -> Int { return 4 }
+func _Bool() -> Int { return 5 }
+func _Complex() -> Int { return 6 }
+func _Decimal128() -> Int { return 7 }
+func _Decimal32() -> Int { return 8 }
+func _Decimal64() -> Int { return 9 }
+func _Generic() -> Int { return 10 }
+func _Imaginary() -> Int { return 11 }
+func _Noreturn() -> Int { return 12 }
+func _Static_assert() -> Int { return 13 }
+func _Thread_local() -> Int { return 14 }
+func alignas() -> Int { return 15 }
+func alignof() -> Int { return 16 }
+func and_eq() -> Int { return 17 }
+func asm() -> Int { return 18 }
+func auto() -> Int { return 19 }
+func bitand() -> Int { return 20 }
+func bitor() -> Int { return 21 }
+func bool() -> Int { return 22 }
+func case() -> Int { return 23 }
+func char() -> Int { return 24 }
+func compl() -> Int { return 25 }
+func const() -> Int { return 26 }
+func constexpr() -> Int { return 27 }
+func default() -> Int { return 28 }
+func do() -> Int { return 29 }
+func double() -> Int { return 30 }
+func float() -> Int { return 31 }
+func goto() -> Int { return 32 }
+func inline() -> Int { return 33 }
+func int() -> Int { return 34 }
+func long() -> Int { return 35 }
+func not_eq() -> Int { return 36 }
+func nullptr() -> Int { return 37 }
+func or_eq() -> Int { return 38 }
+func register() -> Int { return 39 }
+func restrict() -> Int { return 40 }
+func short() -> Int { return 41 }
+func signed() -> Int { return 42 }
+func sizeof() -> Int { return 43 }
+func static_assert() -> Int { return 44 }
+func struct() -> Int { return 45 }
+func switch() -> Int { return 46 }
+func thread_local() -> Int { return 47 }
+func typedef() -> Int { return 48 }
+func typeof() -> Int { return 49 }
+func typeof_unqual() -> Int { return 50 }
+func union() -> Int { return 51 }
+func unsigned() -> Int { return 52 }
+func void() -> Int { return 53 }
+func volatile() -> Int { return 54 }
+func xor() -> Int { return 55 }
+func xor_eq() -> Int { return 56 }
+
+func main() {
+    val part0 = _Alignas() + _Alignof() + _Atomic() + _BitInt() + _Bool() + _Complex() + _Decimal128()
+    val part1 = _Decimal32() + _Decimal64() + _Generic() + _Imaginary() + _Noreturn() + _Static_assert() + _Thread_local()
+    val part2 = alignas() + alignof() + and_eq() + asm() + auto() + bitand() + bitor()
+    val part3 = bool() + case() + char() + compl() + const() + constexpr() + default()
+    val part4 = do() + double() + float() + goto() + inline() + int() + long()
+    val part5 = not_eq() + nullptr() + or_eq() + register() + restrict() + short() + signed()
+    val part6 = sizeof() + static_assert() + struct() + switch() + thread_local() + typedef() + typeof()
+    val part7 = typeof_unqual() + union() + unsigned() + void() + volatile() + xor() + xor_eq()
+    println("{part0 + part1 + part2 + part3 + part4 + part5 + part6 + part7}")
+}

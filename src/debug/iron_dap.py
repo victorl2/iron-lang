@@ -69,6 +69,7 @@ NO_SCRIPTING = re.compile(r"does not support importing modules|"
 # The runtime's own panics print "iron: <what happened>" (out of memory, an
 # arena full, a missing map key...).
 PANIC_LINE = re.compile(r"^(panic|assertion failed|error: index|iron: |.*out of bounds)", re.I)
+ENCODED_IRON_NAME = re.compile(r"Iron__id_([0-9a-f]+)")
 
 
 # ── DAP framing ───────────────────────────────────────────────────────────────
@@ -104,13 +105,26 @@ def frame(msg):
 
 # ── Naming rules shared with iron_lldb.py / iron_gdb.py ──────────────────────
 
+def decode_iron_name(c_name):
+    """Decode a target-reserved C identifier back to its Iron spelling."""
+    def decode(match):
+        digits = match.group(1)
+        if len(digits) % 2:
+            return match.group(0)
+        try:
+            return bytes.fromhex(digits).decode("ascii")
+        except (ValueError, UnicodeDecodeError):
+            return match.group(0)
+    return ENCODED_IRON_NAME.sub(decode, c_name or "")
+
+
 def iron_name(c_name):
     """(Iron name, deref) for a C local, or None for a compiler temporary."""
     if c_name.startswith("_ref_") and len(c_name) > 5:
         return c_name[5:], True
     if not c_name or c_name.startswith("_"):
         return None
-    return c_name, False
+    return decode_iron_name(c_name), False
 
 
 def iron_function_name(c_name, test=None):
@@ -122,7 +136,7 @@ def iron_function_name(c_name, test=None):
         return ('test "%s"' % test if test else "test") + m.group(1)
     m = re.match(r"^Iron_(\w+)(.*)$", c_name)
     if m:
-        return m.group(1) + m.group(2)
+        return decode_iron_name(m.group(1) + m.group(2))
     m = re.match(r"^__lambda_\d+(.*)$", c_name)
     if m:
         return "func" + m.group(1)
@@ -1329,7 +1343,7 @@ class Proxy:
                 continue
             name, deref = n
             if not deref:
-                out.append(v)
+                out.append(dict(v, name=name))
                 continue
             expr = "*" + v["name"]
             r = self.request("evaluate", {"expression": expr, "frameId": frame_id,

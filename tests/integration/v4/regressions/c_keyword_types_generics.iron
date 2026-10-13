@@ -1,0 +1,18 @@
+-- Target-language keywords remain valid in type and generic instance names.
+object struct[T] {
+    val default: T
+}
+
+enum CKeywordGeneric[T] {
+    auto(T),
+    None
+}
+
+func main() {
+    val x = struct[Int](7)
+    val y: CKeywordGeneric[Int] = CKeywordGeneric.auto(8)
+    match y {
+        CKeywordGeneric.auto(register) -> println("{x.default + register}")
+        CKeywordGeneric.None -> println("bad")
+    }
+}

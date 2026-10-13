@@ -49,18 +49,9 @@ static bool emit_c_name_is_reserved(const char *name) {
         "NAN", "NULL", "RAND_MAX", "SEEK_CUR", "SEEK_END", "SEEK_SET",
         "SIG_ATOMIC_MAX", "SIG_ATOMIC_MIN", "SIG_DFL", "SIG_ERR", "SIG_IGN",
         "WCHAR_MAX", "WCHAR_MIN", "errno", "environ", "stderr", "stdin",
-        "stdout", "main", "assert", "offsetof", "va_arg", "va_copy",
+        "stdout", "assert", "offsetof", "va_arg", "va_copy",
         "va_end", "va_start", "complex", "imaginary", "I", "isfinite",
         "isinf", "isnan", "isnormal", "signbit", "fpclassify",
-        "memchr", "memcmp", "memcpy", "memmove", "memset", "strcat",
-        "strchr", "strcmp", "strcoll", "strcpy", "strcspn", "strerror",
-        "strlen", "strncat", "strncmp", "strncpy", "strpbrk", "strrchr",
-        "strspn", "strstr", "strtok", "strxfrm", "malloc", "calloc",
-        "realloc", "free", "abort", "exit", "atexit", "quick_exit",
-        "printf", "fprintf", "sprintf", "snprintf", "scanf", "fscanf",
-        "sscanf", "getchar", "putchar", "puts", "perror", "setjmp",
-        "longjmp", "sqrt", "pow", "floor", "ceil", "fabs", "fmod",
-        "sin", "cos", "tan", "exp", "log", "round", "trunc",
         "APIENTRY", "CALLBACK", "DELETE", "ERROR", "IN", "OUT", "OPTIONAL",
         "RGB", "STRICT", "TRUE", "FALSE", "interface", "small", "near",
         "far", "min", "max", NULL
@@ -129,7 +120,12 @@ const char *emit_c_user_member_path(const char *path, Iron_Arena *arena) {
 }
 
 const char *emit_mangle_name(const char *name, Iron_Arena *arena) {
-    const char *c_name = emit_c_user_identifier(name, arena);
+    /* __RcList is a compiler-synthesized generic wrapper, not a spelling
+     * selected by an Iron program. Keep its established generated-C ABI;
+     * source identifiers with reserved prefixes still go through the
+     * central encoder at their raw-name emission sites. */
+    const char *c_name = name && strncmp(name, "__RcList", 8) == 0
+                         ? name : emit_c_user_identifier(name, arena);
     size_t len   = strlen(c_name);
     size_t total = 5 + len + 1;
     char  *buf   = (char *)iron_arena_alloc(arena, total, 1);
@@ -199,6 +195,14 @@ void emit_plan_func_renames(IronLIR_Module *module) {
 
 const char *emit_mangle_func_name(const char *name, Iron_Arena *arena) {
     if (!name) return "NULL";
+    /* The generated process entry point calls this exact C symbol. */
+    if (strcmp(name, "main") == 0) return "Iron_main";
+    /* Builtins already have an Iron_ namespace and cannot be redeclared by
+     * user code. Keep their established ABI even when the unprefixed word is
+     * also a platform macro. */
+    if (strcmp(name, "assert") == 0) return "Iron_assert";
+    if (strcmp(name, "min") == 0) return "Iron_min";
+    if (strcmp(name, "max") == 0) return "Iron_max";
     if (g_func_renames) {
         ptrdiff_t ri = shgeti(g_func_renames, name);
         if (ri >= 0) return g_func_renames[ri].value;

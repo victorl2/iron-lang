@@ -1,0 +1,73 @@
+-- Every C23 keyword spelling that is legal in Iron remains usable as a method name.
+object CKeywordMethods {
+    val base: Int
+    readonly func _Alignas() -> Int { return self.base + 1 }
+    readonly func _Alignof() -> Int { return self.base + 2 }
+    readonly func _Atomic() -> Int { return self.base + 3 }
+    readonly func _BitInt() -> Int { return self.base + 4 }
+    readonly func _Bool() -> Int { return self.base + 5 }
+    readonly func _Complex() -> Int { return self.base + 6 }
+    readonly func _Decimal128() -> Int { return self.base + 7 }
+    readonly func _Decimal32() -> Int { return self.base + 8 }
+    readonly func _Decimal64() -> Int { return self.base + 9 }
+    readonly func _Generic() -> Int { return self.base + 10 }
+    readonly func _Imaginary() -> Int { return self.base + 11 }
+    readonly func _Noreturn() -> Int { return self.base + 12 }
+    readonly func _Static_assert() -> Int { return self.base + 13 }
+    readonly func _Thread_local() -> Int { return self.base + 14 }
+    readonly func alignas() -> Int { return self.base + 15 }
+    readonly func alignof() -> Int { return self.base + 16 }
+    readonly func and_eq() -> Int { return self.base + 17 }
+    readonly func asm() -> Int { return self.base + 18 }
+    readonly func auto() -> Int { return self.base + 19 }
+    readonly func bitand() -> Int { return self.base + 20 }
+    readonly func bitor() -> Int { return self.base + 21 }
+    readonly func bool() -> Int { return self.base + 22 }
+    readonly func case() -> Int { return self.base + 23 }
+    readonly func char() -> Int { return self.base + 24 }
+    readonly func compl() -> Int { return self.base + 25 }
+    readonly func const() -> Int { return self.base + 26 }
+    readonly func constexpr() -> Int { return self.base + 27 }
+    readonly func default() -> Int { return self.base + 28 }
+    readonly func do() -> Int { return self.base + 29 }
+    readonly func double() -> Int { return self.base + 30 }
+    readonly func float() -> Int { return self.base + 31 }
+    readonly func goto() -> Int { return self.base + 32 }
+    readonly func inline() -> Int { return self.base + 33 }
+    readonly func int() -> Int { return self.base + 34 }
+    readonly func long() -> Int { return self.base + 35 }
+    readonly func not_eq() -> Int { return self.base + 36 }
+    readonly func nullptr() -> Int { return self.base + 37 }
+    readonly func or_eq() -> Int { return self.base + 38 }
+    readonly func register() -> Int { return self.base + 39 }
+    readonly func restrict() -> Int { return self.base + 40 }
+    readonly func short() -> Int { return self.base + 41 }
+    readonly func signed() -> Int { return self.base + 42 }
+    readonly func sizeof() -> Int { return self.base + 43 }
+    readonly func static_assert() -> Int { return self.base + 44 }
+    readonly func struct() -> Int { return self.base + 45 }
+    readonly func switch() -> Int { return self.base + 46 }
+    readonly func thread_local() -> Int { return self.base + 47 }
+    readonly func typedef() -> Int { return self.base + 48 }
+    readonly func typeof() -> Int { return self.base + 49 }
+    readonly func typeof_unqual() -> Int { return self.base + 50 }
+    readonly func union() -> Int { return self.base + 51 }
+    readonly func unsigned() -> Int { return self.base + 52 }
+    readonly func void() -> Int { return self.base + 53 }
+    readonly func volatile() -> Int { return self.base + 54 }
+    readonly func xor() -> Int { return self.base + 55 }
+    readonly func xor_eq() -> Int { return self.base + 56 }
+}
+
+func main() {
+    val x = CKeywordMethods(0)
+    val part0 = x._Alignas() + x._Alignof() + x._Atomic() + x._BitInt() + x._Bool() + x._Complex() + x._Decimal128()
+    val part1 = x._Decimal32() + x._Decimal64() + x._Generic() + x._Imaginary() + x._Noreturn() + x._Static_assert() + x._Thread_local()
+    val part2 = x.alignas() + x.alignof() + x.and_eq() + x.asm() + x.auto() + x.bitand() + x.bitor()
+    val part3 = x.bool() + x.case() + x.char() + x.compl() + x.const() + x.constexpr() + x.default()
+    val part4 = x.do() + x.double() + x.float() + x.goto() + x.inline() + x.int() + x.long()
+    val part5 = x.not_eq() + x.nullptr() + x.or_eq() + x.register() + x.restrict() + x.short() + x.signed()
+    val part6 = x.sizeof() + x.static_assert() + x.struct() + x.switch() + x.thread_local() + x.typedef() + x.typeof()
+    val part7 = x.typeof_unqual() + x.union() + x.unsigned() + x.void() + x.volatile() + x.xor() + x.xor_eq()
+    println("{part0 + part1 + part2 + part3 + part4 + part5 + part6 + part7}")
+}

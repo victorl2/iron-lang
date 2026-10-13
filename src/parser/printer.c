@@ -1220,7 +1220,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             Iron_EnumConstruct *n = (Iron_EnumConstruct *)node;
             if (n->enum_name) iron_strbuf_appendf(ctx->sb, "%s.", n->enum_name);
             iron_strbuf_appendf(ctx->sb, "%s", n->variant_name ? n->variant_name : "");
-            if (n->arg_count > 0) {
+            if (n->arg_count > 0 || n->reserved_flags[0]) {
                 print_args(ctx, n->args, n->arg_count);
             }
             break;

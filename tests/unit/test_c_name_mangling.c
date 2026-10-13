@@ -21,9 +21,22 @@ static void test_safe_names_are_byte_identical(void) {
 static void test_keywords_macros_and_prefixes_are_encoded(void) {
     Iron_Arena arena = iron_arena_create(4096);
     const char *reserved[] = {
-        "default", "alignas", "_BitInt", "and", "NULL", "errno", "stdin",
-        "min", "interface", "Iron_List", "iron_mem_alloc", "IRON_SITE",
-        "__lambda_0", "_v12", "_ref_value"
+        "_Alignas", "_Alignof", "_Atomic", "_BitInt", "_Bool", "_Complex",
+        "_Decimal128", "_Decimal32", "_Decimal64", "_Generic", "_Imaginary",
+        "_Noreturn", "_Static_assert", "_Thread_local",
+        "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand",
+        "bitor", "bool", "break", "case", "char", "compl", "const",
+        "constexpr", "continue", "default", "do", "double", "else", "enum",
+        "extern", "false", "float", "for", "goto", "if", "inline", "int",
+        "long", "not", "not_eq", "nullptr", "or", "or_eq", "register",
+        "restrict", "return", "short", "signed", "sizeof", "static",
+        "static_assert", "struct", "switch", "thread_local", "true", "typedef",
+        "typeof", "typeof_unqual", "union", "unsigned", "void", "volatile",
+        "while", "xor", "xor_eq",
+        "NULL", "errno", "stdin", "stdout", "stderr", "assert", "offsetof",
+        "min", "max", "near", "far", "interface", "_WIN32",
+        "Iron_List", "iron_mem_alloc", "IRON_SITE", "__lambda_0", "_v12",
+        "_ref_value"
     };
     for (size_t i = 0; i < sizeof(reserved) / sizeof(reserved[0]); i++) {
         const char *got = iron_lir_emit_c_user_identifier(reserved[i], &arena);

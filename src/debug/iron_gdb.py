@@ -23,6 +23,22 @@ import gdb
 import gdb.printing
 
 
+_ENCODED_IRON_NAME = re.compile(r"Iron__id_([0-9a-f]+)")
+
+
+def _iron_name(name):
+    """Decode a target-reserved C identifier back to its Iron spelling."""
+    def decode(match):
+        digits = match.group(1)
+        if len(digits) % 2:
+            return match.group(0)
+        try:
+            return bytes.fromhex(digits).decode("ascii")
+        except (ValueError, UnicodeDecodeError):
+            return match.group(0)
+    return _ENCODED_IRON_NAME.sub(decode, name or "")
+
+
 # Break on panic: every Iron panic (a failed assert, an index out of
 # bounds, a missing map key, out of memory) prints its message and ends in
 # the C library's abort(). With `break abort` (iron debug and iron dap set
@@ -269,7 +285,7 @@ class OptionalPrinter:
 
 def _short(name):
     """An Iron type's C name as Iron writes it: Iron_Point is Point."""
-    return name[5:] if name.startswith("Iron_") else name
+    return _iron_name(name[5:] if name.startswith("Iron_") else name)
 
 
 def _fields(t):
@@ -292,10 +308,11 @@ class TaggedPrinter:
         self.val = val
         tag = str(val["tag"])
         i = tag.find("_TAG_")
-        self.variant = tag[i + 5:] if i >= 0 else tag
+        raw_variant = tag[i + 5:] if i >= 0 else tag
+        self.variant = _iron_name(raw_variant)
         data = val["data"]
         names = [f.name for f in _fields(data.type.strip_typedefs())]
-        self.payload = data[self.variant] if self.variant in names else None
+        self.payload = data[raw_variant] if raw_variant in names else None
 
     def to_string(self):
         p = self.payload
@@ -318,7 +335,34 @@ class EnumPrinter:
     def to_string(self):
         text = str(self.val.cast(self.val.type.strip_typedefs()))
         prefix = str(self.val.type) + "_"
-        return text[len(prefix):] if text.startswith(prefix) else text
+        return _iron_name(text[len(prefix):] if text.startswith(prefix) else text)
+
+
+RUNTIME_TYPES = ("Iron_String", "Iron_RcHeader", "Iron_Closure", "Iron_Arena_RT",
+                 "Iron_FatPtr", "Iron_Mutex", "Iron_Channel")
+
+
+def _is_object(t):
+    name = t.tag or t.name or str(t)
+    return (t.code == gdb.TYPE_CODE_STRUCT and name.startswith("Iron_") and
+            name not in RUNTIME_TYPES and
+            not name.startswith(("Iron_List_", "Iron_Map_", "Iron_Set_",
+                                 "Iron_Optional_", "Iron_SplitList_")) and
+            not _is_tagged(t) and bool(_fields(t)))
+
+
+class ObjectPrinter:
+    """An object whose C-only field spellings are shown as Iron names."""
+
+    def __init__(self, val):
+        self.val = val
+
+    def to_string(self):
+        return None
+
+    def children(self):
+        for field in _fields(self.val.type.strip_typedefs()):
+            yield _iron_name(field.name), self.val[field.name]
 
 
 def _rc_counts(val):
@@ -431,7 +475,7 @@ class ClosurePrinter:
             return
         e = gdb.Value(env).cast(t.pointer()).dereference()
         for f in _fields(t.strip_typedefs()):
-            yield f.name, e[f.name]
+            yield _iron_name(f.name), e[f.name]
 
 
 def _lookup_values(val):
@@ -449,6 +493,8 @@ def _lookup_values(val):
         counts = _rc_counts(val)
         if counts is not None:
             return RcPrinter(val, counts)
+    if _is_object(t):
+        return ObjectPrinter(val)
     return None
 
 
@@ -499,7 +545,7 @@ def iron_variables(frame):
                 except gdb.error:
                     pass
             elif not name.startswith("_"):
-                out.append((name, frame.read_var(sym, block)))
+                out.append((_iron_name(name), frame.read_var(sym, block)))
         if block.function is not None:
             break
         block = block.superblock
