@@ -457,6 +457,12 @@ def t_database_sessions():
     a SELECT the client no longer waits for."""
     c = E.svc.client
     expect(c.get("/v1/items?limit=1"), 200, "a database request")
+    server_version = dbtool("scalar", ARGS.mysql_url, "SELECT VERSION()")
+    if "MariaDB" in server_version:
+        # MariaDB has no performance_schema.variables_by_thread table. The
+        # request above still verifies that the MariaDB-specific init command
+        # was accepted; a failure makes the pool request return 503.
+        return
     sql = ("SELECT CONCAT(MIN(v.VARIABLE_VALUE), ' ', MAX(v.VARIABLE_VALUE), ' ', COUNT(*) > 0) "
            "FROM performance_schema.variables_by_thread v "
            "JOIN performance_schema.threads t USING (THREAD_ID) "

@@ -61,9 +61,13 @@ func main(args: [String]) {
     -- Timestamps are written and read as UTC whatever the server's zone.
     -- The server gives up on a SELECT when this client does: a query whose
     -- client stopped waiting would otherwise run to its end, and slow
-    -- reports would pile up on the server.
+    -- reports would pile up on the server. Versioned comments select
+    -- MySQL's millisecond variable or MariaDB's seconds variable without a
+    -- discovery connection, so startup while the database is down still
+    -- works.
     if db_cfg.init_command.len() == 0 {
-        db_cfg.init_command = "SET time_zone = '+00:00', max_execution_time = {cfg.db_timeout_ms}"
+        db_cfg.init_command = "SET time_zone = '+00:00' /*!80000, max_execution_time = {cfg.db_timeout_ms} */ " +
+            "/*M!100000 , max_statement_time = {cfg.db_timeout_ms / 1000}.{cfg.db_timeout_ms % 1000} */"
     }
     var pool_opts = MysqlPoolOptions(cfg.db_pool_min, cfg.db_pool_max)
     pool_opts.acquire_timeout = cfg.db_acquire_timeout_ms
