@@ -5126,6 +5126,31 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             arrfree(iter_temps);
             iter_temps = NULL;
         }
+        /* A named growable list is read in place. Pin its buffer for the
+         * whole loop so structural mutation through an alias or callee
+         * aborts. A dedicated cleanup scope also unpins on early return. */
+        int pin_scope_depth = 0;
+        {
+            Iron_Type *it = stmt->for_loop.iterable ? stmt->for_loop.iterable->type : NULL;
+            if (iter_scope_depth == 0 && arrlen(iter_temps) == 0 && it &&
+                it->kind == IRON_TYPE_ARRAY && it->array.size < 0 &&
+                !it->array.is_bounded && iterable_val != IRON_LIR_VALUE_INVALID &&
+                ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                IronLIR_Instr *pref = iron_lir_func_ref(ctx->current_func,
+                    ctx->current_block, "$iter_pin", NULL, span);
+                if (pref) {
+                    IronLIR_ValueId pargs[1] = { iterable_val };
+                    iron_lir_call(ctx->current_func, ctx->current_block, NULL,
+                                  pref->id, pargs, 1, NULL, span);
+                    push_defer_scope(ctx);
+                    pin_scope_depth = ctx->defer_depth;
+                    IronLIR_DropEntry pe = {0};
+                    pe.alloca_id = iterable_val;
+                    pe.env_drop_name = "$iter_unpin";
+                    arrput(ctx->drop_stacks[ctx->defer_depth - 1], pe);
+                }
+            }
+        }
         /* The loop variable borrows each element from the list: returning
          * it hands the caller a copy instead of moving the slot. */
         hmput(ctx->loop_vars, stmt->for_loop.var_id, 1);
@@ -5207,6 +5232,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         release_owned_temps(ctx, &iter_temps, span);
         if (iter_scope_depth > 0) {
             emit_scope_defers(ctx, iter_scope_depth - 1, span);
+            pop_defer_scope(ctx);
+        }
+        if (pin_scope_depth > 0) {
+            emit_scope_defers(ctx, pin_scope_depth - 1, span);
             pop_defer_scope(ctx);
         }
         break;

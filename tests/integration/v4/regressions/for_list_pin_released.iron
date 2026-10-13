@@ -1,0 +1,20 @@
+-- The iteration pin is released after normal exit, break and return (#839).
+func find(xs: [Int], wanted: Int) -> Int {
+    for x in xs {
+        if x == wanted {
+            return x
+        }
+    }
+    return -1
+}
+func main() {
+    var xs = [1, 2, 3]
+    println("{find(xs, 2)}")
+    for x in xs {
+        if x == 1 {
+            break
+        }
+    }
+    xs.push(4)
+    println("{xs.len()}")
+}

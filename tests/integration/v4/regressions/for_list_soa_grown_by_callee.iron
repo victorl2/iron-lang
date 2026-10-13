@@ -1,0 +1,27 @@
+-- @expect-panic: list changed
+-- A column-layout list is pinned by iteration too (#839).
+object P {
+    var x: Int
+    init(x: Int) {
+        self.x = x
+    }
+}
+object Bag {
+    var ps: [P, layout: soa]
+    init() {
+        self.ps = [P(1), P(2)]
+    }
+    func grow() {
+        self.ps.push(P(3))
+    }
+    func run() {
+        for p in self.ps {
+            self.grow()
+            println("{p.x}")
+        }
+    }
+}
+func main() {
+    var b = Bag()
+    b.run()
+}

@@ -229,6 +229,7 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
     iron_strbuf_appendf(sb,
         "static inline void Iron_SplitList_%s_clear(Iron_SplitList_%s *_sl) {\n",
         iface_mangled, iface_mangled);
+    iron_strbuf_appendf(sb, "    IRON_LIST_PIN_CHECK(_sl->_tracked);\n");
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive) continue;
@@ -357,6 +358,7 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
         "        }\n"
         "        return;\n"
         "    }\n"
+        "    IRON_LIST_PIN_CHECK(_sl->_tracked);\n"
         "    Iron_SplitList_%s__detach(_sl, _ot, _oi);\n"
         "    if (!Iron_SplitList_%s__append(_sl, _val)) return;\n"
         "    /* the appended order entry takes position _i */\n"
@@ -370,6 +372,7 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
     iron_strbuf_appendf(sb,
         "static inline %s Iron_SplitList_%s_remove(Iron_SplitList_%s *_sl, int64_t _i) {\n"
         "    if ((uint64_t)_i >= (uint64_t)_sl->_order_count) iron_panic_index_oob(%s, _i, _sl->_order_count);\n"
+        "    IRON_LIST_PIN_CHECK(_sl->_tracked);\n"
         "    uint8_t _ot = _sl->_order[_i].tag;\n"
         "    int64_t _oi = _sl->_order[_i].idx;\n"
         "    %s _out;\n"
@@ -715,6 +718,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
             "Iron_SplitList_%s *_sl, %s _val) {\n",
             iface_mangled, impl2->type_name,
             iface_mangled, im);
+        iron_strbuf_appendf(sb, "    IRON_LIST_PIN_CHECK(_sl->_tracked);\n");
 
         if (type_is_soa && impl2->decl) {
             /* Phase 48-02: SoA push -- grow and copy each field array */
@@ -928,6 +932,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
     /* take(): the list moves out and the source is left empty (#174). */
     iron_strbuf_appendf(sb,
         "static inline Iron_SplitList_%s Iron_SplitList_%s_take(Iron_SplitList_%s *_sl) {\n"
+        "    IRON_LIST_PIN_CHECK(_sl->_tracked);\n"
         "    Iron_SplitList_%s out = *_sl;\n"
         "    iron_mem_set(_sl, 0, sizeof(*_sl));\n"
         "    return out;\n"
@@ -1004,6 +1009,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
         "static inline void Iron_SplitList_%s_free("
         "Iron_SplitList_%s *_sl) {\n",
         iface_mangled, iface_mangled);
+    iron_strbuf_appendf(sb, "    IRON_LIST_PIN_CHECK(_sl->_tracked);\n");
     /* Each element is dropped before the arrays go (#180). */
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl2 = &entry->impls[j];

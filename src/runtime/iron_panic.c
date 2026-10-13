@@ -59,6 +59,24 @@ void iron_panic_init_from_env(void) {
     }
 }
 
+void iron_list_pinned_panic(const void *buf) {
+    (void)buf;
+    fflush(stdout);
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+    }
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"list_changed_during_iteration\"}\n", stderr);
+    } else {
+        fputs("iron: list changed while it is being iterated\n", stderr);
+        fputs("  collect changes and apply them after the loop, or iterate over a copy\n",
+              stderr);
+    }
+    fflush(stderr);
+    abort();
+}
+
 /* Phase 20 PTR-10: stack-pointer panic helper (OQ-B Option C lock).
  *
  * Mirrors iron_panic_stale_pointer text + JSON channels but with a

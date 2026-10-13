@@ -1075,6 +1075,14 @@ in 10` is an error: write `for i in range(10)`), nor over any other value
 (`E0202`). Appending `parallel` after the iterable runs the
 iterations on several threads (section 7.4).
 
+A `for` loop over a growable list reads its elements in place. Its body
+cannot add to, remove from, or replace that same list (`E0346`). Apply the
+changes after the loop, iterate over `xs.copy()`, or use an index-based
+`while` loop instead. If such a structural change is hidden behind a call,
+closure, field, `rc` handle or other alias, the list is pinned for the loop
+and the change aborts at run time. Assigning to an existing element does
+not change the list's structure and is allowed.
+
 ```iron
 func main() {
     var total = 0

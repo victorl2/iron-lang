@@ -1,0 +1,9 @@
+-- Removing from the list a for loop iterates is E0346 (#839).
+func main() {
+    var xs = [1, 2, 3]
+    for x in xs {
+        if x == 2 {
+            xs.clear()
+        }
+    }
+}
