@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 /* test_runtime_threads.c — Unity tests for Iron threading primitives.
  *
  * Tests Iron_Pool, Iron_Handle, Iron_Channel, Iron_Mutex, and the global pool.
@@ -8,6 +10,9 @@
 
 #include <stdatomic.h>
 #include "support/posix_test.h"
+#ifdef __linux__
+#include <pthread.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -264,8 +269,16 @@ static atomic_int g_stack_nohuge;
 
 static void inspect_stack_mapping(void *arg) {
     (void)arg;
-    char marker;
-    unsigned long address = (unsigned long)(uintptr_t)&marker;
+    pthread_attr_t attr;
+    void *stack = NULL;
+    size_t stack_size = 0;
+    if (pthread_getattr_np(pthread_self(), &attr) != 0) return;
+    if (pthread_attr_getstack(&attr, &stack, &stack_size) != 0) {
+        pthread_attr_destroy(&attr);
+        return;
+    }
+    pthread_attr_destroy(&attr);
+    unsigned long address = (unsigned long)(uintptr_t)stack + stack_size / 2;
     FILE *maps = fopen("/proc/self/smaps", "r");
     if (!maps) return;
     char line[512];
