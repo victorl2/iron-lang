@@ -4,18 +4,21 @@
  * ilsp_facade_nav_workspace_symbol against a tmp workspace seeded
  * with a couple of .iron files.
  *
- * Four RUN_TESTs:
+ * Five RUN_TESTs:
  *   1. fuzzy match surfaces the best-scoring candidate first.
  *   2. overlong query is rejected with an empty result (T-03-07).
  *   3. empty query / no workspace_index -> empty result.
  *   4. path-prefix filter narrows results via '/' split.
+ *   5. dirty open documents do not expose stale indexed ranges.
  */
 #include "unity.h"
 
 #include "lsp/facade/nav/nav_core.h"
+#include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h"
 #include "lsp/server/server.h"
 #include "util/arena.h"
+#include "vendor/stb_ds.h"
 
 #include <errno.h>
 #include <stdatomic.h>
@@ -87,6 +90,12 @@ static void fx_init(fx_t *f) {
 }
 
 static void fx_destroy(fx_t *f) {
+    if (f->server.documents) {
+        for (ptrdiff_t i = 0; i < shlen(f->server.documents); i++) {
+            ilsp_document_destroy(f->server.documents[i].value);
+        }
+        shfree(f->server.documents);
+    }
     if (f->wi) ilsp_workspace_index_destroy(f->wi);
     rm_tree(f->root);
 }
@@ -173,11 +182,36 @@ static void test_path_prefix_filter(void) {
     fx_destroy(&f);
 }
 
+/* ── Test 05: dirty open document suppresses stale index entry ── */
+
+static void test_dirty_open_document_omits_stale_symbol(void) {
+    fx_t f; fx_init(&f);
+
+    char uri[640];
+    snprintf(uri, sizeof(uri), "file://%s/main.iron", f.root);
+    IronLsp_Document *doc = ilsp_document_create(uri, "x", 1, 2);
+    TEST_ASSERT_NOT_NULL(doc);
+    sh_new_strdup(f.server.documents);
+    shput(f.server.documents, uri, doc);
+
+    Iron_Arena arena = iron_arena_create(16 * 1024);
+    IronLsp_WorkspaceSymbol *out = NULL;
+    size_t n = 0;
+    ilsp_facade_nav_workspace_symbol(&f.server, "greeter", NULL, &arena,
+                                       &out, &n);
+
+    TEST_ASSERT_EQUAL_size_t(0, n);
+
+    iron_arena_free(&arena);
+    fx_destroy(&f);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_fuzzy_returns_best_match);
     RUN_TEST(test_query_too_long_returns_empty);
     RUN_TEST(test_no_workspace_index_empty);
     RUN_TEST(test_path_prefix_filter);
+    RUN_TEST(test_dirty_open_document_omits_stale_symbol);
     return UNITY_END();
 }

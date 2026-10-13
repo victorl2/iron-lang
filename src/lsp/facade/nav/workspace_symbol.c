@@ -21,6 +21,7 @@
 #include "lsp/facade/nav/fuzzy.h"
 #include "lsp/facade/nav/symbol_id.h"
 #include "lsp/facade/nav/visibility.h"
+#include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h"
 #include "lsp/server/server.h"
 #include "analyzer/analyzer.h"
@@ -58,6 +59,35 @@ typedef struct {
     Iron_Span      span;
     Iron_Span      sel_span;
 } candidate_t;
+
+static uint64_t document_hash_prefix(IronLsp_Document *doc) {
+    uint64_t hash = 0;
+    if (!doc) return hash;
+    ilsp_document_lock(doc);
+    for (int i = 0; i < 8; i++) {
+        hash = (hash << 8) | (uint64_t)doc->sha256[i];
+    }
+    ilsp_document_unlock(doc);
+    return hash;
+}
+
+/* The workspace index reflects saved text. Returning one of its locations
+ * for a dirty open document can point outside the client-visible buffer.
+ * Until the index can parse unsaved snapshots, omit that file rather than
+ * returning a stale or misleading location. */
+static bool entry_is_stale_open_document(IronLsp_Server *server,
+                                          IronLsp_IndexEntry *entry,
+                                          Iron_Arena *arena) {
+    if (!server || !server->documents || !entry || !entry->canonical_path) {
+        return false;
+    }
+    const char *uri = ilsp_nav_path_to_uri(entry->canonical_path, arena);
+    if (!uri) return false;
+    ptrdiff_t idx = shgeti(server->documents, uri);
+    if (idx < 0) return false;
+    IronLsp_Document *doc = server->documents[idx].value;
+    return doc && document_hash_prefix(doc) != entry->content_hash;
+}
 
 static int lsp_kind_from_node(Iron_Node *d) {
     switch ((int)d->kind) {
@@ -296,6 +326,7 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
         if (cancel && atomic_load(cancel)) break;
         IronLsp_IndexEntry *entry = wi->entries[i].value;
         if (!entry || !entry->program) continue;
+        if (entry_is_stale_open_document(server, entry, arena)) continue;
         score_program(server, entry, entry->program, rest,
                        prefix, prefix_len, arena, &cands);
     }
