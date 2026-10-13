@@ -126,10 +126,12 @@ shopt -s nullglob
 # tests/integration/multi_file/<case>/ with N >= 1 .iron files plus a sibling
 # `expected` file (no leading dot — there is no <name>.iron to pair against).
 # The runner concatenates the .iron files in lexicographic order (so lib.iron
-# precedes main.iron alphabetically) with a synthetic `-- @file: <basename>`
+# precedes main.iron alphabetically) with a synthetic `// @file: <basename>`
 # directive between them. The lexer recognizes that directive and re-tags
 # subsequent tokens with the named filename so the resolver's cross-module
-# check (E0320) sees real per-file source identity.
+# check (E0320) sees real per-file source identity. The lexer honors the
+# directive in multi-file test mode only (IRON_MULTI_FILE_TEST=1, set on the
+# build below); in any other compile it is a plain comment.
 #
 # A fixture directory without an `expected` sibling is treated as compile-only.
 if [ -z "${IRON_TEST_ONE:-}" ] && [ "${CATEGORY}" = "integration" ] && [ -d "${TEST_DIR}/multi_file" ]; then
@@ -160,7 +162,7 @@ if [ -z "${IRON_TEST_ONE:-}" ] && [ "${CATEGORY}" = "integration" ] && [ -d "${T
         combined="${build_dir}/${case_name}.iron"
         : > "${combined}"
         for f in "${iron_files[@]}"; do
-            printf -- '-- @file: %s\n' "$(basename "${f}")" >> "${combined}"
+            printf -- '// @file: %s\n' "$(basename "${f}")" >> "${combined}"
             cat "${f}" >> "${combined}"
             printf '\n' >> "${combined}"
         done
@@ -168,7 +170,9 @@ if [ -z "${IRON_TEST_ONE:-}" ] && [ "${CATEGORY}" = "integration" ] && [ -d "${T
         echo -n "[RUN ] multi_file/${case_name} ... "
 
         build_stderr="${build_dir}/build.err"
-        if ! (cd "${build_dir}" && "${IRON_BIN}" build "${combined}") 2>"${build_stderr}"; then
+        # IRON_MULTI_FILE_TEST=1 is multi-file test mode: only there does the
+        # compiler honor an `@file:` comment in the source it is given.
+        if ! (cd "${build_dir}" && IRON_MULTI_FILE_TEST=1 "${IRON_BIN}" build "${combined}") 2>"${build_stderr}"; then
             echo "[FAIL] (build failed)"
             cat "${build_stderr}" >&2
             FAIL=$((FAIL + 1))
@@ -585,7 +589,14 @@ if [ "${CATEGORY}" = "v4-fail" ] || [ "${CATEGORY}" = "compile_fail" ]; then
 
         build_log="${WORK_DIR}/$(basename "${test_file}" .iron)_$$.log"
         set +e
-        (cd "${WORK_DIR}" && "${IRON_BIN}" check "${test_file}") > "${build_log}" 2>&1
+        # A fixture whose header says `@multi-file` holds several files
+        # under `@file:` comments: those are markers in multi-file test mode
+        # only (IRON_MULTI_FILE_TEST=1), and plain comments otherwise.
+        multi_file_mode=0
+        if grep -qE '^[[:space:]]*--[[:space:]]*@multi-file' <<< "$(head -n 10 "${test_file}")"; then
+            multi_file_mode=1
+        fi
+        (cd "${WORK_DIR}" && IRON_MULTI_FILE_TEST="${multi_file_mode}" "${IRON_BIN}" check "${test_file}") > "${build_log}" 2>&1
         build_rc=$?
         set -e
 

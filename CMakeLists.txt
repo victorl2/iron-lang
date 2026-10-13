@@ -1214,6 +1214,30 @@ add_test(NAME diag_generic_instance_location
 set_tests_properties(diag_generic_instance_location PROPERTIES
     PASS_REGULAR_EXPRESSION "E0328[^\n]*\n[^\n]*generic_instance_location\\.iron:11:25")
 
+# An `@file:` comment (the test harness's file marker) in user source is a
+# plain comment: diagnostics after it keep this file's name and lines. Only
+# multi-file test mode honors it.
+add_test(NAME diag_file_marker_user_source
+    COMMAND $<TARGET_FILE:ironc> check
+        ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/file_marker_user_source.iron)
+set_tests_properties(diag_file_marker_user_source PROPERTIES
+    PASS_REGULAR_EXPRESSION "file_marker_user_source\\.iron:8:.*file_marker_user_source\\.iron:12:"
+    FAIL_REGULAR_EXPRESSION "elsewhere\\.iron:[0-9]")
+add_test(NAME diag_file_marker_build_user_source
+    COMMAND $<TARGET_FILE:ironc> build
+        ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/file_marker_user_source.iron
+        -o ${CMAKE_BINARY_DIR}/file_marker_user_source.out)
+set_tests_properties(diag_file_marker_build_user_source PROPERTIES
+    PASS_REGULAR_EXPRESSION "file_marker_user_source\\.iron:8:.*file_marker_user_source\\.iron:12:"
+    FAIL_REGULAR_EXPRESSION "elsewhere\\.iron:[0-9]")
+add_test(NAME diag_file_marker_test_mode
+    COMMAND $<TARGET_FILE:ironc> check
+        ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/file_marker_user_source.iron)
+set_tests_properties(diag_file_marker_test_mode PROPERTIES
+    ENVIRONMENT "IRON_MULTI_FILE_TEST=1"
+    PASS_REGULAR_EXPRESSION "--> elsewhere\\.iron:[0-9]+:.*--> quoted elsewhere\\.iron:2:"
+    FAIL_REGULAR_EXPRESSION "file_marker_user_source\\.iron:[0-9]")
+
 # An unknown command prints a short error and where to look, not the help.
 add_test(NAME iron_unknown_command COMMAND $<TARGET_FILE:iron> bogus)
 set_tests_properties(iron_unknown_command PROPERTIES
