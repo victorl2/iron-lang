@@ -171,6 +171,7 @@ if(IRON_BUILD_GRAMMARS AND IRON_NPM_EXECUTABLE AND IRON_NODE_EXECUTABLE AND BASH
             LABELS "phase-m5-invariant;fuzz"
             FIXTURES_REQUIRED tree_sitter_deps
             SKIP_RETURN_CODE 77
+            PROCESSORS 4
             TIMEOUT 300)
     endif()
 
