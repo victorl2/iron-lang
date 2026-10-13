@@ -121,10 +121,11 @@ def decode_iron_name(c_name):
 def iron_name(c_name):
     """(Iron name, deref) for a C local, or None for a compiler temporary."""
     if c_name.startswith("_ref_") and len(c_name) > 5:
-        return c_name[5:], True
-    if not c_name or c_name.startswith("_"):
+        return decode_iron_name(c_name[5:]), True
+    name = decode_iron_name(c_name)
+    if not name or name.startswith("_"):
         return None
-    return decode_iron_name(c_name), False
+    return name, False
 
 
 def iron_function_name(c_name, test=None):
