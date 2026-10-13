@@ -366,10 +366,37 @@ static void set_spans(Iron_Node *root, Iron_Span sp) {
     arrfree(c.nodes);
 }
 
+/* The template's own type parameters (`T` of `func f[T]`): the instance,
+ * printed with the arguments in place, has no node for them. */
+static void drop_generic_params(SpanCollect *c, Iron_Node *tmpl) {
+    Iron_Node **gp = NULL;
+    int n = 0;
+    if (tmpl->kind == IRON_NODE_FUNC_DECL) {
+        gp = ((Iron_FuncDecl *)tmpl)->generic_params;
+        n = ((Iron_FuncDecl *)tmpl)->generic_param_count;
+    } else if (tmpl->kind == IRON_NODE_METHOD_DECL) {
+        gp = ((Iron_MethodDecl *)tmpl)->generic_params;
+        n = ((Iron_MethodDecl *)tmpl)->generic_param_count;
+    } else if (tmpl->kind == IRON_NODE_OBJECT_DECL) {
+        gp = ((Iron_ObjectDecl *)tmpl)->generic_params;
+        n = ((Iron_ObjectDecl *)tmpl)->generic_param_count;
+    }
+    if (!gp || n <= 0) return;
+    ptrdiff_t kept = 0;
+    for (ptrdiff_t i = 0; i < arrlen(c->nodes); i++) {
+        bool is_param = false;
+        for (int g = 0; g < n; g++)
+            if (c->nodes[i] == gp[g]) is_param = true;
+        if (!is_param) c->nodes[kept++] = c->nodes[i];
+    }
+    arrsetlen(c->nodes, kept);
+}
+
 static void copy_spans(Iron_Node *inst, Iron_Node *tmpl) {
     SpanCollect a = { NULL }, b = { NULL };
     collect_nodes(inst, &a);
     collect_nodes(tmpl, &b);
+    drop_generic_params(&b, tmpl);
     bool same = arrlen(a.nodes) == arrlen(b.nodes);
     for (ptrdiff_t i = 0; same && i < arrlen(a.nodes); i++)
         same = a.nodes[i]->kind == b.nodes[i]->kind;
