@@ -67,7 +67,7 @@ func main(args: [String]) {
     -- works.
     if db_cfg.init_command.len() == 0 {
         db_cfg.init_command = "SET time_zone = '+00:00' /*!80000, max_execution_time = {cfg.db_timeout_ms} */ " +
-            "/*M!100000 , max_statement_time = {cfg.db_timeout_ms / 1000}.{cfg.db_timeout_ms % 1000} */"
+            "/*M!100000 , max_statement_time = {cfg.db_timeout_ms} / 1000.0 */"
     }
     var pool_opts = MysqlPoolOptions(cfg.db_pool_min, cfg.db_pool_max)
     pool_opts.acquire_timeout = cfg.db_acquire_timeout_ms
