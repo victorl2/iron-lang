@@ -57,6 +57,7 @@ object CKeywordMethods {
     readonly func volatile() -> Int { return self.base + 54 }
     readonly func xor() -> Int { return self.base + 55 }
     readonly func xor_eq() -> Int { return self.base + 56 }
+    readonly func _Pragma() -> Int { return self.base + 57 }
 }
 
 func main() {
@@ -69,5 +70,5 @@ func main() {
     val part5 = x.not_eq() + x.nullptr() + x.or_eq() + x.register() + x.restrict() + x.short() + x.signed()
     val part6 = x.sizeof() + x.static_assert() + x.struct() + x.switch() + x.thread_local() + x.typedef() + x.typeof()
     val part7 = x.typeof_unqual() + x.union() + x.unsigned() + x.void() + x.volatile() + x.xor() + x.xor_eq()
-    println("{part0 + part1 + part2 + part3 + part4 + part5 + part6 + part7}")
+    println("{part0 + part1 + part2 + part3 + part4 + part5 + part6 + part7 + x._Pragma()}")
 }

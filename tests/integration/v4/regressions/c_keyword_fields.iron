@@ -56,6 +56,7 @@ object CKeywordFields {
     val volatile: Int
     val xor: Int
     val xor_eq: Int
+    val _Pragma: Int
 }
 
 func total(xs: [CKeywordFields]) -> Int {
@@ -67,7 +68,7 @@ func total(xs: [CKeywordFields]) -> Int {
     val part5 = xs[0].not_eq + xs[0].nullptr + xs[0].or_eq + xs[0].register + xs[0].restrict + xs[0].short + xs[0].signed
     val part6 = xs[0].sizeof + xs[0].static_assert + xs[0].struct + xs[0].switch + xs[0].thread_local + xs[0].typedef + xs[0].typeof
     val part7 = xs[0].typeof_unqual + xs[0].union + xs[0].unsigned + xs[0].void + xs[0].volatile + xs[0].xor + xs[0].xor_eq
-    return part0 + part1 + part2 + part3 + part4 + part5 + part6 + part7
+    return part0 + part1 + part2 + part3 + part4 + part5 + part6 + part7 + xs[0]._Pragma
 }
 
 func total_soa(xs: [CKeywordFields, layout: soa]) -> Int {
@@ -79,11 +80,11 @@ func total_soa(xs: [CKeywordFields, layout: soa]) -> Int {
     val part5 = xs[0].not_eq + xs[0].nullptr + xs[0].or_eq + xs[0].register + xs[0].restrict + xs[0].short + xs[0].signed
     val part6 = xs[0].sizeof + xs[0].static_assert + xs[0].struct + xs[0].switch + xs[0].thread_local + xs[0].typedef + xs[0].typeof
     val part7 = xs[0].typeof_unqual + xs[0].union + xs[0].unsigned + xs[0].void + xs[0].volatile + xs[0].xor + xs[0].xor_eq
-    return part0 + part1 + part2 + part3 + part4 + part5 + part6 + part7
+    return part0 + part1 + part2 + part3 + part4 + part5 + part6 + part7 + xs[0]._Pragma
 }
 
 func main() {
-    val rows: [CKeywordFields] = [CKeywordFields(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56)]
-    val columns: [CKeywordFields, layout: soa] = [CKeywordFields(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56)]
+    val rows: [CKeywordFields] = [CKeywordFields(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57)]
+    val columns: [CKeywordFields, layout: soa] = [CKeywordFields(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57)]
     println("{total(rows)} {total_soa(columns)}")
 }

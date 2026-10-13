@@ -18,7 +18,7 @@ MASK = (1 << 64) - 1
 C_RESERVED_IRON_IDENTIFIERS = (
     '_Alignas', '_Alignof', '_Atomic', '_BitInt', '_Bool', '_Complex',
     '_Decimal128', '_Decimal32', '_Decimal64', '_Generic', '_Imaginary',
-    '_Noreturn', '_Static_assert', '_Thread_local',
+    '_Noreturn', '_Pragma', '_Static_assert', '_Thread_local',
     'alignas', 'alignof', 'and_eq', 'asm', 'auto', 'bitand', 'bitor', 'bool',
     'case', 'char', 'compl', 'const', 'constexpr', 'default', 'do', 'double',
     'float', 'goto', 'inline', 'int', 'long', 'not_eq', 'nullptr', 'or_eq',

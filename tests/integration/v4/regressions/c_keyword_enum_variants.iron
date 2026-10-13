@@ -56,6 +56,7 @@ enum CKeywordVariants {
     volatile = 54,
     xor = 55,
     xor_eq = 56,
+    _Pragma = 57,
 }
 
 func main() {
@@ -115,4 +116,5 @@ func main() {
     println("{CKeywordVariants.volatile}")
     println("{CKeywordVariants.xor}")
     println("{CKeywordVariants.xor_eq}")
+    println("{CKeywordVariants._Pragma}")
 }

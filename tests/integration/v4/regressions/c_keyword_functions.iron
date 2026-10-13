@@ -56,6 +56,7 @@ func void() -> Int { return 53 }
 func volatile() -> Int { return 54 }
 func xor() -> Int { return 55 }
 func xor_eq() -> Int { return 56 }
+func _Pragma() -> Int { return 57 }
 
 func main() {
     val part0 = _Alignas() + _Alignof() + _Atomic() + _BitInt() + _Bool() + _Complex() + _Decimal128()
@@ -66,5 +67,5 @@ func main() {
     val part5 = not_eq() + nullptr() + or_eq() + register() + restrict() + short() + signed()
     val part6 = sizeof() + static_assert() + struct() + switch() + thread_local() + typedef() + typeof()
     val part7 = typeof_unqual() + union() + unsigned() + void() + volatile() + xor() + xor_eq()
-    println("{part0 + part1 + part2 + part3 + part4 + part5 + part6 + part7}")
+    println("{part0 + part1 + part2 + part3 + part4 + part5 + part6 + part7 + _Pragma()}")
 }

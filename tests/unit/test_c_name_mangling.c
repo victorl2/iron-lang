@@ -23,7 +23,7 @@ static void test_keywords_macros_and_prefixes_are_encoded(void) {
     const char *reserved[] = {
         "_Alignas", "_Alignof", "_Atomic", "_BitInt", "_Bool", "_Complex",
         "_Decimal128", "_Decimal32", "_Decimal64", "_Generic", "_Imaginary",
-        "_Noreturn", "_Static_assert", "_Thread_local",
+        "_Noreturn", "_Pragma", "_Static_assert", "_Thread_local",
         "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand",
         "bitor", "bool", "break", "case", "char", "compl", "const",
         "constexpr", "continue", "default", "do", "double", "else", "enum",

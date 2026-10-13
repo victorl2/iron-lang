@@ -54,3 +54,4 @@ void
 volatile
 xor
 xor_eq
+_Pragma
