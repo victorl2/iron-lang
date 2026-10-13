@@ -307,7 +307,11 @@ func main() {
 
 Enums may carry payloads and type parameters. A generic enum value takes the
 type arguments its payload does not fix from where it is used: the return
-type, the parameter, or an annotated binding.
+type, the parameter, or an annotated binding. Generic constructions and
+calls do the same: `val ch: Channel[Int] = Channel(4)`,
+`var m: Map[String, Int] = Map()`, `return Set()` in a function returning
+`Set[Int]`, `f(Map())` for a parameter `Map[String, Int]`. Type arguments
+written out always win; a mismatch is a type error.
 
 ```iron
 enum Result[T, E] {
@@ -435,7 +439,8 @@ true false
 `reduce`, `sum`.
 
 `Map[K, V]` and `Set[T]` are hash containers constructed empty with their
-type arguments written out. Keys must be `Int`, `Bool`, `String` or an
+type arguments written out, or taken from the expected type
+(`var counts: Map[String, Int] = Map()`). Keys must be `Int`, `Bool`, `String` or an
 object that implements `Hashable` (`hash()` and `equals()`). `get` panics
 on a missing key, so use `has` or `get_or`; `put`, `remove`, `clear` and
 `add` need a `var` binding; a map is never duplicated implicitly (`copy()`

@@ -1508,7 +1508,10 @@ static bool iron_elem_is_nullable_type(Iron_Parser *p) {
             if (k == IRON_TOK_RPAREN && parens > 0) parens--;
         } else if (depth == 0 && (k == IRON_TOK_COMMA || k == IRON_TOK_SEMICOLON))
             return false;
-        else if (k == IRON_TOK_QUESTION && parens == 0) {
+        else if (parens == 0 && (k == IRON_TOK_QUESTION ||
+                 (k == IRON_TOK_COLON && depth > 0 && j > p->pos &&
+                  p->tokens[j - 1].value &&
+                  strcmp(p->tokens[j - 1].value, "layout") == 0))) {
             if (j == p->pos) return false;
             /* The type ends the element unless it is constructed or
              * called: `[Map[String, Int?]()]` and `[Box[Int?](x)]` are

@@ -1,0 +1,9 @@
+-- The expected type of a return supplies the type arguments, and an
+-- explicit mismatch is still reported (#626).
+func make() -> Map[String, Int] {
+    return Map[String, String]()
+}
+
+func main() {
+    val m = make()
+}
