@@ -1,0 +1,18 @@
+// @expect-panic: integer division by zero
+// @fusion-loops: 0
+// A callback that can panic keeps stage order. The map reaches zero before
+// the filter can evaluate the first mapped element.
+
+//iron:fusible
+func reciprocal(x: Int) -> Int {
+    return 10 / x
+}
+
+//iron:fusible
+func later_panic(x: Int) -> Bool {
+    return 100 / (x - 5) > 0
+}
+
+func main() {
+    println("{[2, 0].map(reciprocal).filter(later_panic).sum()}")
+}

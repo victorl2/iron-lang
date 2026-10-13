@@ -10631,6 +10631,20 @@ static bool fusion_callback_is_safe(EmitCtx *ctx, IronLIR_Func *owner,
     return lifted && fusion_func_is_safe(ctx, lifted, active, 0);
 }
 
+/* An interior stream value exists as an owned intermediate list in ordinary
+ * execution. The fused emitter currently has no per-element copy/drop glue,
+ * so only values with a trivial lifetime may cross a fused stage boundary. */
+static bool fusion_stream_element_is_trivial(EmitCtx *ctx, const Iron_Type *type) {
+    if (!type) return false;
+    if (iron_type_is_numeric(type) || type->kind == IRON_TYPE_BOOL ||
+        type->kind == IRON_TYPE_PTR)
+        return true;
+    if (type->kind == IRON_TYPE_OBJECT && type->object.decl)
+        return !type->object.decl->is_nocopy &&
+               !od_needs_drop(ctx, type->object.decl);
+    return false;
+}
+
 static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb) {
     emit_build_def_instrs(fn);
 
@@ -11226,7 +11240,11 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                     ptrdiff_t ri = hmgeti(result_to_call, origin_vid);
                     if (ri >= 0) {
                         int pred_idx = result_to_call[ri].value;
-                        if (pred_idx != i) {
+                        IronLIR_Instr *pred = fn->value_table[origin_vid];
+                        bool trivial_stream = pred && pred->type &&
+                            pred->type->kind == IRON_TYPE_ARRAY &&
+                            fusion_stream_element_is_trivial(ctx, pred->type->array.elem);
+                        if (pred_idx != i && trivial_stream) {
                             next[pred_idx] = i;
                             prev[i] = pred_idx;
                         }
