@@ -1750,6 +1750,7 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
                     emit_elem_lifecycle_stmt(ctx, &arm, pt, lv, drop);
                     if (arm.len > before &&
                         (pt->kind == IRON_TYPE_OBJECT || pt->kind == IRON_TYPE_INTERFACE ||
+                         pt->kind == IRON_TYPE_TUPLE ||
                          pt->kind == IRON_TYPE_NULLABLE ||
                          (pt->kind == IRON_TYPE_ARRAY && pt->array.is_bounded))) {
                         const char *pc = emit_type_to_c(pt, ctx);

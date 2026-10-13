@@ -382,11 +382,13 @@ automatic mapping between JSON and objects
 offers instead:
 
 - `interface JsonEncodable { readonly func write_json(w: JsonWriter) }`.
-  Implement it once; `Json.encode(v)` and `json_encode_list(xs)` (generic
+  Implement it once; `Json.encode(v)` and `Json.encode_list(xs)` (generic
   over `[T: JsonEncodable]`) produce text, and one type's `write_json` can
   call another's.
-- `json_decode_list(v, f, out)` decodes every element of an array with a
-  function `func(Json) -> T` into `out` (false when `v` is not an array).
+- `Json.decode_list(v, f) -> [T]?` decodes every element of an array with a
+  function `func(Json) -> T` (null when `v` is not an array).
+- The earlier forms `json_encode_list(xs)` and `json_decode_list(v, f, out)
+  -> Bool` (appending to `out`) remain.
 - For speed, decode with `JsonReader` as above and encode with
   `JsonWriter`: neither builds a tree.
 
@@ -408,10 +410,10 @@ func point_from(j: Json) -> Point {
 
 func main() {
     val pts = [Point(1, 2), Point(3, 4)]
-    val text = json_encode_list(pts)
+    val text = Json.encode_list(pts)
     println(text)
-    var back: [Point] = []
-    if json_decode_list(Json.parse(text).value, point_from, back) {
+    val back = Json.decode_list(Json.parse(text).value, point_from)
+    if back != null {
         println("{back.len()} {back[1].x} {Json.encode(back[0])}")
     }
 }

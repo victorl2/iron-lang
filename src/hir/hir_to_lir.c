@@ -138,6 +138,19 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
                                bool want_copy, int depth) {
     if (t && t->kind == IRON_TYPE_ARRAY && t->array.is_bounded && t->array.size >= 0)
         return bvec_lifecycle(t, program, want_copy, depth);
+    /* A tuple owns its elements like an object its fields (#450): it
+     * needs glue when one of them does. */
+    if (t && t->kind == IRON_TYPE_TUPLE && depth <= 16) {
+        for (int i = 0; i < t->tuple.elem_count; i++) {
+            Iron_Type *et = t->tuple.elem_types ? t->tuple.elem_types[i] : NULL;
+            if (!et) continue;
+            if (type_is_rc_like(et) || type_is_owned_list(et) || type_is_counted_string(et) ||
+                et->kind == IRON_TYPE_FUNC)
+                return true;
+            if (type_lifecycle_rec(et, program, want_copy, depth + 1)) return true;
+        }
+        return false;
+    }
     /* `T?` of an owning T (object, interface, vector, closure, list) needs
      * T's glue on its value; String? and rc T? have their own paths. */
     if (t && t->kind == IRON_TYPE_NULLABLE && t->nullable.inner && depth <= 16) {
@@ -215,6 +228,7 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
          * `object W { val node: N }` binding was never dropped. */
         if ((ft->kind == IRON_TYPE_OBJECT || ft->kind == IRON_TYPE_INTERFACE ||
              ft->kind == IRON_TYPE_NULLABLE || ft->kind == IRON_TYPE_ENUM ||
+             ft->kind == IRON_TYPE_TUPLE ||
              (ft->kind == IRON_TYPE_ARRAY && ft->array.is_bounded)) &&
             type_lifecycle_rec(ft, program, want_copy, depth + 1))
             return true;
@@ -706,6 +720,13 @@ static void emit_copy_fixup_at(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *src,
                                Iron_Span span) {
     if (hir_expr_is_place(src) && type_needs_copy_fixup(t, ctx->program))
         emit_lifecycle_glue_call(ctx, "$copy", slot, span);
+    /* A list element of a tuple binding (`val (s, xs) = t`): t keeps its
+     * list and drops it (#450), so the binding gets a copy of its own. */
+    else if (type_is_owned_list(t) && src && src->kind == IRON_HIR_EXPR_FIELD_ACCESS &&
+             src->field_access.object && src->field_access.object->type &&
+             src->field_access.object->type->kind == IRON_TYPE_TUPLE &&
+             hir_expr_is_place(src))
+        emit_lifecycle_glue_call(ctx, "$copy", slot, span);
 }
 
 /* A value about to be owned by a new holder (field, element, return
@@ -1143,6 +1164,13 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
         }
         /* `T?` of an owning T drops its value, if any. */
         if (entry->object_type->kind == IRON_TYPE_NULLABLE) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            if (entry->alloca_id == ctx->moved_slot) continue;
+            emit_drop_glue_call(ctx, entry->alloca_id, span);
+            continue;
+        }
+        /* A tuple drops its elements (#450) unless `return` moved it out. */
+        if (entry->object_type->kind == IRON_TYPE_TUPLE) {
             if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
             if (entry->alloca_id == ctx->moved_slot) continue;
             emit_drop_glue_call(ctx, entry->alloca_id, span);
@@ -2377,8 +2405,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                      expr->float_lit.value, type, span)->id;
 
     case IRON_HIR_EXPR_STRING_LIT:
-        return iron_lir_const_string(ctx->current_func, ctx->current_block,
-                                      expr->string_lit.value, type, span)->id;
+    {
+        IronLIR_Instr *cs = iron_lir_const_string(ctx->current_func, ctx->current_block,
+                                                  expr->string_lit.value, type, span);
+        cs->const_str.len = expr->string_lit.len;   /* may hold zero bytes (#453) */
+        return cs->id;
+    }
 
     case IRON_HIR_EXPR_BOOL_LIT:
         return iron_lir_const_bool(ctx->current_func, ctx->current_block,
@@ -2584,6 +2616,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 ctx->lir_arena, (size_t)expr->call.arg_count * sizeof(bool),
                 _Alignof(bool));
             if (!by_addr_flags) iron_oom_abort("hir_to_lir.c:EXPR_CALL by_addr_flags");
+            memset(by_addr_flags, 0,
+                   (size_t)expr->call.arg_count * sizeof(bool));
         }
         bool any_by_addr = false;
 
@@ -2591,20 +2625,15 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         IronLIR_ValueId *args = NULL;
         TempOwned *temps = NULL;
         for (int i = 0; i < expr->call.arg_count; i++) {
-            /* PARM-02: arg bound to a `var` param — pass the binding's
-             * alloca; emit_c renders it "&_vN". E0267 already guarantees
-             * the source is mutable. IDENT sources (var local or var
-             * param) own an alloca slot and get full reference semantics.
-             * A `var` field or an element (`f(obj.field)`, `f(xs[i])`,
-             * the other shapes E0267 accepts) is lowered as the place's
-             * value chain and flagged by address too: emit_c addresses
-             * the field or element in its own storage, so the callee's
-             * writes land there (passed by value it was invalid C, a
-             * struct handed to a pointer parameter). */
-            if (by_addr_flags && i < callee_hf->param_count &&
-                callee_hf->param_is_var[i] &&
-                expr->call.args[i] &&
-                expr->call.args[i]->kind == IRON_HIR_EXPR_IDENT) {
+            /* PARM-02: an argument bound to a `var` parameter passes the
+             * mutable place itself. An identifier can pass its alloca
+             * directly. Fields and indexed elements keep their GET_FIELD /
+             * GET_INDEX value here; emit_receiver_addr reconstructs a
+             * pointer to that storage instead of taking a temporary's
+             * address (#731). */
+            bool wants_by_addr = by_addr_flags && i < callee_hf->param_count &&
+                                 callee_hf->param_is_var[i] && expr->call.args[i];
+            if (wants_by_addr && expr->call.args[i]->kind == IRON_HIR_EXPR_IDENT) {
                 ptrdiff_t aai = hmgeti(ctx->var_alloca_map,
                                        expr->call.args[i]->ident.var_id);
                 if (aai >= 0) {
@@ -2615,10 +2644,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 }
             }
             IronLIR_ValueId av = lower_expr(ctx, expr->call.args[i]);
-            if (by_addr_flags && i < callee_hf->param_count &&
-                callee_hf->param_is_var[i] && expr->call.args[i] &&
-                (expr->call.args[i]->kind == IRON_HIR_EXPR_FIELD_ACCESS ||
-                 expr->call.args[i]->kind == IRON_HIR_EXPR_INDEX)) {
+            if (wants_by_addr) {
                 arrput(args, av);
                 by_addr_flags[i] = true;
                 any_by_addr = true;
@@ -2713,6 +2739,49 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             IronHIR_Expr *src = expr->method_call.object;
             IronLIR_ValueId v = lower_expr(ctx, src);
             return copy_for_new_owner(ctx, src, v, expr->type, span);
+        }
+        /* `$opt_to_string(p, v.to_string())` (hir_lower, #451): an
+         * interpolated T? of an object. p is evaluated once; when it is not
+         * null, v is bound to its payload and the call gives the text,
+         * otherwise the text is "null". */
+        if (expr->method_call.method &&
+            strcmp(expr->method_call.method, "$opt_to_string") == 0 &&
+            expr->method_call.arg_count == 1 && expr->method_call.args[0] &&
+            expr->method_call.args[0]->kind == IRON_HIR_EXPR_METHOD_CALL &&
+            expr->method_call.args[0]->method_call.object &&
+            expr->method_call.args[0]->method_call.object->kind == IRON_HIR_EXPR_IDENT) {
+            IronHIR_Expr *opt = expr->method_call.object;
+            IronHIR_Expr *call = expr->method_call.args[0];
+            IronHIR_Expr *recv = call->method_call.object;
+            IronLIR_ValueId ov = lower_expr(ctx, opt);
+            TempOwned *opt_temps = NULL;
+            note_owned_temp(ctx, &opt_temps, opt, ov, span);
+            IronLIR_ValueId has = iron_lir_is_not_null(ctx->current_func, ctx->current_block,
+                                                       ov, span)->id;
+            IronLIR_Block *some_b  = new_block(ctx, make_label(ctx, "opt_text_some"));
+            IronLIR_Block *none_b  = new_block(ctx, make_label(ctx, "opt_text_null"));
+            IronLIR_Block *merge_b = new_block(ctx, make_label(ctx, "opt_text_merge"));
+            if (!block_is_terminated(ctx->current_block))
+                iron_lir_branch(ctx->current_func, ctx->current_block, has,
+                                some_b->id, none_b->id, span);
+            switch_block(ctx, some_b);
+            IronLIR_ValueId payload = iron_lir_cast(ctx->current_func, ctx->current_block, ov,
+                                                    recv->type, span)->id;
+            hmput(ctx->val_binding_map, recv->ident.var_id, payload);
+            IronLIR_ValueId text = lower_expr(ctx, call);
+            IronLIR_Block *some_end = ctx->current_block;
+            if (!block_is_terminated(some_end))
+                iron_lir_jump(ctx->current_func, some_end, merge_b->id, span);
+            switch_block(ctx, none_b);
+            IronLIR_Instr *null_text = iron_lir_const_string(ctx->current_func, none_b,
+                                                             "null", expr->type, span);
+            iron_lir_jump(ctx->current_func, none_b, merge_b->id, span);
+            switch_block(ctx, merge_b);
+            IronLIR_Instr *phi = iron_lir_phi(ctx->current_func, merge_b, expr->type, span);
+            iron_lir_phi_add_incoming(phi, text, some_end->id);
+            iron_lir_phi_add_incoming(phi, null_text->id, none_b->id);
+            release_owned_temps(ctx, &opt_temps, span);
+            return phi->id;
         }
         /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset / Ptr.diff compiler builtins.
          * `Ptr.offset(p, n)` parses as IRON_NODE_METHOD_CALL (uppercase "Ptr" +
@@ -3752,32 +3821,38 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * call. (List push / insert take ownership on the collection path
          * above.) */
         bool *m_by_addr = NULL;
-        bool m_any_by_addr = false;
         for (int i = (ufcs_static ? 1 : 0); i < expr->method_call.arg_count; i++) {
             IronHIR_Expr *ae = expr->method_call.args[i];
-            /* A `var` parameter of the method takes the binding by address,
-             * as for a free function (#604). */
-            {
-                int vpi = (int)arrlen(args);
-                if (callee_tf && callee_tf->param_is_var && vpi < callee_tf->param_count &&
-                    callee_tf->param_is_var[vpi] && ae && ae->kind == IRON_HIR_EXPR_IDENT) {
+            /* PARM-02 (#433): an argument bound to a `var` parameter of a
+             * method or init passes its binding's slot, as for a free
+             * function. */
+            int vpi = (int)arrlen(args);
+            bool wants_by_addr = callee_tf && callee_tf->param_is_var &&
+                                 vpi < callee_tf->param_count &&
+                                 callee_tf->param_is_var[vpi] && ae;
+            if (wants_by_addr) {
+                if (!m_by_addr) {
+                    int cap = expr->method_call.arg_count + 1;
+                    m_by_addr = (bool *)iron_arena_alloc(
+                        ctx->lir_arena, (size_t)cap * sizeof(bool), _Alignof(bool));
+                    if (!m_by_addr) iron_oom_abort("hir_to_lir.c:METHOD_CALL by_addr");
+                    memset(m_by_addr, 0, (size_t)cap * sizeof(bool));
+                }
+                if (ae->kind == IRON_HIR_EXPR_IDENT) {
                     ptrdiff_t aai = hmgeti(ctx->var_alloca_map, ae->ident.var_id);
                     if (aai >= 0) {
-                        if (!m_by_addr) {
-                            m_by_addr = (bool *)iron_arena_alloc(
-                                ctx->lir_arena, (size_t)(callee_tf->param_count + expr->method_call.arg_count + 1) * sizeof(bool),
-                                _Alignof(bool));
-                            if (!m_by_addr) iron_oom_abort("hir_to_lir.c:method by_addr");
-                            memset(m_by_addr, 0, (size_t)(callee_tf->param_count + expr->method_call.arg_count + 1) * sizeof(bool));
-                        }
                         m_by_addr[vpi] = true;
-                        m_any_by_addr = true;
                         arrput(args, ctx->var_alloca_map[aai].value);
                         continue;
                     }
                 }
             }
             IronLIR_ValueId av = lower_expr(ctx, ae);
+            if (wants_by_addr) {
+                m_by_addr[vpi] = true;
+                arrput(args, av);
+                continue;
+            }
             note_owned_temp(ctx, &temps, ae, av, span);
             /* A `T?` parameter takes a T argument (or null) wrapped, as a
              * function call does: `w.show("x")` and `T("t")` through an
@@ -3802,7 +3877,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         IronLIR_Instr *call = iron_lir_call(ctx->current_func, ctx->current_block,
                                               NULL, fref->id,
                                               args, arg_count, type, span);
-        if (m_any_by_addr) call->call.args_by_addr = m_by_addr;
+        if (call && m_by_addr) call->call.args_by_addr = m_by_addr;
         /* Pointer-receiver stdlib methods — the C impl takes the receiver by
          * pointer (Iron_Timer *) while the Iron method signature takes it by
          * value. Only the mutating Timer methods need this; Iron_timer_done
@@ -4702,7 +4777,12 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
              * arm's end, so the next match on the subject, or its own drop,
              * freed the buffer again. */
             bool pattern_borrows = stmt->let.borrows && hir_type_owns_list(type, 0);
-            bool needs_drop_alloca = stmt->let.init &&
+            /* The temporary of `val (a, b) = f()`: its elements move into
+             * the bindings, which drop them; the temporary is not dropped. */
+            const char *let_name = iron_hir_var_name(ctx->hir, vid);
+            bool tuple_moved = type && type->kind == IRON_TYPE_TUPLE && let_name &&
+                               strncmp(let_name, "__tuple_mv_", 11) == 0;
+            bool needs_drop_alloca = stmt->let.init && !tuple_moved &&
                                      !init_is_heap_or_rc && !enum_borrows && !pattern_borrows &&
                                      type_needs_drop(type, ctx->program) &&
                                      ctx->defer_depth > 0 &&
@@ -6122,8 +6202,12 @@ static void ssa_collect_addr_taken(IronLIR_Func *fn) {
             case IRON_LIR_CALL:
                 for (int ai = 0; ai < in->call.arg_count; ai++) {
                     ssa_mark_addr_taken(fn, in->call.args[ai]);
-                    if (in->call.args_by_addr && in->call.args_by_addr[ai])
-                        ssa_mark_addr_taken(fn, in->call.args[ai]);
+                    if (in->call.args_by_addr && in->call.args_by_addr[ai]) {
+                        IronLIR_ValueId root =
+                            ssa_root_alloca(fn, in->call.args[ai]);
+                        if (root != IRON_LIR_VALUE_INVALID)
+                            hmput(g_ssa_addr_taken, root, true);
+                    }
                 }
                 if (in->call.self_by_addr && in->call.arg_count > 0) {
                     IronLIR_ValueId root = ssa_root_alloca(fn, in->call.args[0]);

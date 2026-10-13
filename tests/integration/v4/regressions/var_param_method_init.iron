@@ -1,0 +1,71 @@
+-- A `var` parameter of a method, a named init and an anonymous init takes
+-- its argument by reference and writes back, as a free function's does
+-- (issue 433). They were passed by value: a list parameter was an alias of
+-- the caller's list, so `xs.take()` in the callee freed the buffer twice,
+-- and an Int parameter's new value was lost. Mutable fields and indexed
+-- elements are places too: they must not fall back to the by-value ABI
+-- (issue 731).
+object Bag {
+    var items: [String]
+    init with(var xs: [String]) {
+        self.items = xs.take()
+    }
+    func push_all(var xs: [String]) {
+        for x in xs {
+            self.items.push(x)
+        }
+        xs.clear()
+    }
+    func bump(var n: Int) {
+        n += 10
+    }
+}
+
+object Box2 {
+    var items: [String]
+    init(var xs: [String]) {
+        self.items = xs.take()
+    }
+    func fill(var out: [String], var n: Int) {
+        for s in self.items {
+            out.push(s)
+        }
+        n = out.len()
+    }
+}
+
+object Counter {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func bump(var x: Int) {
+        x += 1
+    }
+}
+
+func add_ten(var x: Int) {
+    x += 10
+}
+
+func main() {
+    var a: [String] = ["abcdefghijklmnopqrstuvwxyz0123", "two"]
+    var b = Bag.with(a)
+    println("{b.items.len()} {a.len()}")
+    var c: [String] = ["three and some more text to be heap", "four"]
+    b.push_all(c)
+    var k = 1
+    b.bump(k)
+    println("{b.items.len()} {c.len()} {k}")
+    var d: [String] = ["a string long enough to live on the heap", "five"]
+    var box = Box2(d)
+    var dst: [String] = []
+    var count = 0
+    box.fill(dst, count)
+    println("{box.items.len()} {d.len()} {dst.len()} {count}")
+    var counter = Counter(1)
+    counter.bump(counter.n)
+    var nums: [Int] = [3]
+    add_ten(nums[0])
+    println("{counter.n} {nums[0]}")
+}

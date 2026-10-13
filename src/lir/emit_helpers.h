@@ -300,10 +300,8 @@ typedef struct {
 const char *emit_mangle_name(const char *name, Iron_Arena *arena);
 const char *emit_object_type_name(const char *name, EmitCtx *ctx);
 const char *emit_mangle_func_name(const char *name, Iron_Arena *arena);
-/* #524: the build registers the C symbols of the runtime and standard
- * library headers; iron_lir_emit_c renames a colliding free function. */
 void iron_lir_emit_add_reserved_c_name(const char *name);
-void emit_plan_func_renames(IronLIR_Module *module);
+void emit_plan_func_c_renames(IronLIR_Module *module, Iron_Arena *arena);
 const char *emit_resolve_func_c_name(EmitCtx *ctx, const char *ir_name);
 const char *emit_sanitize_label(const char *label, Iron_Arena *arena);
 
@@ -359,6 +357,8 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
  * own anything (want_copy false: to drop; true: to fix up on a copy), and
  * emit `<BVec>_drop` / `<BVec>_copied`, loops over data[0 .. len). */
 bool bvec_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy);
+bool tuple_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy);
+void emit_ensure_tuple_glue(EmitCtx *ctx, const Iron_Type *t, bool drop);
 void emit_ensure_bvec_glue(EmitCtx *ctx, const Iron_Type *t, bool drop);
 /* `T?` glue: `<Iron_Optional_T>_drop` / `_copied` apply T's glue to
  * .value when has_value (objects, interfaces, vectors, closures, lists). */

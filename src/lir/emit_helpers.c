@@ -59,44 +59,18 @@ const char *emit_object_type_name(const char *name, EmitCtx *ctx) {
  * - Built-in function names (println, print, len, etc.) map to Iron_XXX.
  * - All other user-defined functions map to Iron_XXX.
  * The returned string is arena-allocated or a static literal. */
-/* C symbols the runtime and standard library headers declare (Iron_log_info,
- * Iron_time_now, ...), set by the build before emission, and the C names
- * of the program's free functions that would collide with one (#524):
- * those get an Iron_u_ prefix instead of Iron_. */
 static struct { char *key; bool value; } *g_reserved_c_names = NULL;
-static struct { char *key; char *value; } *g_func_renames = NULL;
+static struct { char *key; char *value; } *g_func_c_renames = NULL;
 
 void iron_lir_emit_add_reserved_c_name(const char *name) {
-    if (!name || shgeti(g_reserved_c_names, name) >= 0) return;
-    char *k = strdup(name);
-    if (k) shput(g_reserved_c_names, k, true);
+    if (!name) return;
+    if (!g_reserved_c_names) sh_new_strdup(g_reserved_c_names);
+    if (shgeti(g_reserved_c_names, name) >= 0) return;
+    shput(g_reserved_c_names, name, true);
 }
 
-void emit_plan_func_renames(IronLIR_Module *module) {
-    for (ptrdiff_t i = 0; i < shlen(g_func_renames); i++) free(g_func_renames[i].value);
-    shfree(g_func_renames);
-    g_func_renames = NULL;
-    if (!module || shlen(g_reserved_c_names) == 0) return;
-    for (int fi = 0; fi < module->func_count; fi++) {
-        IronLIR_Func *f = module->funcs[fi];
-        if (!f || !f->name || !f->is_user_func || f->is_extern) continue;
-        if (strcmp(f->name, "main") == 0) continue;
-        char cname[512];
-        snprintf(cname, sizeof(cname), "Iron_%s", f->name);
-        if (shgeti(g_reserved_c_names, cname) < 0) continue;
-        char *rn = (char *)malloc(strlen(f->name) + 8);
-        if (!rn) continue;
-        snprintf(rn, strlen(f->name) + 8, "Iron_u_%s", f->name);
-        shput(g_func_renames, (char *)f->name, rn);
-    }
-}
-
-const char *emit_mangle_func_name(const char *name, Iron_Arena *arena) {
+static const char *emit_mangle_func_name_raw(const char *name, Iron_Arena *arena) {
     if (!name) return "NULL";
-    if (g_func_renames) {
-        ptrdiff_t ri = shgeti(g_func_renames, name);
-        if (ri >= 0) return g_func_renames[ri].value;
-    }
 
     /* Lifted functions are already internal C identifiers -- keep as-is.
      * Lifted names start with __ (e.g. __pfor_0, __spawn_task1_0, __lambda_0)
@@ -120,6 +94,67 @@ const char *emit_mangle_func_name(const char *name, Iron_Arena *arena) {
 
     /* All other names: apply Iron_ prefix */
     return emit_mangle_name(name, arena);
+}
+
+void emit_plan_func_c_renames(IronLIR_Module *module, Iron_Arena *arena) {
+    for (ptrdiff_t i = 0; i < shlen(g_func_c_renames); i++)
+        free(g_func_c_renames[i].value);
+    shfree(g_func_c_renames);
+    g_func_c_renames = NULL;
+    if (!module || shlen(g_reserved_c_names) == 0) return;
+
+    struct { char *key; bool value; } *used = NULL;
+    sh_new_strdup(used);
+    for (ptrdiff_t i = 0; i < shlen(g_reserved_c_names); i++)
+        shput(used, g_reserved_c_names[i].key, true);
+    for (int i = 0; i < module->func_count; i++) {
+        IronLIR_Func *fn = module->funcs[i];
+        if (!fn || !fn->name) continue;
+        const char *c_name = fn->is_extern && fn->extern_c_name
+            ? fn->extern_c_name
+            : emit_mangle_func_name_raw(fn->name, arena);
+        if (shgeti(used, c_name) < 0) shput(used, c_name, true);
+    }
+
+    sh_new_strdup(g_func_c_renames);
+    for (int i = 0; i < module->func_count; i++) {
+        IronLIR_Func *fn = module->funcs[i];
+        if (!fn || !fn->name || fn->is_extern) continue;
+        const char *default_name = emit_mangle_func_name_raw(fn->name, arena);
+        if (shgeti(g_reserved_c_names, default_name) < 0) continue;
+
+        size_t name_len = strlen(fn->name);
+        char *candidate = NULL;
+        for (size_t prefix_len = 2; prefix_len < 66; prefix_len++) {
+            char *ir_name = malloc(prefix_len + name_len + 1);
+            if (!ir_name) iron_oom_abort("emit_helpers.c:emit_plan_func_c_renames");
+            memset(ir_name, 'u', prefix_len - 1);
+            ir_name[prefix_len - 1] = '_';
+            memcpy(ir_name + prefix_len, fn->name, name_len + 1);
+            const char *c_name = emit_mangle_func_name_raw(ir_name, arena);
+            if (shgeti(used, c_name) < 0) {
+                candidate = strdup(c_name);
+                free(ir_name);
+                if (!candidate)
+                    iron_oom_abort("emit_helpers.c:emit_plan_func_c_renames");
+                break;
+            }
+            free(ir_name);
+        }
+        if (!candidate)
+            iron_oom_abort("emit_helpers.c:emit_plan_func_c_renames exhausted names");
+        shput(used, candidate, true);
+        shput(g_func_c_renames, fn->name, candidate);
+    }
+    shfree(used);
+}
+
+const char *emit_mangle_func_name(const char *name, Iron_Arena *arena) {
+    if (name && g_func_c_renames) {
+        ptrdiff_t index = shgeti(g_func_c_renames, name);
+        if (index >= 0) return g_func_c_renames[index].value;
+    }
+    return emit_mangle_func_name_raw(name, arena);
 }
 
 /* Resolve a function IR name to its C symbol, honoring extern_c_name.
@@ -1966,11 +2001,59 @@ static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
         if (emit_type_is_bvec(ft) && bvec_needs_glue(ctx, ft, want_copy)) return true;
         if (ft->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, ft, want_copy)) return true;
         if (ft->kind == IRON_TYPE_ENUM && enum_needs_glue(ctx, ft, want_copy)) return true;
+        if (ft->kind == IRON_TYPE_TUPLE && tuple_needs_glue(ctx, ft, want_copy)) return true;
         if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
             od_lifecycle_rec(ctx, ft->object.decl, want_copy, depth + 1))
             return true;
     }
     return false;
+}
+
+/* A tuple whose elements own something (#450): drop and copy glue apply
+ * each element's, as an object's apply its fields'. */
+bool tuple_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
+    if (!t || t->kind != IRON_TYPE_TUPLE) return false;
+    for (int i = 0; i < t->tuple.elem_count; i++) {
+        const Iron_Type *et = t->tuple.elem_types ? t->tuple.elem_types[i] : NULL;
+        if (!et) continue;
+        if (emit_type_is_rc_like(et) || emit_field_is_owned_list(et)) return true;
+        if (emit_type_is_string_like(et)) return true;
+        if (!want_copy && emit_field_is_box(et)) return true;
+        if (et->kind == IRON_TYPE_FUNC) return true;
+        if (et->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, et, want_copy)) return true;
+        if (emit_type_is_bvec(et) && bvec_needs_glue(ctx, et, want_copy)) return true;
+        if (et->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, et, want_copy)) return true;
+        if (et->kind == IRON_TYPE_ENUM && enum_needs_glue(ctx, et, want_copy)) return true;
+        if (et->kind == IRON_TYPE_TUPLE && tuple_needs_glue(ctx, et, want_copy)) return true;
+        if (et->kind == IRON_TYPE_OBJECT && et->object.decl &&
+            od_lifecycle_rec(ctx, et->object.decl, want_copy, 1))
+            return true;
+    }
+    return false;
+}
+
+void emit_ensure_tuple_glue(EmitCtx *ctx, const Iron_Type *t, bool drop) {
+    if (!ctx || !tuple_needs_glue(ctx, t, !drop)) return;
+    const char *tc = emit_type_to_c((Iron_Type *)t, ctx);
+    char **done = drop ? ctx->emitted_drops : ctx->emitted_copy_fixups;
+    for (int i = 0; i < (int)arrlen(done); i++)
+        if (strcmp(done[i], tc) == 0) return;
+    char *name_copy = iron_arena_strdup(ctx->arena, tc, strlen(tc));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_tuple_glue");
+    if (drop) arrput(ctx->emitted_drops, name_copy);
+    else      arrput(ctx->emitted_copy_fixups, name_copy);
+    Iron_StrBuf body = iron_strbuf_create(128);
+    for (int i = 0; i < t->tuple.elem_count; i++) {
+        char lv[32];
+        snprintf(lv, sizeof(lv), "self->v%d", i);
+        emit_elem_lifecycle_stmt(ctx, &body, t->tuple.elem_types[i], lv, drop);
+    }
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static void %s_%s(%s *self) {\n"
+        "%s"
+        "}\n\n",
+        tc, drop ? "drop" : "copied", tc, iron_strbuf_get(&body));
+    iron_strbuf_free(&body);
 }
 
 bool bvec_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
@@ -2033,6 +2116,11 @@ void emit_elem_lifecycle_stmt(EmitCtx *ctx, Iron_StrBuf *sb, const Iron_Type *et
     } else if (et->kind == IRON_TYPE_NULLABLE) {
         if (!optional_needs_glue(ctx, et, !drop)) return;
         emit_ensure_optional_glue(ctx, et, drop);
+        iron_strbuf_appendf(sb, "        %s_%s(&%s);\n", emit_type_to_c((Iron_Type *)et, ctx),
+                            drop ? "drop" : "copied", lv);
+    } else if (et->kind == IRON_TYPE_TUPLE) {
+        if (!tuple_needs_glue(ctx, et, !drop)) return;
+        emit_ensure_tuple_glue(ctx, et, drop);
         iron_strbuf_appendf(sb, "        %s_%s(&%s);\n", emit_type_to_c((Iron_Type *)et, ctx),
                             drop ? "drop" : "copied", lv);
     } else if (et->kind == IRON_TYPE_ENUM) {

@@ -101,7 +101,7 @@ typedef struct {
 
 static const IronSubSummary IRON_SUB_SUMMARIES[] = {
     { "build",   "Compile the package" },
-    { "run",     "Compile and execute" },
+    { "run",     "Compile and execute; program arguments go after -- (run <file.iron> -- args)" },
     { "check",   "Type-check without emitting code" },
     { "fmt",     "Format source files" },
     { "test",    "Run package tests" },
@@ -179,7 +179,10 @@ void iron_help_print_subcommand(const char *prog, const char *sub, FILE *out) {
     } else {
         fprintf(out, "%s %s\n\n", prog, sub);
     }
-    fprintf(out, "Usage:\n  %s %s [flags] [args]\n\n", prog, sub);
+    if (strcmp(sub, "run") == 0)
+        fprintf(out, "Usage:\n  %s run [flags] <file.iron> [-- program arguments]\n\n", prog);
+    else
+        fprintf(out, "Usage:\n  %s %s [flags] [args]\n\n", prog, sub);
 
     const IronCliFlag *sorted[64];
     int n = collect_sorted(sub, sorted, 64);

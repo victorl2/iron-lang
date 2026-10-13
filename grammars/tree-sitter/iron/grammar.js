@@ -896,7 +896,7 @@ module.exports = grammar({
 
     // Iron's lexer decodes \n \t \\ \" \{ \} \u{HEX} and keeps any other
     // backslash pair as written (`"\0"`), so every pair is one token here.
-    escape_sequence: $ => token.immediate(/\\(u\{[0-9a-fA-F]{1,6}\}|[0-9A-Za-z"\\{}])/),
+    escape_sequence: $ => token.immediate(/\\(u\{[0-9a-fA-F]{1,6}\}|x[0-9a-fA-F]{2}|[0-9A-Za-z"\\{}])/),
 
     // NOTE: interpolated strings appear in the parse tree as
     // (string_literal (interpolation ...)) — queries/highlights.scm + folds.scm

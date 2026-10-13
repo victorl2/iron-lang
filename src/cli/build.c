@@ -2365,6 +2365,7 @@ int iron_build(const char *source_path, const char *output_path,
      * and synthesizes a main() wrapper + frame callback for the function whose
      * fn->web_frame_captures was populated by iron_lir_web_main_loop_split. */
     const char *c_src;
+    reserve_runtime_symbols();
     if (opts.target == IRON_TARGET_WEB) {
         c_src = emit_web_module(ir_module, &arena, &diags, &optimize_info,
                                 &analysis.iface_registry,

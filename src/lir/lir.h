@@ -218,7 +218,7 @@ struct IronLIR_Instr {
         /* IRON_LIR_CONST_BOOL */
         struct { bool value; } const_bool;
         /* IRON_LIR_CONST_STRING */
-        struct { const char *value; } const_str;
+        struct { const char *value; size_t len; } const_str;   /* len 0: strlen(value) */
         /* IRON_LIR_CONST_NULL */
         struct { int _pad; } const_null;
 

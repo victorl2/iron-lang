@@ -136,16 +136,39 @@ A string literal is at most 4095 bytes. The escape sequences are:
 
 | Escape | Meaning |
 |---|---|
-| `\n` | newline |
-| `\t` | tab |
+| `\n` | newline (byte 10) |
+| `\r` | carriage return (byte 13) |
+| `\t` | tab (byte 9) |
+| `\0` | the zero byte |
+| `\xHH` | the byte `HH`: exactly two hex digits, `\x00` to `\xFF` |
 | `\\` | backslash |
 | `\"` | double quote |
 | `\{` and `\}` | literal braces (not interpolation) |
 | `\u{H}` | the Unicode scalar `H` (1 to 6 hex digits), encoded as UTF-8 |
 
 Any other character after a backslash is kept together with the backslash.
-A literal cannot contain the zero byte: `\u{0}` is an error (`E0002`);
-build such strings with `String.from_byte(0)`.
+`\0` is only the zero byte: a digit after it is an ordinary character
+(`"\012"` is the three bytes 0, `1`, `2`; there are no octal escapes). A
+`\x` that is not followed by two hex digits, and a `\u` that does not
+name a Unicode scalar, are errors (`E0002`).
+
+`\xHH` writes one byte, not a character. A string holds bytes (binary
+data is a `String`, section 9.12), so every value is allowed, but a byte
+from `\x80` to `\xFF` on its own is not UTF-8 text: write characters as
+`\u{...}` (`"\u{e9}"` is the two bytes `\xC3\xA9`) and keep `\x80` and
+above for binary data. A literal may contain zero bytes anywhere; they are
+part of its value and its `byte_len()`:
+
+```iron
+func main() {
+    val s = "a\0b\x41\r\n"
+    println("{s.byte_len()} {s.byte_at(1)} {s.byte_at(3)} {s.byte_at(4)}")
+}
+```
+
+```output
+6 0 65 13
+```
 
 A string literal that contains an unescaped `{` is an **interpolated
 string**: each `{expression}` is evaluated and its text spliced in (section
@@ -241,7 +264,7 @@ strings.
 | `Float` | 64-bit IEEE double (the default float type) |
 | `Float32`, `Float64` | floats of the given width |
 | `Bool` | `true` or `false` |
-| `String` | an immutable sequence of Unicode characters, stored as UTF-8 |
+| `String` | an immutable sequence of Unicode characters, stored as UTF-8 (it may also hold arbitrary bytes, section 1.4) |
 | `Void` | the result type of a function without `-> T` (never written) |
 
 Arithmetic on the same integer type wraps on overflow (two's complement).
@@ -258,7 +281,7 @@ Iterating a string with `for` yields one-character strings.
 
 `T?` is a type whose values are either a `T` or `null`. A nullable type can
 be written for any non-pointer type (`Int?`, `String?`, `Node?`,
-`Result[Int, String]?`). A plain `T` converts to `T?` implicitly, so a
+`Result[Int, String]?`, `[Int]?` for a list that may be absent). A plain `T` converts to `T?` implicitly, so a
 function declared `-> Int?` may `return i` or `return null`. Reading a
 field or calling a method through a nullable value without checking it
 first is an error (`E0204`); compare with `null` first. `x != null`
@@ -308,6 +331,41 @@ found at 2
 missing
 now
 true true true
+```
+
+A nullable list `[T]?` (or a nullable map, set, or object holding a list)
+follows the list ownership rules of section 2.3: it has one owner, so
+binding it to a second name, storing it in a field or returning a
+parameter is an error (`E0328`); check it for `null`, then write
+`xs.copy()` or `xs.take()`. A function returning `[T]?` returns a fresh
+list or `null`:
+
+```iron
+func evens(n: Int) -> [Int]? {
+    if n < 0 {
+        return null
+    }
+    var out: [Int] = []
+    for i in range(n) {
+        if i % 2 == 0 {
+            out.push(i)
+        }
+    }
+    return out
+}
+
+func main() {
+    val xs = evens(5)
+    if xs != null {
+        println("{xs.len()} {xs[2]}")
+    }
+    println("{evens(-1) == null}")
+}
+```
+
+```output
+3 4
+true
 ```
 
 A nullable type may also be the element type of a list, fixed array or
@@ -365,7 +423,10 @@ reference `weak rc T?` (section 6.3).
 ### 2.3 Lists, fixed arrays and bounded vectors
 
 `[T]` is a growable list of `T`. `[T; N]` is a fixed-size array of exactly
-`N` elements, where `N` is an integer constant. `[T; <=N]` is a bounded
+`N` elements, where `N` is an integer constant: a literal or constant
+expression (`[Int; 2 * 8]`), a `comptime` expression (section 8), or the
+name of a global `val` holding one of these (`val N = comptime size(3)`,
+then `[Int; N]`); anything else is an error (`E0202`). `[T; <=N]` is a bounded
 vector: a list that can hold at most `N` elements and whose storage is
 inline. All three are indexed with `xs[i]` from 0, checked at run time
 (an out-of-range index panics; a constant out-of-range index on a fixed
@@ -524,8 +585,13 @@ dot1 dot3 square2
 `(T1, T2, ...)` with at least two element types is a tuple type. A tuple
 value is written `(a, b)`. Tuples are used to return several values; they
 are taken apart with a destructuring `val` (section 4.2) and have no other
-operations (there is no positional access). Where a tuple type is expected (a
-return, an argument, an annotated binding), each element of a tuple literal
+operations (there is no positional access). A tuple owns its elements like
+an object its fields: a tuple binding releases them when it goes out of
+scope, destructuring a call's result moves the elements into the new
+bindings, and destructuring a tuple binding copies them (a list element
+gets a copy of its own), so the binding can be taken apart again.
+Where a tuple type is expected (a return, an argument, an annotated binding),
+each element of a tuple literal
 converts to its component as it would to a binding of that type: a plain
 `T` or `null` fills a `T?` component (`return (null, "none")` from a
 function returning `(Int?, String)`). A tuple that holds a list, map or set
@@ -792,7 +858,8 @@ value that has a text form may be interpolated: numbers, booleans,
 strings, enums (the variant name), objects with a
 `readonly func to_string() -> String` method (through that method, also
 behind `rc`), the nullable forms of all of these (`null` when there is no
-value), and the results of calls and field accesses. Interpolating a
+value; for an object `T?` or `rc T?`, `to_string()` runs only when there is
+a value), and the results of calls and field accesses. Interpolating a
 value with no text form, such as an object without `to_string()`, is an
 error (`E0334`). Floats print the shortest
 decimal that reads back to the same value, without a trailing `.0`
@@ -1351,14 +1418,17 @@ func name[T, U](p1: T1, var p2: T2) -> R { body }
 Parameters are `val` by default: a parameter cannot be reassigned or
 mutated (`E0266`, `E0234`). A parameter declared `var` is a copy that the
 body may assign to and mutate; when the function returns, the final value
-is written back to the caller's `var` binding, so `var` parameters behave
-like in-out arguments. A list parameter is lent (never copied); a `var`
-list parameter lets the body grow or shrink the caller's list. Objects are
-passed by value. The result type follows `->`; omit it for a function that
-returns nothing. Argument count and types must match exactly (`E0216`,
-`E0217`). Functions cannot be overloaded (`E0201`) and there are no default
-or named arguments. Type parameters are written after the name (section
-2.8).
+is written back to the caller's mutable place (a `var` binding, a mutable
+field through a mutable object, or an element of a mutable collection), so
+`var` parameters behave
+like in-out arguments; the same holds for a `var` parameter of a method or
+an `init`, and the argument must be a mutable place (`E0267`). A list
+parameter is lent (never copied); a `var` list parameter lets the body grow
+or shrink the caller's list. Objects are passed by value. The result type
+follows `->`; omit it for a function that returns nothing. Argument count
+and types must match exactly (`E0216`, `E0217`). Functions cannot be
+overloaded (`E0201`) and there are no default or named arguments. Type
+parameters are written after the name (section 2.8).
 
 ```iron
 object Point {
@@ -2560,9 +2630,15 @@ interpolation, bitwise operators and shifts, conversions such as
 enum values, and `heap` or `rc` allocation are not available at compile
 time (`E0231`); an error while evaluating, such as an integer division by
 zero or an index out of range, is `E0232` (a float divided by zero is an
-infinity or NaN, as at run time). Evaluation is limited to one million
+infinity or NaN, as at run time, and `%` on floats is the exact remainder
+`fmod` with the sign of the dividend: `5.5 % 2.0` is `1.5`, `-5.5 % 2.0`
+is `-1.5`, and a zero divisor gives NaN). Evaluation is limited to one million
 steps and to calls nested 256 deep (`E0230`). The result is typically
-bound to a global `val`.
+bound to a global `val`. A `comptime` expression that sizes a fixed array
+or bounded vector (`[Int; N]` with `val N = comptime f(3)`, or `[Int;
+comptime f(3)]`) is evaluated while that type is checked, before the other
+compile-time evaluations; it must produce an `Int`, and does not read
+files.
 
 ```iron
 val TABLE_SIZE = comptime (64 * 4)
@@ -2604,7 +2680,10 @@ The standard library is a set of Iron declarations (in `src/stdlib/`)
 whose bodies are provided by the C runtime. Modules marked *import* must be
 imported by name (section 5.9); the rest is always available. Functions on a
 module object are called as `Module.function(args)`; methods are called on
-values.
+values. A module function may be generic, like a top-level function
+(section 5.2): its type arguments are inferred from the arguments, as in
+`Json.encode_list(points)` (`func Json.encode_list[T: JsonEncodable](xs:
+[T]) -> String`).
 
 ### 9.1 Built-in functions
 
@@ -2724,6 +2803,10 @@ Methods on `[T]` (and, where noted, on fixed arrays, bounded vectors and
 | `forEach(f: func(T))` | call `f` on each element |
 | `sum() -> T` | sum of an `[Int]` or `[Float]` |
 
+`pop()` on an empty list panics ("pop from an empty list"), and `get`,
+`set`, `remove`, `insert` and `xs[i]` with an index out of range panic
+("index out of bounds"), naming the Iron line of the call; this holds for
+every element type, lists of interface values included.
 A slice `xs[a..b]` must lie within the list with `a <= b`; anything else
 is an index out of bounds panic, like `xs[i]`. `contains` compares with
 `==`, so a list never contains NaN.
@@ -3264,6 +3347,12 @@ picks the path), `ironc run file.iron` compiles and runs it, and
 file.iron` and `iron check file.iron` do the same. A single file may
 `import` only standard library modules.
 
+Program arguments go after `--`: `ironc run file.iron -- a b` runs the
+program with `args` holding `a` and `b` (section 5.1). Any other
+argument after the source file is an error ("unexpected argument"), as
+is an unknown flag, so a forgotten `--` is reported instead of silently
+dropping the arguments.
+
 ### 10.2 Packages
 
 `iron init name` (or `iron init --lib name`) creates a package: a
@@ -3672,7 +3761,7 @@ type           ::= 'weak' 'rc' type
                  | named_type
 ptr_type       ::= '*' [ 'var' ] [ 'unchecked' ] type
 tuple_type     ::= '(' type ',' type { ',' type } ')'
-list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']'
+list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']' [ '?' ]
 elem_type      ::= func_type | 'rc' type | 'weak' 'rc' type | list_type | ptr_type | tuple_type | named_type
 list_attr      ::= 'layout' ':' ( 'soa' | 'aos' ) | 'unordered'
 func_type      ::= 'func' [ '(' [ type { ',' type } ] ')' ] [ '->' type ]

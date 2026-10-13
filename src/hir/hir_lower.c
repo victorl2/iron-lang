@@ -122,10 +122,6 @@ typedef struct {
      *                      filtered lambda/spawn capture, or transitively
      *                      from another active global's initializer). */
     struct { char *key; Iron_Node *value; } *global_decls_map;
-    /* A free function of the program whose name is a method's lowered name
-     * (`log_info` and the standard library's Log.info, a user object Log
-     * with a method info): it is lowered as u_<name> (#524). */
-    struct { Iron_Node *key; const char *value; } *func_renames;
     const char                             **global_decl_order; /* stb_ds array */
     struct { char *key; int value; }        *global_active_set;
 
@@ -141,6 +137,14 @@ typedef struct {
      * one thunk per function. The callee of a call is not a value use. */
     struct { char *key; int value; } *fnref_thunks;
     bool             lowering_callee;
+
+    /* User functions whose own name would collide with a name the compiler
+     * generates (#481): a method (`sq_area` for Sq.area), a global, a
+     * lifted or runtime name, a type-derived helper. Their HIR (and so C)
+     * name is a fresh one; see plan_user_func_names. Keyed by the
+     * declaration and by the source name. */
+    struct { Iron_Node *key; const char *value; } *func_renames;
+    struct { char *key; const char *value; } *func_renames_by_name;
 } IronHIR_LowerCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -250,12 +254,6 @@ static void hir_block_insert_stmt_at(IronHIR_Block *block, int pos,
         block->stmts[i] = block->stmts[i - 1];
     block->stmts[pos] = stmt;
     block->stmt_count = (int)arrlen(block->stmts);
-}
-
-/* The HIR name of a free function (see func_renames). */
-static const char *func_hir_name(IronHIR_LowerCtx *ctx, Iron_FuncDecl *fd) {
-    ptrdiff_t i = hmgeti(ctx->func_renames, (Iron_Node *)fd);
-    return i >= 0 ? ctx->func_renames[i].value : fd->name;
 }
 
 /* Mark a module-level binding as referenced. Only active globals get a
@@ -639,6 +637,114 @@ static IronHIR_Func *find_hir_func(IronHIR_Module *mod, const char *name) {
         if (strcmp(mod->funcs[i]->name, name) == 0) return mod->funcs[i];
     }
     return NULL;
+}
+
+/* ── User function names (#481) ──────────────────────────────────────────
+ * A user function is emitted as Iron_<name>, the namespace the compiler
+ * also fills with methods (Iron_<type>_<method>, the type lowercased up to
+ * its first underscore), globals (Iron_g_<name>), type-derived helpers
+ * (Iron_Optional_T, Iron_<Iface>_from_<T>, ...), and names it keeps
+ * verbatim (lifted __lambda_N, iron_* runtime calls). A function whose name
+ * could be one of those gets a fresh name instead, so a user name never
+ * takes a generated one: `func sq_area` next to `Sq.area` was one HIR
+ * function with one of the two bodies lost. */
+
+/* The HIR name of method `type_name.method_name`. */
+static void method_hir_name(char *out, size_t cap, const char *type_name,
+                            const char *method_name) {
+    snprintf(out, cap, "%s_%s", type_name, method_name);
+    for (int ci = 0; out[ci] && out[ci] != '_'; ci++)
+        if (out[ci] >= 'A' && out[ci] <= 'Z') out[ci] = (char)(out[ci] + ('a' - 'A'));
+}
+
+typedef struct { char *key; int value; } NameSet;
+
+static bool user_func_name_reserved(const char *n, NameSet *methods, NameSet *users) {
+    static const char *const prefixes[] = {
+        "__", "lambda_", "spawn_", "parallel_", "iron_", "Iron_", "g_",
+    };
+    for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++)
+        if (strncmp(n, prefixes[i], strlen(prefixes[i])) == 0) return true;
+    /* Types and the helpers derived from them start upper case. */
+    if (n[0] >= 'A' && n[0] <= 'Z') return true;
+    if (shgeti(methods, n) >= 0) return true;
+    return users && shgeti(users, n) >= 0;
+}
+
+static bool user_func_renamable(Iron_FuncDecl *fd) {
+    if (!fd->name || fd->is_extern || fd->is_test || strcmp(fd->name, "main") == 0)
+        return false;
+    /* Runtime stubs keep their names: they are C functions of that name.
+     * (A standard library function written in Iron, or an instance of a
+     * generic one, is renamed like a user function.) */
+    if (fd->body && fd->body->kind == IRON_NODE_BLOCK &&
+        ((Iron_Block *)fd->body)->stmt_count == 0 &&
+        iron_stdlib_origin_is_stub_file(fd->span.filename))
+        return false;
+    return true;
+}
+
+static void plan_user_func_names(IronHIR_LowerCtx *ctx) {
+    NameSet *methods = NULL, *users = NULL;
+    sh_new_strdup(methods);   /* keys are copied: method names are built in a buffer */
+    sh_new_strdup(users);
+    sh_new_strdup(ctx->func_renames_by_name);
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d) continue;
+        if (d->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+            if (!md->type_name || !md->method_name) continue;
+            char mn[512];
+            method_hir_name(mn, sizeof(mn), md->type_name, md->method_name);
+            shput(methods, mn, 1);
+        } else if (d->kind == IRON_NODE_FUNC_DECL && ((Iron_FuncDecl *)d)->name) {
+            shput(users, ((Iron_FuncDecl *)d)->name, 1);
+        }
+    }
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_FUNC_DECL) continue;
+        Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+        if (!user_func_renamable(fd) || !user_func_name_reserved(fd->name, methods, NULL))
+            continue;
+        /* `u` prefixes until the name is free: lower case, so it is no
+         * type's, and checked against every method and function name. */
+        size_t n = strlen(fd->name);
+        char *fresh = NULL;
+        for (int k = 1; k < 64; k++) {
+            char *cand = (char *)iron_arena_alloc(ctx->module->arena, n + (size_t)k + 1, 1);
+            if (!cand) iron_oom_abort("hir_lower.c:plan_user_func_names");
+            memset(cand, 'u', (size_t)k);
+            memcpy(cand + k, fd->name, n + 1);
+            if (!user_func_name_reserved(cand, methods, users)) { fresh = cand; break; }
+        }
+        if (!fresh) continue;
+        shput(users, fresh, 1);
+        hmput(ctx->func_renames, d, fresh);
+        shput(ctx->func_renames_by_name, fd->name, fresh);
+    }
+    shfree(methods);
+    shfree(users);
+}
+
+/* The HIR name of user function `fd`. */
+static const char *user_func_hir_name(IronHIR_LowerCtx *ctx, Iron_FuncDecl *fd) {
+    ptrdiff_t i = hmgeti(ctx->func_renames, (Iron_Node *)fd);
+    return i >= 0 ? ctx->func_renames[i].value : fd->name;
+}
+
+/* The HIR name a reference to the function `id` names. */
+static const char *func_ref_hir_name(IronHIR_LowerCtx *ctx, Iron_Ident *id) {
+    if (!ctx->func_renames) return id->name;
+    Iron_Node *decl = id->resolved_sym ? id->resolved_sym->decl_node : NULL;
+    if (decl) {
+        ptrdiff_t i = hmgeti(ctx->func_renames, decl);
+        if (i >= 0) return ctx->func_renames[i].value;
+        if (decl->kind == IRON_NODE_FUNC_DECL) return id->name;
+    }
+    ptrdiff_t j = shgeti(ctx->func_renames_by_name, id->name);
+    return j >= 0 ? ctx->func_renames_by_name[j].value : id->name;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -2024,7 +2130,9 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── String literal ──────────────────────────────────────────────────── */
     case IRON_NODE_STRING_LIT: {
         Iron_StringLit *lit = (Iron_StringLit *)node;
-        return iron_hir_expr_string_lit(mod, lit->value, lit->resolved_type, span);
+        IronHIR_Expr *se = iron_hir_expr_string_lit(mod, lit->value, lit->resolved_type, span);
+        se->string_lit.len = lit->len;   /* may hold zero bytes (#453) */
+        return se;
     }
 
     /* ── Interpolated string ─────────────────────────────────────────────── */
@@ -2040,6 +2148,26 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 type_is_scalar_pointee(p->type->ptr.pointee)) {
                 p = iron_hir_expr_deref(mod, p, ptr_gen_source(is->parts[i]),
                                         p->type->ptr.pointee, span);
+            }
+            /* A T? of an object with to_string() (#451, the checker allowed
+             * it) prints "null" or the method's text. The part becomes
+             * `$opt_to_string(p, v.to_string())`: hir_to_lir evaluates p
+             * once, and only when it is not null binds v to its payload
+             * and runs the call. */
+            if (p && p->type && p->type->kind == IRON_TYPE_NULLABLE &&
+                p->type->nullable.inner &&
+                (p->type->nullable.inner->kind == IRON_TYPE_OBJECT ||
+                 (p->type->nullable.inner->kind == IRON_TYPE_RC &&
+                  p->type->nullable.inner->rc.inner &&
+                  p->type->nullable.inner->rc.inner->kind == IRON_TYPE_OBJECT))) {
+                Iron_Type *inner = p->type->nullable.inner;
+                Iron_Type *str_t = iron_type_make_primitive(IRON_TYPE_STRING);
+                IronHIR_VarId vid = iron_hir_alloc_var(mod, "__interp_opt", inner, false);
+                IronHIR_Expr *recv = iron_hir_expr_ident(mod, vid, "__interp_opt", inner, span);
+                IronHIR_Expr **cargs = NULL;
+                arrput(cargs, iron_hir_expr_method_call(mod, recv, "to_string", NULL, 0,
+                                                        str_t, span));
+                p = iron_hir_expr_method_call(mod, p, "$opt_to_string", cargs, 1, str_t, span);
             }
             /* FIX-03 / AUDIT-04 §7: SAFETY — lower_expr_hir may return NULL
              * (e.g., unrecognized inner node kind); storing NULL here is
@@ -2181,24 +2309,22 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             }
         }
 
-        /* 4. Function reference: check module funcs */
-        const char *fname = id->name;
-        if (id->resolved_sym && id->resolved_sym->decl_node &&
-            id->resolved_sym->decl_node->kind == IRON_NODE_FUNC_DECL)
-            fname = func_hir_name(ctx, (Iron_FuncDecl *)id->resolved_sym->decl_node);
+        /* 4. Function reference: check module funcs (a renamed user
+         * function by its own HIR name, #481). */
+        const char *fn_name = func_ref_hir_name(ctx, id);
         for (int i = 0; i < mod->func_count; i++) {
-            if (strcmp(mod->funcs[i]->name, fname) == 0) {
+            if (strcmp(mod->funcs[i]->name, fn_name) == 0) {
                 if (!ctx->lowering_callee && id->resolved_type &&
                     id->resolved_type->kind == IRON_TYPE_FUNC &&
                     !mod->funcs[i]->is_extern)
-                    return make_func_value(ctx, fname, id->resolved_type, span);
-                return iron_hir_expr_func_ref(mod, fname,
+                    return make_func_value(ctx, fn_name, id->resolved_type, span);
+                return iron_hir_expr_func_ref(mod, fn_name,
                                               id->resolved_type, span);
             }
         }
 
         /* 5. Unresolved — emit func_ref as fallback for extern/builtin names */
-        return iron_hir_expr_func_ref(mod, id->name, id->resolved_type, span);
+        return iron_hir_expr_func_ref(mod, fn_name, id->resolved_type, span);
     }
 
     /* ── Binary expression ───────────────────────────────────────────────── */
@@ -2984,45 +3110,8 @@ static void lower_block_hir(IronHIR_LowerCtx *ctx, Iron_Block *block,
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 
-/* Methods lower to <type, lowercased up to the first _>_<method>; a free
- * function of the program with that name is renamed (#524). */
-static void plan_func_renames(IronHIR_LowerCtx *ctx) {
-    struct { char *key; bool value; } *mnames = NULL;
-    for (int i = 0; i < ctx->program->decl_count; i++) {
-        Iron_Node *d = ctx->program->decls[i];
-        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
-        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
-        if (!md->type_name || !md->method_name) continue;
-        char mangled[256];
-        snprintf(mangled, sizeof(mangled), "%s_%s", md->type_name, md->method_name);
-        for (int ci = 0; mangled[ci] && mangled[ci] != '_'; ci++)
-            if (mangled[ci] >= 'A' && mangled[ci] <= 'Z')
-                mangled[ci] = (char)(mangled[ci] + ('a' - 'A'));
-        if (shgeti(mnames, mangled) < 0) {
-            char *k = iron_arena_strdup(ctx->module->arena, mangled, strlen(mangled));
-            if (k) shput(mnames, k, true);
-        }
-    }
-    for (int i = 0; i < ctx->program->decl_count; i++) {
-        Iron_Node *d = ctx->program->decls[i];
-        if (!d || d->kind != IRON_NODE_FUNC_DECL) continue;
-        Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
-        if (!fd->name || fd->is_extern || strcmp(fd->name, "main") == 0 ||
-            iron_stdlib_origin_classify(fd->span.filename) != 0)
-            continue;
-        if (shgeti(mnames, fd->name) < 0) continue;
-        size_t n = strlen(fd->name) + 3;
-        char *rn = (char *)iron_arena_alloc(ctx->module->arena, n, 1);
-        if (!rn) iron_oom_abort("hir_lower.c:plan_func_renames");
-        snprintf(rn, n, "u_%s", fd->name);
-        hmput(ctx->func_renames, (Iron_Node *)fd, rn);
-    }
-    shfree(mnames);
-}
-
 static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
     IronHIR_Module *mod = ctx->module;
-    plan_func_renames(ctx);
 
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *decl = ctx->program->decls[i];
@@ -3038,7 +3127,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             if (!ret_ty) {
                 ret_ty = resolve_type_ann(ctx, fd->return_type);
             }
-            IronHIR_Func *f = iron_hir_func_create(mod, func_hir_name(ctx, fd),
+            IronHIR_Func *f = iron_hir_func_create(mod, user_func_hir_name(ctx, fd),
                                                      params, fd->param_count,
                                                      ret_ty);
             f->is_extern    = fd->is_extern;
@@ -3439,7 +3528,7 @@ static void lower_func_body_hir(IronHIR_LowerCtx *ctx,
                                  Iron_FuncDecl *fd) {
     if (!fd->body) return;  /* extern func — no body */
 
-    IronHIR_Func *fn = find_hir_func(ctx->module, func_hir_name(ctx, fd));
+    IronHIR_Func *fn = find_hir_func(ctx->module, user_func_hir_name(ctx, fd));
     if (!fn) return;
 
     ctx->current_func             = fn;
@@ -4014,6 +4103,7 @@ IronHIR_Module *iron_hir_lower(Iron_Program *program, Iron_Scope *global_scope,
     ctx.module       = module;
 
     /* Pass 1: register declarations + collect top-level bindings */
+    plan_user_func_names(&ctx);
     lower_module_decls_hir(&ctx);
 
     /* Pass 2: lower function bodies */
@@ -4065,8 +4155,9 @@ IronHIR_Module *iron_hir_lower(Iron_Program *program, Iron_Scope *global_scope,
     shfree(ctx.global_decls_map);
     arrfree(ctx.global_decl_order);
     shfree(ctx.global_active_set);
-    hmfree(ctx.func_renames);
     shfree(ctx.fnref_thunks);
+    hmfree(ctx.func_renames);
+    shfree(ctx.func_renames_by_name);
 
     /* Verify the output module */
     Iron_DiagList verify_diags;

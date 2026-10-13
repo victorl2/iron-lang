@@ -330,6 +330,7 @@ const char *emit_web_module(IronLIR_Module *module, Iron_Arena *arena,
                             bool report_compression) {
     if (!module) return NULL;
     if (diags && diags->error_count > 0) return NULL;
+    emit_plan_func_c_renames(module, arena);
 
     /* ── Initialize context (mirrors iron_lir_emit_c lines 5510-5530) ─────── */
     EmitCtx ctx;

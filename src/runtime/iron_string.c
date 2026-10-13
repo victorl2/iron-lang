@@ -46,6 +46,11 @@ static void iron__str_free(Iron_String *s) {
 /* Key: heap-allocated C string (owned by the table)
  * Value: the interned Iron_String (which points into the same key buffer) */
 static struct { char *key; Iron_String value; } *s_intern_table = NULL;
+/* Interned strings that hold a zero byte (`"a\0b"`, #453): the table
+ * above is keyed by C string, which would make them equal to their prefix.
+ * They are rare (literals with `\0` or `\x00`), so a list searched by
+ * length and bytes keeps them apart. */
+static Iron_String *s_intern_bin = NULL;
 
 static iron_mutex_t s_intern_lock;
 static iron_once_t s_intern_once = IRON_ONCE_INIT;
@@ -400,6 +405,24 @@ Iron_String iron_string_intern(Iron_String s) {
     iron__ensure_intern_lock();
     IRON_MUTEX_LOCK(s_intern_lock);
 
+    if (blen > 0 && memchr(cstr, 0, blen) != NULL) {
+        for (ptrdiff_t bi = 0; bi < arrlen(s_intern_bin); bi++) {
+            Iron_String *e = &s_intern_bin[bi];
+            if (iron_string_byte_len(e) == blen &&
+                memcmp(iron_string_cstr(e), cstr, blen) == 0) {
+                Iron_String existing = *e;
+                IRON_MUTEX_UNLOCK(s_intern_lock);
+                if (iron__str_counted(&s)) iron_string_release(&s);
+                return existing;
+            }
+        }
+        Iron_String bin = s;
+        if (blen > IRON_STRING_SSO_MAX) bin.heap.flags = 0x03; /* is_heap | is_interned */
+        arrput(s_intern_bin, bin);
+        IRON_MUTEX_UNLOCK(s_intern_lock);
+        return bin;
+    }
+
     ptrdiff_t idx = shgeti(s_intern_table, cstr);
     if (idx >= 0) {
         Iron_String existing = s_intern_table[idx].value;
@@ -601,6 +624,12 @@ void iron_runtime_shutdown(void) {
     }
     shfree(s_intern_table);
     s_intern_table = NULL;
+    for (ptrdiff_t i = 0; i < arrlen(s_intern_bin); i++) {
+        Iron_String *v = &s_intern_bin[i];
+        if ((v->heap.flags & 0x01) && v->heap.data) iron__str_free(v);
+    }
+    arrfree(s_intern_bin);
+    s_intern_bin = NULL;
     IRON_MUTEX_UNLOCK(s_intern_lock);
 }
 

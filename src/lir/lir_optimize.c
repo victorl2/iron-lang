@@ -1486,10 +1486,19 @@ static LirRecvLoadEntry *lir_collect_receiver_loads(IronLIR_Func *fn) {
                 chain = in->field.object;
             else if (in->kind == IRON_LIR_SET_INDEX && lir_vid_is_bvec(fn, in->index.array))
                 chain = in->index.array;   /* `bv[i] = x` writes inside the slot's vector */
-            if (chain == IRON_LIR_VALUE_INVALID) continue;
             IronLIR_ValueId root_load = IRON_LIR_VALUE_INVALID;
-            if (lir_storage_chain_root(fn, chain, &root_load) != IRON_LIR_VALUE_INVALID)
+            if (chain != IRON_LIR_VALUE_INVALID &&
+                lir_storage_chain_root(fn, chain, &root_load) != IRON_LIR_VALUE_INVALID)
                 hmput(set, root_load, true);
+            if (in->kind == IRON_LIR_CALL && in->call.args_by_addr) {
+                for (int ai = 0; ai < in->call.arg_count; ai++) {
+                    if (!in->call.args_by_addr[ai]) continue;
+                    root_load = IRON_LIR_VALUE_INVALID;
+                    if (lir_storage_chain_root(fn, in->call.args[ai], &root_load) !=
+                        IRON_LIR_VALUE_INVALID)
+                        hmput(set, root_load, true);
+                }
+            }
         }
     }
     return set;
@@ -1662,7 +1671,12 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                 if (in->kind == IRON_LIR_CALL && in->call.args_by_addr) {
                     for (int ai = 0; ai < in->call.arg_count; ai++) {
                         if (in->call.args_by_addr[ai]) {
-                            if (store_info) hmdel(store_info, in->call.args[ai]);
+                            IronLIR_ValueId root = lir_storage_chain_root(
+                                fn, in->call.args[ai], NULL);
+                            if (store_info && root != IRON_LIR_VALUE_INVALID)
+                                hmdel(store_info, root);
+                            else if (store_info)
+                                hmdel(store_info, in->call.args[ai]);
                         }
                     }
                 }
@@ -2048,6 +2062,17 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
                         if (idx >= 0) escaped[idx].value = true;
                     }
                 }
+                if (in->call.args_by_addr) {
+                    for (int ai = 0; ai < in->call.arg_count; ai++) {
+                        if (!in->call.args_by_addr[ai]) continue;
+                        IronLIR_ValueId root = lir_storage_chain_root(
+                            fn, in->call.args[ai], NULL);
+                        if (root != IRON_LIR_VALUE_INVALID) {
+                            ptrdiff_t idx = hmgeti(escaped, root);
+                            if (idx >= 0) escaped[idx].value = true;
+                        }
+                    }
+                }
                 break;
 
             case IRON_LIR_STORE:
@@ -2387,8 +2412,13 @@ static IronLIR_EscapeEntry *compute_observable_allocas(IronLIR_Func *fn) {
             if (in->kind == IRON_LIR_CALL && in->call.args_by_addr) {
                 for (int ai = 0; ai < in->call.arg_count; ai++) {
                     if (in->call.args_by_addr[ai] &&
-                        in->call.args[ai] != IRON_LIR_VALUE_INVALID)
+                        in->call.args[ai] != IRON_LIR_VALUE_INVALID) {
                         hmput(observable, in->call.args[ai], true);
+                        IronLIR_ValueId root = lir_storage_chain_root(
+                            fn, in->call.args[ai], NULL);
+                        if (root != IRON_LIR_VALUE_INVALID)
+                            hmput(observable, root, true);
+                    }
                 }
             }
             if (in->kind == IRON_LIR_CALL && in->call.self_by_addr &&

@@ -201,14 +201,13 @@ static void lower_impl_name(char *out, size_t cap, const char *name) {
     out[n] = '\0';
 }
 
-/* The site an edit helper's bounds panic reports: the C line, or in a
- * --debug build the helper's name with line 0, like the runtime's list
- * bodies: the panic then names the Iron line of the call (recorded by
- * iron_list_call_site) and does not trap inside the helper, since the
- * call site already ran the debug trap (#388, emit_debug_list_check). */
+/* The site an edit helper's bounds panic reports: the helper's name with
+ * line 0, like the runtime's list bodies, so the panic names the Iron line
+ * of the call (recorded by iron_list_call_site before every call, #418)
+ * and does not trap inside the helper under --debug, since the call site
+ * already ran the debug trap (#388, emit_debug_list_check). */
 static const char *split_site(char *buf, size_t cap, const char *iface_mangled,
                               const char *method) {
-    if (!iron_lir_emit_debug_build()) return "__FILE__, __LINE__";
     snprintf(buf, cap, "\"Iron_SplitList_%s_%s\", 0", iface_mangled, method);
     return buf;
 }

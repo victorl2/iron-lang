@@ -1,13 +1,9 @@
 -- The size of a fixed array must be an integer constant (manual 2.3): a
 -- name that is not one made `[Int; N]` a growable list. A comptime result
--- is not resolved before type checking either, so it is rejected too. (#504)
-val N = comptime size(3)
-
-func size(n: Int) -> Int {
-    return n * 2
-}
+-- is a constant (#504); a global var is not, so it is rejected.
+var n = 3
 
 func main() {
-    val arr: [Int; N] = [1, 2, 3]
+    val arr: [Int; n] = [1, 2, 3]
     println("{len(arr)}")
 }

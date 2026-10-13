@@ -334,6 +334,43 @@ void test_unicode_escape_invalid(void) {
     arrfree(toks);
 }
 
+/* #453 / #507: \r, \0 and \xHH. The value carries its byte length, so
+ * zero bytes do not end it. */
+void test_byte_escapes(void) {
+    Iron_Token *toks = lex("\"a\\0b\\x41\\x7f\\xFF\\r\\n\\012\"");
+    TEST_ASSERT_EQUAL(IRON_TOK_STRING, toks[0].kind);
+    TEST_ASSERT_EQUAL(0, diags.error_count);
+    TEST_ASSERT_EQUAL_UINT32(11, toks[0].value_len);
+    TEST_ASSERT_EQUAL_MEMORY("a\0bA\x7f\xff\r\n\0" "12", toks[0].value, 11);
+    arrfree(toks);
+}
+
+void test_unicode_escape_zero_allowed(void) {
+    Iron_Token *toks = lex("\"a\\u{0}b\"");
+    TEST_ASSERT_EQUAL(0, diags.error_count);
+    TEST_ASSERT_EQUAL_UINT32(3, toks[0].value_len);
+    TEST_ASSERT_EQUAL_MEMORY("a\0b", toks[0].value, 3);
+    arrfree(toks);
+}
+
+/* A brace written as a byte or Unicode escape is a literal brace, not an
+ * interpolation delimiter; marker bytes are stored behind the prefix. */
+void test_byte_escape_braces_and_markers(void) {
+    Iron_Token *toks = lex("\"{x}\\x7b\\u{7D}\\x01\\xff\\x00\"");
+    TEST_ASSERT_EQUAL(IRON_TOK_INTERP_STRING, toks[0].kind);
+    TEST_ASSERT_EQUAL(0, diags.error_count);
+    TEST_ASSERT_EQUAL_UINT32(10, toks[0].value_len);
+    TEST_ASSERT_EQUAL_MEMORY("{x}\x01\x02\xff\x01\xff\xff\0", toks[0].value, 10);
+    arrfree(toks);
+}
+
+void test_byte_escape_invalid(void) {
+    Iron_Token *toks = lex("\"\\x4\"");
+    TEST_ASSERT_EQUAL(1, diags.error_count);
+    TEST_ASSERT_EQUAL(IRON_ERR_INVALID_CHAR, diags.items[0].code);
+    arrfree(toks);
+}
+
 void test_bool_true(void) {
     Iron_Token *toks = lex("true");
     TEST_ASSERT_EQUAL(IRON_TOK_TRUE, toks[0].kind);
@@ -649,6 +686,10 @@ int main(void) {
     RUN_TEST(test_escaped_braces_plain_string);
     RUN_TEST(test_unicode_escape);
     RUN_TEST(test_unicode_escape_invalid);
+    RUN_TEST(test_byte_escapes);
+    RUN_TEST(test_unicode_escape_zero_allowed);
+    RUN_TEST(test_byte_escape_braces_and_markers);
+    RUN_TEST(test_byte_escape_invalid);
     RUN_TEST(test_bool_true);
     RUN_TEST(test_bool_false);
     RUN_TEST(test_null_literal);

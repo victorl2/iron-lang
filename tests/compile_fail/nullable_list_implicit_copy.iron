@@ -1,0 +1,12 @@
+-- Negative test: a nullable list has one owner, like a list (issue 452).
+-- Binding it to a second name shared the buffer and freed it twice.
+
+func names() -> [String]? {
+    return ["first heap string, long enough", "second"]
+}
+
+func main() {
+    val a = names()
+    val b = a
+    println("{a == null} {b == null}")
+}

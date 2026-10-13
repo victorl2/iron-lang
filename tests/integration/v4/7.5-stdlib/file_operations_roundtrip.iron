@@ -5,6 +5,7 @@ func main() {
     val source = "iron-file-ops-source.bin"
     val copied_path = "iron-file-ops-copy.bin"
     val moved_path = "iron-file-ops-moved.bin"
+    -- \0 is a zero byte, so the payload is 14 bytes of binary data.
     val payload = "binary\0payload"
     val written = IO.write_bytes(source, payload)
     val read = IO.read_bytes(source, 1024)
@@ -14,7 +15,7 @@ func main() {
     val moved_read = IO.read_bytes(moved_path, 1024)
     IO.delete_file(source)
     IO.delete_file(moved_path)
-    val success = written.error == 0 and read.error == 0 and read.data == payload and info.exists and info.is_file and copied.error == 0 and moved.error == 0 and moved_read.data == payload
+    val success = payload.byte_len() == 14 and payload.byte_at(6) == 0 and read.data.byte_len() == 14 and written.error == 0 and read.error == 0 and read.data == payload and info.exists and info.is_file and copied.error == 0 and moved.error == 0 and moved_read.data == payload
     FileWriteResult.release(written)
     FileReadResult.release(read)
     FileInfo.release(info)

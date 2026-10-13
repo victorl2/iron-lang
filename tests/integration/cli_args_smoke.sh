@@ -35,6 +35,21 @@ expect_unknown_flag --keep-binary "${IRON}" run --keep-binary hello.iron
 expect_unknown_flag --frobnicate "${IRON}" check --frobnicate hello.iron
 expect_unknown_flag --bogus "${IRONC}" build hello.iron --bogus
 
+# A stray positional after the source file is an error, not silently
+# dropped (issue 454); program arguments of run go after --.
+for bin in "${IRON}" "${IRONC}"; do
+    if out=$("${bin}" run hello.iron extra 2>&1); then fail "'${bin} run hello.iron extra' exited 0"; fi
+    echo "${out}" | grep -qF "unexpected argument 'extra'" \
+        || fail "'${bin} run hello.iron extra' printed: ${out}"
+    echo "${out}" | grep -qF "after --" \
+        || fail "'${bin} run hello.iron extra' did not point at --: ${out}"
+    if out=$("${bin}" check hello.iron extra 2>&1); then fail "'${bin} check hello.iron extra' exited 0"; fi
+    echo "${out}" | grep -qF "unexpected argument 'extra'" || fail "check printed: ${out}"
+done
+if out=$("${IRONC}" build hello.iron extra 2>&1); then fail "'ironc build hello.iron extra' exited 0"; fi
+echo "${out}" | grep -qF "unexpected argument 'extra'" || fail "build printed: ${out}"
+"${IRONC}" run --help 2>&1 | grep -qF -- "-- program arguments" || fail "run --help does not mention --"
+
 # Program arguments after -- are not flags.
 [ "$("${IRON}" run hello.iron -- --not-a-flag)" = "hi" ] || fail "run with -- args"
 # fmt --check is still accepted.

@@ -1,0 +1,26 @@
+-- An enum lifecycle function can need tuple lifecycle glue before the tuple
+-- helper definitions are emitted. The generated C needs prototypes first
+-- (issue 816).
+func show_pair(pair: (String, String)) -> String {
+    val (a, b) = pair
+    return a + b
+}
+
+func show_value(value: Value) -> String {
+    match value {
+        Value.Empty -> return "empty"
+        Value.Text(text, n) -> return text + "{n}"
+        Value.Pair(pair) -> return show_pair(pair)
+    }
+    return ""
+}
+
+enum Value {
+    Empty,
+    Text(String, Int),
+    Pair((String, String)),
+}
+
+func main() {
+    println(show_value(Value.Empty))
+}

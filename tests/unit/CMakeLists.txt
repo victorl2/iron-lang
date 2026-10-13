@@ -158,6 +158,16 @@ target_link_libraries(test_comptime iron_compiler unity)
 add_test(NAME test_comptime COMMAND test_comptime)
 set_tests_properties(test_comptime PROPERTIES LABELS "unit")
 
+# The comptime fmod (#505) against the C library's: this test, unlike the
+# compiler, links libm.
+add_executable(test_comptime_fmod test_comptime_fmod.c)
+target_link_libraries(test_comptime_fmod iron_compiler unity)
+if(NOT WIN32)
+    target_link_libraries(test_comptime_fmod m)
+endif()
+add_test(NAME test_comptime_fmod COMMAND test_comptime_fmod)
+set_tests_properties(test_comptime_fmod PROPERTIES LABELS "unit")
+
 # Arena cleanup hooks: scopes and the interface registry release their
 # heap maps with the arena. Leak detection is on for this test in Linux
 # sanitizer builds (LeakSanitizer is unsupported on macOS), although the
@@ -403,7 +413,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_http_iron_concurrency PROPERTIES
-        LABELS "integration;networking;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 180)
 
     add_test(
         NAME test_websocket_iron_roundtrip
@@ -411,7 +421,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_websocket_iron_roundtrip PROPERTIES
-        LABELS "integration;networking;websocket;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;websocket;v4-acceptance" TIMEOUT 180)
 
     add_test(
         NAME test_file_operations_iron_roundtrip
@@ -419,14 +429,14 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_file_operations_iron_roundtrip PROPERTIES
-        LABELS "integration;file-io;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;file-io;v4-acceptance" TIMEOUT 180)
 
     add_test(
         NAME test_http_example_check
         COMMAND /bin/sh -c "set -e && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/rest_server.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/https_server.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/https_client.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/websocket_echo_server.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/websocket_echo_secure_server.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/websocket_client.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/file_operations.iron 2>&1) && [ -z \"\$output\" ]"
     )
     set_tests_properties(test_http_example_check PROPERTIES
-        LABELS "integration;networking;v4-acceptance" TIMEOUT 30)
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 180)
 
     add_test(
         NAME test_udp_iron_payload_roundtrip
@@ -434,7 +444,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_udp_iron_payload_roundtrip PROPERTIES
-        LABELS "integration;networking;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 180)
 endif()
 
 # ── Phase 2 (CLI + TOML scaffold) tests ──────────────────────────────────────

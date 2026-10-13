@@ -91,6 +91,19 @@ typedef struct {
  * Returns NULL on error (ctx->had_error will be true). */
 Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx, Iron_Node *node);
 
+/* The floating-point remainder of x / y with the sign of x, exactly as C's
+ * fmod (and Iron's run-time `%` on floats) computes it, written with
+ * integer operations only: the compiler does not link libm. */
+double iron_comptime_fmod(double x, double y);
+
+/* Evaluate `expr` (the operand of a `comptime`) while type checking, where
+ * an integer constant is needed before the comptime pass runs: the size of
+ * a fixed array or bounded vector (#504). Diagnostics are discarded (the
+ * comptime pass reports them); returns false unless the result is an Int.
+ * The file system is not read. */
+bool iron_comptime_eval_int_const(Iron_Program *program, Iron_Scope *global_scope,
+                                  Iron_Arena *arena, Iron_Node *expr, int64_t *out);
+
 /* The package directory the `-- @file:` paths of a combined package
  * source are relative to (ironc --package-root); read_file resolves a
  * relative path against the directory of the calling file. */

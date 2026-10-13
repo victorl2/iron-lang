@@ -1,0 +1,39 @@
+-- A fixed array or bounded vector size given by a comptime result (issue
+-- 504): comptime runs after type checking, so `[Int; N]` with
+-- `val N = comptime size(3)` was an error. The size is now evaluated when
+-- the type is checked, for a global val holding a comptime result, a
+-- comptime expression written in place and a constant expression.
+val N = comptime size(3)
+val K = 2 * 2
+
+func size(n: Int) -> Int {
+    return n * 2
+}
+
+object Grid {
+    val cells: [Int; N]
+    readonly func first_plus(xs: [Int; N]) -> Int {
+        return self.cells[0] + xs[N - 1]
+    }
+}
+
+func total(xs: [Int; N]) -> Int {
+    var s = 0
+    for x in xs {
+        s += x
+    }
+    return s
+}
+
+func main() {
+    val g = Grid([1, 2, 3, 4, 5, 6])
+    val direct: [Int; comptime size(1)] = [7, 8]
+    val k: [Int; K] = [1, 1, 1, 1]
+    var bv: [Int; <=N] = []
+    for i in range(6) {
+        bv.push(i)
+    }
+    println("{total(g.cells)} {len(direct)} {len(k)} {bv.len()} {N}")
+    val last: [Int; N] = [0, 0, 0, 0, 0, 9]
+    println("{g.first_plus(last)}")
+}

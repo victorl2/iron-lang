@@ -1125,7 +1125,7 @@
 <span class="kw">if</span> derr.<span class="pr">code</span> != <span class="nu">0</span> { <span class="kw">return</span> }
 <span class="kw">defer</span> <span class="ty">TcpSocket</span>.<span class="fn">close</span>(sock)
 
-<span class="ty">TcpSocket</span>.<span class="fn">write</span>(sock, <span class="st">"GET / HTTP/1.0\u{d}\n\u{d}\n"</span>, <span class="nu">1000</span>)
+<span class="ty">TcpSocket</span>.<span class="fn">write</span>(sock, <span class="st">"GET / HTTP/1.0\r\n\r\n"</span>, <span class="nu">1000</span>)
 
 <span class="cm">-- pure-Iron RFC 3986 URL handling</span>
 <span class="kw">val</span> (u, _) = <span class="ty">Url</span>.<span class="fn">parse</span>(<span class="st">"https://example.com/path?q=iron"</span>)

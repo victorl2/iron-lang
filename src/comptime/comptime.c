@@ -298,6 +298,9 @@ static Iron_ComptimeVal *eval_binary_vals(Iron_ComptimeCtx *ctx, Iron_OpKind op,
                     return cval_null(ctx);
                 }
                 return cval_float(ctx, l / r);
+            case IRON_TOK_PERCENT:
+                /* fmod, as at run time (#505): a zero divisor gives NaN. */
+                return cval_float(ctx, iron_comptime_fmod(l, r));
             case IRON_TOK_EQUALS:     return cval_bool(ctx, l == r);
             case IRON_TOK_NOT_EQUALS: return cval_bool(ctx, l != r);
             case IRON_TOK_LESS:       return cval_bool(ctx, l < r);
@@ -333,6 +336,71 @@ static Iron_ComptimeVal *eval_binary_vals(Iron_ComptimeCtx *ctx, Iron_OpKind op,
                         "and not on numbers and booleans");
     }
     return cval_null(ctx);
+}
+
+/* fmod without libm (#505). The remainder of two doubles is exact, so it
+ * is computed on the significands by binary long division: align the
+ * exponents, subtract y's significand while x's is larger, shifting one
+ * bit per exponent step, then renormalize. Special cases follow C: a NaN
+ * operand, an infinite x or a zero y give NaN; an infinite y or |x| < |y|
+ * give x; |x| == |y| gives a zero with x's sign. */
+double iron_comptime_fmod(double x, double y) {
+    uint64_t ux, uy;
+    memcpy(&ux, &x, sizeof ux);
+    memcpy(&uy, &y, sizeof uy);
+    int ex = (int)(ux >> 52 & 0x7ff);
+    int ey = (int)(uy >> 52 & 0x7ff);
+    uint64_t sx = ux >> 63;
+    uint64_t i;
+
+    if ((uy << 1) == 0 || y != y || ex == 0x7ff) {
+        volatile double v = x * y;   /* not folded away: a NaN at run time too */
+        return v / v;
+    }
+    if ((ux << 1) <= (uy << 1)) {
+        if ((ux << 1) == (uy << 1)) return 0 * x;
+        return x;
+    }
+    /* Significands with the implicit bit, subnormals normalized (their
+     * exponent goes below 1). */
+    if (ex == 0) {
+        for (i = ux << 12; (i >> 63) == 0; ex--, i <<= 1) {}
+        ux <<= -ex + 1;
+    } else {
+        ux &= UINT64_MAX >> 12;
+        ux |= (uint64_t)1 << 52;
+    }
+    if (ey == 0) {
+        for (i = uy << 12; (i >> 63) == 0; ey--, i <<= 1) {}
+        uy <<= -ey + 1;
+    } else {
+        uy &= UINT64_MAX >> 12;
+        uy |= (uint64_t)1 << 52;
+    }
+    for (; ex > ey; ex--) {
+        i = ux - uy;
+        if ((i >> 63) == 0) {
+            if (i == 0) return 0 * x;
+            ux = i;
+        }
+        ux <<= 1;
+    }
+    i = ux - uy;
+    if ((i >> 63) == 0) {
+        if (i == 0) return 0 * x;
+        ux = i;
+    }
+    for (; (ux >> 52) == 0; ux <<= 1, ex--) {}
+    if (ex > 0) {
+        ux -= (uint64_t)1 << 52;
+        ux |= (uint64_t)ex << 52;
+    } else {
+        ux >>= -ex + 1;   /* a subnormal result */
+    }
+    ux |= sx << 63;
+    double r;
+    memcpy(&r, &ux, sizeof r);
+    return r;
 }
 
 /* Map a compound-assignment token to its binary operator. */
@@ -545,7 +613,7 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
         case IRON_NODE_STRING_LIT: {
             Iron_StringLit *lit = (Iron_StringLit *)node;
             const char *s = lit->value ? lit->value : "";
-            return cval_string(ctx, s, strlen(s));
+            return cval_string(ctx, s, lit->len ? lit->len : strlen(s));
         }
 
         case IRON_NODE_NULL_LIT: {
@@ -1266,6 +1334,7 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
             lit->resolved_type = resolved_type;
             lit->value = iron_arena_strdup(arena, val->as_string.data,
                                             val->as_string.len);
+            lit->len   = val->as_string.len;
             if (!lit->value) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast StringLit value) */ return NULL; }
             return (Iron_Node *)lit;
         }
@@ -1591,6 +1660,54 @@ static void *comptime_thread(void *p) {
     ComptimeRun *r = (ComptimeRun *)p;
     replace_in_node(r->slot, r->rctx);
     return NULL;
+}
+
+typedef struct {
+    Iron_ComptimeCtx *ctx;
+    Iron_Node        *expr;
+    Iron_ComptimeVal *val;
+} ComptimeConstRun;
+
+static void *comptime_const_thread(void *p) {
+    ComptimeConstRun *r = (ComptimeConstRun *)p;
+    r->val = iron_comptime_eval_expr(r->ctx, r->expr);
+    return NULL;
+}
+
+bool iron_comptime_eval_int_const(Iron_Program *program, Iron_Scope *global_scope,
+                                  Iron_Arena *arena, Iron_Node *expr, int64_t *out) {
+    if (!expr || !out) return false;
+    Iron_DiagList scratch = iron_diaglist_create();
+    Iron_ComptimeCtx c;
+    memset(&c, 0, sizeof(c));
+    c.arena        = arena;
+    c.diags        = &scratch;
+    c.global_scope = global_scope;
+    c.step_limit   = 1000000;
+    c.mode         = IRON_ANALYSIS_MODE_LSP;   /* no file system access */
+    c.program      = program;
+    ComptimeConstRun run = { &c, expr, NULL };
+    /* The same large stack the comptime pass uses for nested calls. */
+    pthread_attr_t attr;
+    pthread_t th;
+    bool threaded = false;
+    if (pthread_attr_init(&attr) == 0) {
+        if (pthread_attr_setstacksize(&attr, (size_t)IRON_COMPTIME_STACK) == 0 &&
+            pthread_create(&th, &attr, comptime_const_thread, &run) == 0) {
+            pthread_join(th, NULL);
+            threaded = true;
+        }
+        pthread_attr_destroy(&attr);
+    }
+    if (!threaded) run.val = iron_comptime_eval_expr(&c, expr);
+    bool ok = !c.had_error && run.val && run.val->kind == IRON_CVAL_INT;
+    if (ok) *out = run.val->as_int;
+    while (c.frame_depth > 0) pop_frame(&c);
+    arrfree(c.call_stack);
+    arrfree(c.call_spans);
+    arrfree(c.local_frames);
+    iron_diaglist_free(&scratch);
+    return ok;
 }
 
 void iron_comptime_apply(Iron_Program *program, Iron_Scope *global_scope,

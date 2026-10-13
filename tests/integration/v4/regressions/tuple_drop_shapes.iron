@@ -1,0 +1,40 @@
+-- Tuples of other owning shapes (issue 450): a list element (a binding's
+-- tuple keeps its list, destructuring copies it), a tuple field of an
+-- object, a nested tuple and a tuple binding per loop iteration are each
+-- released once.
+object Holder {
+    val pair: (String, Int)
+}
+
+func make(n: Int) -> (String, [Int]) {
+    var xs: [Int] = []
+    xs.push(n)
+    val t = ("local tuple string that is long {n} zzzzzzzzzz", xs.take())
+    return t
+}
+
+func nested() -> (Int, (String, String)) {
+    return (1, ("nested one long enough to be heap", "nested two long enough to be heap"))
+}
+
+func main() {
+    val m = make(3)
+    val (s, l) = make(4)
+    val (ms, ml) = m
+    println("{ms.len()} {ml.len()} {s.len()} {l[0]}")
+    val h = Holder(("field tuple string long enough for heap", 9))
+    val h2 = h
+    val (hs, hn) = h2.pair
+    println("{hs.len()} {hn}")
+    val n = nested()
+    val (a, inner) = n
+    val (p, q) = inner
+    println("{a} {p.len()} {q.len()}")
+    var acc = 0
+    for i in range(3) {
+        val t = make(i)
+        val (_, tl) = t
+        acc += tl.len()
+    }
+    println("{acc}")
+}

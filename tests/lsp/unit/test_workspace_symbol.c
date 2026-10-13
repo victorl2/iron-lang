@@ -13,9 +13,11 @@
 #include "unity.h"
 
 #include "lsp/facade/nav/nav_core.h"
+#include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h"
 #include "lsp/server/server.h"
 #include "util/arena.h"
+#include "vendor/stb_ds.h"
 
 #include <errno.h>
 #include <stdatomic.h>
@@ -173,11 +175,36 @@ static void test_path_prefix_filter(void) {
     fx_destroy(&f);
 }
 
+static void test_dirty_open_document_excludes_stale_symbols(void) {
+    fx_t f; fx_init(&f);
+
+    char uri[600];
+    snprintf(uri, sizeof(uri), "file://%s/main.iron", f.root);
+    IronLsp_Document *doc = ilsp_document_create(uri, "\n\n", 2, 1);
+    TEST_ASSERT_NOT_NULL(doc);
+    sh_new_strdup(f.server.documents);
+    shput(f.server.documents, uri, doc);
+
+    Iron_Arena arena = iron_arena_create(16 * 1024);
+    IronLsp_WorkspaceSymbol *out = NULL;
+    size_t n = 0;
+    ilsp_facade_nav_workspace_symbol(&f.server, "gret", NULL, &arena,
+                                       &out, &n);
+
+    TEST_ASSERT_EQUAL_size_t(0, n);
+
+    iron_arena_free(&arena);
+    ilsp_document_destroy(doc);
+    shfree(f.server.documents);
+    fx_destroy(&f);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_fuzzy_returns_best_match);
     RUN_TEST(test_query_too_long_returns_empty);
     RUN_TEST(test_no_workspace_index_empty);
     RUN_TEST(test_path_prefix_filter);
+    RUN_TEST(test_dirty_open_document_excludes_stale_symbols);
     return UNITY_END();
 }
