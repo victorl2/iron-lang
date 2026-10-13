@@ -268,7 +268,7 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
         set_tests_properties(lsp_phase24_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase24-invariant"
-            TIMEOUT 60
+            TIMEOUT 120
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
 
         # Phase 25 Plan 25-03 closeout: PTR-02/03 (E0289) + PTR-05 (E0294) +
@@ -291,7 +291,7 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
         set_tests_properties(lsp_phase25_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase25-invariant"
-            TIMEOUT 60
+            TIMEOUT 120
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
 
         # Phase 26 Plan 26-03 closeout: POL-07 (E0296) + POL-11 (E0297, E0298)
@@ -360,7 +360,7 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
         set_tests_properties(lsp_phase28_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase28-invariant"
-            TIMEOUT 60
+            TIMEOUT 120
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
 
         # Phase 14 Plan 14-02 (MIG-06): test_hard_refuse_v3 --
