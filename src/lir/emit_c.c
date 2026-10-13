@@ -4737,7 +4737,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 "&((%s *)",
                                 n, field_c, obj_type_c2 ? obj_type_c2 : "void");
                             emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
-                            iron_strbuf_appendf(sb, ".addr)->%s); }\n", field_c);
+                            iron_strbuf_appendf(sb, ".addr)->%s); }\n",
+                                                emit_c_user_member_path(
+                                                    instr->field.field, ctx->arena));
                         } else {
                             iron_strbuf_appendf(sb,
                                 "  iron_init_cleanup_register(&_iron_cleanup_%d, "
@@ -4746,7 +4748,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
                             iron_strbuf_appendf(sb, "%s%s)); }\n",
                                 obj_is_ptr2 ? "->" : ".",
-                                field_c);
+                                emit_c_user_member_path(instr->field.field, ctx->arena));
                         }
                     }
                 }
@@ -6877,6 +6879,31 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     iron_strbuf_appendf(sb, ".count");
                 }
                 continue;
+            }
+
+            /* A small list literal may use the stack representation even
+             * when the callee keeps the common Iron_List_T ABI. Wrap its
+             * pointer and companion length in that ABI. This is especially
+             * important for layout: soa parameters: their element type has
+             * column support, so pointer parameter optimization is disabled,
+             * while a short literal can still be stored as AoS on the stack
+             * and represented by the same list header (#824). */
+            IronLIR_ValueId list_sa_origin = get_stack_array_origin(ctx, arg_id);
+            if (callee_pmode == ARRAY_PARAM_LIST &&
+                list_sa_origin != IRON_LIR_VALUE_INVALID && callee_ir_name) {
+                IronLIR_Func *callee_fn = emit_find_ir_func(ctx, callee_ir_name);
+                Iron_Type *param_t = callee_fn && i < callee_fn->param_count
+                                     ? callee_fn->params[i].type : NULL;
+                if (param_t && param_t->kind == IRON_TYPE_ARRAY &&
+                    param_t->array.size < 0 && !param_t->array.is_bounded) {
+                    iron_strbuf_appendf(sb, "(%s){ .items = ",
+                                        emit_type_to_c(param_t, ctx));
+                    emit_val(sb, arg_id);
+                    iron_strbuf_appendf(sb, ", .count = ");
+                    emit_val(sb, arg_id);
+                    iron_strbuf_appendf(sb, "_len }");
+                    continue;
+                }
             }
 
             /* For extern calls, apply FFI type conversions:
