@@ -165,6 +165,16 @@ IronLsp_IndexEntry     *ilsp_workspace_index_lookup(IronLsp_WorkspaceIndex *wi,
 void                    ilsp_workspace_index_invalidate_path(IronLsp_WorkspaceIndex *wi,
                                                               const char *canonical_path);
 
+/* Keep a warm-seeded entry synchronized with an open editor buffer. The path
+ * must name an .iron file. Closing a buffer refreshes its entry from disk,
+ * or removes it when the file no longer exists. */
+void                    ilsp_workspace_index_update_buffer(IronLsp_WorkspaceIndex *wi,
+                                                            const char *path,
+                                                            const char *source,
+                                                            size_t source_len);
+void                    ilsp_workspace_index_refresh_path(IronLsp_WorkspaceIndex *wi,
+                                                           const char *path);
+
 /* Invalidate dependency-related entries:
  *   dep_name == NULL : drop every entry in the workspace (MANIFEST event)
  *   dep_name != NULL : drop entries whose program contains

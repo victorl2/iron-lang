@@ -34,6 +34,7 @@ zed_highlights() {
         -e 's/@comment\.documentation/@comment.doc/g' \
         -e 's/@character\.special/@variable.special/g' \
         -e 's/@type\.definition/@type/g' \
+        -e 's/@keyword\.directive/@preproc/g' \
         "$SRC/highlights.scm"
 }
 

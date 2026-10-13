@@ -1,0 +1,2 @@
+@fusible -- the trailing comment has nowhere to go
+func f() {}

@@ -25,7 +25,8 @@
  *          next decl.
  *        - newText = reformatted block; groups separated by one blank
  *          line; empty groups omit the separator.
- *   8. Emit per doc_comment: each stored line re-rendered as `/// <line>\n`.
+ *   8. Emit per doc_comment: each stored line re-rendered as `// <line>\n`, then own-line directives.
+ *      Preserve a trailing source comment byte-for-byte with its import.
  *
  * Threat register:
  *   T-4-2: stop at first Iron_ErrorNode inside the run -> no edit emitted.
@@ -59,6 +60,8 @@ typedef struct {
     const Iron_ImportDecl *imp;     /* source AST node */
     int                    group;   /* GROUP_STDLIB / LOCAL */
     bool                   dropped; /* true after dedup/unused-remove */
+    const char            *trailing_comment;
+    size_t                 trailing_comment_len;
 } OrgEntry;
 
 /* ── Small string-builder backed by an arena ─────────────────────── */
@@ -118,6 +121,49 @@ static int classify_import(const Iron_ImportDecl        *imp,
         return GROUP_STDLIB;
     }
     return GROUP_LOCAL;
+}
+
+/* Return the exact whitespace + trailing comment suffix from an import's
+ * source line. Trailing directives are meaningful only on object fields, so
+ * this source-level preservation must not depend on semantic attachment. */
+static void find_trailing_comment(const IronLsp_Document *doc,
+                                  const Iron_ImportDecl *imp,
+                                  const char **suffix,
+                                  size_t *suffix_len) {
+    *suffix = NULL;
+    *suffix_len = 0;
+    if (!doc || !doc->text || !imp || imp->span.line == 0) return;
+
+    size_t start = 0;
+    for (uint32_t line = 1; line < imp->span.line; line++) {
+        while (start < doc->text_len && doc->text[start] != '\n') start++;
+        if (start < doc->text_len) start++;
+    }
+    if (start >= doc->text_len) return;
+    size_t end = start;
+    while (end < doc->text_len && doc->text[end] != '\n' &&
+           doc->text[end] != '\r') {
+        end++;
+    }
+
+    size_t marker = end;
+    for (size_t i = start; i + 1 < end; i++) {
+        if ((doc->text[i] == '/' && doc->text[i + 1] == '/') ||
+            (doc->text[i] == '-' && doc->text[i + 1] == '-')) {
+            marker = i;
+            break;
+        }
+    }
+    if (marker == end) return;
+
+    size_t suffix_start = marker;
+    while (suffix_start > start &&
+           (doc->text[suffix_start - 1] == ' ' ||
+            doc->text[suffix_start - 1] == '\t')) {
+        suffix_start--;
+    }
+    *suffix = doc->text + suffix_start;
+    *suffix_len = end - suffix_start;
 }
 
 /* ── Dedup ──────────────────────────────────────────────────────── */
@@ -198,23 +244,40 @@ static int cmp_entry(const void *a, const void *b) {
 
 /* ── Emission ─────────────────────────────────────────────────── */
 
-/* Emit a doc_comment run into sb, one `/// <line>` per joined `\n`. */
-static void emit_doc_comment(SB *sb, const char *doc) {
-    if (!doc || !*doc) return;
-    const char *p = doc;
-    while (*p) {
-        const char *line_start = p;
-        while (*p && *p != '\n') p++;
-        size_t line_len = (size_t)(p - line_start);
-        sb_append_n(sb, "/// ", 4);
-        sb_append_n(sb, line_start, line_len);
+/* Emit an import's comment run: its documentation, one `// <line>` per
+ * joined `\n`, then its own-line directives (`//key:value`). */
+static void emit_doc_comment(SB *sb, const Iron_ImportDecl *imp) {
+    const char *doc = imp->doc_comment;
+    if (doc) {
+        const char *p = doc;
+        for (;;) {
+            const char *line_start = p;
+            while (*p && *p != '\n') p++;
+            size_t line_len = (size_t)(p - line_start);
+            if (line_len > 0) {
+                sb_append_n(sb, "// ", 3);
+                sb_append_n(sb, line_start, line_len);
+            } else {
+                sb_append_n(sb, "//", 2);
+            }
+            sb_append_char(sb, '\n');
+            if (*p != '\n') break;
+            p++;
+        }
+    }
+    for (int i = 0; i < imp->directive_count; i++) {
+        if (imp->directives[i].trailing) continue;
+        sb_append_n(sb, "//", 2);
+        sb_append(sb, imp->directives[i].key);
+        sb_append_char(sb, ':');
+        sb_append(sb, imp->directives[i].value);
         sb_append_char(sb, '\n');
-        if (*p == '\n') p++;
     }
 }
 
-/* Emit `import <path>[ as <alias>]` followed by a newline. */
-static void emit_import_line(SB *sb, const Iron_ImportDecl *imp) {
+/* Emit `import <path>[ as <alias>]`, its raw trailing comment, and a newline. */
+static void emit_import_line(SB *sb, const OrgEntry *entry) {
+    const Iron_ImportDecl *imp = entry->imp;
     if (!imp || !imp->path) return;
     sb_append_n(sb, "import ", 7);
     sb_append(sb, imp->path);
@@ -222,6 +285,7 @@ static void emit_import_line(SB *sb, const Iron_ImportDecl *imp) {
         sb_append_n(sb, " as ", 4);
         sb_append(sb, imp->alias);
     }
+    sb_append_n(sb, entry->trailing_comment, entry->trailing_comment_len);
     sb_append_char(sb, '\n');
 }
 
@@ -234,8 +298,8 @@ static bool emit_group(SB *sb, const OrgEntry *entries, size_t n, int group) {
         if (entries[i].dropped) continue;
         if (entries[i].group != group) continue;
         const Iron_ImportDecl *imp = entries[i].imp;
-        emit_doc_comment(sb, imp->doc_comment);
-        emit_import_line(sb, imp);
+        emit_doc_comment(sb, imp);
+        emit_import_line(sb, &entries[i]);
         any = true;
     }
     return any;
@@ -252,7 +316,6 @@ void ilsp_organize_imports(const Iron_Program              *program,
                             IronLsp_OrganizeImportsResult   *out) {
     if (!out) return;
     memset(out, 0, sizeof(*out));
-    (void)doc;  /* Reserved for future URI/line-count-dependent heuristics. */
     if (!arena || !program) return;
     if (cancel && atomic_load(cancel)) return;
 
@@ -280,6 +343,8 @@ void ilsp_organize_imports(const Iron_Program              *program,
         entries[i].imp     = imp;
         entries[i].group   = classify_import(imp, wi);
         entries[i].dropped = false;
+        find_trailing_comment(doc, imp, &entries[i].trailing_comment,
+                              &entries[i].trailing_comment_len);
     }
 
     if (cancel && atomic_load(cancel)) return;
@@ -348,13 +413,17 @@ void ilsp_organize_imports(const Iron_Program              *program,
         const Iron_ImportDecl *imp =
             (const Iron_ImportDecl *)program->decls[i];
         if (!imp || imp->span.line != min_line) continue;
-        if (!imp->doc_comment || !*imp->doc_comment) break;
         /* Count `\n` separators + 1 to get the stored doc_comment line
-         * count. */
-        int lines = 1;
-        for (const char *p = imp->doc_comment; *p; p++) {
-            if (*p == '\n') lines++;
+         * count, plus one line per own-line directive. */
+        int lines = 0;
+        if (imp->doc_comment) {
+            lines = 1;
+            for (const char *p = imp->doc_comment; *p; p++) {
+                if (*p == '\n') lines++;
+            }
         }
+        for (int d = 0; d < imp->directive_count; d++)
+            if (!imp->directives[d].trailing) lines++;
         doc_line_shift = lines;
         break;
     }

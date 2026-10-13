@@ -19,7 +19,10 @@ const TESTS_DIR = __dirname;
 const REPO_ROOT = path.resolve(TESTS_DIR, '..', '..', '..');
 const GRAMMAR_PATH = path.join(REPO_ROOT,
   'grammars', 'textmate', 'iron.tmLanguage.json');
+const LANGUAGE_CONFIG_PATH = path.join(REPO_ROOT,
+  'grammars', 'textmate', 'language-configuration.json');
 const FIXTURE_GLOB = path.join(TESTS_DIR, 'fixtures', '*.iron');
+const LEGACY_FIXTURE_GLOB = path.join(TESTS_DIR, 'fixtures', '*.iron-legacy');
 
 function resolveCli() {
   const localBin = path.join(TESTS_DIR, 'node_modules', '.bin',
@@ -34,6 +37,23 @@ function main() {
     process.exit(2);
   }
 
+  const languageConfig = JSON.parse(fs.readFileSync(LANGUAGE_CONFIG_PATH, 'utf8'));
+  const continuations = new Map(languageConfig.onEnterRules.map((rule) => [
+    rule.beforeText,
+    rule.action && rule.action.appendText,
+  ]));
+  const expectedContinuations = new Map([
+    ['^\\s*//(?!/).*$', '// '],
+    ['^\\s*///.*$', '/// '],
+    ['^\\s*--.*$', '-- '],
+  ]);
+  for (const [pattern, prefix] of expectedContinuations) {
+    if (continuations.get(pattern) !== prefix) {
+      console.error(`error: language configuration must continue ${prefix.trim()} comments`);
+      process.exit(1);
+    }
+  }
+
   const cli = resolveCli();
   if (!cli) {
     console.error('SKIPPED: vscode-tmgrammar-test not installed. Run');
@@ -46,7 +66,8 @@ function main() {
   // vscode-tmgrammar-test CLI: `vscode-tmgrammar-test -g <grammar> <glob>`
   // on success prints a pass banner and exits 0; on failure prints a
   // diff and exits non-zero.
-  const res = spawnSync(cli, ['-g', GRAMMAR_PATH, FIXTURE_GLOB], {
+  const res = spawnSync(cli,
+    ['-g', GRAMMAR_PATH, FIXTURE_GLOB, LEGACY_FIXTURE_GLOB], {
     stdio: 'inherit',
     cwd: TESTS_DIR,
   });

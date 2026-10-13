@@ -292,12 +292,25 @@ static bool package_prepend(char **source_io, const char *doc_file) {
             if (!grown) { fclose(f); free(buf); buf = NULL; break; }
             buf = grown;
         }
-        len += (size_t)snprintf(buf + len, cap - len, "-- @file: \"%s\" @line: 1\n", fp);
-        size_t got = fread(buf + len, 1, (size_t)size, f);
+        /* The marker gives the file's length (`@lines:`): the lexer honors
+         * a marker only between the packed files, so a comment inside one
+         * of them that looks like a marker stays a comment. The text is
+         * read past the room the marker needs, then moved up against it. */
+        size_t room = strlen(fp) + 63;
+        size_t got = fread(buf + len + room, 1, (size_t)size, f);
         fclose(f);
-        /* A NUL would end the source early, before the document. */
-        for (size_t k = 0; k < got; k++) if (buf[len + k] == '\0') buf[len + k] = ' ';
-        len += got;
+        unsigned long lines = 1; /* the line break added after the file */
+        for (size_t k = 0; k < got; k++) {
+            char *c = &buf[len + room + k];
+            /* A NUL would end the source early, before the document. */
+            if (*c == '\0') *c = ' ';
+            if (*c == '\n') lines++;
+        }
+        size_t mlen = (size_t)snprintf(buf + len, room, IRON_FILE_MARKER_OPEN "%s\" @line: 1 @lines: %lu", fp, lines);
+        buf[len + mlen] = '\n'; /* over the terminator snprintf wrote */
+        mlen++;
+        memmove(buf + len + mlen, buf + len + room, got);
+        len += mlen + got;
         buf[len++] = '\n';
         total += got;
         any = true;
@@ -312,7 +325,9 @@ static bool package_prepend(char **source_io, const char *doc_file) {
     char *grown = (char *)realloc(buf, need);
     if (!grown) { free(buf); return false; }
     buf = grown;
-    len += (size_t)snprintf(buf + len, need - len, "-- @file: \"%s\" @line: 1\n", doc_file);
+    /* The document comes last: its marker has no length and its file runs
+     * to the end of the buffer. */
+    len += (size_t)snprintf(buf + len, need - len, IRON_FILE_MARKER_OPEN "%s\" @line: 1\n", doc_file);
     memcpy(buf + len, *source_io, doc_len + 1);
     free(*source_io);
     *source_io = buf;
@@ -357,8 +372,11 @@ static Iron_Program *facade_analyze(struct IronLsp_Document      *doc,
             source[len] = '\0';
             /* A stdlib file is analyzed as itself, whatever directory with
              * an iron.toml lies above it. */
-            if (!is_stdlib_file(doc_file, g_lib_dir)) (void)package_prepend(&source, doc_file);
-            prepended = iron_stdlib_prepend(&source, doc_file, g_lib_dir);
+            bool packed = !is_stdlib_file(doc_file, g_lib_dir) &&
+                          package_prepend(&source, doc_file);
+            /* With a package packed above the document, the prelude says
+             * so, and the markers between its files are honored. */
+            prepended = iron_stdlib_prepend_packed(&source, doc_file, g_lib_dir, packed);
         }
     }
 

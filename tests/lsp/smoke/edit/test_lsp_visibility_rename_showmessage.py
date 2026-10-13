@@ -18,6 +18,8 @@ import pathlib
 import pytest
 from lsprotocol import types
 
+from request_timeout import REQUEST_TIMEOUT_SECONDS
+
 
 # Fixtures live under tests/lsp/unit/v3_visibility/ -- shared with the
 # Unity tests (same RESEARCH § "Recommended Project Structure"). Walk
@@ -110,7 +112,7 @@ async def test_rename_cross_module_private_emits_e03pv_showmessage(client):
                 new_name="renamed_private_fn",
             ),
         ),
-        timeout=10.0,
+        timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
     # Either we receive the showMessage notification (ideal: VIS-04 fires)

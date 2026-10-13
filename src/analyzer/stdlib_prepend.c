@@ -11,6 +11,7 @@
 
 #include "analyzer/stdlib_prepend.h"
 #include "hir/stdlib_origin.h"
+#include "diagnostics/diagnostics.h"
 #include "cli/iron_import_detect.h"
 #include "util/arena.h"
 #include "util/os.h"
@@ -180,13 +181,15 @@ static int check_path_marker_safe(const char *path) {
 
 /* Prepend `-- @file: "<source_path>" @line: 1` to *source_io. Returns lines
  * added (1) or 0 on failure/unsafe path (source left unchanged). */
-static int check_prepend_user_line_marker(char **source_io,
-                                          const char *source_path) {
+static int check_prepend_user_line_marker(char **source_io, const char *source_path,
+                                          bool packed) {
     if (!source_io || !*source_io || !check_path_marker_safe(source_path)) return 0;
-    size_t mlen = strlen("-- @file: \"") + strlen(source_path) + strlen("\" @line: 1\n");
+    /* `@packed`: the user's source is itself several files under markers. */
+    const char *tail = packed ? "\" @line: 1 @packed\n" : "\" @line: 1\n";
+    size_t mlen = strlen(IRON_FILE_MARKER_OPEN) + strlen(source_path) + strlen(tail);
     char *combined = (char *)malloc(mlen + strlen(*source_io) + 1);
     if (!combined) return 0;
-    int n = snprintf(combined, mlen + 1, "-- @file: \"%s\" @line: 1\n", source_path);
+    int n = snprintf(combined, mlen + 1, IRON_FILE_MARKER_OPEN "%s%s", source_path, tail);
     if (n < 0 || (size_t)n != mlen) { free(combined); return 0; }
     strcpy(combined + mlen, *source_io);
     free(*source_io);
@@ -208,7 +211,7 @@ static int check_prepend_marked_file(char **source_io, const char *base_dir,
     char marker[4224];
     size_t mlen = 0;
     if (markers && check_path_marker_safe(path)) {
-        int n = snprintf(marker, sizeof(marker), "-- @file: \"%s\" @line: 1\n", path);
+        int n = snprintf(marker, sizeof(marker), IRON_FILE_MARKER_OPEN "%s\" @line: 1\n", path);
         if (n > 0 && (size_t)n < sizeof(marker)) mlen = (size_t)n;
     }
     /* Declarations from this file carry the marker path as their span
@@ -238,6 +241,12 @@ char *iron_stdlib_lib_dir(void) {
 }
 
 int iron_stdlib_prepend(char **source_io, const char *source_path, const char *base_dir) {
+    return iron_stdlib_prepend_packed(source_io, source_path, base_dir,
+                                      iron_file_markers_packed_source());
+}
+
+int iron_stdlib_prepend_packed(char **source_io, const char *source_path,
+                               const char *base_dir, bool packed) {
     /* Detect stdlib imports and prepend .iron wrappers (same as build.c).
      * Use a temporary arena for the token-level import detection. */
     Iron_Arena detect_arena = iron_arena_create(32 * 1024);
@@ -253,7 +262,7 @@ int iron_stdlib_prepend(char **source_io, const char *source_path, const char *b
     /* 2026-07 diagnostics remediation: seat the user-file line-mapping marker
      * directly above the user's source BEFORE any stdlib prepend (mirrors
      * build.c — see prepend_user_line_marker there). */
-    bool line_markers = check_prepend_user_line_marker(source_io, source_path) == 1;
+    bool line_markers = check_prepend_user_line_marker(source_io, source_path, packed) == 1;
     if (line_markers) stdlib_prepended_lines += 1;
 
     if (iron_detect_import(*source_io, source_path, "raylib", &detect_arena)) {

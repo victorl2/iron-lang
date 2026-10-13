@@ -1,0 +1,23 @@
+// `//iron:<hint>` compiler hints (manual 1.2): an unknown hint or one on a
+// declaration it does not apply to warns (W0617); a known one does not.
+
+//iron:fusable
+func misspelled(x: Int) -> Int {
+    return x + 1
+}
+
+//iron:fusible
+object NotAFunction {
+    val x: Int
+}
+
+//iron:fusible
+func fine(x: Int) -> Int {
+    return x * 2
+}
+
+func trailing(x: Int) -> Int { return x } //iron:fusible
+
+func main() {
+    println("{misspelled(1)} {fine(2)} {trailing(3)} {NotAFunction(4).x}")
+}

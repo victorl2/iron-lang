@@ -1,4 +1,4 @@
--- @expect-panic: index: 0 bound: 0
+// @expect-panic: index: 0 bound: 0
 -- layout: soa lists: after_take panics as it does for the default layout,
 -- naming the Iron line.
 object P {

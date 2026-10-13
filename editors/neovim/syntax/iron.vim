@@ -41,8 +41,12 @@ syn region  ironString      start=/"/ skip=/\\\\\|\\"/ end=/"/ contains=ironEsca
 syn match   ironFuncName    /\<func\s\+\zs\h\w*\ze\s*[\[(]/
 syn match   ironTypeName    /\<\(object\|interface\|enum\|patch\s\+object\)\s\+\zs\h\w*/
 
-syn match   ironDocComment  /\/\/\/.*$/ contains=@Spell
+" `//` line comments (`--` while code migrates); a later match wins at the
+" same column, so `//key:value` directives and `///` lines come after.
+syn match   ironComment     /\/\/.*$/ contains=ironTodo,@Spell
 syn match   ironComment     /--.*$/ contains=ironTodo,@Spell
+syn match   ironDirective   /\/\/[a-z][a-z0-9_]*:.*$/
+syn match   ironDocComment  /\/\/\/.*$/ contains=@Spell
 syn keyword ironTodo        contained TODO FIXME XXX NOTE
 
 hi def link ironConditional Conditional
@@ -64,6 +68,7 @@ hi def link ironFuncName    Function
 hi def link ironTypeName    Type
 hi def link ironDocComment  SpecialComment
 hi def link ironComment     Comment
+hi def link ironDirective   PreProc
 hi def link ironTodo        Todo
 
 let b:current_syntax = 'iron'

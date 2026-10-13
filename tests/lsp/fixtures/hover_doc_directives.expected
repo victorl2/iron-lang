@@ -1,0 +1,10 @@
+```iron
+pub Item.item_id: Int
+```
+
+The catalog number.
+
+```iron
+//db:primary_key
+//json:id
+```

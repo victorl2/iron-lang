@@ -16,9 +16,14 @@
 // producing an IRON_NODE_METHOD_DECL. This grammar matches the parser's
 // iron_parse_decl_impl dispatch in src/parser/parser.c:3217.
 //
-// Comment syntax (per src/lexer/lexer.c:655 and :710):
-//   --   line comment (Haskell/Ada-style; Iron does NOT use //)
-//   ///  doc comment
+// Comment syntax (src/lexer/lexer.c iron_lex_line_comment; manual 1.2):
+//   //          line comment, to the end of the line; the only form.
+//               Documentation is a run of `//` lines directly above a
+//               declaration (Go style); the parser attaches it, the tree
+//               keeps them as line_comment nodes.
+//   //key:value directive comment (no space after `//`, key [a-z][a-z0-9_]*)
+//   --  and  /// are still accepted while code migrates to `//`
+//               (`iron fmt --migrate-comments`).
 //   Iron has NO block comment.
 //
 // String interpolation (per src/lexer/lexer.c:287 + :350):
@@ -63,6 +68,7 @@ module.exports = grammar({
     /\n/,
     $.line_comment,
     $.doc_comment,
+    $.directive_comment,
   ],
 
   word: $ => $.identifier,
@@ -909,12 +915,29 @@ module.exports = grammar({
 
     // ── Comments (extras) ──────────────────────────────────────────────
 
-    // Iron line comment: `-- ...` to end of line.
-    line_comment: $ => token(seq('--', /[^\n]*/)),
+    // The three comment tokens share lexical precedence 0, below the
+    // string body (1), so `"//"`, `"--"` and `"///"` inside a string stay
+    // string text. Between themselves the longest match decides: the
+    // `//` alternative of line_comment never takes a third `/` or the
+    // `key:` of a directive, so `///...` lexes as doc_comment and
+    // `//key:value` as directive_comment.
 
-    // Iron doc comment: `/// ...` to end of line (src/lexer/lexer.c:710).
-    // Precedence 1 so `///` wins over any hypothetical `//` match.
-    doc_comment: $ => token(prec(1, seq('///', /[^\n]*/))),
+    // Line comment: `// ...` (or the transitional `-- ...`) to end of line.
+    line_comment: $ => token(choice(
+      seq('//', optional(choice(
+        seq(/[^a-z\/\n]/, /[^\n]*/),
+        seq(/[a-z][a-z0-9_]*/, optional(seq(/[^a-z0-9_:\n]/, /[^\n]*/))),
+      ))),
+      seq('--', /[^\n]*/),
+    )),
+
+    // Transitional doc comment: `/// ...` to end of line; `//` lines above a
+    // declaration are its documentation too.
+    doc_comment: $ => token(seq('///', /[^\n]*/)),
+
+    // Directive comment: `//key:value` (Go's `//go:embed` style), e.g.
+    // `//json:id` or the compiler hint `//iron:fusible`.
+    directive_comment: $ => token(seq('//', /[a-z][a-z0-9_]*:[^\n]*/)),
 
     // ── Identifiers ────────────────────────────────────────────────────
     // word: $ => $.identifier above routes reserved-keyword matching into
