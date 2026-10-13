@@ -22,6 +22,7 @@ on:
       - 'scripts/test_doc_examples.sh'
       - 'scripts/check_doc_examples.sh'
       - 'scripts/check_doc_links.py'
+      - 'scripts/check_diagnostic_docs.py'
       - 'scripts/grammar_check.py'
       - 'tests/integration/v4/**'
       - 'tests/integration/v4-fail/**'
@@ -41,6 +42,7 @@ on:
       - 'scripts/test_doc_examples.sh'
       - 'scripts/check_doc_examples.sh'
       - 'scripts/check_doc_links.py'
+      - 'scripts/check_diagnostic_docs.py'
       - 'scripts/grammar_check.py'
       - 'tests/integration/v4/**'
       - 'tests/integration/v4-fail/**'
@@ -94,6 +96,9 @@ jobs:
 
       - name: Check relative documentation links and anchors
         run: python3 scripts/check_doc_links.py
+
+      - name: Check diagnostic code registry and references
+        run: python3 scripts/check_diagnostic_docs.py
 
       - name: Check the manual's grammar against the fixture corpus
         run: python3 scripts/grammar_check.py --negative tests/integration/v4-fail

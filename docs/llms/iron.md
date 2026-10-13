@@ -551,7 +551,7 @@ Write tests as `test "name" { ... }` blocks next to the code (in `src/`) or in
 runs in its own process; `assert_eq(actual, expected)` and `assert_ne(a, b)`
 report both values and the line on failure. Other builds leave tests out.
 
-<!-- doctest-skip: a test block needs `iron test` to run -->
+<!-- doctest-test -->
 ```iron
 func add(a: Int, b: Int) -> Int {
     return a + b

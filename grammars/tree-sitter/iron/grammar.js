@@ -132,11 +132,13 @@ module.exports = grammar({
     import_path: $ => seq($.identifier, repeat(seq('.', $.identifier))),
 
     // object Name[<GenericParams>] [extends Parent] [impl I1, I2] { val name: T, var name: T }
-    // Phase 35 GRM-06 (Plan 35-01): optional `nocopy` prefix modifier
-    // (`nocopy object FileHandle { ... }`) via $.nocopy_modifier named child.
+    // A declaration may have `pub` or `nocopy`, but the compiler does not yet
+    // accept both together (#840).
     object_declaration: $ => seq(
-      optional($.visibility_modifier),
-      optional(field('marker', $.nocopy_modifier)),
+      optional(choice(
+        $.visibility_modifier,
+        field('marker', $.nocopy_modifier),
+      )),
       'object',
       field('name', $.identifier),
       optional($.generic_params),

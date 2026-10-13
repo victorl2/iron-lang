@@ -316,7 +316,7 @@ A test is a `test "name" { ... }` block, in any file of `src/` (next to the
 code it tests, with access to its private functions) or `tests/` (with the
 project's `pub` declarations):
 
-<!-- doctest-skip: a test block needs `iron test` to run -->
+<!-- doctest-test -->
 ```iron
 func double(x: Int) -> Int {
     return x * 2
