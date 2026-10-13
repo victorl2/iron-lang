@@ -1071,6 +1071,11 @@ static bool apply_replacements(IronLIR_Instr *instr, ValueReplEntry *repl_map) {
     return changed;
 }
 
+static bool instr_uses_value(const IronLIR_Instr *instr, IronLIR_ValueId value);
+bool iron_lir_instr_uses_value(const IronLIR_Instr *instr, IronLIR_ValueId value) {
+    return instr_uses_value(instr, value);
+}
+
 /* Collect all ValueId operands of instr into out[].
  * Mirrors verify.c's collect_operands exactly. */
 static void opt_collect_operands(const IronLIR_Instr *instr,
@@ -1463,6 +1468,17 @@ static LirRecvLoadEntry *lir_collect_receiver_loads(IronLIR_Func *fn) {
             IronLIR_Instr *in = blk->instrs[ii];
             if (!in) continue;
             IronLIR_ValueId chain = IRON_LIR_VALUE_INVALID;
+            /* A field or element handed to a `var` parameter is addressed
+             * in its own storage too (`f(obj.field)`). */
+            if (in->kind == IRON_LIR_CALL && in->call.args_by_addr) {
+                for (int ai = 0; ai < in->call.arg_count; ai++) {
+                    if (!in->call.args_by_addr[ai]) continue;
+                    IronLIR_ValueId arg_load = IRON_LIR_VALUE_INVALID;
+                    if (lir_storage_chain_root(fn, in->call.args[ai], &arg_load) !=
+                            IRON_LIR_VALUE_INVALID && arg_load != IRON_LIR_VALUE_INVALID)
+                        hmput(set, arg_load, true);
+                }
+            }
             if (in->kind == IRON_LIR_CALL && in->call.self_by_addr &&
                 in->call.arg_count > 0)
                 chain = in->call.args[0];
@@ -6103,6 +6119,26 @@ static bool func_has_self_call(IronLIR_Func *fn) {
  *   8. Split call_block at CALL site; wire JUMP edges.
  *   9. Propagate load_result_id -> call_id replacement to continuation.
  */
+/* The rc and weak rc operand of `instr`, `from` replaced by `to`.
+ * apply_replacements() leaves these operands alone (see the note there),
+ * but the result of an inlined call must be renamed in them too: the
+ * release of an `rc T?` temporary (`count(none())`) named the removed
+ * call and the C did not compile. */
+static void replace_rc_operand(IronLIR_Instr *instr, IronLIR_ValueId from,
+                               IronLIR_ValueId to) {
+    IronLIR_ValueId *op = NULL;
+    switch ((int)instr->kind) {
+    case IRON_LIR_RC_RETAIN:         op = &instr->rc_retain.target; break;
+    case IRON_LIR_RC_RELEASE:        op = &instr->rc_release.target; break;
+    case IRON_LIR_WEAK_RC_RETAIN:    op = &instr->weak_rc_retain.target; break;
+    case IRON_LIR_WEAK_RC_RELEASE:   op = &instr->weak_rc_release.target; break;
+    case IRON_LIR_WEAK_RC_DOWNGRADE: op = &instr->weak_rc_downgrade.source; break;
+    case IRON_LIR_WEAK_RC_UPGRADE:   op = &instr->weak_rc_upgrade.source; break;
+    default: break;
+    }
+    if (op && *op == from) *op = to;
+}
+
 static void inline_call_site(IronLIR_Func *fn,
                               IronLIR_Block *call_block,
                               int call_idx,
@@ -6452,12 +6488,16 @@ static void inline_call_site(IronLIR_Func *fn,
         for (int bi2 = 0; bi2 < cloned_block_start; bi2++) {
             if (fn->blocks[bi2] == call_block) continue;  /* call removed, skip */
             IronLIR_Block *blk = fn->blocks[bi2];
-            for (int ii = 0; ii < blk->instr_count; ii++)
+            for (int ii = 0; ii < blk->instr_count; ii++) {
                 apply_replacements(blk->instrs[ii], result_remap);
+                replace_rc_operand(blk->instrs[ii], call_instr->id, load_result_id);
+            }
         }
         /* Also apply to continuation block */
-        for (int ii = 0; ii < cont->instr_count; ii++)
+        for (int ii = 0; ii < cont->instr_count; ii++) {
             apply_replacements(cont->instrs[ii], result_remap);
+            replace_rc_operand(cont->instrs[ii], call_instr->id, load_result_id);
+        }
         hmfree(result_remap);
     }
 

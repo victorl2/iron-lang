@@ -1,0 +1,40 @@
+-- layout: soa lists: where a list takes its layout from (literals, copy, take, slices, filter).
+-- The same program with the layout annotations removed prints the same
+-- (tests/integration/soa_parity.sh).
+object P {
+    var x: Int
+    init(x: Int) { self.x = x }
+}
+object H {
+    var xs: [P, layout: soa]
+    init() { self.xs = [] }
+}
+func make_soa() -> [P, layout: soa] { return [P(1)] }
+func make_soa2() -> [P, layout: soa] {
+    var out: [P] = []
+    out.push(P(1))
+    return out
+}
+func make_plain() -> [P] { return [P(1)] }
+func take_soa(xs: [P, layout: soa]) -> Int { return xs.len() }
+func main() {
+    var a: [P, layout: soa] = []
+    val b: [P, layout: soa] = [P(1), P(2)]
+    val c = make_soa()
+    val d: [P, layout: soa] = make_plain()
+    val e = a.copy()
+    val f = b[0..1]
+    val g = b.filter(func(p: P) -> Bool { return p.x > 0 })
+    val h: [P, layout: soa] = b.map(func(p: P) -> P { return P(p.x) })
+    val i = make_soa2()
+    var hh = H()
+    hh.xs.push(P(1))
+    println("{take_soa([P(5)])}")
+    var m = Map[Int, [P, layout: soa]]()
+    m.put(1, [P(1)])
+    var n: [[P, layout: soa]] = [[P(1)], []]
+    n.push([P(2)])
+    val z: [P, layout: aos] = [P(3)]
+    a.push(P(1))
+    println("{a.len()} {b.len()} {c.len()} {d.len()} {e.len()} {f.len()} {g.len()} {h.len()} {i.len()} {n.len()} {z.len()}")
+}

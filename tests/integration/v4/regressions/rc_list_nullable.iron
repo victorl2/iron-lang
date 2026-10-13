@@ -1,0 +1,60 @@
+-- `rc [T]?` is a nullable shared list: the annotation resolved to no type
+-- and the C did not compile (#826). An `rc` expression where an `rc T?` is
+-- expected takes the type arguments and the element type from it (#829).
+object Cell[T] {
+    var n: Int
+    var v: T?
+    init() {
+        self.n = 0
+        self.v = null
+    }
+}
+object Keep {
+    var xs: rc [Int]?
+    init() {
+        self.xs = null
+    }
+}
+func a(b: Bool) -> rc [Int]? {
+    if b {
+        return rc []
+    }
+    return rc [1, 2]
+}
+func none() -> rc [Int]? {
+    return null
+}
+func cell(b: Bool) -> rc Cell[Int]? {
+    if b {
+        return rc Cell()
+    }
+    return null
+}
+func count(xs: rc [Int]?) -> Int {
+    if xs != null {
+        return xs.len()
+    }
+    return -1
+}
+func main() {
+    val q: rc [Int]? = rc [1]
+    val b: Bool = q != null
+    println("{b}")
+    if q != null {
+        q.push(4)
+        println("{q.len()} {q[1]}")
+    }
+    var w: rc [Int]? = null
+    println("{w == null}")
+    w = rc [3]
+    val e: rc [String]? = rc []
+    val m: rc Map[String, Int]? = rc Map()
+    val c: rc Cell[Int]? = rc Cell()
+    println("{w != null} {e != null} {m != null} {c != null} {cell(true) != null} {cell(false) == null}")
+    println("{count(a(true))} {count(a(false))} {count(none())} {count(rc [])} {count(null)}")
+    var k = Keep()
+    println("{count(k.xs)}")
+    k.xs = rc []
+    k.xs = rc [5, 6, 7]
+    println("{count(k.xs)}")
+}

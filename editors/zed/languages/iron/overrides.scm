@@ -4,4 +4,5 @@
 [
   (line_comment)
   (doc_comment)
+  (directive_comment)
 ] @comment

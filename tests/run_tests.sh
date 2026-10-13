@@ -273,7 +273,7 @@ fi
 noopt_parity_check() {
     local file="$1" name="$2" want="$3"
     case "${file}" in */regressions/*) ;; *) return 0 ;; esac
-    if grep -qE '^[[:space:]]*--[[:space:]]*@skip-no-optimize:' <<< "$(head -n 20 "${file}")"; then
+    if grep -qE '^[[:space:]]*(--|//)[[:space:]]*@skip-no-optimize:' <<< "$(head -n 20 "${file}")"; then
         return 0
     fi
     local dir="${WORK_DIR}/${name}_noopt"
@@ -350,15 +350,15 @@ run_one_fixture() {
     # Extract v4 directives from first 10 lines.
     expected_pass_after=""
     expect_panic_substr=""
-    if grep -qE '^[[:space:]]*--[[:space:]]*@expected-pass-after:' <<< "$(head -n 10 "${test_file}")"; then
+    if grep -qE '^[[:space:]]*(--|//)[[:space:]]*@expected-pass-after:' <<< "$(head -n 10 "${test_file}")"; then
         expected_pass_after=$(head -n 10 "${test_file}" \
             | grep -oE '@expected-pass-after:[[:space:]]+phase-[0-9]+' \
             | head -1 | sed 's/.*phase-//')
     fi
-    if grep -qE '^[[:space:]]*--[[:space:]]*@expect-panic:' <<< "$(head -n 10 "${test_file}")"; then
+    if grep -qE '^[[:space:]]*(--|//)[[:space:]]*@expect-panic:' <<< "$(head -n 10 "${test_file}")"; then
         expect_panic_substr=$(head -n 10 "${test_file}" \
-            | grep -E '^[[:space:]]*--[[:space:]]*@expect-panic:' \
-            | head -1 | sed -E 's/^[[:space:]]*--[[:space:]]*@expect-panic:[[:space:]]*//')
+            | grep -E '^[[:space:]]*(--|//)[[:space:]]*@expect-panic:' \
+            | head -1 | sed -E 's#^[[:space:]]*(--|//)[[:space:]]*@expect-panic:[[:space:]]*##')
     fi
 
     if [ ! -f "${expected_file}" ] && [ "${compile_only}" -eq 0 ] && [ -z "${expect_panic_substr}" ] && [ -z "${expected_pass_after}" ]; then
@@ -577,7 +577,7 @@ if [ "${CATEGORY}" = "v4-fail" ] || [ "${CATEGORY}" = "compile_fail" ]; then
 
         # Re-extract @expected-pass-after for XFAIL handling
         expected_pass_after=""
-        if grep -qE '^[[:space:]]*--[[:space:]]*@expected-pass-after:' <<< "$(head -n 10 "${test_file}")"; then
+        if grep -qE '^[[:space:]]*(--|//)[[:space:]]*@expected-pass-after:' <<< "$(head -n 10 "${test_file}")"; then
             expected_pass_after=$(head -n 10 "${test_file}" \
                 | grep -oE '@expected-pass-after:[[:space:]]+phase-[0-9]+' \
                 | head -1 | sed 's/.*phase-//')
@@ -613,7 +613,7 @@ if [ "${CATEGORY}" = "v4-fail" ] || [ "${CATEGORY}" = "compile_fail" ]; then
 
             # Carve-out 2: runtime-panic negative.
             expect_panic_neg=""
-            if grep -qE '^[[:space:]]*--[[:space:]]*@expect-panic:' <<< "$(head -n 10 "${test_file}")"; then
+            if grep -qE '^[[:space:]]*(--|//)[[:space:]]*@expect-panic:' <<< "$(head -n 10 "${test_file}")"; then
                 expect_panic_neg=1
             fi
             if [ -n "${expect_panic_neg}" ]; then

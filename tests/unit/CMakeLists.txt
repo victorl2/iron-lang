@@ -1807,3 +1807,10 @@ if(IRON_ENABLE_SANITIZERS)
         test_leakcheck_release
         PROPERTIES DISABLED TRUE)
 endif()
+
+# `//` comments, Go style documentation, directives, compiler hints and
+# `fmt --migrate-comments` (manual section 1.2).
+add_executable(test_comments test_comments.c)
+target_link_libraries(test_comments iron_compiler unity)
+add_test(NAME test_comments COMMAND test_comments)
+set_tests_properties(test_comments PROPERTIES LABELS "unit")

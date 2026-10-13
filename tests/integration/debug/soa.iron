@@ -1,0 +1,31 @@
+-- A layout: soa list in the debugger: its elements are gathered from the
+-- columns by the gdb and lldb formatters (debug_soa_smoke.sh).
+object Mote {
+    var alive: Bool
+    var x: Float
+    var tag: Int8
+    var id: Int
+    var name: String
+    var kind: Int32
+    init(i: Int) {
+        self.alive = i % 2 == 0
+        self.x = Float(i) + 0.5
+        self.tag = 7
+        self.id = i * 11
+        self.name = "mote{i}"
+        self.kind = 100000
+    }
+}
+
+func main() {
+    var cols: [Mote, layout: soa] = []
+    var rows: [Mote] = []
+    for i in range(3) {
+        cols.push(Mote(i))
+        rows.push(Mote(i))
+    }
+    cols[1].id = 99
+    rows[1].id = 99
+    val none: [Mote, layout: soa] = []
+    println("{cols.len()} {rows.len()} {none.len()}")
+}

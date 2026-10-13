@@ -1,0 +1,47 @@
+// Comments (manual 1.2): `//` to the end of the line, Go style
+// documentation, `//key:value` directives and the transitional `--` and
+// `///` spellings. None of them changes what the program does.
+
+// Item documentation: a run of `//` lines directly above.
+//db:table
+object Item {
+    // The catalog number.
+    //db:primary_key
+    pub val item_id: Int  //json:id
+    pub val name: String  // a trailing comment, not documentation
+}
+
+// Detached: the blank line below breaks the association.
+
+//iron:fusible
+func half(x: Int) -> Int {
+    return x / 2 // division, then a comment
+}
+
+-- transitional dash comment
+/// transitional doc line
+@fusible
+func twice(x: Int) -> Int {
+    return x * 2   -- trailing dash comment
+}
+
+enum Color {
+    Red,    //json:red
+    // Green documentation
+    Green,
+}
+
+func main() {
+    val it = Item(7, "lamp")
+    println("{it.item_id} {it.name}")
+    println("http://example.com/a//b") // a URL in a string is text
+    println("-- not a comment /// nor this //json:no")
+    println("{half(9)} {twice(21)}")
+    val c = Color.Green
+    match c {
+        Color.Red -> println("red")
+        Color.Green -> println("green") //k:v on a statement is kept as a comment
+    }
+    val r = 10 - -2 //x
+    println("{r}")
+}

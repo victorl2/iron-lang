@@ -1,0 +1,17 @@
+drop 2
+drop 1
+drop 0
+300 str-300-padding-padding-padding
+200 str-200-padding-padding-padding
+100 str-100-padding-padding-padding
+3 str-3-padding-padding-padding
+20 30 c-long-string-long-long-long-long d-long-string-long-long-long-long
+drop 7
+9 300
+drop 9
+drop 8
+drop 300
+drop 300
+drop 200
+drop 100
+drop 3

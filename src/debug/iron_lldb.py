@@ -38,8 +38,9 @@ def _string(valobj):
         n = sso.GetChildMemberWithName("len").GetValueAsUnsigned(0)
         if n > 23:
             return None
-        addr = sso.GetChildMemberWithName("data").GetLoadAddress()
-        data = process.ReadMemory(addr, n, err) if n else b""
+        # The value's own bytes: an element gathered from the columns of a
+        # layout: soa list is not in the program's memory.
+        data = sso.GetChildMemberWithName("data").GetData().ReadRawData(err, 0, n) if n else b""
     if not err.Success():
         return None
     return data.decode("utf-8", errors="replace")
@@ -50,6 +51,39 @@ def string_summary(valobj, _dict):
     return "<invalid string>" if s is None else '"%s"' % s.replace('"', '\\"')
 
 
+def _align(t):
+    """The alignment of a C type, from its layout (SBType.GetByteAlign is
+    not in every lldb): the largest alignment among a struct's members, an
+    array's element alignment, and a scalar's own size."""
+    t = t.GetCanonicalType()
+    cls = t.GetTypeClass()
+    if cls == lldb.eTypeClassArray:
+        return _align(t.GetArrayElementType())
+    if cls in (lldb.eTypeClassStruct, lldb.eTypeClassUnion, lldb.eTypeClassClass):
+        a = 1
+        for i in range(t.GetNumberOfFields()):
+            a = max(a, _align(t.GetFieldAtIndex(i).GetType()))
+        return a
+    size = t.GetByteSize()
+    return max(1, min(size, 16))
+
+
+def _soa_columns(elem):
+    """Where a `layout: soa` list keeps each member of its element type:
+    (offset in the element, size, bytes per element of capacity before the
+    member's column). Columns follow decreasing alignment, declaration
+    order among equals (emit_structs.c emit_object_soa_impl)."""
+    members = []
+    for i in range(elem.GetNumberOfFields()):
+        f = elem.GetFieldAtIndex(i)
+        members.append((i, f.GetOffsetInBytes(), f.GetType().GetByteSize(), _align(f.GetType())))
+    cols, before = [], 0
+    for i, off, size, _a in sorted(members, key=lambda m: (-m[3], m[0])):
+        cols.append((off, size, before))
+        before += size
+    return cols
+
+
 class ListProvider:
     def __init__(self, valobj, _dict):
         self.valobj = valobj
@@ -58,6 +92,13 @@ class ListProvider:
         self.count = self.valobj.GetChildMemberWithName("count").GetValueAsUnsigned(0)
         self.items = self.valobj.GetChildMemberWithName("items")
         self.elem = self.items.GetType().GetPointeeType()
+        # A list of an element type used with layout: soa has a `soa` flag;
+        # when it is set, items points at one block of columns.
+        flag = self.valobj.GetChildMemberWithName("soa")
+        self.soa = flag.IsValid() and flag.GetValueAsUnsigned(0) != 0
+        if self.soa:
+            self.capacity = self.valobj.GetChildMemberWithName("capacity").GetValueAsUnsigned(0)
+            self.columns = _soa_columns(self.elem.GetCanonicalType())
         return False
 
     def num_children(self):
@@ -70,8 +111,24 @@ class ListProvider:
             return -1
 
     def get_child_at_index(self, i):
-        addr = self.items.GetValueAsUnsigned(0) + i * self.elem.GetByteSize()
-        return self.valobj.CreateValueFromAddress("[%d]" % i, addr, self.elem)
+        base = self.items.GetValueAsUnsigned(0)
+        if not self.soa:
+            addr = base + i * self.elem.GetByteSize()
+            return self.valobj.CreateValueFromAddress("[%d]" % i, addr, self.elem)
+        # Gather element i from its columns into a value of the element type.
+        process = self.valobj.GetProcess()
+        err = lldb.SBError()
+        buf = bytearray(self.elem.GetByteSize())
+        for off, size, before in self.columns:
+            if size == 0:
+                continue
+            chunk = process.ReadMemory(base + self.capacity * before + i * size, size, err)
+            if not err.Success():
+                return None
+            buf[off:off + size] = chunk
+        data = lldb.SBData()
+        data.SetData(err, bytes(buf), process.GetByteOrder(), process.GetAddressByteSize())
+        return self.valobj.CreateValueFromData("[%d]" % i, data, self.elem)
 
 
 class SlotProvider:

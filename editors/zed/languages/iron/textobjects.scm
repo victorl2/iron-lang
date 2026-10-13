@@ -20,3 +20,4 @@
 
 (line_comment)+ @comment.around
 (doc_comment)+ @comment.around
+(directive_comment)+ @comment.around
