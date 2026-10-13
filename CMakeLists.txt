@@ -1674,6 +1674,13 @@ if(UNIX)
     set_tests_properties(test_aggregate_scheduling PROPERTIES
         LABELS "unit;oracle" TIMEOUT 30)
 
+    add_test(NAME test_opt_parity_scheduling
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_opt_parity_scheduling.py
+            ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_opt_parity_scheduling PROPERTIES
+        LABELS "unit;oracle" TIMEOUT 30)
+
     add_test(NAME benchmark_process_regressions
         COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/benchmarks/test_benchmark_process.py)

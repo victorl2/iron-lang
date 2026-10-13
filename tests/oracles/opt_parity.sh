@@ -71,11 +71,12 @@ check_one() {
         grep -m1 -E "error" "$dir/o.err" "$dir/n.err" | sed 's/^/    /'
         return 0
     fi
+    # Compile the pair concurrently, but run it sequentially. Some fixtures
+    # intentionally bind a fixed port or use another process-wide resource;
+    # concurrent variants would race with their own parity partner (#850).
     local ro rn
-    run_with_timeout "$fixture_timeout" "$dir/o/$name" >"$dir/o.out" 2>&1 & po=$!
-    run_with_timeout "$fixture_timeout" "$dir/n/$name" >"$dir/n.out" 2>&1 & pn=$!
-    wait "$po"; ro=$?
-    wait "$pn"; rn=$?
+    run_with_timeout "$fixture_timeout" "$dir/o/$name" >"$dir/o.out" 2>&1; ro=$?
+    run_with_timeout "$fixture_timeout" "$dir/n/$name" >"$dir/n.out" 2>&1; rn=$?
     if [ $ro -ne $rn ] || ! cmp -s "$dir/o.out" "$dir/n.out"; then
         echo "DIFF $((SECONDS - started))s $f (exit $ro vs $rn, timeout=${fixture_timeout}s)"
         diff "$dir/o.out" "$dir/n.out" | head -6 | sed 's/^/    /'
