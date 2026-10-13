@@ -1,4 +1,5 @@
 <!-- doctest-imports: raylib -->
+<!-- doctest-build-only: examples open a graphical window and need user input -->
 # Raylib
 
 Iron's standard library binds [raylib 6.0](https://www.raylib.com/): every

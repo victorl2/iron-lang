@@ -40,7 +40,8 @@ the program's namespace, so call its `pub` functions directly.
 ## Syntax essentials
 
 - Comments start with `--`. There are no `//` or `#` comments.
-- Blocks use braces; statements end at the newline (no semicolons).
+- Blocks use braces. Newlines are whitespace, and the grammar determines
+  statement boundaries; semicolons appear only in collection syntax.
 - `val` is an immutable binding, `var` a mutable one. Types are inferred or
   written as `name: Type`.
 - Strings interpolate with braces: `"{name} has {hp} HP"`; any expression,
@@ -82,6 +83,12 @@ stored cannot capture a list. A `spawn` that captures a list must be
 awaited in the same block. To share a list, use `rc [T]`: every copy of the
 handle reaches the same list, which is freed with the last handle, and the
 list can be grown through any handle.
+
+The same borrow rule applies to every `nocopy` value. A lambda may capture
+one only when passed directly to a call whose callee does not keep the
+closure. A spawn may capture one only when awaited in the same block.
+Otherwise the compiler reports `E0286` and recommends `rc` as the ownership
+fix.
 
 ```iron
 func make_counter() -> func() -> Int {
@@ -544,7 +551,7 @@ Write tests as `test "name" { ... }` blocks next to the code (in `src/`) or in
 runs in its own process; `assert_eq(actual, expected)` and `assert_ne(a, b)`
 report both values and the line on failure. Other builds leave tests out.
 
-<!-- doctest-skip: a test block needs `iron test` to run -->
+<!-- doctest-test -->
 ```iron
 func add(a: Int, b: Int) -> Int {
     return a + b

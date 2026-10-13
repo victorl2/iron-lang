@@ -90,3 +90,39 @@ val ys: [Int; <=8]? = null
         (identifier))
       (integer_literal))
     value: (null_literal)))
+
+==========
+function type without an argument list
+==========
+
+val f: func -> Int = make
+
+---
+
+(source_file
+  (val_declaration
+    (identifier)
+    (function_type
+      (type_identifier
+        (identifier)))
+    (identifier)))
+
+==========
+fixed-size fill expression
+==========
+
+func main() { val xs = [Int; 4] }
+
+---
+
+(source_file
+  (func_declaration
+    (identifier)
+    (parameter_list)
+    (block
+      (val_declaration
+        (identifier)
+        (fill_expression
+          (type_identifier
+            (identifier))
+          (integer_literal))))))

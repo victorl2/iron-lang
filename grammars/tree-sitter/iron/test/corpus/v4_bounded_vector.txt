@@ -29,3 +29,20 @@ var arr: [Int; 4]
       (type_identifier
         (identifier))
       (integer_literal))))
+
+==========
+attributes precede the bounded size
+==========
+
+val xs: [Point, layout: soa; <= 4] = []
+
+---
+
+(source_file
+  (val_declaration
+    (identifier)
+    (bounded_vector_type
+      (type_identifier
+        (identifier))
+      (integer_literal))
+    (array_literal)))

@@ -356,7 +356,7 @@ benchmark using `fill()` as a workspace allocator.
 
 ### 5. `subsets_bitmask` — 1.90x
 
-**Root cause: Missing bitwise operators in Iron language**
+**Original root cause: missing bitwise operators in the Iron language**
 
 The C reference uses single-instruction bit manipulation:
 ```c
@@ -365,9 +365,10 @@ if ((mask >> i) & 1) {
 }
 ```
 
-Iron the language has no `>>`, `<<`, `&`, `|`, `^`, or `~` operators. The
-benchmark author was forced to simulate `(mask >> i) & 1` with an O(i) inner
-loop of arithmetic divisions:
+Iron now has `>>`, `<<`, `&`, `|`, `^`, and `~`, so current code should write
+the direct expression shown above. The original benchmark used this O(i)
+inner loop of arithmetic divisions before those operators were added:
+<!-- doctest-skip: historical fragment omits the surrounding mask and index declarations -->
 ```iron
 var bit = mask
 var k = 0
@@ -378,7 +379,7 @@ while k < i {
 if bit % 2 == 1 { ... }
 ```
 
-clang folds `x / 2` to `x >> 1` for the divide-by-constant case, but the loop
+Clang folds `x / 2` to `x >> 1` for the divide-by-constant case, but the loop
 itself still runs `i` times per bit check. For `n = 18`, the amortized inner
 bit extraction runs ~9 arithmetic ops instead of C's 1 shift — an ~9× cost
 increase on the bit-extraction inner loop, diluted to the observed 1.9× overall
