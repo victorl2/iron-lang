@@ -30,7 +30,7 @@ if(NOT WIN32)
     add_test(
         NAME test_opt_parity
         COMMAND ${CMAKE_SOURCE_DIR}/tests/oracles/opt_parity.sh
-                ${CMAKE_BINARY_DIR}/iron
+                ${CMAKE_BINARY_DIR}/ironc
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     # Not in the v4-acceptance label: it builds every fixture twice, which
