@@ -223,4 +223,38 @@ size_t iron_mysql_escape_bytes(char *out, const char *in, size_t len,
  * handle (src/debug formatters). */
 const char *iron_mysql_debug_text(int64_t h, int64_t kind);
 
+/* Protocol conformance and benchmark hooks. These drive the production
+ * codec over an in-process byte transport; they never open a socket. The
+ * returned byte buffer belongs to the caller and is released with
+ * iron_mysql_test_bytes_free. */
+typedef struct Iron_MysqlTestBytes {
+    uint8_t *data;
+    size_t len;
+} Iron_MysqlTestBytes;
+
+Iron_MysqlError iron_mysql_test_read_packet(const uint8_t *wire, size_t wire_len,
+                                            size_t read_size, uint8_t first_sequence,
+                                            uint64_t max_packet,
+                                            Iron_MysqlTestBytes *payload);
+Iron_MysqlError iron_mysql_test_decode_lenenc(const uint8_t *encoded, size_t encoded_len,
+                                              uint64_t *value, bool *is_null,
+                                              size_t *consumed);
+Iron_MysqlError iron_mysql_test_encode_lenenc(uint64_t value,
+                                              Iron_MysqlTestBytes *encoded);
+int64_t iron_mysql_test_decode_result(const uint8_t *wire, size_t wire_len,
+                                      size_t read_size, uint32_t capabilities,
+                                      uint8_t first_sequence, bool binary);
+Iron_MysqlError iron_mysql_test_handshake(const uint8_t *wire, size_t wire_len,
+                                          size_t read_size,
+                                          Iron_MysqlConfig config,
+                                          Iron_MysqlTestBytes *written);
+Iron_MysqlError iron_mysql_test_encode_params(const Iron_MysqlValueList *params,
+                                              Iron_MysqlTestBytes *encoded);
+int64_t iron_mysql_test_statement_exchange(const uint8_t *wire, size_t wire_len,
+                                           size_t read_size, const char *sql,
+                                           size_t sql_len,
+                                           const Iron_MysqlValueList *params,
+                                           Iron_MysqlTestBytes *written);
+void iron_mysql_test_bytes_free(Iron_MysqlTestBytes *bytes);
+
 #endif /* IRON_MYSQL_H */

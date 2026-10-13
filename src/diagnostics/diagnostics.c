@@ -105,117 +105,218 @@ static int use_color(void) {
  * Sources without markers resolve to physical == logical, i.e. the exact
  * pre-remediation behavior (unit tests, LSP buffers, fmt). */
 
-/* Parse one physical line as a `-- @file:` marker.
- * Grammar (whitespace-tolerant):  -- @file: <name> [@line: <n>]
- * where <name> is bare (up to whitespace) or quoted ("..." — may contain
- * spaces). On success returns 1 and fills *name_out, *name_len_out and
- * *line_reset_out (0 when no `@line:` suffix). */
-static int parse_file_marker(const char *line, size_t len,
-                             const char **name_out, size_t *name_len_out,
-                             uint32_t *line_reset_out) {
-    size_t i = 0;
-    while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
-    if (i + 2 > len || line[i] != '-' || line[i + 1] != '-') return 0;
-    i += 2;
-    while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
-    static const char k_file[] = "@file:";
-    const size_t k_file_len = sizeof(k_file) - 1;
-    if (i + k_file_len > len || memcmp(line + i, k_file, k_file_len) != 0) return 0;
-    i += k_file_len;
-    while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
+/* Process wide, set once at startup (or around a unit test). */
+static bool     g_marker_test_mode;
+static bool     g_marker_packed_source;
+static uint32_t g_diag_user_start_line = 1;
 
-    size_t name_start, name_len;
-    if (i < len && line[i] == '"') {
-        i++;
-        name_start = i;
-        while (i < len && line[i] != '"' && line[i] != '\r') i++;
-        name_len = i - name_start;
-        if (i < len && line[i] == '"') i++;
-        else return 0; /* unterminated quote: not a well-formed marker */
-    } else {
-        name_start = i;
-        while (i < len && line[i] != ' ' && line[i] != '\t' && line[i] != '\r') i++;
-        name_len = i - name_start;
-    }
-    if (name_len == 0) return 0;
-
-    uint32_t reset = 0;
-    while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
-    static const char k_line[] = "@line:";
-    const size_t k_line_len = sizeof(k_line) - 1;
-    if (i + k_line_len <= len && memcmp(line + i, k_line, k_line_len) == 0) {
-        i += k_line_len;
-        while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
-        uint32_t n = 0;
-        int any = 0;
-        while (i < len && line[i] >= '0' && line[i] <= '9') {
-            if (n < 100000000u) n = n * 10u + (uint32_t)(line[i] - '0');
-            any = 1;
-            i++;
-        }
-        if (any && n > 0) reset = n;
-    }
-
-    *name_out       = line + name_start;
-    *name_len_out   = name_len;
-    *line_reset_out = reset;
-    return 1;
+void iron_file_markers_set_test_mode(bool on) { g_marker_test_mode = on; }
+bool iron_file_markers_test_mode(void) { return g_marker_test_mode; }
+void iron_file_markers_set_packed_source(bool on) { g_marker_packed_source = on; }
+bool iron_file_markers_packed_source(void) { return g_marker_packed_source; }
+void iron_diag_set_user_start_line(uint32_t line) {
+    g_diag_user_start_line = line > 0 ? line : 1;
 }
 
-/* Map (filename, logical line) to the physical line number in source_text by
- * replaying the lexer's marker semantics. Falls back to `logical` (the exact
- * legacy behavior) when no matching line exists. */
-static uint32_t resolve_physical_line(const char *source_text,
-                                      const char *filename,
-                                      uint32_t logical) {
-    if (!source_text || logical == 0) return logical;
+size_t iron_comment_intro_len(const char *text, size_t len) {
+    if (!text || len < 2) return 0;
+    if (text[0] == '-' && text[1] == '-') return 2;
+    /* `///` opens a doc comment, which is a token of its own. */
+    if (text[0] == '/' && text[1] == '/' && !(len > 2 && text[2] == '/')) return 2;
+    return 0;
+}
 
+static size_t marker_skip_blanks(const char *s, size_t i, size_t len) {
+    while (i < len && (s[i] == ' ' || s[i] == '\t')) i++;
+    return i;
+}
+
+/* `<key> <digits>` at s[*i]: reads the number and moves *i past it. */
+static bool marker_number(const char *s, size_t *i, size_t len,
+                          const char *key, uint32_t *out) {
+    size_t klen = strlen(key);
+    size_t j = *i;
+    if (j + klen > len || memcmp(s + j, key, klen) != 0) return false;
+    j = marker_skip_blanks(s, j + klen, len);
+    uint32_t n = 0;
+    bool any = false;
+    while (j < len && s[j] >= '0' && s[j] <= '9') {
+        if (n < 100000000u) n = n * 10u + (uint32_t)(s[j] - '0');
+        any = true;
+        j++;
+    }
+    if (!any) return false;
+    *i = j;
+    *out = n;
+    return true;
+}
+
+bool iron_file_marker_parse(const char *text, size_t len, Iron_FileMarker *out) {
+    static const char k_file[] = "@file:";
+    const size_t k_file_len = sizeof(k_file) - 1;
+    if (!text || !out) return false;
+
+    size_t i = marker_skip_blanks(text, 0, len);
+    if (i + k_file_len > len || memcmp(text + i, k_file, k_file_len) != 0) return false;
+    i = marker_skip_blanks(text, i + k_file_len, len);
+
+    size_t name_start, name_len;
+    if (i < len && text[i] == '"') {
+        i++;
+        name_start = i;
+        while (i < len && text[i] != '"' && text[i] != '\n' && text[i] != '\r') i++;
+        name_len = i - name_start;
+        if (i < len && text[i] == '"') i++;
+        else return false; /* unterminated quote: not a well-formed marker */
+    } else {
+        name_start = i;
+        while (i < len && text[i] != ' ' && text[i] != '\t' &&
+               text[i] != '\n' && text[i] != '\r') i++;
+        name_len = i - name_start;
+    }
+    if (name_len == 0) return false;
+
+    out->name       = text + name_start;
+    out->name_len   = name_len;
+    out->line_reset = 0;
+    out->has_lines  = false;
+    out->lines      = 0;
+    out->packed     = false;
+
+    uint32_t n = 0;
+    i = marker_skip_blanks(text, i, len);
+    if (marker_number(text, &i, len, "@line:", &n)) {
+        out->line_reset = n; /* 0 is not a line: no reset */
+        i = marker_skip_blanks(text, i, len);
+    }
+    if (marker_number(text, &i, len, "@lines:", &n)) {
+        out->has_lines = true;
+        out->lines     = n;
+        i = marker_skip_blanks(text, i, len);
+    }
+    static const char k_packed[] = "@packed";
+    const size_t k_packed_len = sizeof(k_packed) - 1;
+    if (i + k_packed_len <= len && memcmp(text + i, k_packed, k_packed_len) == 0 &&
+        (i + k_packed_len == len || text[i + k_packed_len] == ' ' ||
+         text[i + k_packed_len] == '\t' || text[i + k_packed_len] == '\r')) {
+        out->packed = true;
+    }
+    return true;
+}
+
+Iron_FileMarkerGate iron_file_marker_gate(uint32_t user_start_line) {
+    Iron_FileMarkerGate g;
+    g.test_mode  = g_marker_test_mode;
+    g.packed     = g_marker_packed_source;
+    g.user_start = user_start_line > 0 ? user_start_line : 1;
+    g.trust_from = g.user_start;
+    return g;
+}
+
+bool iron_file_marker_admit(Iron_FileMarkerGate *gate, uint32_t phys_line,
+                            const Iron_FileMarker *m) {
+    if (!gate || !m) return false;
+    if (gate->test_mode) return true;
+    /* The prelude above the user's source is the compiler's own text. Its
+     * marker for the user's file says when that source is a packed one. */
+    if (phys_line < gate->user_start) {
+        if (m->packed) gate->packed = true;
+        return true;
+    }
+    if (!gate->packed || phys_line < gate->trust_from) return false;
+    /* Between the files of a packed source. The file under this marker is
+     * `lines` long; without a length it runs to the end of the buffer. */
+    if (!m->has_lines || m->lines >= UINT32_MAX - phys_line - 1) {
+        gate->trust_from = UINT32_MAX;
+    } else {
+        gate->trust_from = phys_line + 1 + m->lines;
+    }
+    return true;
+}
+
+/* The honored marker on one physical line of the buffer, if there is one.
+ * Only a comment that starts its line counts here (the markers the compiler
+ * and the harness write always do). */
+static bool honored_marker_on_line(Iron_FileMarkerGate *gate, const char *line,
+                                   size_t len, uint32_t phys,
+                                   Iron_FileMarker *out) {
+    size_t i = marker_skip_blanks(line, 0, len);
+    size_t intro = iron_comment_intro_len(line + i, len - i);
+    if (intro == 0) return false;
+    i += intro;
+    if (!iron_file_marker_parse(line + i, len - i, out)) return false;
+    return iron_file_marker_admit(gate, phys, out);
+}
+
+/* Replay the lexer's marker semantics over source_text.
+ *
+ * Maps (filename, logical line) to the physical line number: the return
+ * value, `logical` itself (the exact legacy behavior) when no line matches.
+ * When `query_phys` is not 0, *query_is_marker says whether that physical
+ * line is an honored marker line. */
+static uint32_t replay_file_markers(const char *source_text,
+                                    const char *filename, uint32_t logical,
+                                    uint32_t query_phys, bool *query_is_marker) {
+    if (query_is_marker) *query_is_marker = false;
+    if (!source_text) return logical;
+
+    Iron_FileMarkerGate gate = iron_file_marker_gate(g_diag_user_start_line);
     const char *p           = source_text;
     uint32_t    phys        = 1;
     uint32_t    cur_logical = 1;
     const char *cur_name     = NULL; /* NULL = entry region: match any file */
     size_t      cur_name_len = 0;
+    uint32_t    found        = 0;
 
     while (*p != '\0') {
         const char *eol     = strchr(p, '\n');
         size_t      linelen = eol ? (size_t)(eol - p) : strlen(p);
 
-        const char *mname;
-        size_t      mlen;
-        uint32_t    lreset;
-        if (parse_file_marker(p, linelen, &mname, &mlen, &lreset)) {
-            cur_name     = mname;
-            cur_name_len = mlen;
+        Iron_FileMarker m;
+        if (honored_marker_on_line(&gate, p, linelen, phys, &m)) {
+            if (query_is_marker && phys == query_phys) *query_is_marker = true;
+            cur_name     = m.name;
+            cur_name_len = m.name_len;
             /* @line marker: next physical line reports as line <n>.
              * Plain marker: physical resync (lexer sets line = phys_line at
              * the marker line; the newline bump makes the next line phys+1). */
-            cur_logical = (lreset > 0) ? lreset : phys + 1;
+            cur_logical = (m.line_reset > 0) ? m.line_reset : phys + 1;
         } else {
             int name_match =
                 (filename == NULL) || (cur_name == NULL) ||
                 (strlen(filename) == cur_name_len &&
                  strncmp(filename, cur_name, cur_name_len) == 0);
-            if (name_match && cur_logical == logical) return phys;
+            if (found == 0 && logical != 0 && name_match && cur_logical == logical) {
+                found = phys;
+            }
             cur_logical++;
         }
+        if ((found != 0 || logical == 0) &&
+            (query_phys == 0 || phys >= query_phys)) break;
 
         if (!eol) break;
         p = eol + 1;
         phys++;
     }
-    return logical;
+    return found != 0 ? found : logical;
 }
 
-/* Is the physical line `lineno` of source_text a `-- @file:` marker line?
+static uint32_t resolve_physical_line(const char *source_text,
+                                      const char *filename,
+                                      uint32_t logical) {
+    if (logical == 0) return logical;
+    return replay_file_markers(source_text, filename, logical, 0, NULL);
+}
+
+/* Is the physical line `lineno` of source_text an honored marker line?
  * Used to suppress marker lines from the context window (they always sit on
  * file boundaries, so the "line above"/"line below" of a first/last file
  * line would otherwise leak the synthetic marker). */
-static int physical_line_is_marker(const char *line_text) {
-    const char *mname;
-    size_t      mlen;
-    uint32_t    lreset;
-    return parse_file_marker(line_text, strlen(line_text),
-                             &mname, &mlen, &lreset);
+static int physical_line_is_marker(const char *source_text, uint32_t lineno) {
+    bool is_marker = false;
+    /* Logical line 0 never matches, so the walk runs up to `lineno`. */
+    replay_file_markers(source_text, NULL, 0, lineno, &is_marker);
+    return is_marker ? 1 : 0;
 }
 
 /* Extract the Nth line (1-indexed) from source_text.
@@ -314,7 +415,7 @@ void iron_diag_print(const Iron_Diagnostic *d, const char *source_text) {
         /* Line above (if it exists and is not a file-boundary marker). */
         if (error_line > 1 && phys_line > 1) {
             if (get_source_line(source_text, phys_line - 1, line_buf, sizeof(line_buf)) &&
-                !physical_line_is_marker(line_buf)) {
+                !physical_line_is_marker(source_text, phys_line - 1)) {
                 fprintf(stderr, "%5u | %s\n", error_line - 1, line_buf);
             }
         }
@@ -334,7 +435,7 @@ void iron_diag_print(const Iron_Diagnostic *d, const char *source_text) {
 
         /* Line below (unless it is a file-boundary marker). */
         if (get_source_line(source_text, phys_line + 1, line_buf, sizeof(line_buf)) &&
-            !physical_line_is_marker(line_buf)) {
+            !physical_line_is_marker(source_text, phys_line + 1)) {
             fprintf(stderr, "%5u | %s\n", error_line + 1, line_buf);
         }
     }

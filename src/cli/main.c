@@ -18,6 +18,7 @@
 #include "cli/help_registry.h"
 #include "cli/toolchain.h"
 #include "comptime/comptime.h"
+#include "diagnostics/diagnostics.h"
 
 #ifndef IRON_GIT_HASH
 #define IRON_GIT_HASH "unknown"
@@ -101,6 +102,14 @@ static int ironc_main(int argc, char **argv) {
     }
 
     const char *cmd = argv[1];
+
+    /* Multi-file test mode: the test harness packs the files of a fixture
+     * into one source, with a file marker comment ahead of each. Only in
+     * this mode is such a comment in the user's source a marker. */
+    const char *multi_file_test = getenv("IRON_MULTI_FILE_TEST");
+    if (multi_file_test && strcmp(multi_file_test, "1") == 0) {
+        iron_file_markers_set_test_mode(true);
+    }
 
     if (strcmp(cmd, "--version") == 0 || strcmp(cmd, "-v") == 0) {
         print_version();
@@ -253,6 +262,11 @@ static int ironc_main(int argc, char **argv) {
                 fprintf(stderr, "%s: --pkg-name requires a value\n", IRON_BINARY_NAME);
                 return 1;
             }
+        } else if (strcmp(argv[i], "--packed-source") == 0) {
+            /* Internal (iron): the source is a package packed into one
+             * file (target/combined.iron, target/tests.iron), whose files
+             * are told apart by the file markers iron wrote between them. */
+            iron_file_markers_set_packed_source(true);
         } else if (strcmp(argv[i], "--package-root") == 0) {
             /* Internal (iron): the directory the `-- @file:` paths of a
              * combined package source are relative to. */

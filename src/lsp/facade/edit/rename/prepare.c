@@ -163,7 +163,7 @@ void ilsp_facade_prepare_rename(IronLsp_Server              *server,
      * name (`p.x`, `p.get()`), an enum variant, a type name, or a
      * declaration's own name, `for` variables and match bindings
      * included. Renamed as rename/apply.c does: refused for the stdlib,
-     * an extern function, and a member declared in another file. */
+     * an extern function, and a member declared in a dependency. */
     {
         size_t occ_n = 0;
         IronLsp_NameOcc *occs = ilsp_nav_name_occurrences(doc, program, &walk_arena, &occ_n);
@@ -187,7 +187,12 @@ void ilsp_facade_prepare_rename(IronLsp_Server              *server,
             for (size_t i = 0; i < occ_n && !decl_in_doc; i++) {
                 decl_in_doc = occs[i].is_decl && ilsp_nav_occ_same(&occs[i], at->decl, at->name);
             }
-            if (!decl_in_doc && !(sym && sym->decl_node == at->decl)) {
+            /* A field, method or type declared in another user file is
+             * renamed there and in every file that names it
+             * (ilsp_nav_package_occurrences). */
+            bool decl_in_workspace = !decl_in_doc && path &&
+                strncmp(path, "dep://", 6) != 0 && strstr(path, "/.iron/deps/") == NULL;
+            if (!decl_in_doc && !decl_in_workspace && !(sym && sym->decl_node == at->decl)) {
                 out->kind = ILSP_PREPARE_RENAME_REJECT_SILENT;
                 goto done;
             }

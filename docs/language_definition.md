@@ -58,6 +58,14 @@ signature help, with one leading space removed from each line. A blank line
 breaks the association, and a comment at the end of a line of code is never
 documentation. The compiler otherwise ignores comments.
 
+A comment never changes what a program means. One comment has a meaning to
+the compiler's own tests: a comment whose text starts with `@file:` (a
+*file marker*) tells the test harness's multi-file mode that the source
+after it belongs to another file. Only that mode
+(`IRON_MULTI_FILE_TEST=1`) honors it; in any other compile it is an
+ordinary comment, and diagnostics after it still name the file it is
+written in.
+
 ```iron
 // Doubles its argument.
 // Attached to `twice` because no blank line separates them.
@@ -3753,7 +3761,7 @@ type           ::= 'weak' 'rc' type
                  | named_type
 ptr_type       ::= '*' [ 'var' ] [ 'unchecked' ] type
 tuple_type     ::= '(' type ',' type { ',' type } ')'
-list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']'
+list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']' [ '?' ]
 elem_type      ::= func_type | 'rc' type | 'weak' 'rc' type | list_type | ptr_type | tuple_type | named_type
 list_attr      ::= 'layout' ':' ( 'soa' | 'aos' ) | 'unordered'
 func_type      ::= 'func' [ '(' [ type { ',' type } ] ')' ] [ '->' type ]

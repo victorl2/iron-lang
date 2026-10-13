@@ -502,13 +502,15 @@ static int materialize_one(Iron_Program *program, GenInst *gi, Iron_Arena *arena
     uint32_t first_line = gi->decl->span.line > 0 ? gi->decl->span.line : 1;
     first_line = first_line > lead ? first_line - lead : 1;
     Iron_StrBuf sb = iron_strbuf_create(strlen(body) + 128);
-    iron_strbuf_appendf(&sb, "-- @file: \"%s\" @line: %u\n%s\n", file,
+    iron_strbuf_appendf(&sb, IRON_FILE_MARKER_OPEN "%s\" @line: %u\n%s\n", file,
                         first_line, body);
     char *snippet = iron_arena_strdup(arena, iron_strbuf_get(&sb), sb.len);
     iron_strbuf_free(&sb);
     if (!snippet) return 0;
 
     Iron_Lexer lexer = iron_lexer_create(snippet, file, arena, diags);
+    /* Line 1 is the marker written above; the instance starts on line 2. */
+    iron_lexer_set_user_start_line(&lexer, 2);
     Iron_Token *tokens = iron_lex_all(&lexer);
     int token_count = (int)arrlen(tokens);
     Iron_Parser parser = iron_parser_create(tokens, token_count, snippet, file,
