@@ -47,9 +47,12 @@
 
 /* ── Memory ─────────────────────────────────────────────────────────────── */
 
-void  *iron_mem_alloc(size_t size)                        { return malloc(size); }
-void  *iron_mem_calloc(size_t count, size_t size)         { return calloc(count, size); }
-void  *iron_mem_realloc(void *ptr, size_t size)           { return realloc(ptr, size); }
+/* A request for zero bytes gets one: malloc(0) may return NULL and
+ * realloc(p, 0) may free p and return NULL, which every caller reads as
+ * out of memory (a list of an object with no fields aborted on push). */
+void  *iron_mem_alloc(size_t size)                        { return malloc(size ? size : 1); }
+void  *iron_mem_calloc(size_t count, size_t size)         { return calloc(count ? count : 1, size ? size : 1); }
+void  *iron_mem_realloc(void *ptr, size_t size)           { return realloc(ptr, size ? size : 1); }
 void   iron_mem_free(void *ptr)                           { free(ptr); }
 void  *iron_mem_copy(void *dst, const void *src, size_t n) { return memcpy(dst, src, n); }
 void  *iron_mem_move(void *dst, const void *src, size_t n) { return memmove(dst, src, n); }

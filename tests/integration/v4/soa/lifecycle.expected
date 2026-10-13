@@ -1,0 +1,11 @@
+copy 1
+copy 2
+copied 2
+drop 1
+drop 2
+removed 1
+drop 1
+popped 2
+drop 2
+drop 3
+empty 0

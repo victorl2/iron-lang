@@ -1,0 +1,37 @@
+-- layout: soa lists: fixed arrays, bounded vectors, closures, optionals and nested objects as fields.
+-- The same program with the layout annotations removed prints the same
+-- (tests/integration/soa_parity.sh).
+object Inner { var n: Int
+    init(n: Int) { self.n = n } }
+object Q {
+    var fixed: [Int; 3]
+    var bv: [Int; <=4]
+    var dflt: Int
+    var small: Int8
+    var flag: Bool
+    var f: func(Int) -> Int
+    var inner: Inner
+    var opt: Inner?
+    init(n: Int) {
+        self.fixed = [n, n + 1, n + 2]
+        self.bv = [n]
+        self.dflt = n
+        self.small = 3
+        self.flag = n % 2 == 0
+        self.f = func(a: Int) -> Int { return a + 1 }
+        self.inner = Inner(n)
+        self.opt = null
+    }
+}
+func main() {
+    var qs: [Q, layout: soa] = []
+    for i in range(5) { qs.push(Q(i)) }
+    qs[1].fixed[0] = 50
+    qs[1].bv.push(7)
+    qs[2].dflt += 4
+    qs[3].inner.n = 9
+    qs[4].opt = Inner(4)
+    for q in qs {
+        println("{q.fixed[0]} {q.fixed[2]} {q.bv.len()} {q.dflt} {q.small} {q.flag} {q.f(1)} {q.inner.n} {q.opt != null}")
+    }
+}
