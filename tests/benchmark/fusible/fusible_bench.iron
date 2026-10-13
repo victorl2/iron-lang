@@ -1,53 +1,223 @@
-// List pipeline fusion against the same stages forced to materialize through
-// observable intermediate lengths.
+// Loop fusion on typical list pipelines: each kernel is written twice, as a
+// chain the optimizer fuses into one loop (`// @fused:` marks the line) and
+// with its intermediate lists kept alive by a second reader, which is the
+// code every stage by stage build runs. run_fusible_bench.py times both,
+// checks the marks against the generated C and counts allocations.
 import time
+import os
 
-object Result {
-    val total: Int
-    val witness: Int
+object Point {
+    val x: Int
+    val y: Int
 }
 
-func bump(x: Int) -> Int {
-    return x + 3
+func scale(x: Int) -> Int {
+    return x * 3 + 1
 }
 
 func keep(x: Int) -> Bool {
-    return x % 3 != 0
+    return x % 4 != 0
 }
 
-func fused(xs: [Int], rounds: Int) -> Result {
-    var total = 0
-    for r in range(rounds) {
-        total += xs.map(bump).filter(keep).sum()
-    }
-    return Result(total, 0)
+func mix(acc: Int, x: Int) -> Int {
+    return acc * 31 + x
 }
 
-func materialized(xs: [Int], rounds: Int) -> Result {
-    var total = 0
-    var witness = 0
-    for r in range(rounds) {
-        val mapped = xs.map(bump)
-        witness += mapped.len()
-        val kept = mapped.filter(keep)
-        witness += kept.len()
-        total += kept.sum()
-    }
-    return Result(total, witness)
+func warm(x: Float) -> Float {
+    return x * 1.5
+}
+
+func shift(x: Float) -> Float {
+    return x + 0.25
+}
+
+func square(x: Float) -> Float {
+    return x * x
+}
+
+func to_point(x: Int) -> Point {
+    return Point(x, x * 2 - 7)
+}
+
+func inside(p: Point) -> Bool {
+    return p.x + p.y > 100
+}
+
+func dist2(p: Point) -> Int {
+    return p.x * p.x + p.y * p.y
+}
+
+// map, filter, sum over Int
+func sum_fused(xs: [Int]) -> Int {
+    return xs.map(scale).filter(keep).sum()  // @fused: map filter sum
+}
+
+func sum_staged(xs: [Int]) -> Int {
+    val a = xs.map(scale)
+    val b = a.filter(keep)
+    val s = b.sum()
+    return s + a.len() - a.len() + b.len() - b.len()
+}
+
+// filter, map, reduce over Int
+func fold_fused(xs: [Int]) -> Int {
+    return xs.filter(keep).map(scale).reduce(7, mix)  // @fused: filter map reduce
+}
+
+func fold_staged(xs: [Int]) -> Int {
+    val a = xs.filter(keep)
+    val b = a.map(scale)
+    val s = b.reduce(7, mix)
+    return s + a.len() - a.len() + b.len() - b.len()
+}
+
+// three maps and a sum over Float
+func float_fused(fs: [Float]) -> Float {
+    return fs.map(warm).map(shift).map(square).sum()  // @fused: map map map sum
+}
+
+func float_staged(fs: [Float]) -> Float {
+    val a = fs.map(warm)
+    val b = a.map(shift)
+    val c = b.map(square)
+    val s = c.sum()
+    return s + Float(a.len() - a.len() + b.len() - b.len() + c.len() - c.len())
+}
+
+// objects made on the way: Int to Point, filter, Point to Int, sum
+func point_fused(xs: [Int]) -> Int {
+    return xs.map(to_point).filter(inside).map(dist2).sum()  // @fused: map filter map sum
+}
+
+func point_staged(xs: [Int]) -> Int {
+    val a = xs.map(to_point)
+    val b = a.filter(inside)
+    val c = b.map(dist2)
+    val s = c.sum()
+    return s + a.len() - a.len() + b.len() - b.len() + c.len() - c.len()
+}
+
+// a pipeline that returns a list: one allocation instead of two
+func collect_fused(xs: [Int]) -> Int {
+    val out = xs.map(scale).filter(keep)  // @fused: map filter
+    return out.len()
+}
+
+func collect_staged(xs: [Int]) -> Int {
+    val a = xs.map(scale)
+    val out = a.filter(keep)
+    return out.len() + a.len() - a.len()
+}
+
+// a soa list as the source
+func soa_fused(ps: [Point, layout: soa]) -> Int {
+    return ps.filter(inside).map(dist2).sum()  // @fused: filter map sum
+}
+
+func soa_staged(ps: [Point, layout: soa]) -> Int {
+    val a = ps.filter(inside)
+    val b = a.map(dist2)
+    val s = b.sum()
+    return s + a.len() - a.len() + b.len() - b.len()
+}
+
+func wanted(only: String, name: String) -> Bool {
+    return only == "" or only == name
 }
 
 func main() {
-    val n = 500000
-    val rounds = 20
+    val n = 1000000
+    // FUSIBLE_BENCH_ONLY=<kernel>_<fused|staged> runs one variant once, for
+    // the allocation count; FUSIBLE_BENCH_ONLY=none builds the lists only.
+    val only = OS.env_or("FUSIBLE_BENCH_ONLY", "")
+    var rounds = 20
+    if only != "" {
+        rounds = 1
+    }
     var xs: [Int] = []
-    for i in range(n) { xs.push(i) }
+    var fs: [Float] = []
+    var ps: [Point, layout: soa] = []
+    for i in range(n) {
+        xs.push(i % 1000 - 300)
+        fs.push(Float(i % 1000) * 0.5)
+        ps.push(Point(i % 1000 - 300, i % 700))
+    }
 
+    var a = 0
+    var b = 0
     var start = Time.now_ns()
-    val a = fused(xs, rounds)
-    val fused_ns = Time.now_ns() - start
+    if wanted(only, "sum_fused") {
+        for r in range(rounds) { a += sum_fused(xs) }
+    }
+    var fused_us = (Time.now_ns() - start) / 1000
     start = Time.now_ns()
-    val b = materialized(xs, rounds)
-    val materialized_ns = Time.now_ns() - start
-    println("check {a.total == b.total} {a.witness} {b.witness}")
-    println("fused_us {fused_ns / 1000} materialized_us {materialized_ns / 1000}")
+    if wanted(only, "sum_staged") {
+        for r in range(rounds) { b += sum_staged(xs) }
+    }
+    println("sum {fused_us} {(Time.now_ns() - start) / 1000} {a == b or only != ""}")
+
+    a = 0
+    b = 0
+    start = Time.now_ns()
+    if wanted(only, "fold_fused") {
+        for r in range(rounds) { a += fold_fused(xs) }
+    }
+    fused_us = (Time.now_ns() - start) / 1000
+    start = Time.now_ns()
+    if wanted(only, "fold_staged") {
+        for r in range(rounds) { b += fold_staged(xs) }
+    }
+    println("fold {fused_us} {(Time.now_ns() - start) / 1000} {a == b or only != ""}")
+
+    var fa = 0.0
+    var fb = 0.0
+    start = Time.now_ns()
+    if wanted(only, "float_fused") {
+        for r in range(rounds) { fa += float_fused(fs) }
+    }
+    fused_us = (Time.now_ns() - start) / 1000
+    start = Time.now_ns()
+    if wanted(only, "float_staged") {
+        for r in range(rounds) { fb += float_staged(fs) }
+    }
+    println("float {fused_us} {(Time.now_ns() - start) / 1000} {fa == fb or only != ""}")
+
+    a = 0
+    b = 0
+    start = Time.now_ns()
+    if wanted(only, "point_fused") {
+        for r in range(rounds) { a += point_fused(xs) }
+    }
+    fused_us = (Time.now_ns() - start) / 1000
+    start = Time.now_ns()
+    if wanted(only, "point_staged") {
+        for r in range(rounds) { b += point_staged(xs) }
+    }
+    println("point {fused_us} {(Time.now_ns() - start) / 1000} {a == b or only != ""}")
+
+    a = 0
+    b = 0
+    start = Time.now_ns()
+    if wanted(only, "collect_fused") {
+        for r in range(rounds) { a += collect_fused(xs) }
+    }
+    fused_us = (Time.now_ns() - start) / 1000
+    start = Time.now_ns()
+    if wanted(only, "collect_staged") {
+        for r in range(rounds) { b += collect_staged(xs) }
+    }
+    println("collect {fused_us} {(Time.now_ns() - start) / 1000} {a == b or only != ""}")
+
+    a = 0
+    b = 0
+    start = Time.now_ns()
+    if wanted(only, "soa_fused") {
+        for r in range(rounds) { a += soa_fused(ps) }
+    }
+    fused_us = (Time.now_ns() - start) / 1000
+    start = Time.now_ns()
+    if wanted(only, "soa_staged") {
+        for r in range(rounds) { b += soa_staged(ps) }
+    }
+    println("soa {fused_us} {(Time.now_ns() - start) / 1000} {a == b or only != ""}")
 }
