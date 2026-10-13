@@ -1,0 +1,24 @@
+-- A tuple literal where a tuple is expected fills T? components with null
+-- and plain values (#599).
+func ret_tup(b: Bool) -> (Int?, String) {
+    if b {
+        return (null, "n")
+    }
+    return (4, "f")
+}
+
+func take(t: (String?, Int)) -> String {
+    val (s, n) = t
+    if s != null {
+        return "{s}{n}"
+    }
+    return "N{n}"
+}
+
+func main() {
+    val (a, b) = ret_tup(true)
+    val (c, d) = ret_tup(false)
+    val t: (Int?, String) = (3, "x")
+    val (e, f) = t
+    println("{a} {b} {c} {d} {e} {f} {take((null, 1))} {take(("z", 2))}")
+}

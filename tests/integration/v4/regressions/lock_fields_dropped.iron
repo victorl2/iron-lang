@@ -1,0 +1,61 @@
+-- An object with a Mutex, RWLock or Channel field never destroyed it: the
+-- object had no drop glue at all, so every such object leaked its lock or
+-- queue (two allocations each). The fields are now destroyed with their
+-- object, whether it lives on the stack, behind rc or inside another one.
+object Counter {
+    val lock: Mutex[Int]
+    var n: Int
+
+    init() {
+        self.lock = Mutex(0)
+        self.n = 0
+    }
+
+    func bump() {
+        val g = self.lock.lock()
+        self.n += 1
+    }
+}
+
+object Settings {
+    val rw: RWLock[Int]
+    val inbox: Channel[Int]
+    val name: String
+
+    init(name: String) {
+        self.rw = RWLock(7)
+        self.inbox = Channel[Int](4)
+        self.name = name
+    }
+}
+
+object Holder {
+    val counter: Counter
+    val label: String
+
+    init(label: String) {
+        self.counter = Counter()
+        self.label = label
+    }
+}
+
+func main() {
+    var total = 0
+    for i in range(50) {
+        var c = Counter()
+        c.bump()
+        total += c.n
+        val shared = rc Counter()
+        shared.bump()
+        total += shared.n
+        val s = Settings("settings with a name long enough for the heap {i}")
+        s.inbox.send(i)
+        val got: Int = s.inbox.recv()
+        val r = s.rw.read()
+        val seen: Int = r.get()
+        total += got + seen
+        val h = rc Holder("holder {i}")
+        total += h.counter.n
+    }
+    println("{total}")
+}

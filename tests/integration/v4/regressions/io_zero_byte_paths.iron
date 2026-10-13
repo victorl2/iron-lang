@@ -1,0 +1,39 @@
+-- A path holding a zero byte names no file (#568): the simple io
+-- functions used to act on the prefix before the zero byte. The path
+-- helpers and OS.env work on every byte, IO.join_path("", b) is b (#572),
+-- a directory reads as error 8009 (#569) and FileHandle.open keeps the
+-- file's contents and releases a temporary path (#570, #571).
+import io
+import os
+
+func main() {
+    val dir = IO.join_path(OS.env_or("TEMP", "/tmp"), "iron_zero_byte_paths_regression_dir")
+    IO.create_dir(dir)
+    val victim = dir + "/victim"
+    IO.write_text(victim, "precious")
+    val nul = String.from_byte(0)
+    IO.write_file(victim + nul + ".bak", "clobbered")
+    IO.append_file(victim + nul, "more")
+    IO.delete_file(victim + nul + "x")
+    println("{IO.read_file(victim)} {IO.file_exists(victim + nul)} {IO.is_dir(dir + nul)}")
+    println("<{IO.read_file(victim + nul)}> {IO.read_lines(victim + nul).len()} <{IO.list_files(dir + nul)}>")
+    IO.create_dir(dir + "/sub" + nul + "x")
+    println("{IO.file_exists(dir + "/sub")} {IO.write_bytes(victim + nul, "x").error}")
+    println("{IO.join_path("a", "b" + nul + "c").byte_len()} {IO.basename("a/b" + nul + "c").byte_len()} {IO.extension("f.t" + nul + "z").byte_len()} {IO.dirname("x" + nul + "/y").byte_len()}")
+    println("<{IO.join_path("", "rel/x")}> <{IO.join_path("/", "x")}>")
+    println("{OS.has_env("PATH" + nul + "zz")} {OS.env_or("PATH=", "unset")} {OS.has_env("")}")
+    val r = IO.read_text(dir, 100)
+    println("{r.error} {r.error_message} {r.data.byte_len()}")
+    {
+        val h = FileHandle.open(victim + "_handle_path_long_enough_to_be_heap_allocated_by_concat")
+        println("{h.fd >= 0}")
+    }
+    {
+        val h = FileHandle.open(victim)
+    }
+    println(IO.read_file(victim))
+    IO.delete_file(victim + "_handle_path_long_enough_to_be_heap_allocated_by_concat")
+    IO.delete_file(victim)
+    IO.delete_file(dir)
+    println("{IO.file_exists(dir)}")
+}

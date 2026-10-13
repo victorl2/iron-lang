@@ -662,6 +662,10 @@ typedef struct {
     const char        *doc_comment;
     Iron_Directive    *directives;
     int                directive_count;
+    /* A top-level binding (a global), and whether it was declared `pub`:
+     * globals are private to their file unless pub (#547). */
+    bool               is_global;
+    bool               is_pub;
 } Iron_ValDecl;
 
 typedef struct {
@@ -684,6 +688,9 @@ typedef struct {
     const char        *doc_comment;
     Iron_Directive    *directives;
     int                directive_count;
+    /* A top-level binding (a global), and whether it was declared `pub`. */
+    bool               is_global;
+    bool               is_pub;
 } Iron_VarDecl;
 
 typedef struct {

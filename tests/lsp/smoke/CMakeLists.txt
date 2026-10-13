@@ -25,6 +25,17 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
         LABELS "smoke;lsp_smoke"
         TIMEOUT 300)
 
+    # A package's files are analyzed together: names of the other files
+    # resolve, visibility between files is checked, references and
+    # workspace symbols cross files. Plain Python as well.
+    add_test(
+        NAME lsp_package_files
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/package_files.py
+            $<TARGET_FILE:ironls>)
+    set_tests_properties(lsp_package_files PROPERTIES
+        LABELS "smoke;lsp_smoke"
+        TIMEOUT 300)
+
     # Probe whether pytest-lsp is importable. If not, register a SKIP
     # test that documents the missing dependency.
     execute_process(
