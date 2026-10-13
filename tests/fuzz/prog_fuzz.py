@@ -217,47 +217,63 @@ def check(ironc, outdir, area, seed, mode='plain', rtlib=None):
             if outcome(d) != outcome(aos):
                 st, msg = 'wrong', 'SoA and AoS output, exit code or panic differs'
     if st == 'ok' and area == 'fusible':
-        variants = []
-        plain_text = re.sub(r'(?m)^(\s*)//iron:fusible\s*$', r'\1', src_text)
-        for variant, text, args in (
-                ('plain', plain_text, ()),
-                ('noopt', src_text, ('--no-optimize',))):
-            vd = os.path.join(d, variant)
-            vst, vmsg, _ = check_text(ironc, vd, f'{area}_{seed}', text, expected,
-                                      mode, rtlib, args)
-            if vst != 'ok':
-                st, msg = vst, f'{variant}: {vmsg}'
-                break
-            variants.append(vd)
-        if st == 'ok':
-            def outcome(path):
-                with open(os.path.join(path, 'outcome.json'), encoding='utf-8') as f:
-                    value = json.load(f)
-                value['panic'] = value['panic'].replace(path, '<program>')
-                return value
-            baseline = outcome(d)
-            if any(outcome(vd) != baseline for vd in variants):
-                st, msg = 'wrong', 'hinted, hint-free, and no-optimize outcomes differ'
-        if st == 'ok':
-            marker = re.search(r'(?m)^// @fusion-loops: (\d+)$', src_text)
-            cg = os.path.join(d, 'generated')
-            os.makedirs(cg, exist_ok=True)
-            csrc = os.path.join(cg, f'{area}_{seed}.iron')
-            with open(csrc, 'w', encoding='utf-8') as f:
-                f.write(src_text)
-            b = subprocess.run([ironc, 'build', '--emit-c', os.path.abspath(csrc)], cwd=cg,
-                               capture_output=True, text=True)
-            cfile = os.path.join(cg, '.iron-build', f'{area}_{seed}.c')
-            if b.returncode != 0 or not marker or not os.path.exists(cfile):
-                st, msg = 'compile', 'could not inspect generated fusion loops\n' + b.stderr[:2000]
-            else:
-                with open(cfile, encoding='utf-8') as f:
-                    loops = f.read().count('Phase 49: Emit fused loop')
-                if loops != int(marker.group(1)):
-                    st, msg = 'wrong', f'expected {marker.group(1)} fused loops, found {loops}'
+        st, msg = check_fusible(ironc, d, f'{area}_{seed}', src_text, expected, mode, rtlib)
     if st == 'ok':
         shutil.rmtree(d, ignore_errors=True)
     return st, msg
+
+
+def check_fusible(ironc, d, name, src_text, expected, mode, rtlib):
+    """The checks of the fusible area (pf_fusible.py) after the program as
+    written passed: the same program with its `//iron:fusible` hints removed
+    and with --no-optimize must behave the same, the optimized C must fuse
+    exactly the lines the source marks, and W0618 must be reported for
+    exactly the marked hints."""
+    sys.path.insert(0, os.path.normpath(os.path.join(HERE, '..', 'integration')))
+    import fusible_parity as fp
+
+    def outcome(path):
+        with open(os.path.join(path, 'outcome.json'), encoding='utf-8') as f:
+            value = json.load(f)
+        value['panic'] = value['panic'].replace(path, '<program>')
+        return value
+
+    texts = {'hinted': (src_text, ()), 'plain': (fp.strip_hints(src_text), ()),
+             'noopt': (src_text, ('--no-optimize',))}
+    for variant in ('plain', 'noopt'):
+        text, args = texts[variant]
+        vd = os.path.join(d, variant)
+        st, msg, _ = check_text(ironc, vd, name, text, expected, mode, rtlib, args)
+        if st != 'ok':
+            return st, f'{variant}: {msg}'
+        if outcome(vd) != outcome(d):
+            return 'wrong', f'hinted and {variant} differ in output, exit code or panic'
+    want_fused = fp.expected_fusion(src_text)
+    want_warn = fp.expected_warnings(src_text)
+    for variant, (text, args) in texts.items():
+        cg = os.path.join(d, 'c_' + variant)
+        os.makedirs(cg, exist_ok=True)
+        csrc = os.path.join(cg, f'{name}.iron')
+        with open(csrc, 'w', encoding='utf-8') as f:
+            f.write(text)
+        b = subprocess.run([ironc, 'build'] + list(args) + ['--emit-c', csrc], cwd=cg,
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
+        cfile = os.path.join(cg, '.iron-build', f'{name}.c')
+        if b.returncode != 0 or not os.path.exists(cfile):
+            return 'compile', f'{variant}: no generated C\n' + (b.stdout + b.stderr)[:2000]
+        with open(cfile, encoding='utf-8', errors='replace') as f:
+            have = fp.actual_fusion(f.read())
+        target = [] if variant == 'noopt' else want_fused
+        if have != target:
+            return 'wrong', (f'{variant}: fused loops (line, stages) {have}, the rules give '
+                             f'{target}')
+        seen = fp.warnings_of(b.stdout + b.stderr)
+        target_w = {} if variant == 'plain' else want_warn
+        if sorted(l for l, _ in seen) != sorted(target_w) or any(
+                target_w.get(l, '') not in m for l, m in seen):
+            return 'wrong', (f'{variant}: W0618 warnings {seen}, the rules give '
+                             f'{sorted(target_w.items())}')
+    return 'ok', ''
 
 
 def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None,
@@ -594,7 +610,7 @@ SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure'
          'numedge': range(1, 49), 'strcoll': range(1, 49), 'genedge': range(1, 49),
          'ptredge': range(1, 49), 'ctedge': range(1, 25), 'dropord': range(1, 25),
          'sync': range(1, 9), 'arenax': range(1, 9), 'jsonp': range(1, 7), 'crypto': range(1, 7),
-         'http': range(1, 5), 'soa': range(1, 25), 'fusible': range(1, 9)}
+         'http': range(1, 5), 'soa': range(1, 25), 'fusible': range(1, 13)}
 # `--suite IRONC OUTDIR` runs these; the other areas have ctest entries of
 # their own (`--suite IRONC OUTDIR conc`, `... num generic ptr comptime`,
 # `... sync arenax`, `... jsonp crypto http`).

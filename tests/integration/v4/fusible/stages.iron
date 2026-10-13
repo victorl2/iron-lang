@@ -1,0 +1,57 @@
+// Every pair of stages fuses when the callbacks are free of effects and
+// panics: map and filter anywhere, sum, reduce and forEach last.
+
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+func dbl(x: Int) -> Int {
+    return x * 2
+}
+
+func even(x: Int) -> Bool {
+    return x % 2 == 0
+}
+
+func small(x: Int) -> Bool {
+    return x < 9
+}
+
+func mix(acc: Int, x: Int) -> Int {
+    return acc * 31 + x
+}
+
+func nothing(x: Int) {
+}
+
+func show(xs: [Int]) -> String {
+    var s = ""
+    for x in xs {
+        s = "{s}{x},"
+    }
+    return s
+}
+
+func main() {
+    val xs = [1, 2, 3, 4, 5, 6]
+    println("{xs.map(inc).sum()}")  // @fused: map sum
+    println("{xs.filter(even).sum()}")  // @fused: filter sum
+    println("{xs.map(inc).reduce(7, mix)}")  // @fused: map reduce
+    println("{xs.filter(even).reduce(7, mix)}")  // @fused: filter reduce
+    xs.map(inc).forEach(nothing)  // @fused: map forEach
+    xs.filter(even).forEach(nothing)  // @fused: filter forEach
+
+    val a = xs.map(inc).map(dbl)  // @fused: map map
+    val b = xs.map(inc).filter(even)  // @fused: map filter
+    val c = xs.filter(even).map(dbl)  // @fused: filter map
+    val d = xs.filter(even).filter(small)  // @fused: filter filter
+    println("{show(a)} {show(b)} {show(c)} {show(d)}")
+
+    val e = xs.map(inc).filter(even).map(dbl).filter(small).map(inc)  // @fused: map filter map filter map
+    println(show(e))
+    println("{xs.filter(small).map(dbl).filter(even).map(inc).reduce(1, mix)}")  // @fused: filter map filter map reduce
+
+    // A single stage is an ordinary call.
+    val one = xs.map(inc)
+    println("{show(one)} {xs.sum()} {xs.reduce(0, mix)}")
+}

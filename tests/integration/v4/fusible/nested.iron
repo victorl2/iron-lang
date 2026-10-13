@@ -1,0 +1,37 @@
+// A pipeline inside a callback is a list method call: the outer stage that
+// runs it is not fused, the inner pipeline is, on its own.
+
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+func even(x: Int) -> Bool {
+    return x % 2 == 0
+}
+
+func add(acc: Int, x: Int) -> Int {
+    return acc + x
+}
+
+func inner(x: Int) -> Int {
+    return [x, x + 1, x + 2].map(inc).filter(even).sum()  // @fused: map filter sum
+}
+
+func row_total(row: [Int]) -> Int {
+    return row.map(inc).sum()  // @fused: map sum
+}
+
+func main() {
+    val xs = [1, 2, 3]
+    println("{xs.map(inner).sum()}")
+    println("{xs.map(inner).map(inc).filter(even).sum()}")  // @fused: map filter sum
+    println("{xs.map(func(x: Int) -> Int { return [x, x].map(inc).sum() }).sum()}")  // @fused: map sum
+
+    val rows = [[1, 2], [3], [4, 5, 6]]
+    println("{rows.map(row_total).filter(even).sum()}")  // @fused: filter sum
+
+    // A pipeline as the argument of another pipeline's stage.
+    println("{xs.map(inc).reduce(xs.filter(even).sum(), add)}")  // @fused: filter sum
+    val base = xs.filter(even).sum()  // @fused: filter sum
+    println("{xs.map(inc).reduce(base, add)}")  // @fused: map reduce
+}

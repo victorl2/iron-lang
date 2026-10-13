@@ -1868,15 +1868,24 @@ static bool run_constant_folding(IronLIR_Module *module) {
     return changed;
 }
 
-/* An instruction that can stop the program: a checked list index, or an
- * integer division or modulo by a value not known to be nonzero. It has no
- * other effect, but an unused `val v = xs[i]` must still panic when i is
- * out of bounds (and `val q = a / b` when b is 0), so DCE keeps it and the
- * emitter does not fold it into a use it never has. */
+/* An instruction that can stop the program: a checked list index, an
+ * integer division or modulo by a value not known to be nonzero, or a shift
+ * by a count not known to be non-negative. It has no other effect, but an
+ * unused `val v = xs[i]` must still panic when i is out of bounds (and
+ * `val q = a / b` when b is 0, `val s = a << n` when n is negative), so DCE
+ * keeps it and the emitter does not fold it into a use it never has. */
 bool iron_lir_instr_may_trap(IronLIR_Func *fn, IronLIR_Instr *in) {
     if (!in) return false;
     if (in->kind == IRON_LIR_GET_INDEX)
         return !in->index.bounds_elide && !in->index.bounds_unchecked;
+    if (in->kind == IRON_LIR_SHL || in->kind == IRON_LIR_SHR) {
+        IronLIR_ValueId n = in->binop.right;
+        if (fn && n != IRON_LIR_VALUE_INVALID && n < (IronLIR_ValueId)arrlen(fn->value_table)) {
+            IronLIR_Instr *ni = fn->value_table[n];
+            if (ni && ni->kind == IRON_LIR_CONST_INT && ni->const_int.value >= 0) return false;
+        }
+        return true;
+    }
     if (in->kind == IRON_LIR_DIV || in->kind == IRON_LIR_MOD) {
         if (!in->type || !iron_type_is_integer(in->type)) return false;
         IronLIR_ValueId d = in->binop.right;
@@ -6788,6 +6797,7 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
 
     /* Initialize info maps to NULL (stb_ds convention) */
     memset(info, 0, sizeof(*info));
+    info->optimizing = !skip_new_passes;
 
     /* Phase 0: Structural passes (always run, not skippable) */
     phi_eliminate(module);

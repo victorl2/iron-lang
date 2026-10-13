@@ -1,0 +1,18 @@
+map 1
+map 2
+map 3
+filter 2
+filter 4
+filter 6
+sum 10
+map 2
+map 3
+map 4
+sum 18
+seen 123 sum 6
+side 9
+cell 123 kept 3
+plain 6 kept 3
+each 2
+each 3
+each 4

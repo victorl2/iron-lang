@@ -1,25 +1,36 @@
-// @fusion-loops: 3
+// An empty source calls no callback: sum is zero, reduce is its initial
+// value, a collecting stage makes an empty list. A filter that keeps
+// nothing behaves the same.
 
-//iron:fusible
-func plus_one(x: Int) -> Int {
+func inc(x: Int) -> Int {
     return x + 1
 }
 
-//iron:fusible
-func yes(x: Int) -> Bool {
-    return x > 0
+func never(x: Int) -> Bool {
+    return x != x
 }
 
-//iron:fusible
-func add(a: Int, b: Int) -> Int {
-    return a + b
+func add(acc: Int, x: Int) -> Int {
+    return acc + x
+}
+
+func half(x: Float) -> Float {
+    return x / 2.0
 }
 
 func main() {
-    var xs = [0]
-    xs.pop()
-    println("{xs.map(plus_one).sum()}")
-    println("{xs.filter(yes).reduce(41, add)}")
-    val kept = xs.map(plus_one).filter(yes)
-    println("{kept.len()}")
+    val none: [Int] = []
+    println("{none.map(inc).sum()}")  // @fused: map sum
+    println("{none.map(inc).reduce(41, add)}")  // @fused: map reduce
+    val out = none.map(inc).filter(never)  // @fused: map filter
+    println("{out.len()}")
+
+    val xs = [1, 2, 3]
+    println("{xs.filter(never).map(inc).sum()}")  // @fused: filter map sum
+    println("{xs.filter(never).reduce(41, add)}")  // @fused: filter reduce
+    val gone = xs.map(inc).filter(never)  // @fused: map filter
+    println("{gone.len()}")
+
+    val nofloats: [Float] = []
+    println("{nofloats.map(half).sum()}")  // @fused: map sum
 }

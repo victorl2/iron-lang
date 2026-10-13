@@ -1,0 +1,45 @@
+// Pipelines in generic functions, in tasks and in parallel loops follow the
+// same rules: fusion is local to the function that contains the calls and
+// neither adds nor removes synchronization.
+
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+func even(x: Int) -> Bool {
+    return x % 2 == 0
+}
+
+func identity[T](x: T) -> T {
+    return x
+}
+
+func keep_all[T](xs: [T]) -> Int {
+    // Each instance is decided on its own: the [Int] instance fuses, the
+    // [String] instance keeps its intermediate list.
+    return xs.filter(func(x: T) -> Bool { return true }).filter(func(x: T) -> Bool { return true }).len()  // @fused: filter filter
+}
+
+func twice[T](xs: [T], f: func(T) -> T) -> [T] {
+    return xs.map(f).map(f)
+}
+
+func main() {
+    println("{[2, 3, 4].map(func(x: Int) -> Int { return identity(x) }).filter(even).sum()}")  // @fused: map filter sum
+    println("{keep_all([1, 2, 3])} {keep_all(["a", "b"])}")
+    println("{twice([1, 2], inc).sum()}")
+
+    val task = spawn("sum") {
+        return [1, 2, 3].map(inc).filter(even).sum()  // @fused: map filter sum
+    }
+    println("{await task}")
+
+    val total = Mutex(0)
+    for i in range(4) parallel {
+        val part = [i, i + 1].map(inc).sum()  // @fused: map sum
+        val guard = total.lock()
+        guard.set(guard.get() + part)
+    }
+    val guard = total.lock()
+    println("{guard.get()}")
+}

@@ -5842,6 +5842,9 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
     /* PARM-02: propagate the honored var-param flags (NULL = none). */
     lir_func->param_is_var = lir_param_is_var;
     lir_func->is_user_func = hir_func->is_user_func;
+    lir_func->is_fusible_hint   = hir_func->is_fusible_hint;
+    lir_func->fusible_hint_span = hir_func->fusible_hint_span;
+    lir_func->fusible_hint_name = hir_func->fusible_hint_name;
 
     /* Phase 80 MUT-07: propagate mut-receiver flag HIR→LIR so emit_c.c can
      * emit pointer-receiver signature + `->` field access for the body. */

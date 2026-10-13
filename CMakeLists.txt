@@ -328,6 +328,7 @@ add_library(iron_compiler STATIC
     src/lir/emit_structs.c
     src/lir/emit_split.c
     src/lir/emit_fusion.c
+    src/lir/fusion_safety.c
     src/lir/layout_analysis.c
     src/lir/value_range.c
     src/lir/print.c
@@ -1654,8 +1655,12 @@ if(Python3_EXECUTABLE)
     # layout: soa lists: the v4/soa fixtures print the same with the layout
     # annotations removed, and the generated C stores what was asked (#679).
     if(NOT WIN32)
+        # Loop fusion and //iron:fusible: every v4/fusible fixture prints the
+        # same optimized, with its hints removed and with --no-optimize, and
+        # the generated C fuses exactly the lines the fixture marks.
         add_test(NAME test_fusible_parity
-            COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/fusible_parity.sh $<TARGET_FILE:iron>)
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/fusible_parity.py
+                $<TARGET_FILE:ironc> -j 2 --rt ${CMAKE_BINARY_DIR}/fusible_parity_runtime)
         set_tests_properties(test_fusible_parity PROPERTIES LABELS "codegen" TIMEOUT 1800)
         add_test(NAME test_soa_parity
             COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/soa_parity.sh $<TARGET_FILE:iron>)
@@ -1670,9 +1675,10 @@ if(Python3_EXECUTABLE)
             --cached-runtime ${CMAKE_BINARY_DIR}/prog_fuzz_soa_runtime)
     # (about a minute on an idle machine: 8 programs, each built twice)
     set_tests_properties(prog_fuzz_soa PROPERTIES LABELS "codegen" TIMEOUT 900)
+    # (12 programs, each built three times and its C read three times)
     add_test(NAME prog_fuzz_fusible
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
-            fusible $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_fusible 1 8 -j2
+            fusible $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_fusible 1 12 -j2
             --cached-runtime ${CMAKE_BINARY_DIR}/prog_fuzz_fusible_runtime)
     set_tests_properties(prog_fuzz_fusible PROPERTIES LABELS "codegen" TIMEOUT 900)
     add_test(NAME prog_fuzz_types

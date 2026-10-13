@@ -1,0 +1,77 @@
+// The last stage decides the result: a number for sum and reduce, nothing
+// for forEach, a new list for map and filter. The accumulator of a reduce
+// must be trivial like a stream value.
+
+object Stats {
+    val count: Int
+    val total: Int
+}
+
+object Point {
+    val x: Int
+    val y: Int
+}
+
+func half(x: Float) -> Float {
+    return x * 0.5
+}
+
+func above(x: Float) -> Bool {
+    return x > 0.75
+}
+
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+func even(x: Int) -> Bool {
+    return x % 2 == 0
+}
+
+func widen(x: Int) -> Float {
+    return Float(x) * 0.25
+}
+
+func note(s: Stats, x: Int) -> Stats {
+    return Stats(s.count + 1, s.total + x)
+}
+
+func join(acc: String, x: Int) -> String {
+    return "{acc}{x};"
+}
+
+func both(acc: Bool, x: Int) -> Bool {
+    return acc and x > 0
+}
+
+func fadd(acc: Float, x: Float) -> Float {
+    return acc + x
+}
+
+func point(x: Int) -> Point {
+    return Point(x, x * x)
+}
+
+func main() {
+    val xs = [1, 2, 3, 4]
+    val fs = [0.5, 1.5, 2.5]
+    println("{fs.map(half).filter(above).sum()}")  // @fused: map filter sum
+    println("{xs.map(widen).reduce(0.0, fadd)}")  // @fused: map reduce
+    println("{xs.map(inc).reduce(true, both)}")  // @fused: map reduce
+    val stats = xs.map(inc).filter(even).reduce(Stats(0, 0), note)  // @fused: map filter reduce
+    println("{stats.count} {stats.total}")
+
+    // A String accumulator owns memory: the map and filter fuse, the reduce
+    // runs after them.
+    println(xs.map(inc).filter(even).reduce("", join))  // @fused: map filter
+
+    // A list result with a layout.
+    val pts: [Point, layout: soa] = xs.filter(even).map(point)  // @fused: filter map
+    println("{pts.len()} {pts[1].x} {pts[1].y}")
+    val plain: [Point] = xs.filter(even).map(point)  // @fused: filter map
+    println("{plain.len()} {plain[0].y}")
+
+    // A result that is not used is still computed.
+    xs.map(inc).filter(even)  // @fused: map filter
+    println("done")
+}

@@ -1,14 +1,12 @@
 // @expect-panic: integer division by zero
-// @fusion-loops: 0
-// A callback that can panic keeps stage order. The map reaches zero before
-// the filter can evaluate the first mapped element.
+// A callback that can panic keeps its stage whole. The map reaches the zero
+// before the filter sees any element, so the panic is the map's, at its
+// line, although the filter would have panicked on the first element.
 
-//iron:fusible
 func reciprocal(x: Int) -> Int {
     return 10 / x
 }
 
-//iron:fusible
 func later_panic(x: Int) -> Bool {
     return 100 / (x - 5) > 0
 }
