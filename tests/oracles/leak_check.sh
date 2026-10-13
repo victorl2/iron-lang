@@ -2,11 +2,11 @@
 # leak_check.sh - run fixtures under a leak detector.
 #
 # Builds every runnable fixture (<name>.iron with a <name>.expected sibling)
-# in the given directories and runs the binary under `leaks --atExit` on
+# named directly or contained in the given directories, then runs the binary under `leaks --atExit` on
 # macOS or valgrind on Linux, failing when either reports a leak. Fixtures
 # that expect a panic are skipped: an aborting process leaks by design.
 #
-# usage: tests/oracles/leak_check.sh <iron-binary> <fixture-dir>...
+# usage: tests/oracles/leak_check.sh <iron-binary> <fixture-or-dir>...
 #
 # The runtime's own tracker (IRON_LEAK_CHECK=1) only sees `heap T`
 # allocations; the containers (lists, maps, sets, strings) allocate with
@@ -72,15 +72,25 @@ trap 'rm -rf "$work"' EXIT
 # and say so.
 skipped=0
 : > "$work/list"
-for dir in "$@"; do
-    for src in "$dir"/*.iron; do
+queue_source() {
+    local src=$1 dir name
+    [ -e "$src" ] || return 0
+    dir=$(dirname "$src")
+    name=$(basename "$src" .iron)
+    [ -f "$dir/$name.expected" ] || { skipped=$((skipped+1)); return 0; }
+    if head -n 10 "$src" | grep -qE '^[[:space:]]*(--|//)[[:space:]]*@(expect-panic|compile-only|leaks-by-design)'; then
+        skipped=$((skipped+1)); return 0
+    fi
+    echo "$src" >> "$work/list"
+}
+for input in "$@"; do
+    if [ -f "$input" ] && [ "${input##*.}" = iron ]; then
+        queue_source "$input"
+        continue
+    fi
+    for src in "$input"/*.iron; do
         [ -e "$src" ] || continue
-        name=$(basename "$src" .iron)
-        [ -f "$dir/$name.expected" ] || { skipped=$((skipped+1)); continue; }
-        if head -n 10 "$src" | grep -qE '^[[:space:]]*(--|//)[[:space:]]*@(expect-panic|compile-only|leaks-by-design)'; then
-            skipped=$((skipped+1)); continue
-        fi
-        echo "$src" >> "$work/list"
+        queue_source "$src"
     done
 done
 
