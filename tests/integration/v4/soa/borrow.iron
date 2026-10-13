@@ -1,0 +1,103 @@
+-- layout: soa lists: whole elements lent to methods and pointer parameters are written back.
+-- The same program with the layout annotations removed prints the same
+-- (tests/integration/soa_parity.sh).
+object Inner {
+    var n: Int
+    init(n: Int) { self.n = n }
+    func inc() { self.n += 1 }
+}
+object P {
+    var x: Int
+    var s: String
+    var inner: Inner
+    var tags: [String]
+    init(x: Int) {
+        self.x = x
+        self.s = "str-{x}-padding-padding-padding"
+        self.inner = Inner(x * 10)
+        self.tags = ["t{x}-long-long-long-long-long"]
+    }
+    readonly func total() -> Int { return self.x + self.inner.n + self.tags.len() }
+    readonly func label() -> String { return "{self.s}!" }
+    func bump(n: Int) { self.x += n }
+    func rename(s: String) { self.s = s }
+    func tag(t: String) { self.tags.push(t) }
+    func reset() {
+        self.s = "reset-string-long-long-long-long"
+        self.tags = []
+        self.inner = Inner(0)
+    }
+    func chain() -> Int {
+        self.bump(1)
+        self.inner.inc()
+        return self.total()
+    }
+}
+object Holder {
+    var xs: [P, layout: soa]
+    var name: String
+    init() {
+        self.xs = [P(4), P(5)]
+        self.name = "holder"
+    }
+    func touch(i: Int) { self.xs[i].bump(100) }
+    func add(n: Int) { self.xs.push(P(n)) }
+}
+func observe(p: *P) -> Int { return p.x + p.inner.n }
+func edit(p: *var P) {
+    p.x += 10
+    p.s = "edited-string-long-long-long-long"
+    p.tags.push("via-pointer-long-long-long-long")
+}
+func both(a: *var P, b: *P) { a.x += b.x }
+func maybe(p: ?*P) -> Int {
+    if p != null { return 1 }
+    return 0
+}
+func show(xs: [P, layout: soa]) {
+    for p in xs { print("{p.x}|{p.s}|{p.inner.n}|{p.tags.len()} ") }
+    println("")
+}
+func main() {
+    var ps: [P, layout: soa] = []
+    for i in range(6) { ps.push(P(i)) }
+    println("{ps[1].total()} {ps[2].label()} {observe(&ps[3])}")
+    ps[0].bump(7)
+    ps[1].rename("renamed-string-long-long-long-long-long")
+    ps[2].tag("extra-tag-long-long-long-long-long")
+    ps[3].reset()
+    println("{ps[4].chain()}")
+    ps[5].inner.inc()
+    ps[5].inner.n += 3
+    ps[5].tags.push("direct-long-long-long-long-long-long")
+    ps[5].tags[0] = "replaced-long-long-long-long-long-long"
+    show(ps)
+    edit(&ps[0])
+    both(&ps[1], &ps[2])
+    println("{maybe(&ps[1])}")
+    show(ps)
+    for i in range(ps.len()) {
+        ps[i].bump(i)
+        ps[i].rename("loop-{i}-long-long-long-long-long-long")
+        edit(&ps[i])
+    }
+    show(ps)
+    var h = Holder()
+    h.touch(0)
+    h.add(9)
+    h.xs[1].rename("holder-renamed-long-long-long-long")
+    h.xs[2].bump(1)
+    edit(&h.xs[0])
+    show(h.xs)
+    var shared: rc [P, layout: soa] = rc [P(20), P(21)]
+    shared[0].bump(1)
+    shared[1].rename("rc-renamed-long-long-long-long-long")
+    println("{shared[0].x} {shared[1].s} {shared[1].total()}")
+    var nested: [[P, layout: soa]] = []
+    nested.push(ps.copy())
+    nested[0][2].bump(1000)
+    nested[0][2].rename("nested-long-long-long-long-long-long")
+    edit(&nested[0][3])
+    show(nested[0])
+    show(ps)
+}

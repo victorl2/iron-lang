@@ -339,6 +339,7 @@ add_library(iron_compiler STATIC
     # Single library entry point for both `iron fmt` CLI and `ironls` LSP.
     src/fmt/format.c
     src/fmt/layout.c
+    src/fmt/migrate.c
     src/fmt/options.c
     src/fmt/config_load.c
 )
@@ -1016,6 +1017,14 @@ add_test(NAME diag_c_logical_operators
         -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/c_logical_operators.expected_help
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/c_logical_operators.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+# `//iron:<hint>` compiler hints: unknown or misplaced ones warn (W0617).
+add_test(NAME diag_iron_hints
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/iron_hints.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/iron_hints.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/iron_hints.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 add_test(NAME diag_help_quality
     COMMAND ${CMAKE_COMMAND}
         -DIRONC=$<TARGET_FILE:ironc>
@@ -1260,6 +1269,12 @@ if(NOT WIN32)
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_values_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
   set_tests_properties(debug_values_smoke PROPERTIES TIMEOUT 120)
+  # The list formatters gather the elements of a layout: soa list from its
+  # columns.
+  add_test(NAME debug_soa_smoke
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_soa_smoke.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_soa_smoke PROPERTIES TIMEOUT 120)
   # #388: the compiler's temporaries carry no debug info, so gdb and lldb
   # used directly list only Iron names (IRON_DEBUG_TEMPORARIES=1 keeps them).
   add_test(NAME debug_temporaries_smoke
@@ -1638,6 +1653,11 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/spec_coverage.py
             --check ${CMAKE_SOURCE_DIR}/tests/spec_coverage_baseline.json)
     set_tests_properties(spec_coverage PROPERTIES LABELS "spec" TIMEOUT 300)
+    add_test(NAME spec_coverage_comment_regressions
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/scripts/test_spec_coverage.py)
+    set_tests_properties(spec_coverage_comment_regressions PROPERTIES
+        LABELS "spec;unit" TIMEOUT 30)
     # Random Int / Bool expressions over run-time values of every integer
     # width, compiled and compared with a Python model of Iron's semantics
     # (precedence, wrapping, truncating division). Fixed seeds.
@@ -1655,6 +1675,22 @@ if(Python3_EXECUTABLE)
     set_tests_properties(prog_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
     # The same for numeric types, generics, pointers and Box, and comptime
     # (expected compile errors and panics included).
+    # layout: soa lists: the v4/soa fixtures print the same with the layout
+    # annotations removed, and the generated C stores what was asked (#679).
+    if(NOT WIN32)
+        add_test(NAME test_soa_parity
+            COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/soa_parity.sh $<TARGET_FILE:iron>)
+        set_tests_properties(test_soa_parity PROPERTIES LABELS "codegen" TIMEOUT 1800)
+        add_test(NAME test_soa_storage
+            COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/soa_storage.sh $<TARGET_FILE:ironc>)
+        set_tests_properties(test_soa_storage PROPERTIES LABELS "codegen" TIMEOUT 120)
+    endif()
+    add_test(NAME prog_fuzz_soa
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            soa $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_soa 1 8 -j2
+            --cached-runtime ${CMAKE_BINARY_DIR}/prog_fuzz_soa_runtime)
+    # (about a minute on an idle machine: 8 programs, each built twice)
+    set_tests_properties(prog_fuzz_soa PROPERTIES LABELS "codegen" TIMEOUT 900)
     add_test(NAME prog_fuzz_types
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_types
@@ -1702,6 +1738,13 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/json_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/json_fuzz)
     set_tests_properties(json_fuzz PROPERTIES LABELS "stdlib" TIMEOUT 900)
+    # Comments never change a program: random comments in every spelling
+    # over runnable fixtures, then fmt --migrate-comments and fmt
+    # (tests/fuzz/comment_fuzz.py). Fixed seeds.
+    add_test(NAME comment_fuzz
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/comment_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/comment_fuzz)
+    set_tests_properties(comment_fuzz PROPERTIES LABELS "unit" TIMEOUT 1800)
     # The tools: editing sessions against ironls (tests/fuzz/lsp_fuzz.py)
     # and the formatter against itself, ironc check and the language
     # server's formatting (tests/fuzz/fmt_fuzz.py). Fixed seeds, about a
@@ -1710,7 +1753,7 @@ if(Python3_EXECUTABLE)
         add_test(NAME lsp_fuzz_short
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/lsp_fuzz.py
                 --ironls $<TARGET_FILE:ironls> --ironc $<TARGET_FILE:ironc>
-                --seed 1 --sessions 12 --steps 250 -j 3 --quiet
+                --seed 1 --sessions 12 --steps 250 -j 3 --deadline 60 --quiet
                 --out ${CMAKE_BINARY_DIR}/lsp_fuzz --tmp ${CMAKE_BINARY_DIR}/lsp_fuzz/tmp)
         set_tests_properties(lsp_fuzz_short PROPERTIES LABELS "lsp;fuzz" TIMEOUT 600)
         add_test(NAME fmt_fuzz_short
@@ -1720,10 +1763,25 @@ if(Python3_EXECUTABLE)
                 --out ${CMAKE_BINARY_DIR}/fmt_fuzz --tmp ${CMAKE_BINARY_DIR}/fmt_fuzz/tmp)
         set_tests_properties(fmt_fuzz_short PROPERTIES LABELS "fmt;fuzz" TIMEOUT 600)
     endif()
+    # The io / os / FileHandle / url, math / time / String, and net /
+    # websocket modules against Python models (the websocket peer is a
+    # scripted Python server), and log (tests/fuzz/stdlib_fuzz_suite.py,
+    # log_fuzz.py). Fixed seeds. (POSIX: the io programs work under /tmp.)
+    if(NOT WIN32)
+        foreach(_sf_group io num net)
+            add_test(NAME stdlib_fuzz_${_sf_group}
+                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/stdlib_fuzz_suite.py
+                    $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/stdlib_fuzz_${_sf_group} ${_sf_group})
+            set_tests_properties(stdlib_fuzz_${_sf_group} PROPERTIES LABELS "stdlib" TIMEOUT 900)
+        endforeach()
+        add_test(NAME log_fuzz
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/log_fuzz.py
+                --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/log_fuzz)
+        set_tests_properties(log_fuzz PROPERTIES LABELS "stdlib" TIMEOUT 900)
+
     # Packages, the module system and the iron project tool
     # (tests/fuzz/mod_fuzz.py), and the iron / ironc command lines
     # (tests/fuzz/cli_fuzz.py). Fixed seeds.
-    if(NOT WIN32)
         add_test(NAME mod_fuzz_pkg
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/mod_fuzz.py
                 --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/mod_fuzz_pkg pkg)
@@ -1742,6 +1800,14 @@ if(Python3_EXECUTABLE)
         set_tests_properties(cli_fuzz PROPERTIES LABELS "tooling" TIMEOUT 900)
     endif()
 endif()
+# `ironc fmt --migrate-comments` golden files: rewrite, idempotence, same
+# program output, refusals (tests/fmt/migrate/run.sh).
+if(UNIX)
+    add_test(NAME test_fmt_migrate_comments
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/fmt/migrate/run.sh $<TARGET_FILE:ironc>)
+    set_tests_properties(test_fmt_migrate_comments PROPERTIES LABELS "unit" TIMEOUT 600)
+endif()
+include(${CMAKE_SOURCE_DIR}/tests/fuzz/cg_tests.cmake)
 # The standard library prelude, parsed by every compile, stays within the
 # section 13 grammar of the manual (#324).
 if(Python3_EXECUTABLE)
@@ -1972,35 +2038,35 @@ if(NOT WIN32)
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/happy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/happy.iron && actual=\$(\"\$d/happy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_7_drop_happy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    set_tests_properties(v4_7_drop_happy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 120)
 
     add_test(
         NAME v4_7_boundary_drop_chain
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_drop_chain\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_drop_chain.iron && actual=\$(\"\$d/boundary_drop_chain\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_drop_chain.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_7_boundary_drop_chain PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    set_tests_properties(v4_7_boundary_drop_chain PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 120)
 
     add_test(
         NAME v4_7_boundary_copy_hook
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_copy_hook\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_copy_hook.iron && actual=\$(\"\$d/boundary_copy_hook\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_copy_hook.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_7_boundary_copy_hook PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    set_tests_properties(v4_7_boundary_copy_hook PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 120)
 
     add_test(
         NAME v4_7_boundary_nocopy
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_nocopy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_nocopy.iron && actual=\$(\"\$d/boundary_nocopy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_nocopy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_7_boundary_nocopy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    set_tests_properties(v4_7_boundary_nocopy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 120)
 
     add_test(
         NAME v4_3.2_boundary_destructor_runs
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_destructor_runs\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.2-heap/boundary_destructor_runs.iron && actual=\$(\"\$d/boundary_destructor_runs\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.2-heap/boundary_destructor_runs.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_3.2_boundary_destructor_runs PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    set_tests_properties(v4_3.2_boundary_destructor_runs PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 120)
 
     # Phase 24 Plan 24-02: v4-fail/7-drop-copy/copy_nocopy.iron (E0286 nocopy assignment) — flips GREEN here.
     add_test(
@@ -2024,7 +2090,7 @@ if(NOT WIN32)
         COMMAND /bin/sh -c "d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/panic_destructor_panic\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/panic_destructor_panic.iron && \"\$d/panic_destructor_panic\" 2>&1; rc=\$? ; rm -rf \"\$d\" ; [ \$rc -ne 0 ]"
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_7_panic_destructor_panic PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    set_tests_properties(v4_7_panic_destructor_panic PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 120)
 
     # Phase 24 Plan 24-03: DROP-05 structural prerequisite — objects with droppable fields
     # drop in declaration order at scope exit. Full panic-mid-init path deferred.
@@ -2033,7 +2099,7 @@ if(NOT WIN32)
         COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_partial_init_cleanup\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.iron && actual=\$(\"\$d/boundary_partial_init_cleanup\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_7_boundary_partial_init_cleanup PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+    set_tests_properties(v4_7_boundary_partial_init_cleanup PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 120)
 endif()
 
 # `ctest -L phase25-invariant` aggregates the Wave 0 RED→GREEN corpus for Phase 25
@@ -2087,7 +2153,7 @@ if(NOT WIN32)
     iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/happy.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_happy PROPERTIES
         LABELS "integration;phase25-invariant"
-        TIMEOUT 30
+        TIMEOUT 120
         WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
 
@@ -2101,7 +2167,7 @@ if(NOT WIN32)
     iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_unwrap.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_unwrap PROPERTIES
         LABELS "integration;phase25-invariant"
-        TIMEOUT 30
+        TIMEOUT 120
         WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
 
@@ -2115,7 +2181,7 @@ if(NOT WIN32)
     iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_takes_ownership.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_takes_ownership PROPERTIES
         LABELS "integration;phase25-invariant"
-        TIMEOUT 30
+        TIMEOUT 120
         WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
 
@@ -2129,7 +2195,7 @@ if(NOT WIN32)
     iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_isnull.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_isnull PROPERTIES
         LABELS "integration;phase25-invariant"
-        TIMEOUT 30
+        TIMEOUT 120
         WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
 
@@ -2143,9 +2209,21 @@ if(NOT WIN32)
     iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/panic_box_unwrap_null.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_panic_box_unwrap_null PROPERTIES
         LABELS "integration;phase25-invariant"
-        TIMEOUT 30
+        TIMEOUT 120
         WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
+
+    if(Python3_EXECUTABLE)
+        add_test(
+            NAME test_sanitizer_timeout_contract
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/integration/v4/test_timeout_contract.py
+                    ${CMAKE_CTEST_COMMAND}
+                    ${CMAKE_BINARY_DIR}
+        )
+        set_tests_properties(test_sanitizer_timeout_contract PROPERTIES
+            LABELS "phase25-invariant;unit")
+    endif()
 
     add_executable(test_ptr_types tests/unit/test_ptr_types.c)
     target_link_libraries(test_ptr_types PRIVATE iron_compiler iron_runtime unity m pthread)
@@ -2766,9 +2844,9 @@ if(NOT WIN32)
         set(_fixsrc "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron")
         # An @expect-panic fixture must exit through the named panic after
         # printing exactly its .expected stdout.
-        file(STRINGS "${_fixsrc}" _panic_line REGEX "^-- @expect-panic:")
+        file(STRINGS "${_fixsrc}" _panic_line REGEX "^(--|//) @expect-panic:")
         if(_panic_line)
-            string(REGEX REPLACE "^-- @expect-panic:[ ]*" "" _panic_msg "${_panic_line}")
+            string(REGEX REPLACE "^(--|//) @expect-panic:[ ]*" "" _panic_msg "${_panic_line}")
             add_test(
                 NAME v4_4.11-ptr-check-elision_${_fix}
                 COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${_fixsrc} && if \"\$d/${_fix}\" >\"\$d/out\" 2>\"\$d/err\"; then exit 1; fi && [ \"\$(cat \"\$d/out\")\" = \"\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.expected)\" ] && grep -qF \"${_panic_msg}\" \"\$d/err\" && rm -rf \"\$d\""
@@ -3016,7 +3094,7 @@ if(NOT WIN32)
             WORKING_DIRECTORY /tmp
         )
         set_tests_properties(v4_7.5-stdlib_${_fix} PROPERTIES
-            LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 60)
+            LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 120)
     endforeach()
 endif()
 
@@ -3126,7 +3204,7 @@ if(NOT WIN32)
         iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/${_fixrel}.iron")
         set_tests_properties(v4_${_fixname} PROPERTIES
             LABELS "integration;aggregate-parity;v4-acceptance"
-            TIMEOUT 60
+            TIMEOUT 120
             WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
 
@@ -3151,7 +3229,7 @@ if(NOT WIN32)
         iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/${_fixrel}.iron")
         set_tests_properties(v4_${_fixname} PROPERTIES
             LABELS "integration;aggregate-parity;v4-acceptance"
-            TIMEOUT 60
+            TIMEOUT 120
             WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
 
@@ -3162,7 +3240,7 @@ if(NOT WIN32)
     )
     set_tests_properties(optimization_pipeline_runtime PROPERTIES
         LABELS "integration;optimization;v4-acceptance"
-        TIMEOUT 60
+        TIMEOUT 120
         DISABLED ${IRON_SKIP_CLANG_ROWS})
 
     foreach(_integer_mode optimized noopt release)
@@ -3189,7 +3267,7 @@ if(NOT WIN32)
     )
     set_tests_properties(optimization_pipeline_noopt_runtime PROPERTIES
         LABELS "integration;optimization;v4-acceptance"
-        TIMEOUT 60
+        TIMEOUT 120
         DISABLED ${IRON_SKIP_CLANG_ROWS})
 endif()
 

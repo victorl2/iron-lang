@@ -1,0 +1,5 @@
+-- Explicit type arguments are never replaced by the expected type (#626):
+-- a mismatch names both types.
+func main() {
+    val ch: Channel[String] = Channel[Int](4)
+}

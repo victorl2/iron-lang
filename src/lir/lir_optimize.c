@@ -26,6 +26,30 @@
 #include <stdbool.h>
 #include <assert.h>
 
+/* ── Pass selection for differential testing ─────────────────────────────── */
+
+/* IRON_LIR_SKIP=name,name,... leaves the named optimization passes out
+ * (or `all` of them). For the differential fuzzer (tests/fuzz/cg_fuzz.py):
+ * a program must print the same with any subset of the passes, so a pass
+ * that changes behavior shows up as a difference. The structural passes
+ * (phi elimination, array representation, generation check lowering) are
+ * not optional. Names: inline copyprop constfold dce sle sr dae coalesce
+ * rcpe gencheck bce emitinline. */
+static bool lir_pass_skipped(const char *name) {
+    const char *env = getenv("IRON_LIR_SKIP");
+    if (!env || !*env) return false;
+    size_t n = strlen(name);
+    for (const char *p = env; *p;) {
+        const char *e = strchr(p, ',');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        if ((len == n && strncmp(p, name, n) == 0) || (len == 3 && strncmp(p, "all", 3) == 0))
+            return true;
+        if (!e) break;
+        p = e + 1;
+    }
+    return false;
+}
+
 /* ── Internal helpers ─────────────────────────────────────────────────────── */
 
 /* Find a block within a function by ID */
@@ -722,6 +746,24 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
                         }
                     }
                 }
+                /* A list wrapped into an optional (`return [1, 2]` from a
+                 * function returning [Int]?) is an Iron_List inside the
+                 * optional: never a stack array (the C stored the array's
+                 * address as the list's items with count 0, and returned
+                 * stack memory). */
+                if (instr->kind == IRON_LIR_CAST) {
+                    ptrdiff_t vi = hmgeti(sa_map, instr->cast.value);
+                    if (vi >= 0) {
+                        IronLIR_ValueId orig = sa_map[vi].value;
+                        if (orig < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                            fn->value_table[orig]) {
+                            if (fn->value_table[orig]->kind == IRON_LIR_ARRAY_LIT)
+                                fn->value_table[orig]->array_lit.use_stack_repr = false;
+                            else
+                                hmput(info->revoked_fill_ids, orig, true);
+                        }
+                    }
+                }
                 /* A literal that is an element of another list literal is
                  * owned by that list (lists of lists, #176): never a stack
                  * array. */
@@ -1027,6 +1069,11 @@ static bool apply_replacements(IronLIR_Instr *instr, ValueReplEntry *repl_map) {
 
 #undef REPL
     return changed;
+}
+
+static bool instr_uses_value(const IronLIR_Instr *instr, IronLIR_ValueId value);
+bool iron_lir_instr_uses_value(const IronLIR_Instr *instr, IronLIR_ValueId value) {
+    return instr_uses_value(instr, value);
 }
 
 /* Collect all ValueId operands of instr into out[].
@@ -1421,6 +1468,17 @@ static LirRecvLoadEntry *lir_collect_receiver_loads(IronLIR_Func *fn) {
             IronLIR_Instr *in = blk->instrs[ii];
             if (!in) continue;
             IronLIR_ValueId chain = IRON_LIR_VALUE_INVALID;
+            /* A field or element handed to a `var` parameter is addressed
+             * in its own storage too (`f(obj.field)`). */
+            if (in->kind == IRON_LIR_CALL && in->call.args_by_addr) {
+                for (int ai = 0; ai < in->call.arg_count; ai++) {
+                    if (!in->call.args_by_addr[ai]) continue;
+                    IronLIR_ValueId arg_load = IRON_LIR_VALUE_INVALID;
+                    if (lir_storage_chain_root(fn, in->call.args[ai], &arg_load) !=
+                            IRON_LIR_VALUE_INVALID && arg_load != IRON_LIR_VALUE_INVALID)
+                        hmput(set, arg_load, true);
+                }
+            }
             if (in->kind == IRON_LIR_CALL && in->call.self_by_addr &&
                 in->call.arg_count > 0)
                 chain = in->call.args[0];
@@ -1567,6 +1625,25 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                             fn->value_table[cap]->kind == IRON_LIR_ALLOCA) {
                             if (store_info) hmdel(store_info, cap);
                         }
+                    }
+                }
+                /* A `var` captured by a spawn or a parallel loop is written
+                 * by the thread through its environment (manual 7.1): after
+                 * `await` the variable holds what the thread stored, not the
+                 * single store this function makes. */
+                if (in->kind == IRON_LIR_SPAWN || in->kind == IRON_LIR_PARALLEL_FOR) {
+                    int n = in->kind == IRON_LIR_SPAWN ? in->spawn.capture_count
+                                                       : in->parallel_for.capture_count;
+                    IronLIR_ValueId *caps = in->kind == IRON_LIR_SPAWN
+                                                ? in->spawn.captures
+                                                : in->parallel_for.captures;
+                    for (int ci = 0; ci < n; ci++) {
+                        IronLIR_ValueId cap = caps[ci];
+                        if (store_info && cap != IRON_LIR_VALUE_INVALID &&
+                            (ptrdiff_t)cap < arrlen(fn->value_table) &&
+                            fn->value_table[cap] != NULL &&
+                            fn->value_table[cap]->kind == IRON_LIR_ALLOCA)
+                            hmdel(store_info, cap);
                     }
                 }
                 /* PARM-02 (callee side): a var param's entry copy-in store
@@ -1993,6 +2070,24 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
                  * The closure holds a pointer into the caller's stack frame. */
                 for (int ci = 0; ci < in->make_closure.capture_count; ci++) {
                     ptrdiff_t idx = hmgeti(escaped, in->make_closure.captures[ci]);
+                    if (idx >= 0) escaped[idx].value = true;
+                }
+                break;
+
+            /* A spawn or parallel-for body reads the slot through its
+             * environment just the same. Without these, store-load
+             * elimination deleted the store into a captured parameter's
+             * slot once nothing else loaded it, and the C read an
+             * undeclared variable. */
+            case IRON_LIR_SPAWN:
+                for (int ci = 0; ci < in->spawn.capture_count; ci++) {
+                    ptrdiff_t idx = hmgeti(escaped, in->spawn.captures[ci]);
+                    if (idx >= 0) escaped[idx].value = true;
+                }
+                break;
+            case IRON_LIR_PARALLEL_FOR:
+                for (int ci = 0; ci < in->parallel_for.capture_count; ci++) {
+                    ptrdiff_t idx = hmgeti(escaped, in->parallel_for.captures[ci]);
                     if (idx >= 0) escaped[idx].value = true;
                 }
                 break;
@@ -2541,6 +2636,12 @@ static bool run_store_load_elim(IronLIR_Module *module) {
                     break;
                 }
 
+                /* A spawned thread or a parallel loop body writes the
+                 * captured slots it holds (they escape, compute_escape_set),
+                 * and `await` is where the parent sees those writes. */
+                case IRON_LIR_SPAWN:
+                case IRON_LIR_PARALLEL_FOR:
+                case IRON_LIR_AWAIT:
                 case IRON_LIR_CALL:
                     /* For escaped allocas: their content may be modified by callee */
                     {
@@ -6018,6 +6119,26 @@ static bool func_has_self_call(IronLIR_Func *fn) {
  *   8. Split call_block at CALL site; wire JUMP edges.
  *   9. Propagate load_result_id -> call_id replacement to continuation.
  */
+/* The rc and weak rc operand of `instr`, `from` replaced by `to`.
+ * apply_replacements() leaves these operands alone (see the note there),
+ * but the result of an inlined call must be renamed in them too: the
+ * release of an `rc T?` temporary (`count(none())`) named the removed
+ * call and the C did not compile. */
+static void replace_rc_operand(IronLIR_Instr *instr, IronLIR_ValueId from,
+                               IronLIR_ValueId to) {
+    IronLIR_ValueId *op = NULL;
+    switch ((int)instr->kind) {
+    case IRON_LIR_RC_RETAIN:         op = &instr->rc_retain.target; break;
+    case IRON_LIR_RC_RELEASE:        op = &instr->rc_release.target; break;
+    case IRON_LIR_WEAK_RC_RETAIN:    op = &instr->weak_rc_retain.target; break;
+    case IRON_LIR_WEAK_RC_RELEASE:   op = &instr->weak_rc_release.target; break;
+    case IRON_LIR_WEAK_RC_DOWNGRADE: op = &instr->weak_rc_downgrade.source; break;
+    case IRON_LIR_WEAK_RC_UPGRADE:   op = &instr->weak_rc_upgrade.source; break;
+    default: break;
+    }
+    if (op && *op == from) *op = to;
+}
+
 static void inline_call_site(IronLIR_Func *fn,
                               IronLIR_Block *call_block,
                               int call_idx,
@@ -6367,12 +6488,16 @@ static void inline_call_site(IronLIR_Func *fn,
         for (int bi2 = 0; bi2 < cloned_block_start; bi2++) {
             if (fn->blocks[bi2] == call_block) continue;  /* call removed, skip */
             IronLIR_Block *blk = fn->blocks[bi2];
-            for (int ii = 0; ii < blk->instr_count; ii++)
+            for (int ii = 0; ii < blk->instr_count; ii++) {
                 apply_replacements(blk->instrs[ii], result_remap);
+                replace_rc_operand(blk->instrs[ii], call_instr->id, load_result_id);
+            }
         }
         /* Also apply to continuation block */
-        for (int ii = 0; ii < cont->instr_count; ii++)
+        for (int ii = 0; ii < cont->instr_count; ii++) {
             apply_replacements(cont->instrs[ii], result_remap);
+            replace_rc_operand(cont->instrs[ii], call_instr->id, load_result_id);
+        }
         hmfree(result_remap);
     }
 
@@ -6677,7 +6802,7 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
         if (ir_text) { fprintf(stderr, "=== After array-repr ===\n%s\n", ir_text); free(ir_text); }
     }
 
-    run_function_inlining(module, info, arena);
+    if (!lir_pass_skipped("inline")) run_function_inlining(module, info, arena);
     if (dump_passes) {
         char *ir_text = iron_lir_print(module, true);
         if (ir_text) { fprintf(stderr, "=== After function-inlining ===\n%s\n", ir_text); free(ir_text); }
@@ -6719,35 +6844,35 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
     for (int iter = 0; iter < 32; iter++) {
         bool changed = false;
 
-        changed |= run_copy_propagation(module);
+        if (!lir_pass_skipped("copyprop")) changed |= run_copy_propagation(module);
         if (dump_passes) {
             char *ir_text = iron_lir_print(module, true);
             if (ir_text) { fprintf(stderr, "=== After copy-prop (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
         }
         optimize_verify_or_die(module, arena, "copy-propagation", verify_baseline);
 
-        changed |= run_constant_folding(module);
+        if (!lir_pass_skipped("constfold")) changed |= run_constant_folding(module);
         if (dump_passes) {
             char *ir_text = iron_lir_print(module, true);
             if (ir_text) { fprintf(stderr, "=== After const-fold (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
         }
         optimize_verify_or_die(module, arena, "constant-folding", verify_baseline);
 
-        changed |= run_dce(module);
+        if (!lir_pass_skipped("dce")) changed |= run_dce(module);
         if (dump_passes) {
             char *ir_text = iron_lir_print(module, true);
             if (ir_text) { fprintf(stderr, "=== After dce (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
         }
         optimize_verify_or_die(module, arena, "dead-code-elimination", verify_baseline);
 
-        changed |= run_store_load_elim(module);
+        if (!lir_pass_skipped("sle")) changed |= run_store_load_elim(module);
         if (dump_passes) {
             char *ir_text = iron_lir_print(module, true);
             if (ir_text) { fprintf(stderr, "=== After store-load-elim (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
         }
         optimize_verify_or_die(module, arena, "store-load-elimination", verify_baseline);
 
-        changed |= run_strength_reduction(module);
+        if (!lir_pass_skipped("sr")) changed |= run_strength_reduction(module);
         if (dump_passes) {
             char *ir_text = iron_lir_print(module, true);
             if (ir_text) { fprintf(stderr, "=== After strength-reduction (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
@@ -6761,7 +6886,7 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
     /* PHI-01/PHI-02: dead alloca elimination — remove zero-load phi-origin
      * allocas and their stores.  Runs once post-fixpoint; copy-prop has
      * already eliminated single-store alloca loads by this point. */
-    run_dead_alloca_elimination(module);
+    if (!lir_pass_skipped("dae")) run_dead_alloca_elimination(module);
     if (dump_passes) {
         char *ir_text = iron_lir_print(module, true);
         if (ir_text) { fprintf(stderr, "=== After dead-alloca-elim ===\n%s\n", ir_text); free(ir_text); }
@@ -6770,7 +6895,7 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
     /* P2b: coalesce safe scalar LOAD snapshots into the C local represented
      * by their ALLOCA.  This specifically cleans up multi-predecessor phi
      * slots that single-store copy propagation cannot touch. */
-    run_scalar_copy_coalescing(module);
+    if (!lir_pass_skipped("coalesce")) run_scalar_copy_coalescing(module);
     if (dump_passes) {
         char *ir_text = iron_lir_print(module, true);
         if (ir_text) { fprintf(stderr, "=== After scalar-copy-coalesce ===\n%s\n", ir_text); free(ir_text); }
@@ -6784,7 +6909,7 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
      * verify discipline above). */
     if (elision_enabled) {
         IronLIR_ElisionStat elision_stat = {0};
-        run_rc_pair_elimination(module, &elision_stat);
+        if (!lir_pass_skipped("rcpe")) run_rc_pair_elimination(module, &elision_stat);
         if (dump_passes) {
             char *ir_text = iron_lir_print(module, true);
             if (ir_text) {
@@ -6800,7 +6925,7 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
          * 31 debug allocator observes every deref). lower_genchecks (driver top,
          * Plan 02) already inserted the GENCHECK intrinsics this pass deletes. */
         IronLIR_GenCheckElisionStat gc_stat = {0};
-        run_pointer_check_elimination(module, &gc_stat);
+        if (!lir_pass_skipped("gencheck")) run_pointer_check_elimination(module, &gc_stat);
         if (dump_passes) {
             char *ir_text = iron_lir_print(module, true);
             if (ir_text) {
@@ -6821,7 +6946,7 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
          * CFG/domtree work happens on the settled stream; verified like every
          * other mutating pass. */
         BoundsElisionStat bce_stat = {0};
-        run_bounds_check_elimination(module, &bce_stat);
+        if (!lir_pass_skipped("bce")) run_bounds_check_elimination(module, &bce_stat);
         if (dump_passes) {
             char *ir_text = iron_lir_print(module, true);
             if (ir_text) {
@@ -6838,7 +6963,7 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
     }
 
     /* Phase 16: compute module-wide function purity and set up inline info */
-    if (!skip_new_passes) {
+    if (!skip_new_passes && !lir_pass_skipped("emitinline")) {
         iron_lir_compute_inline_info(module, info);
         if (dump_passes) {
             fprintf(stderr, "=== After inline-info: %td pure functions ===\n",

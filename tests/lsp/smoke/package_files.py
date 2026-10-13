@@ -360,9 +360,10 @@ def main():
 
             # A comment shaped like a file marker inside a package file is a
             # comment: the code after it stays in its own file. notes.iron
-            # names main.iron in such comments, by URI and by path.
+            # names main.iron in such comments, by URI in a `//` comment
+            # and by path in a `--` one.
             notes = (
-                '-- @file: "%s" @line: 1\n'
+                '// @file: "%s" @line: 1\n'
                 '-- @file: "%s" @line: 1 @lines: 9\n'
                 "func notes_private() -> Int {\n"
                 "    return 1\n"

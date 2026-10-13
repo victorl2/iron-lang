@@ -315,6 +315,8 @@ static Iron_Token iron_make_token(Iron_Lexer *l, Iron_TokenKind kind,
     /* 2026-07 diagnostics remediation: stamp the stdlib-prepend region bit
      * (see Iron_Token doc in lexer.h). */
     t.from_stdlib_prepend = l->in_stdlib_prepend;
+    t.comment     = 0;
+    t.offset      = (uint32_t)l->pos;  /* set from the token start by iron_lex_all */
     return t;
 }
 
@@ -963,20 +965,21 @@ static Iron_Token iron_lex_c_operator(Iron_Lexer *l, Iron_TokenKind kind,
  * the lexer's gate honors, re-tag the tokens after it with <name>. In user
  * source the gate honors none and the comment is only a comment. Consumes
  * nothing: the caller skips the comment to the end of the line either way.
+ * Returns whether the comment was honored as a marker.
  *
  * Every line comment form must call this, so the marker does not depend on
  * how comments are written. */
-static void iron_lex_comment_marker(Iron_Lexer *l, size_t text_start) {
-    if (text_start > l->src_len) return;
+static bool iron_lex_comment_marker(Iron_Lexer *l, size_t text_start) {
+    if (text_start > l->src_len) return false;
     size_t eol = text_start;
     while (eol < l->src_len && l->src[eol] != '\n') eol++;
 
     Iron_FileMarker m;
-    if (!iron_file_marker_parse(l->src + text_start, eol - text_start, &m)) return;
-    if (!iron_file_marker_admit(&l->file_markers, l->phys_line, &m)) return;
+    if (!iron_file_marker_parse(l->src + text_start, eol - text_start, &m)) return false;
+    if (!iron_file_marker_admit(&l->file_markers, l->phys_line, &m)) return false;
 
     char *new_filename = iron_arena_strdup(l->arena, m.name, m.name_len);
-    if (!new_filename) return;
+    if (!new_filename) return false;
     l->filename = new_filename;
     iron_source_marker_add(new_filename);
 
@@ -1005,6 +1008,91 @@ static void iron_lex_comment_marker(Iron_Lexer *l, size_t text_start) {
         l->line = l->phys_line;
         l->in_stdlib_prepend = false;
     }
+    return true;
+}
+
+/* ── Line comments ───────────────────────────────────────────────────────── */
+
+/* True when only spaces, tabs, '\r' or a UTF-8 byte-order mark precede
+ * byte `pos` on its line. */
+static bool iron_comment_is_own_line(const Iron_Lexer *l, size_t pos) {
+    size_t i = pos;
+    while (i > 0) {
+        unsigned char c = (unsigned char)l->src[i - 1];
+        if (c == '\n') return true;
+        if (c == ' ' || c == '\t' || c == '\r') { i--; continue; }
+        if (c == 0xBF && i >= 3 && (unsigned char)l->src[i - 2] == 0xBB &&
+            (unsigned char)l->src[i - 3] == 0xEF) { i -= 3; continue; }
+        return false;
+    }
+    return true;
+}
+
+/* A comment whose text (after `//`) starts `key:` with key matching
+ * [a-z][a-z0-9_]* is a directive (`//json:id`). */
+static bool iron_comment_is_directive(const char *text, size_t len) {
+    if (len == 0 || text[0] < 'a' || text[0] > 'z') return false;
+    size_t i = 1;
+    while (i < len && ((text[i] >= 'a' && text[i] <= 'z') ||
+                       (text[i] >= '0' && text[i] <= '9') || text[i] == '_')) {
+        i++;
+    }
+    return i < len && text[i] == ':';
+}
+
+/* Lexes a line comment. The first marker character (`-` or `/`) is
+ * consumed and the second one is next. Consumes the comment and the '\n'
+ * that ends its line and returns that NEWLINE token, carrying the comment
+ * (see Iron_Token.comment in lexer.h). `spelling` is IRON_COMMENT_DASH for
+ * `--` and 0 for `//`. */
+static Iron_Token iron_lex_line_comment(Iron_Lexer *l, uint32_t start_line,
+                                        uint32_t start_col, size_t start_pos,
+                                        uint8_t spelling) {
+    /* The comment's text starts after the second marker character; it
+     * may be a file marker, in either spelling. */
+    bool is_marker = iron_lex_comment_marker(l, l->pos + 1);
+
+    iron_advance_char(l); /* the second marker character */
+    size_t text_start = l->pos;
+    while (l->pos < l->src_len && l->src[l->pos] != '\n') {
+        l->pos++;
+        l->col++;
+    }
+    size_t text_len = l->pos - text_start;
+    while (text_len > 0 && (l->src[text_start + text_len - 1] == ' ' ||
+                            l->src[text_start + text_len - 1] == '\t' ||
+                            l->src[text_start + text_len - 1] == '\r')) {
+        text_len--;
+    }
+    uint8_t flags = (uint8_t)(IRON_COMMENT_PRESENT | spelling);
+    if (iron_comment_is_own_line(l, start_pos)) flags |= IRON_COMMENT_OWN_LINE;
+    if (is_marker) flags |= IRON_COMMENT_MARKER;
+    else if (spelling == 0 &&
+             iron_comment_is_directive(l->src + text_start, text_len)) {
+        flags |= IRON_COMMENT_DIRECTIVE;
+    }
+    /* Same cap as a `///` body (T-03-01). */
+    if (text_len > 8192) {
+        text_len = 8192;
+        Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                        l->line, l->col);
+        iron_diag_emit(l->diags, l->arena, IRON_DIAG_NOTE,
+                       IRON_WARN_DOC_COMMENT_TRUNCATED, span,
+                       "comment truncated to 8 KB", NULL);
+    }
+    const char *text = iron_arena_strdup(l->arena, l->src + text_start, text_len);
+    if (!text) text = "";
+    /* Return NEWLINE token (comment consumed). */
+    if (l->pos < l->src_len && l->src[l->pos] == '\n') {
+        l->pos++;
+        l->line++;
+        l->phys_line++;
+        l->col = 1;
+    }
+    Iron_Token t = iron_make_token(l, IRON_TOK_NEWLINE, text, start_line,
+                                   start_col, (uint32_t)(l->pos - start_pos));
+    t.comment     = flags;
+    return t;
 }
 
 static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
@@ -1031,26 +1119,9 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                                        start_line, start_col, 2);
             }
             if (iron_peek_char(l) == '-') {
-                /* Comment: consume to end of line. */
-
-                /* The comment's text starts after the second '-'; it may be a
-                 * file marker. */
-                iron_lex_comment_marker(l, l->pos + 1);
-
-                while (l->pos < l->src_len && l->src[l->pos] != '\n') {
-                    l->pos++;
-                    l->col++;
-                }
-                /* Return NEWLINE token (comment consumed). */
-                if (l->pos < l->src_len && l->src[l->pos] == '\n') {
-                    l->pos++;
-                    l->line++;
-                    l->phys_line++;
-                    l->col = 1;
-                }
-                return iron_make_token(l, IRON_TOK_NEWLINE, NULL,
-                                       start_line, start_col,
-                                       (uint32_t)(l->pos - start_pos));
+                /* `--` line comment (transitional spelling of `//`). */
+                return iron_lex_line_comment(l, start_line, start_col,
+                                             start_pos, IRON_COMMENT_DASH);
             }
             if (iron_peek_char(l) == '=') {
                 iron_advance_char(l);
@@ -1081,10 +1152,8 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
              * as the token value. Cap body at 8192 bytes (T-03-01); truncate
              * and emit a NOTE-level diagnostic if the user exceeds it. The
              * newline itself is consumed by the top-level loop and emitted
-             * as IRON_TOK_NEWLINE in the normal flow. A bare `//` is NOT
-             * an Iron comment today; fall through to IRON_TOK_SLASH as
-             * before (the next `/` will then produce IRON_TOK_SLASH too;
-             * surface divergence from `ironc` is covered by parity). */
+             * as IRON_TOK_NEWLINE in the normal flow. `///` is the
+             * transitional spelling of a `//` documentation line. */
             if (iron_peek_char(l) == '/' && iron_peek_next(l) == '/') {
                 iron_advance_char(l); /* consume 2nd '/' */
                 iron_advance_char(l); /* consume 3rd '/' */
@@ -1098,6 +1167,14 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                     l->col++;
                 }
                 size_t body_len = l->pos - body_start;
+                /* Trailing whitespace and '\r' are not part of the text,
+                 * as for a `//` comment (a `///` line migrated to `//` must
+                 * keep its documentation text). */
+                while (body_len > 0 && (l->src[body_start + body_len - 1] == ' ' ||
+                                        l->src[body_start + body_len - 1] == '\t' ||
+                                        l->src[body_start + body_len - 1] == '\r')) {
+                    body_len--;
+                }
                 /* T-03-01: cap at 8192 bytes. If user wrote a pathological
                  * line, truncate and emit a NOTE. */
                 bool truncated = false;
@@ -1118,9 +1195,18 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                                    "doc comment truncated to 8 KB",
                                    NULL);
                 }
-                return iron_make_token(l, IRON_TOK_DOC_COMMENT, body,
-                                       start_line, start_col,
-                                       (uint32_t)(l->pos - start_pos));
+                Iron_Token dt = iron_make_token(l, IRON_TOK_DOC_COMMENT, body,
+                                                start_line, start_col,
+                                                (uint32_t)(l->pos - start_pos));
+                dt.comment = (uint8_t)(IRON_COMMENT_PRESENT | IRON_COMMENT_TRIPLE);
+                if (iron_comment_is_own_line(l, start_pos))
+                    dt.comment |= IRON_COMMENT_OWN_LINE;
+                return dt;
+            }
+            if (iron_peek_char(l) == '/') {
+                /* `//` line comment. */
+                return iron_lex_line_comment(l, start_line, start_col,
+                                             start_pos, 0);
             }
             return iron_make_token(l, IRON_TOK_SLASH, NULL,
                                    start_line, start_col, 1);
@@ -1358,11 +1444,13 @@ Iron_Token *iron_lex_all(Iron_Lexer *l) {
             l->col = 1;
             Iron_Token nl = iron_make_token(l, IRON_TOK_NEWLINE, NULL,
                                              nl_line, nl_col, 1);
+            nl.offset = (uint32_t)(l->pos - 1);
             arrput(tokens, nl);
             continue;
         }
 
         Iron_Token tok;
+        size_t tok_start = l->pos;
 
         /* String literal */
         if (c == '"') {
@@ -1381,6 +1469,7 @@ Iron_Token *iron_lex_all(Iron_Lexer *l) {
             tok = iron_lex_punctuation(l);
         }
 
+        tok.offset = (uint32_t)tok_start;
         arrput(tokens, tok);
 
         /* After a comment (which returned NEWLINE), we already advanced past

@@ -1,0 +1,11 @@
+-- A string expression passed to a String? parameter (#581).
+func f(a: String?) {
+    println("{a}")
+}
+
+func main() {
+    val x = "q"
+    f(x + "b")
+    f(x)
+    f(null)
+}

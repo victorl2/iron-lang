@@ -464,9 +464,19 @@ static int materialize_one(Iron_Program *program, GenInst *gi, Iron_Arena *arena
     /* Instances keep the template's file so visibility and stdlib
      * classification treat them as that file's code. */
     const char *file = gi->decl->span.filename ? gi->decl->span.filename : "<generic>";
+    /* The printed template starts with its documentation and directive
+     * lines: the declaration itself must still land on its own line. */
+    uint32_t lead = 0;
+    for (const char *c = body; c[0] == '/' && c[1] == '/'; lead++) {
+        const char *nl = strchr(c, '\n');
+        if (!nl) break;
+        c = nl + 1;
+    }
+    uint32_t first_line = gi->decl->span.line > 0 ? gi->decl->span.line : 1;
+    first_line = first_line > lead ? first_line - lead : 1;
     Iron_StrBuf sb = iron_strbuf_create(strlen(body) + 128);
     iron_strbuf_appendf(&sb, IRON_FILE_MARKER_OPEN "%s\" @line: %u\n%s\n", file,
-                        gi->decl->span.line > 0 ? gi->decl->span.line : 1, body);
+                        first_line, body);
     char *snippet = iron_arena_strdup(arena, iron_strbuf_get(&sb), sb.len);
     iron_strbuf_free(&sb);
     if (!snippet) return 0;
@@ -478,6 +488,7 @@ static int materialize_one(Iron_Program *program, GenInst *gi, Iron_Arena *arena
     int token_count = (int)arrlen(tokens);
     Iron_Parser parser = iron_parser_create(tokens, token_count, snippet, file,
                                             arena, diags);
+    parser.quiet_hints = true;  /* reported on the original */
     Iron_Node *ast = iron_parse(&parser);
     arrfree(tokens);
     if (!ast || ast->kind != IRON_NODE_PROGRAM) return 0;

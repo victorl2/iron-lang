@@ -1,0 +1,24 @@
+-- A var parameter of a method takes the caller's binding by reference
+-- (#604): the writes went to a copy.
+object C {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func log(var out: [Int]) {
+        out.push(self.n)
+    }
+    func bump(var k: Int) {
+        k = k + self.n
+    }
+}
+
+func main() {
+    var c = C(1)
+    var out: [Int] = []
+    c.log(out)
+    c.log(out)
+    var k = 5
+    c.bump(k)
+    println("{out.len()} {k}")
+}

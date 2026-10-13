@@ -1,0 +1,89 @@
+-- layout: soa lists: every list operation behaves as for the default layout.
+-- The same program with the layout annotations removed prints the same
+-- (tests/integration/soa_parity.sh).
+object P {
+    var x: Int
+    var y: Float
+    var live: Bool
+    val s: String
+    init(x: Int) {
+        self.x = x
+        self.y = Float(x) * 1.5
+        self.live = x % 2 == 0
+        self.s = "str-{x}-padding-padding-padding"
+    }
+    readonly func total() -> Float { return Float(self.x) + self.y }
+    func bump(n: Int) { self.x += n }
+}
+func show(xs: [P, layout: soa]) {
+    print("[{xs.len()}]")
+    for p in xs { print(" {p.x}/{p.y}/{p.live}/{p.s}") }
+    println("")
+}
+func main() {
+    var ps: [P, layout: soa] = []
+    println("{ps.len()} {len(ps)} {ps.len() == 0}")
+    for i in range(12) { ps.push(P(i)) }
+    show(ps)
+    println("{ps.get(3).x} {ps[4].s} {ps[5].total()} {ps.get_unchecked(1).x}")
+    ps.set(2, P(100))
+    ps.set_unchecked(1, P(77))
+    ps[3] = P(200)
+    ps[4].x = 300
+    ps[5].x += 5
+    ps[6].y *= 2.0
+    ps[7].bump(1000)
+    ps[8].x -= 1
+    ps[9].live = not ps[9].live
+    show(ps)
+    var i = 0
+    while i < ps.len() {
+        ps[i].x = ps[i].x + i
+        i += 1
+    }
+    for j in range(ps.len()) { ps[j].bump(j) }
+    show(ps)
+    val r = ps.remove(0)
+    val q = ps.pop()
+    println("{r.x} {q.x} {r.s} {q.s}")
+    ps.insert(0, P(-1))
+    ps.insert(ps.len(), P(-2))
+    ps.insert(3, P(-3))
+    ps.reverse()
+    show(ps)
+    show(ps[2..5])
+    show(ps[0..0])
+    show(ps[0..ps.len()])
+    val m = ps.map(func(p: P) -> Int { return p.x * 2 })
+    println("{m.len()} {m[0]} {m[12]} {m.sum()}")
+    show(ps.filter(func(p: P) -> Bool { return p.live }))
+    println("{ps.reduce(0, func(a: Int, p: P) -> Int { return a + p.x })}")
+    show(ps.map(func(p: P) -> P { return P(p.x + 1) }))
+    println("{ps.map(func(p: P) -> Float { return p.y }).sum()}")
+    println("{ps.filter(func(p: P) -> Bool { return p.x > 10 }).map(func(p: P) -> Int { return p.x }).sum()}")
+    ps.forEach(func(p: P) { print("{p.x},") })
+    println("")
+    var cp = ps.copy()
+    cp[0].x = 12345
+    cp.clear()
+    println("{cp.len()} {ps[0].x}")
+    cp.push(P(5))
+    show(cp)
+    var tk = ps.take()
+    println("{tk.len()} {ps.len()}")
+    ps.push(P(1))
+    tk.push(P(2))
+    show(ps)
+    show(tk)
+    var grown: [P, layout: soa] = []
+    for k in range(1000) {
+        grown.push(P(k))
+        if k % 3 == 0 { grown.insert(k / 3, P(-k)) }
+        if k % 7 == 0 {
+            val gone = grown.remove(grown.len() / 2)
+        }
+    }
+    var acc = 0
+    for g in grown { acc += g.x }
+    println("{grown.len()} {acc} {grown[100].x} {grown[grown.len() - 1].s}")
+}

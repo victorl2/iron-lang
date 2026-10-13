@@ -1,0 +1,95 @@
+-- The expected type reaches a generic construction, call or enum payload
+-- through `T?`, `rc T`, `rc T?`, a list element and a field (#626, #606,
+-- #621).
+enum Opt[T] {
+    Some(T),
+    None,
+}
+object Cell[T] {
+    var n: Int
+    var v: T?
+    init() {
+        self.n = 0
+        self.v = null
+    }
+}
+object Hold {
+    val c: Cell[Int]?
+    val r: rc Cell[String]
+    val o: Opt[Map[String, Int]]
+    val l: [Set[Int]]?
+}
+func mk[T]() -> Cell[T] {
+    return Cell[T]()
+}
+func nc(b: Bool) -> Cell[Int]? {
+    if b {
+        return Cell()
+    }
+    return null
+}
+func rcn(b: Bool) -> rc Cell[Int]? {
+    if b {
+        return rc Cell()
+    }
+    return null
+}
+func lst(b: Bool) -> [Set[Int]]? {
+    if b {
+        return [Set(), Set()]
+    }
+    return null
+}
+func el() -> [Int]? {
+    return []
+}
+func op(b: Bool) -> Opt[Map[String, Int]] {
+    if b {
+        return Opt.Some(Map())
+    }
+    return Opt.None
+}
+func opn(b: Bool) -> Opt[Cell[Int]]? {
+    if b {
+        return Opt.Some(Cell())
+    }
+    return null
+}
+func tupe(b: Bool) -> (Opt[Int], Cell[String]?) {
+    if b {
+        return (Opt.None, Cell())
+    }
+    return (Opt.Some(3), null)
+}
+func takes(c: Cell[Int]?) -> Bool {
+    return c != null
+}
+func main() {
+    val a = nc(true)
+    val b = rcn(true)
+    val c = lst(true)
+    val d = el()
+    println("{a != null} {b != null} {c != null} {d != null}")
+    val o = op(true)
+    match o {
+        Opt.Some(m) -> println("some {m.len()}")
+        Opt.None -> println("none")
+    }
+    val on = opn(true)
+    println("{on != null}")
+    val (t1, t2) = tupe(true)
+    val (t3, t4) = tupe(false)
+    println("{t2 != null} {t4 == null}")
+    val g: Cell[Int]? = mk()
+    val g2: rc Cell[Int] = rc mk()
+    val g3: rc Cell[Int]? = rc Cell()
+    var h: Cell[String]? = null
+    h = Cell()
+    val h2 = Hold(Cell(), rc Cell(), Opt.Some(Map()), [Set()])
+    val h3 = Hold(null, rc mk(), Opt.None, null)
+    println("{g != null} {g2.n} {g3 != null} {h != null} {takes(Cell())} {takes(mk())} {takes(null)} {h2.c != null} {h3.l == null}")
+    val q: [Cell[Int]?] = [Cell(), null, mk()]
+    val q2: [Opt[Set[Int]]] = [Opt.Some(Set()), Opt.None]
+    val q3: [[Int]?] = [[], null, [1]]
+    println("{len(q)} {len(q2)} {len(q3)}")
+}

@@ -174,6 +174,14 @@ void ilsp_handle_didOpen(IronLsp_Server *s, struct yyjson_doc *doc,
     IronLsp_Document *nd = ilsp_document_create(uri, text, strlen(text), version);
     if (!nd) return;
     shput(s->documents, uri, nd);
+    if (s->workspace_index) {
+        char *path = ilsp_workspace_path_from_uri(uri);
+        if (path) {
+            ilsp_workspace_index_update_buffer(s->workspace_index, path,
+                                                nd->text, nd->text_len);
+            free(path);
+        }
+    }
 
     /* Plan 05 CORE-14: start the per-doc ASTWorker and schedule the
      * initial compile for this document. Failure (e.g. pthread_create
@@ -258,6 +266,15 @@ void ilsp_handle_didChange(IronLsp_Server *s, struct yyjson_doc *doc,
     if (applied) d->version = new_ver;
     ilsp_document_unlock(d);
 
+    if (applied && s->workspace_index) {
+        char *path = ilsp_workspace_path_from_uri(d->uri);
+        if (path) {
+            ilsp_workspace_index_update_buffer(s->workspace_index, path,
+                                                d->text, d->text_len);
+            free(path);
+        }
+    }
+
     /* Drift detection: if the client included a non-standard
      * "contentHash" string, compare against our SHA-256. Log WARN on
      * mismatch but do not roll back (the client is trusted to resolve
@@ -316,6 +333,13 @@ void ilsp_handle_didClose(IronLsp_Server *s, struct yyjson_doc *doc,
     /* The worker is stopped: clear what the closed file showed, after
      * anything it published. */
     ilsp_facade_publish_cleared(s, d->uri);
+    if (s->workspace_index) {
+        char *path = ilsp_workspace_path_from_uri(d->uri);
+        if (path) {
+            ilsp_workspace_index_refresh_path(s->workspace_index, path);
+            free(path);
+        }
+    }
     ilsp_document_destroy(d);
     shdel(s->documents, uri);
 }

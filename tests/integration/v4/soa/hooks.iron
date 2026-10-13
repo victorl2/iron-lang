@@ -1,0 +1,80 @@
+-- layout: soa lists: copy and drop hooks run exactly as for the default layout.
+-- The same program with the layout annotations removed prints the same
+-- (tests/integration/soa_parity.sh).
+object D {
+    val n: Int
+    val s: String
+    copy { println("copy {self.n}") }
+    drop { println("drop {self.n}") }
+}
+func mk(n: Int) -> D { return D(n, "long heap string for element {n} padding") }
+func consume(xs: [D, layout: soa]) -> Int { return xs.len() }
+func build(n: Int) -> [D, layout: soa] {
+    var out: [D, layout: soa] = []
+    for i in range(n) { out.push(mk(i)) }
+    return out
+}
+func main() {
+    var ps: [D, layout: soa] = []
+    ps.push(mk(1))
+    ps.push(mk(2))
+    ps.push(mk(3))
+    println("-- copy")
+    {
+        val cp = ps.copy()
+        println("copied {cp.len()}")
+    }
+    println("-- slice")
+    {
+        val sl = ps[1..3]
+        println("sliced {sl.len()}")
+    }
+    println("-- filter")
+    {
+        val f = ps.filter(func(d: D) -> Bool { return d.n != 2 })
+        println("filtered {f.len()}")
+    }
+    println("-- map")
+    {
+        val m = ps.map(func(d: D) -> Int { return d.n })
+        println("mapped {m.len()}")
+    }
+    println("-- index read")
+    {
+        val e = ps[0]
+        println("read {e.n}")
+    }
+    println("-- for")
+    for d in ps { println("it {d.n}") }
+    println("-- overwrite")
+    ps[0] = mk(10)
+    println("-- remove")
+    {
+        val p = ps.remove(0)
+        println("removed {p.n}")
+    }
+    println("-- pop")
+    {
+        val p = ps.pop()
+        println("popped {p.n}")
+    }
+    println("-- insert")
+    ps.insert(0, mk(20))
+    println("-- reverse")
+    ps.reverse()
+    println("-- take")
+    {
+        val t = ps.take()
+        println("took {t.len()} {ps.len()}")
+    }
+    println("-- build")
+    {
+        val b = build(3)
+        println("built {consume(b)}")
+    }
+    println("-- clear")
+    ps.push(mk(30))
+    ps.clear()
+    ps.push(mk(31))
+    println("-- end")
+}

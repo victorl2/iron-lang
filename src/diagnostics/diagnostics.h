@@ -115,7 +115,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 /* How the compiler writes the start of a marker for a quoted name; the
  * name, a closing quote and the attributes follow. The one place that spells
  * the comment the compiler's own markers are written in. */
-#define IRON_FILE_MARKER_OPEN "-- @file: \""
+#define IRON_FILE_MARKER_OPEN "// @file: \""
 
 typedef struct {
     const char *name;       /* not NUL terminated; points into the text */
@@ -126,8 +126,9 @@ typedef struct {
     bool        packed;     /* `@packed`: what follows is a packed source */
 } Iron_FileMarker;
 
-/* Length of the line comment introducer at the start of `text` (`--`, or
- * `//` that is not the `///` of a doc comment); 0 when there is none. */
+/* Length of the line comment introducer at the start of `text` (`//` that
+ * is not the `///` of a doc line, or the transitional `--`); 0 when there
+ * is none. */
 size_t iron_comment_intro_len(const char *text, size_t len);
 
 /* Parse the text of a comment (what follows the introducer, up to the end
@@ -704,6 +705,7 @@ void iron_diag_set_user_start_line(uint32_t line);
 #define IRON_WARN_UNUSED_VAR_PARAM  614   /* VAL-06 */
 #define IRON_WARN_CONSTANT_TYPE_TEST 615  /* `c is T` on a concrete value: known at compile time (#179) */
 #define IRON_WARN_NULL_COMPARE_NEVER 616  /* `x == null` where x is not nullable: always the same answer */
+#define IRON_WARN_UNKNOWN_IRON_HINT  617  /* `//iron:<hint>` names no compiler hint, or one that does not apply there */
 
 /* Phase 28 ARENA-09 (Plan 28-03): arena-allocated type with a transitive
  * non-trivial destructor. A type warns if it (or a field whose type

@@ -165,7 +165,34 @@ typedef struct {
     uint32_t        len;
     const char     *filename;  /* NULL = inherit from parser */
     bool            from_stdlib_prepend; /* token lies in a stdlib prepend region */
+    /* Comments. Iron has one comment form, `//` to the end of the line
+     * (`--` and `///` are still accepted while code migrates; see
+     * docs/language_definition.md section 1.2). A line comment never makes
+     * a token of its own: it is folded into the NEWLINE token that ends its
+     * line, which then carries `comment` flags, the comment text after the
+     * two-character marker in `value` (trailing whitespace and '\r'
+     * removed, nothing else); its `offset` is that of the marker. A `///`
+     * line keeps its IRON_TOK_DOC_COMMENT token
+     * (value: the body with one leading space removed), flagged
+     * IRON_COMMENT_PRESENT | IRON_COMMENT_TRIPLE. `comment` is 0 on every
+     * other token. */
+    uint8_t         comment;      /* IRON_COMMENT_* flags */
+    uint32_t        offset;       /* byte offset of the token's first
+                                   * character in the lexed buffer */
 } Iron_Token;
+
+/* Iron_Token.comment flags. */
+enum {
+    IRON_COMMENT_PRESENT   = 1u << 0, /* the token carries a comment */
+    IRON_COMMENT_OWN_LINE  = 1u << 1, /* only whitespace precedes it on its line */
+    IRON_COMMENT_DIRECTIVE = 1u << 2, /* `//key:value`: no space after `//`, key
+                                       * matches [a-z][a-z0-9_]* and is followed
+                                       * directly by ':' */
+    IRON_COMMENT_MARKER    = 1u << 3, /* a `@file:` line marker the toolchain
+                                       * inserts; never documentation */
+    IRON_COMMENT_DASH      = 1u << 4, /* written `--` (transitional spelling) */
+    IRON_COMMENT_TRIPLE    = 1u << 5  /* written `///` (transitional spelling) */
+};
 
 /* ── Lexer ───────────────────────────────────────────────────────────────── */
 

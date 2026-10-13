@@ -103,10 +103,17 @@ endfunction()
 iron_add_fuzz_target(fuzz_parser      fuzz_parser.c)
 iron_add_fuzz_target(fuzz_typecheck   fuzz_typecheck.c)
 iron_add_fuzz_target(fuzz_hir_to_lir  fuzz_hir_to_lir.c)
+# Comments, documentation, directives, fmt --migrate-comments and fmt.
+iron_add_fuzz_target(fuzz_comments    fuzz_comments.c)
+# LIR optimization and C emission (seeds: corpus/hir_to_lir)
+iron_add_fuzz_target(fuzz_emit        fuzz_emit.c)
 # Source in, analysis as `ironc check` and the language server run it (with
 # the stdlib prelude, broken buffers included) and the formatter's
 # idempotence. Seed it with the integration corpus.
 iron_add_fuzz_target(fuzz_check       fuzz_check.c)
+# Standard library parsers of untrusted input: numbers, IP addresses, case
+# mapping, WebSocket frames (see fuzz_stdlib.c).
+iron_add_fuzz_target(fuzz_stdlib      fuzz_stdlib.c)
 
 # Build-time helper (NOT a fuzz target — no -fsanitize=fuzzer).
 # Copies tests/integration/*.iron into corpus/parser/ and creates the

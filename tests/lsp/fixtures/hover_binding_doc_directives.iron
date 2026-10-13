@@ -1,0 +1,9 @@
+// HOVER@8:15
+
+// The service port.
+//config:env
+val service_port = 8080 //json:port
+
+func main() {
+    println("{service_port}")
+}

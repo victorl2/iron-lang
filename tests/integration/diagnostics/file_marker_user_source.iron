@@ -1,9 +1,9 @@
--- A comment that looks like a file marker (the comment the test harness
--- puts between the files of a multi-file fixture) is only a comment in
--- user source: the errors after it are reported in this file, on their
--- own lines. In multi-file test mode (IRON_MULTI_FILE_TEST=1) the same
--- comments are markers.
--- @file: elsewhere.iron
+// A comment that looks like a file marker (the comment the test harness
+// puts between the files of a multi-file fixture) is only a comment in
+// user source, in either comment spelling: the errors after it are
+// reported in this file, on their own lines. In multi-file test mode
+// (IRON_MULTI_FILE_TEST=1) the same comments are markers.
+// @file: elsewhere.iron
 func first() -> Int {
     return "one"
 }
