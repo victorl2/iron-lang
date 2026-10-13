@@ -20,20 +20,34 @@ def main() -> int:
         results = root / "results" / "fixture"
         source.mkdir()
         (source / "transient.py").write_text(
-            """import pathlib, sys
+            """import pathlib, subprocess, sys
 marker = pathlib.Path(sys.argv[1])
 if marker.exists():
     raise SystemExit(0)
 marker.write_text("first attempt failed", encoding="utf-8")
+source = pathlib.Path(sys.argv[2])
+build = pathlib.Path(sys.argv[3])
+python = sys.argv[4]
+(source / "CMakeLists.txt").write_text(f'''cmake_minimum_required(VERSION 3.25)
+project(ctest_retry NONE)
+enable_testing()
+add_test(NAME inserted COMMAND {python} {source / "inserted.py"})
+add_test(NAME transient COMMAND {python} {source / "transient.py"} {marker} {source} {build} {python})
+''', encoding="utf-8")
+subprocess.run(["cmake", "-S", str(source), "-B", str(build)], check=True)
 raise SystemExit(1)
 """,
+            encoding="utf-8",
+        )
+        (source / "inserted.py").write_text(
+            f"from pathlib import Path\nPath({str(root / 'wrong-test-ran')!r}).touch()\n",
             encoding="utf-8",
         )
         (source / "CMakeLists.txt").write_text(
             f"""cmake_minimum_required(VERSION 3.25)
 project(ctest_retry NONE)
 enable_testing()
-add_test(NAME transient COMMAND {sys.executable} {source / 'transient.py'} {build / 'marker'})
+add_test(NAME transient COMMAND {sys.executable} {source / 'transient.py'} {build / 'marker'} {source} {build} {sys.executable})
 """,
             encoding="utf-8",
         )
@@ -54,6 +68,7 @@ add_test(NAME transient COMMAND {sys.executable} {source / 'transient.py'} {buil
         assert results.with_name("fixture-retry.xml").is_file()
         retried = results.with_name("fixture-retried.txt").read_text(encoding="utf-8")
         assert retried == "transient\n", repr(retried)
+        assert not (root / "wrong-test-ran").exists(), "retry ran the inserted test"
         outcome = results.with_name("fixture-ctest.result").read_text(encoding="utf-8")
         assert "status=pass\n" in outcome
         assert "first_exit_code=8\n" in outcome
