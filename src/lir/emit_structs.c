@@ -427,7 +427,6 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
         iron_strbuf_appendf(&ctx->struct_bodies,
             "/* Phase 33 STDLIB-02: per-element destructor _free for %s */\n"
             "void Iron_List_%s_free(Iron_List_%s *self) {\n"
-            "    IRON_LIST_PIN_CHECK(self->items);\n"
             "    if (self->items) {\n"
             "        for (int64_t _i = 0; _i < self->count; _i++) {\n"
             "            %s_drop(&self->items[_i]);\n"
@@ -437,7 +436,6 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
             "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
             "}\n"
             "void Iron_List_%s_clear(Iron_List_%s *self) {\n"
-            "    IRON_LIST_PIN_CHECK(self->items);\n"
             "    for (int64_t _i = 0; _i < self->count; _i++) {\n"
             "        %s_drop(&self->items[_i]);\n"
             "    }\n"
@@ -451,12 +449,10 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
     } else {
         iron_strbuf_appendf(&ctx->struct_bodies,
             "void Iron_List_%s_free(Iron_List_%s *self) {\n"
-            "    IRON_LIST_PIN_CHECK(self->items);\n"
             "    iron_mem_free(self->items);\n"
             "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
             "}\n"
             "void Iron_List_%s_clear(Iron_List_%s *self) {\n"
-            "    IRON_LIST_PIN_CHECK(self->items);\n"
             "    self->count = 0;\n"
             "}\n\n",
             mangled, mangled, mangled, mangled);
@@ -691,7 +687,6 @@ static void emit_object_soa_impl(EmitCtx *ctx, const char *m, Iron_ObjectDecl *o
 
     /* Mutation. */
     SOA("void @_push(@ *self, $ v) {\n"
-        "  IRON_LIST_PIN_CHECK(self->items);\n"
         "  if (self->count >= self->capacity) {\n"
         "    int64_t cap = self->capacity ? self->capacity * 2 : 8;\n"
         "    if (cap < self->capacity) iron_oom_abort(\"Iron_List_$_push: capacity overflow\");\n"
@@ -708,19 +703,16 @@ static void emit_object_soa_impl(EmitCtx *ctx, const char *m, Iron_ObjectDecl *o
         "  @_write(self, i, v);\n}\n"
         "$ @_pop(@ *self) {\n"
         "  if (self->count <= 0) iron_panic_index_oob(\"Iron_List_$_pop\", 0, -1, self->count);\n"
-        "  IRON_LIST_PIN_CHECK(self->items);\n"
         "  return @_read(*self, --self->count);\n}\n"
         "$ @_remove(@ *self, int64_t i) {\n"
         "  if ((uint64_t)i >= (uint64_t)self->count)\n"
         "    iron_panic_index_oob(\"Iron_List_$_remove\", 0, i, self->count);\n"
-        "  IRON_LIST_PIN_CHECK(self->items);\n"
         "  $ out = @_read(*self, i);\n"
         "  @_move(self, i, i + 1, self->count - i - 1);\n"
         "  self->count--;\n  return out;\n}\n"
         "void @_insert(@ *self, int64_t i, $ v) {\n"
         "  if ((uint64_t)i > (uint64_t)self->count)\n"
         "    iron_panic_index_oob(\"Iron_List_$_insert\", 0, i, self->count + 1);\n"
-        "  IRON_LIST_PIN_CHECK(self->items);\n"
         "  @_push(self, v);\n"
         "  @_move(self, i + 1, i, self->count - 1 - i);\n"
         "  @_write(self, i, v);\n}\n"
@@ -735,17 +727,15 @@ static void emit_object_soa_impl(EmitCtx *ctx, const char *m, Iron_ObjectDecl *o
     /* Ownership: clear and free drop each element once, clone copies each
      * one into a list of the same layout, take leaves an empty list of the
      * same layout behind. */
-    SOA("void @_clear(@ *self) {\n  IRON_LIST_PIN_CHECK(self->items);\n");
+    SOA("void @_clear(@ *self) {\n");
     if (drop)
         SOA("  for (int64_t i = 0; i < self->count; i++) { $ v = @_read(*self, i); $_drop(&v); }\n");
     SOA("  self->count = 0;\n}\n"
         "void @_free(@ *self) {\n"
-        "  IRON_LIST_PIN_CHECK(self->items);\n"
         "  @_clear(self);\n"
         "  iron_mem_free(self->items);\n"
         "  self->items = NULL; self->capacity = 0;\n}\n"
         "@ @_take(@ *self) {\n"
-        "  IRON_LIST_PIN_CHECK(self->items);\n"
         "  @ out = *self;\n"
         "  self->items = NULL; self->count = 0; self->capacity = 0;\n"
         "  return out;\n}\n"

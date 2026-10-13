@@ -5254,26 +5254,6 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                  fn->value_table[gfp] &&
                                  fn->value_table[gfp]->kind == IRON_LIR_FUNC_REF)
                                 ? fn->value_table[gfp]->func_ref.func_name : NULL;
-            if (gname && (strcmp(gname, "$iter_pin") == 0 ||
-                          strcmp(gname, "$iter_unpin") == 0) &&
-                instr->call.arg_count == 1) {
-                IronLIR_ValueId list_value = instr->call.args[0];
-                if (get_stack_array_origin(ctx, list_value) == IRON_LIR_VALUE_INVALID) {
-                    Iron_Type *list_type = emit_get_value_type(fn, list_value);
-                    bool split_list = list_type && list_type->kind == IRON_TYPE_ARRAY &&
-                        list_type->array.elem &&
-                        list_type->array.elem->kind == IRON_TYPE_INTERFACE;
-                    emit_indent(sb, ind);
-                    iron_strbuf_appendf(sb, "%s((const void *)(",
-                        strcmp(gname, "$iter_pin") == 0
-                            ? "iron_list_iter_pin" : "iron_list_iter_unpin");
-                    emit_expr_to_buf(sb, list_value, fn, ctx,
-                                     ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, ").%s);\n",
-                                        split_list ? "_tracked" : "items");
-                }
-                break;
-            }
             if (gname && strcmp(gname, "$cell_new") == 0 && instr->call.arg_count == 1) {
                 /* A fresh counted cell for a boxed `var` (#210), allocated
                  * where the declaration runs. */

@@ -77,22 +77,6 @@ void  *iron_mem_alloc(size_t size);
 void  *iron_mem_calloc(size_t count, size_t size);
 void  *iron_mem_realloc(void *ptr, size_t size);
 void   iron_mem_free(void *ptr);
-/* A growable list is pinned while a for loop reads its elements in place.
- * Structural mutation through an alias or callee aborts instead of leaving
- * the loop with a moved buffer or changed element sequence. */
-extern _Atomic uint64_t iron_list_pin_count;
-void iron_list_iter_pin(const void *buf);
-void iron_list_iter_unpin(const void *buf);
-bool iron_list_is_pinned(const void *buf);
-IRON_NORETURN void iron_list_pinned_panic(const void *buf);
-#define IRON_LIST_PIN_CHECK(p)                                                      \
-    do {                                                                            \
-        const void *_iron_list_buf = (const void *)(p);                             \
-        if (_iron_list_buf &&                                                       \
-            atomic_load_explicit(&iron_list_pin_count, memory_order_relaxed) &&     \
-            iron_list_is_pinned(_iron_list_buf))                                    \
-            iron_list_pinned_panic(_iron_list_buf);                                 \
-    } while (0)
 void  *iron_mem_copy(void *dst, const void *src, size_t n);
 void  *iron_mem_move(void *dst, const void *src, size_t n);
 void  *iron_mem_set(void *dst, int byte, size_t n);
@@ -1601,7 +1585,6 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
  * gated on od_has_drop_lir / the FileHandle nocopy surface. */
 #define IRON_LIST_IMPL_CORE(T, suffix) \
     Iron_List_##suffix Iron_List_##suffix##_take(Iron_List_##suffix *self) { \
-        IRON_LIST_PIN_CHECK(self->items); \
         Iron_List_##suffix out = *self; \
         self->items = NULL; self->count = 0; self->capacity = 0; \
         return out; \
@@ -1623,7 +1606,6 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return l; \
     } \
     void Iron_List_##suffix##_push(Iron_List_##suffix *self, T item) { \
-        IRON_LIST_PIN_CHECK(self->items); \
         if (self->count >= self->capacity) { \
             int64_t new_cap = self->capacity ? self->capacity * 2 : 8; \
             /* FIX-01/FIX-02: capacity doubling must not wrap int64_t (audit row 18) */ \
@@ -1652,14 +1634,12 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         /* LIST-01: pop on empty read items[-1] and corrupted count to -1 */ \
         if (self->count <= 0) \
             iron_panic_index_oob("Iron_List_" #suffix "_pop", 0, -1, self->count); \
-        IRON_LIST_PIN_CHECK(self->items); \
         return self->items[--self->count]; \
     } \
     T Iron_List_##suffix##_remove(Iron_List_##suffix *self, int64_t index) { \
         /* Removes and returns items[index], shifting the tail down. */ \
         if ((uint64_t)index >= (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_remove", 0, index, self->count); \
-        IRON_LIST_PIN_CHECK(self->items); \
         T removed = self->items[index]; \
         iron_mem_move(&self->items[index], &self->items[index + 1], \
                 (size_t)(self->count - index - 1) * sizeof(T)); \
@@ -1670,7 +1650,6 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         /* index == count appends. */ \
         if ((uint64_t)index > (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_insert", 0, index, self->count + 1); \
-        IRON_LIST_PIN_CHECK(self->items); \
         Iron_List_##suffix##_push(self, item); \
         iron_mem_move(&self->items[index + 1], &self->items[index], \
                 (size_t)(self->count - 1 - index) * sizeof(T)); \
@@ -1704,11 +1683,9 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return dst; \
     } \
     void Iron_List_##suffix##_clear(Iron_List_##suffix *self) { \
-        IRON_LIST_PIN_CHECK(self->items); \
         self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
-        IRON_LIST_PIN_CHECK(self->items); \
         iron_mem_free(self->items); \
         self->items = NULL; self->count = 0; self->capacity = 0; \
     }
@@ -1720,7 +1697,6 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
  * already-mangled (non-keyword) names. */
 #define IRON_LIST_IMPL(T, suffix) \
     Iron_List_##suffix Iron_List_##suffix##_take(Iron_List_##suffix *self) { \
-        IRON_LIST_PIN_CHECK(self->items); \
         Iron_List_##suffix out = *self; \
         self->items = NULL; self->count = 0; self->capacity = 0; \
         return out; \
@@ -1755,7 +1731,6 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return dst; \
     } \
     void Iron_List_##suffix##_push(Iron_List_##suffix *self, T item) { \
-        IRON_LIST_PIN_CHECK(self->items); \
         if (self->count >= self->capacity) { \
             int64_t new_cap = self->capacity ? self->capacity * 2 : 8; \
             if (new_cap < self->capacity) { \
@@ -1783,14 +1758,12 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         /* LIST-01: pop on empty read items[-1] and corrupted count to -1 */ \
         if (self->count <= 0) \
             iron_panic_index_oob("Iron_List_" #suffix "_pop", 0, -1, self->count); \
-        IRON_LIST_PIN_CHECK(self->items); \
         return self->items[--self->count]; \
     } \
     T Iron_List_##suffix##_remove(Iron_List_##suffix *self, int64_t index) { \
         /* Removes and returns items[index], shifting the tail down. */ \
         if ((uint64_t)index >= (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_remove", 0, index, self->count); \
-        IRON_LIST_PIN_CHECK(self->items); \
         T removed = self->items[index]; \
         iron_mem_move(&self->items[index], &self->items[index + 1], \
                 (size_t)(self->count - index - 1) * sizeof(T)); \
@@ -1801,7 +1774,6 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         /* index == count appends. */ \
         if ((uint64_t)index > (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_insert", 0, index, self->count + 1); \
-        IRON_LIST_PIN_CHECK(self->items); \
         Iron_List_##suffix##_push(self, item); \
         iron_mem_move(&self->items[index + 1], &self->items[index], \
                 (size_t)(self->count - 1 - index) * sizeof(T)); \
@@ -1818,11 +1790,9 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return self->count; \
     } \
     void Iron_List_##suffix##_clear(Iron_List_##suffix *self) { \
-        IRON_LIST_PIN_CHECK(self->items); \
         self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
-        IRON_LIST_PIN_CHECK(self->items); \
         iron_mem_free(self->items); \
         self->items = NULL; self->count = 0; self->capacity = 0; \
     }

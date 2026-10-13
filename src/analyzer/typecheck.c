@@ -229,32 +229,10 @@ typedef struct {
     /* defer bodies enclosing the statement, for return; 0 inside a lambda
      * or spawn body. */
     int                defer_depth;
-    /* Growable list bindings read in place by enclosing for loops. */
-    Iron_Symbol       *iter_lists[16];
-    int                iter_list_count;
 } TypeCtx;
 
 static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
                        const char *msg, const char *suggestion);
-static bool iterated_list_changed(TypeCtx *ctx, Iron_Node *place, Iron_Span span,
-                                  const char *what) {
-    if (!place || place->kind != IRON_NODE_IDENT || ctx->iter_list_count == 0)
-        return false;
-    Iron_Symbol *sym = ((Iron_Ident *)place)->resolved_sym;
-    if (!sym) return false;
-    for (int i = 0; i < ctx->iter_list_count; i++) {
-        if (ctx->iter_lists[i] != sym) continue;
-        char msg[256];
-        snprintf(msg, sizeof(msg), "cannot %s list '%s' inside a for loop over it",
-                 what, ((Iron_Ident *)place)->name ? ((Iron_Ident *)place)->name : "?");
-        emit_error(ctx, IRON_ERR_LIST_CHANGED_IN_LOOP, span, msg,
-                   "collect the changes and apply them after the loop, or loop over "
-                   "`xs.copy()` or over indices with `while`");
-        return true;
-    }
-    return false;
-}
-
 static void report_tuple_list(TypeCtx *ctx, Iron_Span sp) {
     if (ctx->tuple_list_file && sp.filename && sp.line == ctx->tuple_list_line &&
         strcmp(ctx->tuple_list_file, sp.filename) == 0)
@@ -3524,13 +3502,6 @@ static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc
          strcmp(m, "get_unchecked") == 0 || strcmp(m, "set_unchecked") == 0)) {
         report_unordered_position(ctx, mc->span);
         return result;
-    }
-    if (strcmp(m, "push") == 0 || strcmp(m, "pop") == 0 ||
-        strcmp(m, "insert") == 0 || strcmp(m, "remove") == 0 ||
-        strcmp(m, "clear") == 0 || strcmp(m, "take") == 0) {
-        (void)iterated_list_changed(ctx, mc->object, mc->span,
-                                    strcmp(m, "push") == 0 || strcmp(m, "insert") == 0
-                                        ? "add to" : "remove from");
     }
     /* Mutating a list or array needs a mutable path to it (#174). */
     if (strcmp(m, "push") == 0 || strcmp(m, "pop") == 0 || strcmp(m, "set") == 0 ||
@@ -9269,10 +9240,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 ctx->defer_depth = 0;
                 ctx->in_init_method = false;
                 ctx->in_drop_method = false;
-                int saved_iter_list_count = ctx->iter_list_count;
-                ctx->iter_list_count = 0;
                 if (le->body) check_stmt(ctx, le->body);
-                ctx->iter_list_count = saved_iter_list_count;
                 ctx->loop_depth = saved_depth;
                 ctx->defer_depth = saved_defer;
                 ctx->in_init_method = saved_init;
@@ -10525,7 +10493,6 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_ASSIGN: {
             Iron_AssignStmt *as = (Iron_AssignStmt *)node;
-            (void)iterated_list_changed(ctx, as->target, as->span, "replace");
 
             /* Strings are immutable: `s[i] = ...` used to pass check and
              * call an undeclared Iron_String_set. */
@@ -11629,15 +11596,6 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             ctx->loop_is_parallel = fs->is_parallel;
             /* A binding the body assigns may be null on the next pass. */
             narrowing_kill_assigned_in(ctx, fs->body);
-            bool iter_pushed = false;
-            if (!fs->is_parallel && iter_t && iter_t->kind == IRON_TYPE_ARRAY &&
-                iter_t->array.size < 0 && !iter_t->array.is_bounded && fs->iterable &&
-                fs->iterable->kind == IRON_NODE_IDENT &&
-                ((Iron_Ident *)fs->iterable)->resolved_sym && ctx->iter_list_count < 16) {
-                ctx->iter_lists[ctx->iter_list_count++] =
-                    ((Iron_Ident *)fs->iterable)->resolved_sym;
-                iter_pushed = true;
-            }
             if (ctx->in_init_method && ctx->unassigned_fields) {
                 InitUnassignedEntry *pre = NULL;
                 init_unassigned_clone(&pre, ctx->unassigned_fields);
@@ -11647,7 +11605,6 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             } else {
                 if (fs->body) check_stmt(ctx, fs->body);
             }
-            if (iter_pushed) ctx->iter_list_count--;
             ctx->loop_depth--;
             ctx->loop_is_parallel = saved_par;
             tc_pop_scope(ctx);

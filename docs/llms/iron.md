@@ -138,11 +138,6 @@ func main() {
 `if` / `elif` / `else`, `while`, and `for x in iterable` (lists and
 `range(n)`). `match` arms use `->`; an arm is an expression or a braced block.
 
-Do not add to, remove from, or replace a growable list inside a `for` loop
-over that list. A direct change is `E0346`; a change hidden behind a call or
-alias aborts because the loop pins the list. Iterate over `xs.copy()` or use
-an index-based `while` loop when the algorithm must change the list.
-
 ```iron
 enum Shape {
     Circle(Float),
