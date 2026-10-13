@@ -88,7 +88,9 @@ shards form an exact, non-overlapping partition of the v4 corpus.
 
 `test_opt_parity` uses `ironc` directly and runs the optimized and
 non-optimized compilation for a fixture concurrently. The outer pair pool
-never exceeds `PARITY_JOBS`. Its report ends with the ten slowest fixtures.
+never exceeds `PARITY_JOBS`. The two resulting programs run sequentially so
+fixtures that bind a fixed port cannot contend with their parity partner. Its
+report ends with the ten slowest fixtures.
 A fixture may request a longer runtime watchdog with an Iron line comment:
 
 ```iron
@@ -96,6 +98,13 @@ A fixture may request a longer runtime watchdog with an Iron line comment:
 ```
 
 The value is still multiplied by `IRON_TEST_TIMEOUT_SCALE`.
+
+On the two-CPU shared test container, the complete 774-fixture sweep took
+2453 seconds after this change. That workload projects to about 613 seconds
+on eight workers, assuming CPU-bound scaling. A controlled 40-fixture sample
+on the same two workers took 162.9 seconds in the old serial implementation
+and 145.7 seconds with paired compilation. An eight-core measurement is still
+required on the build server; this container is limited to two CPUs.
 
 ## Remote configuration
 
