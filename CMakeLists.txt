@@ -421,6 +421,12 @@ if(IRON_TEST_TIMEOUT_SCALE STREQUAL "")
     set(IRON_TEST_TIMEOUT_SCALE 1 CACHE STRING
         "Positive integer multiplier applied to every CTest TIMEOUT" FORCE)
 endif()
+
+set(IRON_TEST_JOBS "4" CACHE STRING
+    "Worker budget reserved by internally parallel CTest rows")
+if(NOT IRON_TEST_JOBS MATCHES "^[1-9][0-9]*$")
+    message(FATAL_ERROR "IRON_TEST_JOBS must be a positive integer")
+endif()
 if(NOT IRON_TEST_TIMEOUT_SCALE MATCHES "^[1-9][0-9]*$")
     message(FATAL_ERROR
         "IRON_TEST_TIMEOUT_SCALE must be a positive integer; got '${IRON_TEST_TIMEOUT_SCALE}'")
@@ -1631,6 +1637,13 @@ else()
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 endif()
 if(UNIX)
+    add_test(NAME test_ctest_with_retry
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_ctest_with_retry.py
+            ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_ctest_with_retry PROPERTIES
+        LABELS "unit;ci" TIMEOUT 60)
+
     add_test(NAME test_timeout_policy
         COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/ci/test_timeout_policy.py

@@ -17,7 +17,7 @@ if(NOT WIN32)
     set_tests_properties(test_v4_acceptance PROPERTIES
         LABELS "v4-acceptance"
         ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}"
-        PROCESSORS 4
+        PROCESSORS ${IRON_TEST_JOBS}
         RESOURCE_LOCK iron_exhaustive_corpus
         TIMEOUT 7200)
 endif()
@@ -40,7 +40,7 @@ if(NOT WIN32)
     # not multiply that parallelism into timeouts.
     set_tests_properties(test_opt_parity PROPERTIES
         LABELS "oracle"
-        PROCESSORS 4
+        PROCESSORS ${IRON_TEST_JOBS}
         RESOURCE_LOCK iron_exhaustive_corpus
         TIMEOUT 7200)
 endif()
@@ -65,7 +65,7 @@ if(NOT WIN32)
     )
     set_tests_properties(test_leak_check PROPERTIES
         LABELS "oracle"
-        PROCESSORS 4
+        PROCESSORS ${IRON_TEST_JOBS}
         RESOURCE_LOCK iron_exhaustive_corpus
         TIMEOUT 7200)
 endif()
