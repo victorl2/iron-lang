@@ -13,9 +13,11 @@
 #include "unity.h"
 
 #include "lsp/facade/nav/nav_core.h"
+#include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h"
 #include "lsp/server/server.h"
 #include "util/arena.h"
+#include "vendor/stb_ds.h"
 
 #include <errno.h>
 #include <stdatomic.h>
@@ -173,11 +175,56 @@ static void test_path_prefix_filter(void) {
     fx_destroy(&f);
 }
 
+/* Regression for #819: an unsaved edit must replace the disk-backed entry.
+ * Otherwise workspace/symbol can return stale names and ranges outside the
+ * current buffer. */
+static void test_open_document_overlays_workspace_index(void) {
+    fx_t f; fx_init(&f);
+
+    char uri[1024];
+    snprintf(uri, sizeof(uri), "file://%s/main.iron", f.root);
+    const char *edited = "pub func x() {}\n";
+    IronLsp_Document *doc = ilsp_document_create(
+        uri, edited, strlen(edited), 2);
+    TEST_ASSERT_NOT_NULL(doc);
+    sh_new_strdup(f.server.documents);
+    shput(f.server.documents, uri, doc);
+
+    Iron_Arena arena = iron_arena_create(16 * 1024);
+    IronLsp_WorkspaceSymbol *out = NULL;
+    size_t n = 0;
+    ilsp_facade_nav_workspace_symbol(&f.server, "", NULL, &arena, &out, &n);
+
+    bool found_current = false;
+    for (size_t i = 0; i < n; i++) {
+        TEST_ASSERT_NOT_EQUAL_MESSAGE(0, strcmp(out[i].name, "greeter"),
+            "saved symbol must not leak through an open document overlay");
+        if (strcmp(out[i].name, "x") == 0) {
+            found_current = true;
+            TEST_ASSERT_EQUAL_UINT32(0, out[i].range.start.line);
+            TEST_ASSERT_EQUAL_UINT32(0, out[i].range.end.line);
+            TEST_ASSERT_LESS_OR_EQUAL_UINT32(strlen(edited) - 1,
+                                               out[i].range.start.character);
+            TEST_ASSERT_LESS_OR_EQUAL_UINT32(strlen(edited) - 1,
+                                               out[i].range.end.character);
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found_current,
+        "workspace/symbol must include declarations from the open buffer");
+
+    iron_arena_free(&arena);
+    ilsp_document_destroy(doc);
+    shfree(f.server.documents);
+    f.server.documents = NULL;
+    fx_destroy(&f);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_fuzzy_returns_best_match);
     RUN_TEST(test_query_too_long_returns_empty);
     RUN_TEST(test_no_workspace_index_empty);
     RUN_TEST(test_path_prefix_filter);
+    RUN_TEST(test_open_document_overlays_workspace_index);
     return UNITY_END();
 }

@@ -22,9 +22,13 @@
 #include "lsp/facade/nav/symbol_id.h"
 #include "lsp/facade/nav/visibility.h"
 #include "lsp/store/workspace_index.h"
+#include "lsp/store/document.h"
 #include "lsp/server/server.h"
 #include "analyzer/analyzer.h"
+#include "diagnostics/diagnostics.h"
+#include "lexer/lexer.h"
 #include "parser/ast.h"
+#include "parser/parser.h"
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
 
@@ -57,6 +61,8 @@ typedef struct {
     double         score;
     Iron_Span      span;
     Iron_Span      sel_span;
+    IronLsp_Range  range;
+    IronLsp_Range  sel_range;
 } candidate_t;
 
 static int lsp_kind_from_node(Iron_Node *d) {
@@ -216,7 +222,48 @@ static void score_decl(IronLsp_Server *server,
     c.score          = sc;
     c.span           = d->span;
     c.sel_span       = d->span;
+    c.range          = ilsp_nav_entry_span_to_range(
+        entry, c.span, server->position_encoding);
+    c.sel_range      = ilsp_nav_entry_span_to_range(
+        entry, c.sel_span, server->position_encoding);
     arrput(*out_arr, c);
+}
+
+/* Parse an open document without analysis. Workspace symbols only need
+ * declaration syntax, matching the parse-only workspace index. The AST is
+ * request-arena owned and the token array is released before returning. */
+static Iron_Program *parse_open_document(const IronLsp_Document *doc,
+                                          _Atomic bool *cancel,
+                                          Iron_Arena *arena) {
+    if (!doc || !doc->text || !arena) return NULL;
+    Iron_DiagList diags = iron_diaglist_create();
+    Iron_Lexer lex = iron_lexer_create(doc->text,
+                                        doc->uri ? doc->uri : "<open>",
+                                        arena, &diags);
+    iron_lexer_set_cancel_flag(&lex, cancel);
+    Iron_Token *tokens = iron_lex_all(&lex);
+    if (!tokens) {
+        iron_diaglist_free(&diags);
+        return NULL;
+    }
+    Iron_Parser parser = iron_parser_create(
+        tokens, (int)arrlen(tokens), doc->text,
+        doc->uri ? doc->uri : "<open>", arena, &diags);
+    iron_parser_set_mode(&parser, IRON_ANALYSIS_MODE_LSP);
+    iron_parser_set_cancel_flag(&parser, cancel);
+    Iron_Node *root = iron_parse(&parser);
+    arrfree(tokens);
+    iron_diaglist_free(&diags);
+    if (!root || root->kind != IRON_NODE_PROGRAM) return NULL;
+    return (Iron_Program *)root;
+}
+
+static bool entry_is_open(IronLsp_Server *server,
+                           IronLsp_IndexEntry *entry,
+                           Iron_Arena *arena) {
+    if (!server->documents || !entry || !entry->canonical_path) return false;
+    const char *uri = ilsp_nav_path_to_uri(entry->canonical_path, arena);
+    return uri && shgeti(server->documents, uri) >= 0;
 }
 
 /* Recurse one level into compound decls so methods / fields / variants
@@ -296,8 +343,33 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
         if (cancel && atomic_load(cancel)) break;
         IronLsp_IndexEntry *entry = wi->entries[i].value;
         if (!entry || !entry->program) continue;
+        /* An open document may differ from the saved workspace entry. It is
+         * parsed from its current buffer below, so do not emit stale symbols
+         * or convert stale spans against the saved line index. */
+        if (entry_is_open(server, entry, arena)) continue;
         score_program(server, entry, entry->program, rest,
                        prefix, prefix_len, arena, &cands);
+    }
+
+    /* Overlay every open buffer on the disk-backed index. didChange and
+     * workspace/symbol run on the dispatcher thread, so document text is
+     * stable for the duration of this request. */
+    for (ptrdiff_t i = 0; i < shlen(server->documents); i++) {
+        if (cancel && atomic_load(cancel)) break;
+        IronLsp_Document *doc = server->documents[i].value;
+        if (!doc || !doc->text || !doc->uri) continue;
+        Iron_Program *program = parse_open_document(doc, cancel, arena);
+        if (!program) continue;
+
+        IronLsp_IndexEntry open_entry;
+        memset(&open_entry, 0, sizeof(open_entry));
+        open_entry.canonical_path = (char *)ilsp_nav_uri_to_path(doc->uri, arena);
+        open_entry.source_bytes = doc->text;
+        open_entry.source_len = doc->text_len;
+        open_entry.line_idx = doc->line_idx;
+        if (!open_entry.canonical_path) open_entry.canonical_path = doc->uri;
+        score_program(server, &open_entry, program, rest,
+                      prefix, prefix_len, arena, &cands);
     }
 
     size_t total = (size_t)arrlenu(cands);
@@ -318,9 +390,6 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
         _Alignof(IronLsp_WorkspaceSymbol));
     if (!arr) { arrfree(cands); return; }
 
-    /* For range conversion we need each entry's line index. Re-resolve
-     * the entry per candidate (O(1) shmap lookup). */
-    IronLsp_PositionEncoding enc = server->position_encoding;
     for (size_t i = 0; i < total; i++) {
         candidate_t *c = &cands[i];
         IronLsp_WorkspaceSymbol ws;
@@ -332,12 +401,8 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
         ws.fuzzy_score    = c->score;
         ws.kind_rank      = c->kind_rank;
 
-        IronLsp_IndexEntry *entry =
-            ilsp_workspace_index_lookup(wi, c->canonical_path);
-        if (entry) {
-            ws.range           = ilsp_nav_entry_span_to_range(entry, c->span,     enc);
-            ws.selection_range = ilsp_nav_entry_span_to_range(entry, c->sel_span, enc);
-        }
+        ws.range           = c->range;
+        ws.selection_range = c->sel_range;
         arr[i] = ws;
     }
 
