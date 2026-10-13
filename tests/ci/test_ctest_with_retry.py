@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the CTest retry driver with a test that passes on attempt two."""
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -57,11 +58,12 @@ add_test(NAME transient COMMAND {sys.executable} {source / 'transient.py'} {buil
                 str(repo / "scripts/ci/ctest_with_retry.sh"),
                 str(build),
                 "2",
-                str(results),
+                os.path.relpath(results, repo),
             ],
             check=False,
             capture_output=True,
             text=True,
+            cwd=repo,
         )
         assert run.returncode == 0, run.stdout + run.stderr
         assert results.with_name("fixture-first.xml").is_file()

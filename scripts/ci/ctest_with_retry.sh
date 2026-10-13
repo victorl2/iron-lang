@@ -11,13 +11,15 @@ fi
 
 build_dir=$1
 jobs=$2
-prefix=$3
+prefix_input=$3
 shift 3
 retry_jobs=${CI_RETRY_JOBS:-2}
 python_bin=${PYTHON3:-python3}
 [ "$retry_jobs" -gt "$jobs" ] && retry_jobs=$jobs
 [ "$retry_jobs" -lt 1 ] && retry_jobs=1
-mkdir -p "$(dirname "$prefix")"
+mkdir -p "$(dirname "$prefix_input")"
+prefix_dir=$(cd "$(dirname "$prefix_input")" && pwd)
+prefix="$prefix_dir/$(basename "$prefix_input")"
 : > "$prefix-retried.txt"
 
 ctest --test-dir "$build_dir" --output-on-failure -j"$jobs" \
