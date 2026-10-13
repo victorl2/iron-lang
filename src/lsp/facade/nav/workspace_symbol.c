@@ -21,6 +21,8 @@
 #include "lsp/facade/nav/fuzzy.h"
 #include "lsp/facade/nav/symbol_id.h"
 #include "lsp/facade/nav/visibility.h"
+#include "lsp/facade/compile.h"
+#include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h"
 #include "lsp/server/server.h"
 #include "analyzer/analyzer.h"
@@ -57,6 +59,8 @@ typedef struct {
     double         score;
     Iron_Span      span;
     Iron_Span      sel_span;
+    IronLsp_Range  range;
+    IronLsp_Range  selection_range;
 } candidate_t;
 
 static int lsp_kind_from_node(Iron_Node *d) {
@@ -216,7 +220,23 @@ static void score_decl(IronLsp_Server *server,
     c.score          = sc;
     c.span           = d->span;
     c.sel_span       = d->span;
+    c.range          = ilsp_nav_entry_span_to_range(
+        entry, c.span, server->position_encoding);
+    c.selection_range = ilsp_nav_entry_span_to_range(
+        entry, c.sel_span, server->position_encoding);
     arrput(*out_arr, c);
+}
+
+static bool path_is_open(const char *canonical_path,
+                         const char *const *open_paths,
+                         size_t open_path_count) {
+    if (!canonical_path) return false;
+    for (size_t i = 0; i < open_path_count; i++) {
+        if (open_paths[i] && strcmp(open_paths[i], canonical_path) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /* Recurse one level into compound decls so methods / fields / variants
@@ -286,18 +306,72 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
     split_path_prefix(query, &prefix, &prefix_len, &rest);
 
     candidate_t *cands = NULL;
+    const char **open_paths = NULL;
+    if (server->documents) {
+        for (ptrdiff_t i = 0; i < shlen(server->documents); i++) {
+            IronLsp_Document *doc = server->documents[i].value;
+            const char *path = doc && doc->uri
+                ? ilsp_nav_uri_to_path(doc->uri, arena) : NULL;
+            if (path) arrput(open_paths, path);
+        }
+    }
 
-    /* Iterate workspace_index entries. Coarse read -- the workspace
-     * index owns its own mutex, but we take a snapshot under our own
-     * discipline by reading the entries array once. */
+    /* Entries and their AST arenas are replaced during watched-file
+     * invalidation. Keep one index generation alive through scoring and
+     * range conversion so a span can never be translated with a newer
+     * entry's line index. */
     IronLsp_WorkspaceIndex *wi = server->workspace_index;
+    IRON_MUTEX_LOCK(wi->lock);
     size_t n_entries = (size_t)hmlenu(wi->entries);
     for (size_t i = 0; i < n_entries; i++) {
         if (cancel && atomic_load(cancel)) break;
         IronLsp_IndexEntry *entry = wi->entries[i].value;
         if (!entry || !entry->program) continue;
+        /* The workspace index represents the saved file. An open buffer
+         * is scored from its current text below so stale spans are never
+         * returned against the client's newer document version. */
+        if (path_is_open(entry->canonical_path, open_paths,
+                         (size_t)arrlenu(open_paths))) continue;
         score_program(server, entry, entry->program, rest,
                        prefix, prefix_len, arena, &cands);
+    }
+    IRON_MUTEX_UNLOCK(wi->lock);
+    arrfree(open_paths);
+
+    /* Overlay open documents with their current in-memory text. This runs
+     * on the dispatcher thread, where the documents map is stable; the
+     * snapshot lock still gives the analyzer a self-consistent buffer. */
+    if (server->documents) {
+        for (ptrdiff_t i = 0; i < shlen(server->documents); i++) {
+            if (cancel && atomic_load(cancel)) break;
+            IronLsp_Document *doc = server->documents[i].value;
+            IronLsp_Document snap;
+            if (!doc || !ilsp_document_snapshot(doc, &snap)) continue;
+
+            Iron_Arena parse_arena = iron_arena_create(64 * 1024);
+            Iron_DiagList diags = iron_diaglist_create();
+            IronLsp_CompileRequest req = {
+                .version = snap.version,
+                .cancel_flag = cancel,
+            };
+            Iron_Program *program = ilsp_facade_compile_for_nav(
+                &snap, &req, &parse_arena, &diags);
+            const char *path = ilsp_nav_uri_to_path(snap.uri, arena);
+            IronLsp_IndexEntry live = {
+                .canonical_path = (char *)(path ? path : snap.uri),
+                .source_bytes = snap.text,
+                .source_len = snap.text_len,
+                .program = program,
+                .line_idx = snap.line_idx,
+            };
+            if (program && live.canonical_path) {
+                score_program(server, &live, program, rest,
+                              prefix, prefix_len, arena, &cands);
+            }
+            iron_diaglist_free(&diags);
+            iron_arena_free(&parse_arena);
+            ilsp_document_snapshot_free(&snap);
+        }
     }
 
     size_t total = (size_t)arrlenu(cands);
@@ -316,11 +390,11 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
     IronLsp_WorkspaceSymbol *arr = (IronLsp_WorkspaceSymbol *)iron_arena_alloc(
         arena, sizeof(IronLsp_WorkspaceSymbol) * total,
         _Alignof(IronLsp_WorkspaceSymbol));
-    if (!arr) { arrfree(cands); return; }
+    if (!arr) {
+        arrfree(cands);
+        return;
+    }
 
-    /* For range conversion we need each entry's line index. Re-resolve
-     * the entry per candidate (O(1) shmap lookup). */
-    IronLsp_PositionEncoding enc = server->position_encoding;
     for (size_t i = 0; i < total; i++) {
         candidate_t *c = &cands[i];
         IronLsp_WorkspaceSymbol ws;
@@ -332,12 +406,8 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
         ws.fuzzy_score    = c->score;
         ws.kind_rank      = c->kind_rank;
 
-        IronLsp_IndexEntry *entry =
-            ilsp_workspace_index_lookup(wi, c->canonical_path);
-        if (entry) {
-            ws.range           = ilsp_nav_entry_span_to_range(entry, c->span,     enc);
-            ws.selection_range = ilsp_nav_entry_span_to_range(entry, c->sel_span, enc);
-        }
+        ws.range           = c->range;
+        ws.selection_range = c->selection_range;
         arr[i] = ws;
     }
 

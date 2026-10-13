@@ -4,18 +4,22 @@
  * ilsp_facade_nav_workspace_symbol against a tmp workspace seeded
  * with a couple of .iron files.
  *
- * Four RUN_TESTs:
+ * Six RUN_TESTs:
  *   1. fuzzy match surfaces the best-scoring candidate first.
  *   2. overlong query is rejected with an empty result (T-03-07).
  *   3. empty query / no workspace_index -> empty result.
  *   4. path-prefix filter narrows results via '/' split.
+ *   5. queries hold the index lock while reading entry-owned ASTs.
+ *   6. an open document replaces the saved workspace-index generation.
  */
 #include "unity.h"
 
 #include "lsp/facade/nav/nav_core.h"
+#include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h"
 #include "lsp/server/server.h"
 #include "util/arena.h"
+#include "vendor/stb_ds.h"
 
 #include <errno.h>
 #include <stdatomic.h>
@@ -24,6 +28,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include "support/posix_test.h"
@@ -87,6 +93,12 @@ static void fx_init(fx_t *f) {
 }
 
 static void fx_destroy(fx_t *f) {
+    if (f->server.documents) {
+        for (ptrdiff_t i = 0; i < shlen(f->server.documents); i++) {
+            ilsp_document_destroy(f->server.documents[i].value);
+        }
+        shfree(f->server.documents);
+    }
     if (f->wi) ilsp_workspace_index_destroy(f->wi);
     rm_tree(f->root);
 }
@@ -173,11 +185,96 @@ static void test_path_prefix_filter(void) {
     fx_destroy(&f);
 }
 
+/* ── Test 05: entry generation is pinned during a query ───────── */
+
+typedef struct {
+    IronLsp_Server *server;
+    Iron_Arena     *arena;
+    _Atomic bool    started;
+    _Atomic bool    done;
+    size_t          result_count;
+} query_thread_ctx_t;
+
+static void *workspace_symbol_thread(void *opaque) {
+    query_thread_ctx_t *ctx = (query_thread_ctx_t *)opaque;
+    IronLsp_WorkspaceSymbol *out = NULL;
+    atomic_store(&ctx->started, true);
+    ilsp_facade_nav_workspace_symbol(ctx->server, "gret", NULL, ctx->arena,
+                                      &out, &ctx->result_count);
+    atomic_store(&ctx->done, true);
+    return NULL;
+}
+
+static void test_query_holds_index_lock_while_reading_entries(void) {
+    fx_t f; fx_init(&f);
+    Iron_Arena arena = iron_arena_create(16 * 1024);
+    query_thread_ctx_t ctx = {
+        .server = &f.server,
+        .arena = &arena,
+        .started = false,
+        .done = false,
+        .result_count = 0,
+    };
+    pthread_t thread;
+
+    /* Holding the index lock must prevent the query from reading an AST.
+     * Without that discipline, watched-file invalidation can free the AST
+     * or replace its line index between scoring and range conversion. */
+    IRON_MUTEX_LOCK(f.wi->lock);
+    TEST_ASSERT_EQUAL_INT(0, pthread_create(&thread, NULL,
+                                            workspace_symbol_thread, &ctx));
+    while (!atomic_load(&ctx.started)) {
+        struct timespec wait = { .tv_sec = 0, .tv_nsec = 1000000 };
+        nanosleep(&wait, NULL);
+    }
+    struct timespec allow_query = { .tv_sec = 0, .tv_nsec = 20000000 };
+    nanosleep(&allow_query, NULL);
+    TEST_ASSERT_FALSE(atomic_load(&ctx.done));
+    IRON_MUTEX_UNLOCK(f.wi->lock);
+
+    TEST_ASSERT_EQUAL_INT(0, pthread_join(thread, NULL));
+    TEST_ASSERT_TRUE(atomic_load(&ctx.done));
+    TEST_ASSERT_GREATER_OR_EQUAL_size_t(1, ctx.result_count);
+
+    iron_arena_free(&arena);
+    fx_destroy(&f);
+}
+
+/* ── Test 06: open text supersedes the saved index entry ──────── */
+
+static void test_open_document_symbols_use_current_text(void) {
+    fx_t f; fx_init(&f);
+    char uri[600];
+    snprintf(uri, sizeof(uri), "file://%s/main.iron", f.root);
+    const char *current = "pub func g() {}\n";
+    IronLsp_Document *doc = ilsp_document_create(
+        uri, current, strlen(current), 2);
+    TEST_ASSERT_NOT_NULL(doc);
+    sh_new_strdup(f.server.documents);
+    shput(f.server.documents, doc->uri, doc);
+
+    Iron_Arena arena = iron_arena_create(64 * 1024);
+    IronLsp_WorkspaceSymbol *out = NULL;
+    size_t n = 0;
+    ilsp_facade_nav_workspace_symbol(&f.server, "g", NULL, &arena, &out, &n);
+
+    TEST_ASSERT_EQUAL_size_t(1, n);
+    TEST_ASSERT_EQUAL_STRING("g", out[0].name);
+    TEST_ASSERT_EQUAL_UINT32(0, out[0].range.start.line);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32((uint32_t)strlen("pub func g() {}"),
+                                     out[0].range.end.character);
+
+    iron_arena_free(&arena);
+    fx_destroy(&f);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_fuzzy_returns_best_match);
     RUN_TEST(test_query_too_long_returns_empty);
     RUN_TEST(test_no_workspace_index_empty);
     RUN_TEST(test_path_prefix_filter);
+    RUN_TEST(test_query_holds_index_lock_while_reading_entries);
+    RUN_TEST(test_open_document_symbols_use_current_text);
     return UNITY_END();
 }
