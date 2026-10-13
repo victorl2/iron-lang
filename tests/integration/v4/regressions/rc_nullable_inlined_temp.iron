@@ -1,0 +1,17 @@
+-- The release of an `rc T?` temporary named the call it came from after
+-- that call was inlined, and the C did not compile (#827).
+object Cell {
+    val n: Int
+}
+func none() -> rc Cell? {
+    return null
+}
+func count(xs: rc Cell?) -> Int {
+    if xs != null {
+        return xs.n
+    }
+    return -1
+}
+func main() {
+    println("{count(none())}")
+}
