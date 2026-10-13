@@ -21,6 +21,7 @@
 #include "lsp/facade/nav/fuzzy.h"
 #include "lsp/facade/nav/symbol_id.h"
 #include "lsp/facade/nav/visibility.h"
+#include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h"
 #include "lsp/server/server.h"
 #include "analyzer/analyzer.h"
@@ -162,6 +163,28 @@ static bool path_contains_prefix(const char *canonical_path,
     return false;
 }
 
+static bool entry_matches_open_document(IronLsp_Server *server,
+                                         IronLsp_IndexEntry *entry,
+                                         Iron_Arena *arena) {
+    if (!server || !entry || !server->documents) return true;
+    const char *uri = ilsp_nav_path_to_uri(entry->canonical_path, arena);
+    if (!uri) return true;
+    ptrdiff_t idx = shgeti(server->documents, uri);
+    if (idx < 0 || !server->documents[idx].value) return true;
+
+    IronLsp_Document *doc = server->documents[idx].value;
+    uint8_t prefix[8];
+    ilsp_document_lock(doc);
+    memcpy(prefix, doc->sha256, sizeof(prefix));
+    ilsp_document_unlock(doc);
+
+    uint64_t open_hash = 0;
+    for (size_t i = 0; i < sizeof(prefix); i++) {
+        open_hash = (open_hash << 8) | (uint64_t)prefix[i];
+    }
+    return open_hash == entry->content_hash;
+}
+
 /* Score one decl against (name_needle, prefix/rest) and, if a match,
  * push a candidate row onto `*out_arr` (stb_ds). */
 static void score_decl(IronLsp_Server *server,
@@ -296,6 +319,11 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
         if (cancel && atomic_load(cancel)) break;
         IronLsp_IndexEntry *entry = wi->entries[i].value;
         if (!entry || !entry->program) continue;
+        /* The workspace index describes the saved file. Returning one of
+         * its spans for a dirty open buffer can put the range past the
+         * current line. Omit that entry until the live text matches the
+         * indexed snapshot again (#835). */
+        if (!entry_matches_open_document(server, entry, arena)) continue;
         score_program(server, entry, entry->program, rest,
                        prefix, prefix_len, arena, &cands);
     }
