@@ -582,6 +582,10 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_LOWER_INVALID_ASSIGN      402
 #define IRON_ERR_LOWER_INVALID_MATCH       403
 
+/* Web-only semantic checks. */
+#define IRON_ERR_WEB_AWAIT                  501
+#define IRON_ERR_WEB_TOP_LEVEL_LOADER       502
+
 /* HIR verifier errors (500 range) */
 /* HIR verifier errors are compiler bugs, like the LIR verifier's 900s. They
  * were 500..507, sharing 501 and 502 with the web target's E0501 (await)

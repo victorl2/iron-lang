@@ -19,8 +19,6 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 
-#define IRON_DIAG_E0501_AWAIT_ON_WEB 501
-
 /* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
 static inline bool iron_cancel_requested(const _Atomic bool *flag) {
     return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
@@ -48,7 +46,7 @@ typedef struct {
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
 /* Render the current call chain as "main -> A -> B -> fn_name"
- * and emit IRON_DIAG_E0501_AWAIT_ON_WEB. */
+ * and emit IRON_ERR_WEB_AWAIT. */
 static void emit_await_error(WebAwaitCtx *ctx, const char *fn_name,
                               Iron_Span span) {
     /* Build chain string: entries in ctx->chain joined by " -> " */
@@ -81,7 +79,7 @@ static void emit_await_error(WebAwaitCtx *ctx, const char *fn_name,
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
     if (!msg_copy) { /* HARD-09 REPLACE (web_await_check.c:emit_await_error msg) */ msg_copy = "analyzer error"; }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
-                   IRON_DIAG_E0501_AWAIT_ON_WEB, span,
+                   IRON_ERR_WEB_AWAIT, span,
                    msg_copy, NULL);
 }
 
