@@ -55,6 +55,7 @@ if(NOT WIN32)
                     ${CMAKE_SOURCE_DIR}/tests/integration/v4/test_scheduler_contract.py
                     ${CMAKE_CTEST_COMMAND}
                     ${CMAKE_BINARY_DIR}
+                    ${IRON_TEST_JOBS}
         )
         set_tests_properties(test_opt_parity_scheduler_contract PROPERTIES
             LABELS "oracle;unit")
