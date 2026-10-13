@@ -775,6 +775,7 @@ def t_metrics():
     eq(metric(text, "inventory_http_requests_total", {"route": "health", "code": "200"}), before + 5, "health counter")
     check(metric(text, "inventory_http_request_duration_seconds_count", {"route": "health"}) >= 5, "histogram count")
     check(metric(text, "inventory_db_ready") == 1.0, "db ready gauge")
+    check(metric(text, "inventory_report_cache_rows") is not None, "report cache size gauge")
     for line in text.splitlines():
         check(line == "" or line.startswith("#") or re.match(r"^[a-z_]+(\{[^}]*\})? [0-9.e+-]+$", line), f"metrics line {line!r}")
 
