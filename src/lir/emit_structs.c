@@ -2113,7 +2113,7 @@ void emit_type_decls(EmitCtx *ctx) {
                         "    *result.data.%s = val;\n"
                         "    return result;\n"
                         "}\n\n",
-                        iface_mangled, iface_mangled, impl->type_name, impl_mangled,
+                        iface_mangled, iface_mangled, impl_c, impl_mangled,
                         iface_mangled,
                         iface_mangled, impl_c,
                         impl_c, impl_mangled, impl_mangled,
@@ -2127,7 +2127,7 @@ void emit_type_decls(EmitCtx *ctx) {
                         "    result.data.%s = val;\n"
                         "    return result;\n"
                         "}\n\n",
-                        iface_mangled, iface_mangled, impl->type_name, impl_mangled,
+                        iface_mangled, iface_mangled, impl_c, impl_mangled,
                         iface_mangled,
                         iface_mangled, impl_c,
                         impl_c);
@@ -2238,7 +2238,7 @@ void emit_type_decls(EmitCtx *ctx) {
                         "static inline %s %s_from_%s_Stor(%s_Stor val) {\n"
                         "    %s u;\n"
                         "    u.tag = %s_TAG_%s;\n",
-                        iface_mangled, iface_mangled, impl57->type_name,
+                        iface_mangled, iface_mangled, impl_c57,
                         impl_mangled57,
                         iface_mangled,
                         iface_mangled, impl_c57);

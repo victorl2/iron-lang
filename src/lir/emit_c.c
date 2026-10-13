@@ -258,7 +258,8 @@ static void emit_split_elem_read_open(Iron_StrBuf *sb, EmitCtx *ctx,
                             iface_c, impl->tag,
                             emit_c_user_identifier(impl->type_name, ctx->arena));
     else
-        iron_strbuf_appendf(sb, "%s_from_%s(", iface_c, impl->type_name);
+        iron_strbuf_appendf(sb, "%s_from_%s(", iface_c,
+                            emit_c_user_identifier(impl->type_name, ctx->arena));
 }
 
 static void emit_split_elem_read_close(Iron_StrBuf *sb, EmitCtx *ctx,
@@ -709,7 +710,7 @@ static bool emit_optional_cast(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (wrap)
             iron_strbuf_appendf(sb, "%s_from_%s(",
                                 emit_mangle_name(din->interface.decl->name, ctx->arena),
-                                src->object.decl->name);
+                                emit_c_user_identifier(src->object.decl->name, ctx->arena));
         if (wrap) emit_iface_wrap_operand(sb, instr->cast.value, fn, ctx, use_block_id, depth + 1);
         else emit_expr_to_buf(sb, instr->cast.value, fn, ctx, use_block_id, depth + 1);
         if (wrap) iron_strbuf_appendf(sb, ")");
@@ -809,7 +810,7 @@ static void emit_construct_field_value(Iron_StrBuf *sb, IronLIR_Func *fn,
         vt->kind == IRON_TYPE_OBJECT && vt->object.decl && vt->object.decl->name) {
         iron_strbuf_appendf(sb, "%s_from_%s(",
                             emit_mangle_name(ft->interface.decl->name, ctx->arena),
-                            vt->object.decl->name);
+                            emit_c_user_identifier(vt->object.decl->name, ctx->arena));
         emit_iface_wrap_operand(sb, vid, fn, ctx, use_block_id, depth);
         iron_strbuf_appendf(sb, ")");
         return;
@@ -1562,14 +1563,7 @@ static void emit_split_elem_writeback(Iron_StrBuf *sb, int ind, IronLIR_Func *fn
     for (int ji = 0; ji < entry->impl_count; ji++) {
         Iron_IfaceImpl *impl = &entry->impls[ji];
         if (!impl->is_alive) continue;
-        char lower[256];
-        size_t n = strlen(impl->type_name);
-        if (n >= sizeof(lower)) n = sizeof(lower) - 1;
-        for (size_t ci = 0; ci < n; ci++) {
-            char c = impl->type_name[ci];
-            lower[ci] = (char)((c >= 'A' && c <= 'Z') ? c + 32 : c);
-        }
-        lower[n] = '\0';
+        const char *lower = emit_c_lower_user_identifier(impl->type_name, ctx->arena);
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb, "case %d: ", impl->tag);
         emit_expr_to_buf(sb, gi->index.array, fn, ctx, ctx->current_block_id, 0);
@@ -1923,7 +1917,7 @@ static void emit_enum_payload_value(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *
         vt && vt->kind == IRON_TYPE_OBJECT && vt->object.decl && vt->object.decl->name) {
         iron_strbuf_appendf(sb, "%s_from_%s(",
                             emit_mangle_name(pt->interface.decl->name, ctx->arena),
-                            vt->object.decl->name);
+                            emit_c_user_identifier(vt->object.decl->name, ctx->arena));
         emit_iface_wrap_operand(sb, vid, fn, ctx, use_block_id, depth);
         iron_strbuf_appendf(sb, ")");
         return;
@@ -2978,7 +2972,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                         callee_c[imlen] == '_') {
                         /* This is an interface dispatch call — wrap the arg */
                         iron_strbuf_appendf(sb, "%s_from_%s(",
-                            im, arg_type->object.decl->name);
+                            im, emit_c_user_identifier(arg_type->object.decl->name, ctx->arena));
                         emit_iface_wrap_operand(sb, arg_id, fn, ctx, use_block_id, depth+1);
                         iron_strbuf_appendf(sb, ")");
                         did_wrap = true;
@@ -3001,7 +2995,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                         pt->interface.decl && pt->interface.decl->name) {
                         iron_strbuf_appendf(sb, "%s_from_%s(",
                             emit_mangle_name(pt->interface.decl->name, ctx->arena),
-                            arg_type->object.decl->name);
+                            emit_c_user_identifier(arg_type->object.decl->name, ctx->arena));
                         emit_iface_wrap_operand(sb, arg_id, fn, ctx, use_block_id, depth+1);
                         iron_strbuf_appendf(sb, ")");
                         did_wrap = true;
@@ -4379,7 +4373,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 val_type->kind == IRON_TYPE_OBJECT &&
                 ptr_type->interface.decl && val_type->object.decl) {
                 wrap_iface = emit_mangle_name(ptr_type->interface.decl->name, ctx->arena);
-                wrap_impl = val_type->object.decl->name;
+                wrap_impl = emit_c_user_identifier(val_type->object.decl->name, ctx->arena);
                 needs_iface_wrap = true;
             }
 
@@ -4798,17 +4792,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     for (int ji = 0; ji < sp_entry->impl_count; ji++) {
                         Iron_IfaceImpl *impl2 = &sp_entry->impls[ji];
                         if (!impl2->is_alive) continue;
-                        char lower_name[256];
-                        {
-                            size_t nl2 = strlen(impl2->type_name);
-                            if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
-                            for (size_t ci3 = 0; ci3 < nl2; ci3++)
-                                lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
-                                                           impl2->type_name[ci3] <= 'Z')
-                                    ? impl2->type_name[ci3] + 32
-                                    : impl2->type_name[ci3]);
-                            lower_name[nl2] = '\0';
-                        }
+                        const char *lower_name = emit_c_lower_user_identifier(
+                            impl2->type_name, ctx->arena);
                         /* The element at insertion position `idx`, read from
                          * its type's storage: whole objects, reduced (_Stor)
                          * objects, or per-field (SoA) arrays. */
@@ -4858,13 +4843,15 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             arrfree(cvids);
                             emit_indent(sb, ind + 2);
                             emit_val(sb, instr->id);
-                            iron_strbuf_appendf(sb, " = %s_from_%s(_el);\n", sp_iface, impl2->type_name);
+                            iron_strbuf_appendf(sb, " = %s_from_%s(_el);\n", sp_iface,
+                                emit_c_user_identifier(impl2->type_name, ctx->arena));
                         } else {
                             emit_indent(sb, ind + 2);
                             emit_val(sb, instr->id);
                             if (el_reduced) {
                                 iron_strbuf_appendf(sb, " = %s_from_%s_Stor(%s.%s_items[%s._order[%s].idx]);\n",
-                                    sp_iface, impl2->type_name,
+                                    sp_iface, emit_c_user_identifier(
+                                        impl2->type_name, ctx->arena),
                                     arr_s, lower_name, arr_s, idx_s);
                             } else {
                                 iron_strbuf_appendf(sb, " = ");
@@ -5082,7 +5069,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 iron_strbuf_appendf(sb, ", ");
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ", ");
-                if (wrap) iron_strbuf_appendf(sb, "%s_from_%s(", im, vt->object.decl->name);
+                if (wrap) iron_strbuf_appendf(sb, "%s_from_%s(", im,
+                    emit_c_user_identifier(vt->object.decl->name, ctx->arena));
                 if (wrap) emit_iface_wrap_operand(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
                 else emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, "%s);\n", wrap ? ")" : "");
@@ -5467,7 +5455,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 shgeti(ctx->indirect_variants, ikey) >= 0;
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "%s _ifw%d_%d = %s_from_%s(",
-                                    iface_c, (int)instr->id, i, iface_c, impl);
+                                    iface_c, (int)instr->id, i, iface_c,
+                                    emit_c_user_identifier(impl, ctx->arena));
                 emit_val(sb, sv);
                 iron_strbuf_appendf(sb, ");\n");
                 ifw[ifw_count].arg_index  = i;
@@ -5731,17 +5720,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             for (int ji = 0; ji < sp_entry->impl_count; ji++) {
                                 Iron_IfaceImpl *impl = &sp_entry->impls[ji];
                                 if (!impl->is_alive) continue;
-                                char lower_name[256];
-                                {
-                                    size_t nl2 = strlen(impl->type_name);
-                                    if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
-                                    for (size_t ci3 = 0; ci3 < nl2; ci3++)
-                                        lower_name[ci3] = (char)((impl->type_name[ci3] >= 'A' &&
-                                                                   impl->type_name[ci3] <= 'Z')
-                                            ? impl->type_name[ci3] + 32
-                                            : impl->type_name[ci3]);
-                                    lower_name[nl2] = '\0';
-                                }
+                                const char *lower_name = emit_c_lower_user_identifier(
+                                    impl->type_name, ctx->arena);
                                 emit_indent(sb, ind + 3);
                                 iron_strbuf_appendf(sb, "case %d: _sp_item = ", impl->tag);
                                 emit_split_elem_read_open(sb, ctx, sp_iface, impl);
@@ -5799,17 +5779,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             for (int ji = 0; ji < sp_entry->impl_count; ji++) {
                                 Iron_IfaceImpl *impl = &sp_entry->impls[ji];
                                 if (!impl->is_alive) continue;
-                                char lower_name[256];
-                                {
-                                    size_t nl2 = strlen(impl->type_name);
-                                    if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
-                                    for (size_t ci3 = 0; ci3 < nl2; ci3++)
-                                        lower_name[ci3] = (char)((impl->type_name[ci3] >= 'A' &&
-                                                                   impl->type_name[ci3] <= 'Z')
-                                            ? impl->type_name[ci3] + 32
-                                            : impl->type_name[ci3]);
-                                    lower_name[nl2] = '\0';
-                                }
+                                const char *lower_name = emit_c_lower_user_identifier(
+                                    impl->type_name, ctx->arena);
                                 emit_indent(sb, ind + 3);
                                 iron_strbuf_appendf(sb, "case %d: _sp_item = ", impl->tag);
                                 emit_split_elem_read_open(sb, ctx, sp_iface, impl);
@@ -5836,17 +5807,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             for (int ji = 0; ji < sp_entry->impl_count; ji++) {
                                 Iron_IfaceImpl *impl = &sp_entry->impls[ji];
                                 if (!impl->is_alive) continue;
-                                char lower_name[256];
-                                {
-                                    size_t nl2 = strlen(impl->type_name);
-                                    if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
-                                    for (size_t ci3 = 0; ci3 < nl2; ci3++)
-                                        lower_name[ci3] = (char)((impl->type_name[ci3] >= 'A' &&
-                                                                   impl->type_name[ci3] <= 'Z')
-                                            ? impl->type_name[ci3] + 32
-                                            : impl->type_name[ci3]);
-                                    lower_name[nl2] = '\0';
-                                }
+                                const char *lower_name = emit_c_lower_user_identifier(
+                                    impl->type_name, ctx->arena);
                                 emit_indent(sb, ind + 4);
                                 /* The kept element gets its own copy: the
                                  * result list owns it (copy glue fixes up
@@ -5859,7 +5821,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 emit_val(sb, self_arg);
                                 iron_strbuf_appendf(sb, "._order[_oi].idx]; ");
                                 if (fcopy) iron_strbuf_appendf(sb, "%s_copied(&_fk); ", fim);
-                                iron_strbuf_appendf(sb, "Iron_SplitList_%s_push_%s(&", sp_iface, impl->type_name);
+                                iron_strbuf_appendf(sb, "Iron_SplitList_%s_push_%s(&", sp_iface,
+                                    emit_c_user_identifier(impl->type_name, ctx->arena));
                                 emit_val(sb, instr->id);
                                 iron_strbuf_appendf(sb, ", _fk); } break;\n");
                             }
@@ -5904,17 +5867,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             for (int ji = 0; ji < sp_entry->impl_count; ji++) {
                                 Iron_IfaceImpl *impl = &sp_entry->impls[ji];
                                 if (!impl->is_alive) continue;
-                                char lower_name[256];
-                                {
-                                    size_t nl2 = strlen(impl->type_name);
-                                    if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
-                                    for (size_t ci3 = 0; ci3 < nl2; ci3++)
-                                        lower_name[ci3] = (char)((impl->type_name[ci3] >= 'A' &&
-                                                                   impl->type_name[ci3] <= 'Z')
-                                            ? impl->type_name[ci3] + 32
-                                            : impl->type_name[ci3]);
-                                    lower_name[nl2] = '\0';
-                                }
+                                const char *lower_name = emit_c_lower_user_identifier(
+                                    impl->type_name, ctx->arena);
                                 emit_indent(sb, ind + 3);
                                 iron_strbuf_appendf(sb, "case %d: _sp_item = ", impl->tag);
                                 emit_split_elem_read_open(sb, ctx, sp_iface, impl);
@@ -5964,17 +5918,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             for (int ji = 0; ji < sp_entry->impl_count; ji++) {
                                 Iron_IfaceImpl *impl = &sp_entry->impls[ji];
                                 if (!impl->is_alive) continue;
-                                char lower_name[256];
-                                {
-                                    size_t nl2 = strlen(impl->type_name);
-                                    if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
-                                    for (size_t ci3 = 0; ci3 < nl2; ci3++)
-                                        lower_name[ci3] = (char)((impl->type_name[ci3] >= 'A' &&
-                                                                   impl->type_name[ci3] <= 'Z')
-                                            ? impl->type_name[ci3] + 32
-                                            : impl->type_name[ci3]);
-                                    lower_name[nl2] = '\0';
-                                }
+                                const char *lower_name = emit_c_lower_user_identifier(
+                                    impl->type_name, ctx->arena);
                                 emit_indent(sb, ind + 3);
                                 iron_strbuf_appendf(sb, "case %d: _sp_item = ", impl->tag);
                                 emit_split_elem_read_open(sb, ctx, sp_iface, impl);
@@ -6031,7 +5976,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 /* --- Mode (a): concrete object arg --- */
                                 emit_indent(sb, ind);
                                 iron_strbuf_appendf(sb, "Iron_SplitList_%s_push_%s(",
-                                    sp_iface, et->object.decl->name);
+                                    sp_iface, emit_c_user_identifier(
+                                        et->object.decl->name, ctx->arena));
                                 emit_receiver_addr(sb, fn, ctx, self_arg, ctx->current_block_id);
                                 iron_strbuf_appendf(sb, ", ");
                                 emit_iface_wrap_operand(sb, push_val, fn, ctx, ctx->current_block_id, 0);
@@ -6062,7 +6008,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                     emit_indent(sb, ind + 2);
                                     iron_strbuf_appendf(sb,
                                         "case %d: Iron_SplitList_%s_push_%s(",
-                                        impl->tag, sp_iface, impl->type_name);
+                                        impl->tag, sp_iface, impl_c);
                                     emit_receiver_addr(sb, fn, ctx, self_arg, ctx->current_block_id);
                                     /* The pushed value is owned (copied for the
                                      * list): a boxed payload moves out of its box,
@@ -6116,7 +6062,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                             avt->object.decl && avt->object.decl->name;
                                 iron_strbuf_appendf(sb, ", ");
                                 if (wrap) iron_strbuf_appendf(sb, "%s_from_%s(", sp_iface,
-                                                              avt->object.decl->name);
+                                    emit_c_user_identifier(avt->object.decl->name, ctx->arena));
                                 if (wrap) emit_iface_wrap_operand(sb, av, fn, ctx, ctx->current_block_id, 0);
                                 else emit_expr_to_buf(sb, av, fn, ctx, ctx->current_block_id, 0);
                                 if (wrap) iron_strbuf_appendf(sb, ")");
@@ -6223,22 +6169,14 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 Iron_IfaceImpl *impl = &sp_entry->impls[ji];
                                 if (!impl->is_alive) continue;
                                 /* Lowercase type name for sub-array field access */
-                                char lower_name[256];
-                                {
-                                    size_t nl2 = strlen(impl->type_name);
-                                    if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
-                                    for (size_t ci3 = 0; ci3 < nl2; ci3++)
-                                        lower_name[ci3] = (char)((impl->type_name[ci3] >= 'A' &&
-                                                                   impl->type_name[ci3] <= 'Z')
-                                            ? impl->type_name[ci3] + 32
-                                            : impl->type_name[ci3]);
-                                    lower_name[nl2] = '\0';
-                                }
+                                const char *lower_name = emit_c_lower_user_identifier(
+                                    impl->type_name, ctx->arena);
                                 emit_indent(sb, ind + 2);
                                 iron_strbuf_appendf(sb, "case %d: ", impl->tag);
                                 emit_val(sb, instr->id);
                                 iron_strbuf_appendf(sb, " = %s_from_%s(",
-                                    sp_iface, impl->type_name);
+                                    sp_iface, emit_c_user_identifier(
+                                        impl->type_name, ctx->arena));
                                 emit_split_self_lvalue(sb, fn, ctx, self_arg);
                                 iron_strbuf_appendf(sb, ".%s_items[", lower_name);
                                 emit_split_self_lvalue(sb, fn, ctx, self_arg);
@@ -6340,17 +6278,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 Iron_IfaceImpl *impl = &sp_entry->impls[ji];
                                 if (!impl->is_alive) continue;
                                 /* Lowercase type name for sub-array field access */
-                                char lower_name[256];
-                                {
-                                    size_t nl2 = strlen(impl->type_name);
-                                    if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
-                                    for (size_t ci3 = 0; ci3 < nl2; ci3++)
-                                        lower_name[ci3] = (char)((impl->type_name[ci3] >= 'A' &&
-                                                                   impl->type_name[ci3] <= 'Z')
-                                            ? impl->type_name[ci3] + 32
-                                            : impl->type_name[ci3]);
-                                    lower_name[nl2] = '\0';
-                                }
+                                const char *lower_name = emit_c_lower_user_identifier(
+                                    impl->type_name, ctx->arena);
                                 emit_indent(sb, ind + 2);
                                 iron_strbuf_appendf(sb, "case %d: ", impl->tag);
                                 emit_val(sb, instr->id);
@@ -7082,7 +7011,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                               arg_t2->object.decl->name) == 0) {
                                         const char *im2 = emit_mangle_name(ent->iface_name, ctx->arena);
                                         iron_strbuf_appendf(sb, "%s_from_%s(",
-                                            im2, arg_t2->object.decl->name);
+                                            im2, emit_c_user_identifier(
+                                                arg_t2->object.decl->name, ctx->arena));
                                         emit_iface_wrap_operand(sb, arg_id, fn, ctx,
                                                                 ctx->current_block_id, 0);
                                         iron_strbuf_appendf(sb, ")");
@@ -7245,7 +7175,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     const char *iface_m = emit_mangle_name(
                         fn->return_type->interface.decl->name, ctx->arena);
                     iron_strbuf_appendf(sb, "return %s_from_%s(",
-                        iface_m, rv_type->object.decl->name);
+                        iface_m, emit_c_user_identifier(
+                            rv_type->object.decl->name, ctx->arena));
                     emit_iface_wrap_operand(sb, instr->ret.value, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ");\n");
                     ret_wrapped = true;
@@ -7902,7 +7833,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (et && et->kind == IRON_TYPE_OBJECT && et->object.decl) {
                     emit_indent(sb, ind);
                     iron_strbuf_appendf(sb, "Iron_SplitList_%s_push_%s(&",
-                        iface_mangled, et->object.decl->name);
+                        iface_mangled, emit_c_user_identifier(
+                            et->object.decl->name, ctx->arena));
                     emit_val(sb, instr->id);
                     iron_strbuf_appendf(sb, ", ");
                     emit_iface_wrap_operand(sb, eid, fn, ctx, ctx->current_block_id, 0);
@@ -7956,7 +7888,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     Iron_Type *et = emit_get_value_type(fn, eid);
                     if (et && et->kind == IRON_TYPE_OBJECT && et->object.decl) {
                         iron_strbuf_appendf(sb, "%s_from_%s(",
-                            iface_mangled, et->object.decl->name);
+                            iface_mangled, emit_c_user_identifier(
+                                et->object.decl->name, ctx->arena));
                         emit_iface_wrap_operand(sb, eid, fn, ctx, ctx->current_block_id, 0);
                         iron_strbuf_appendf(sb, ")");
                     } else {
@@ -12088,17 +12021,8 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                     for (int ji = 0; ji < sp_entry2->impl_count; ji++) {
                         Iron_IfaceImpl *impl2 = &sp_entry2->impls[ji];
                         if (!impl2->is_alive) continue;
-                        char lower_name[256];
-                        {
-                            size_t nl2 = strlen(impl2->type_name);
-                            if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
-                            for (size_t ci3 = 0; ci3 < nl2; ci3++)
-                                lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
-                                                           impl2->type_name[ci3] <= 'Z')
-                                    ? impl2->type_name[ci3] + 32
-                                    : impl2->type_name[ci3]);
-                            lower_name[nl2] = '\0';
-                        }
+                        const char *lower_name = emit_c_lower_user_identifier(
+                            impl2->type_name, ctx->arena);
                         /* Phase 48: Check if this type uses reduced storage */
                         bool type_is_reduced = (shgeti(ctx->reduced_storage_types,
                                                        impl2->type_name) >= 0);
@@ -12179,7 +12103,8 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                             iron_strbuf_appendf(sb, "%s ", sp_iface);
                             emit_val(sb, matched->get_index_vid);
                             iron_strbuf_appendf(sb, " = %s_from_%s(_tmp_%s);\n",
-                                sp_iface, impl2->type_name, lower_name);
+                                sp_iface, emit_c_user_identifier(
+                                    impl2->type_name, ctx->arena), lower_name);
                         } else if (type_is_reduced && impl2->decl) {
                             /* Phase 48: Reconstruct from reduced storage */
                             const char *im2 = emit_mangle_name(impl2->type_name, ctx->arena);
@@ -12232,7 +12157,8 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                             iron_strbuf_appendf(sb, "%s ", sp_iface);
                             emit_val(sb, matched->get_index_vid);
                             iron_strbuf_appendf(sb, " = %s_from_%s(_tmp_%s);\n",
-                                sp_iface, impl2->type_name, lower_name);
+                                sp_iface, emit_c_user_identifier(
+                                    impl2->type_name, ctx->arena), lower_name);
                         } else {
                             /* Emit element wrapping assignment (original behavior) */
                             emit_indent(sb, ctx->indent + 2);
@@ -13417,6 +13343,8 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                 for (int ji = 0; ji < entry->impl_count; ji++) {
                     Iron_IfaceImpl *impl = &entry->impls[ji];
                     if (!impl->is_alive) continue;
+                    const char *impl_c = emit_c_user_identifier(
+                        impl->type_name, ctx.arena);
                     /* Build lowercased concrete method name: Iron_circle_area */
                     size_t tnl = strlen(impl->type_name);
                     char *impl_lower = (char *)iron_arena_alloc(ctx.arena, 5 + tnl + 1, 1);
@@ -13475,22 +13403,22 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                     if (returns_self) {
                         iron_strbuf_appendf(&ctx.lifted_funcs,
                             "        case %s_TAG_%s: return %s_from_%s(%s_%s(%sself%sdata.%s%s));\n",
-                            iface_mangled, impl->type_name,
-                            iface_mangled, impl->type_name,
+                            iface_mangled, impl_c,
+                            iface_mangled, impl_c,
                             impl_lower, sig->name,
                             recv_prefix,
                             sig_is_mut ? "->" : ".",
-                            impl->type_name,
+                            impl_c,
                             fwd_args);
                     } else {
                         iron_strbuf_appendf(&ctx.lifted_funcs,
                             "        case %s_TAG_%s: %s%s_%s(%sself%sdata.%s%s); break;\n",
-                            iface_mangled, impl->type_name,
+                            iface_mangled, impl_c,
                             has_return ? "return " : "",
                             impl_lower, sig->name,
                             recv_prefix,
                             sig_is_mut ? "->" : ".",
-                            impl->type_name,
+                            impl_c,
                             fwd_args);
                     }
                 }

@@ -94,6 +94,27 @@ const char *emit_c_user_identifier(const char *name, Iron_Arena *arena) {
     return buf;
 }
 
+const char *emit_c_lower_user_identifier(const char *name, Iron_Arena *arena) {
+    const char *encoded = emit_c_user_identifier(name, arena);
+    size_t len = strlen(encoded);
+    bool needs_copy = false;
+    for (size_t i = 0; i < len; i++) {
+        if (encoded[i] >= 'A' && encoded[i] <= 'Z') {
+            needs_copy = true;
+            break;
+        }
+    }
+    if (!needs_copy) return encoded;
+    char *lower = (char *)iron_arena_alloc(arena, len + 1, 1);
+    if (!lower) iron_oom_abort("emit_helpers.c:emit_c_lower_user_identifier");
+    for (size_t i = 0; i < len; i++) {
+        char c = encoded[i];
+        lower[i] = (char)((c >= 'A' && c <= 'Z') ? c + 32 : c);
+    }
+    lower[len] = '\0';
+    return lower;
+}
+
 const char *iron_lir_emit_c_user_identifier(const char *name,
                                              Iron_Arena *arena) {
     return emit_c_user_identifier(name, arena);

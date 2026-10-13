@@ -301,6 +301,8 @@ typedef struct {
  * are returned unchanged. Reserved names are encoded reversibly in a namespace
  * which is itself reserved below, so no user spelling can collide with one. */
 const char *emit_c_user_identifier(const char *name, Iron_Arena *arena);
+/* A lowercased identifier component used by split-list storage members. */
+const char *emit_c_lower_user_identifier(const char *name, Iron_Arena *arena);
 /* The same operation for a dot-separated member path such as
  * `data.SomeVariant._0`. */
 const char *emit_c_user_member_path(const char *path, Iron_Arena *arena);

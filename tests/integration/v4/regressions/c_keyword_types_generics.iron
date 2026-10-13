@@ -8,11 +8,21 @@ enum CKeywordGeneric[T] {
     None
 }
 
+interface default {
+    readonly func register(auto: Int) -> Int
+}
+
+object ERROR impl default {
+    val int: Int
+    readonly func register(auto: Int) -> Int { return self.int + auto }
+}
+
 func main() {
     val x = struct[Int](7)
     val y: CKeywordGeneric[Int] = CKeywordGeneric.auto(8)
+    val zs: [default, layout: soa] = [ERROR(9)]
     match y {
-        CKeywordGeneric.auto(register) -> println("{x.default + register}")
+        CKeywordGeneric.auto(register) -> println("{x.default + register} {zs[0].register(1)}")
         CKeywordGeneric.None -> println("bad")
     }
 }
