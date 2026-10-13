@@ -659,6 +659,8 @@ struct IronLIR_Func {
      * through the receiver persist to the caller's binding — the MUT-07
      * mutation-persistence contract. Default false via lir.c memset. */
     bool               is_mut_receiver_method;
+    /* From IronHIR_Func.is_user_func (#524). */
+    bool               is_user_func;
 
     /* PARM-02: see the block comment above web_frame_captures. */
     bool              *param_is_var;

@@ -1,0 +1,56 @@
+-- A plain value or null in a T? enum payload is wrapped (#598): E.C(5, ..)
+-- read back as null and E.C(null, ..) did not compile.
+enum E {
+    A,
+    C(Int?, String?),
+}
+
+enum Mb[T] {
+    No,
+    So(T),
+}
+
+func show(e: E) -> String {
+    match e {
+        E.A -> return "A"
+        E.C(x, s) -> {
+            var r = "C("
+            if x != null {
+                r = r + "{x}"
+            } else {
+                r = r + "N"
+            }
+            if s != null {
+                r = r + "," + s
+            } else {
+                r = r + ",N"
+            }
+            return r + ")"
+        }
+    }
+    return ""
+}
+
+func shm(x: Mb[Int?]) -> String {
+    match x {
+        Mb.No -> return "No"
+        Mb.So(v) -> {
+            if v != null {
+                return "So({v})"
+            }
+            return "So(N)"
+        }
+    }
+    return ""
+}
+
+func main() {
+    println(show(E.C(null, "a")))
+    println(show(E.C(5, null)))
+    val o: Int? = 7
+    println(show(E.C(o, null)))
+    println(show(E.A))
+    val a: Mb[Int?] = Mb.So(null)
+    val b: Mb[Int?] = Mb.So(5)
+    println("{shm(a)} {shm(b)}")
+}

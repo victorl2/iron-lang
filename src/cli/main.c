@@ -4,6 +4,10 @@
 #include <stdbool.h>
 #include <sys/stat.h>
 #include "util/os.h"
+#include "runtime/iron_runtime.h"   /* IRON_SANITIZED_BUILD, IRON_THREAD_STACK_SIZE */
+#if !defined(_WIN32)
+#include <pthread.h>
+#endif
 
 #include "cli/build.h"
 #include "cli/target.h"
@@ -56,7 +60,41 @@ static int argv_contains_help(int argc, char **argv, int start) {
     return 0;
 }
 
+static int ironc_main(int argc, char **argv);
+
+#if defined(IRON_SANITIZED_BUILD) && !defined(_WIN32)
+/* A sanitizer build runs the compiler on a thread with the runtime's
+ * sanitizer-sized stack: its frames are far larger than a release build's,
+ * and the main thread's 8 MB overflowed on nesting the parser accepts
+ * (#590). */
+typedef struct { int argc; char **argv; int rc; } IroncArgs;
+static void *ironc_main_thread(void *p) {
+    IroncArgs *a = (IroncArgs *)p;
+    a->rc = ironc_main(a->argc, a->argv);
+    return NULL;
+}
+
 int main(int argc, char **argv) {
+    IroncArgs a = { argc, argv, 1 };
+    pthread_attr_t attr;
+    pthread_t t;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, IRON_THREAD_STACK_SIZE);
+    if (pthread_create(&t, &attr, ironc_main_thread, &a) != 0) {
+        pthread_attr_destroy(&attr);
+        return ironc_main(argc, argv);
+    }
+    pthread_join(t, NULL);
+    pthread_attr_destroy(&attr);
+    return a.rc;
+}
+#else
+int main(int argc, char **argv) {
+    return ironc_main(argc, argv);
+}
+#endif
+
+static int ironc_main(int argc, char **argv) {
     if (argc < 2) {
         print_usage();
         return 1;

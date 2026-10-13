@@ -38,6 +38,9 @@
 #include "parser/ast.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
+#include "util/os.h"
+#include <limits.h>
+#include <stdlib.h>
 
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -199,6 +202,18 @@ void ilsp_facade_nav_references(struct IronLsp_Server         *server,
     if (sym && wi) {
         const char *decl_path = (sym->decl_node && sym->decl_node->span.filename)
             ? sym->decl_node->span.filename : doc->uri;
+        /* The index names a declaring file by its canonical path; the
+         * open document's declarations carry its URI. */
+        char decl_canon[PATH_MAX];
+        if (strncmp(decl_path, "file://", 7) == 0) {
+            const char *fs = ilsp_nav_uri_to_path(decl_path, &walk_arena);
+            if (fs && realpath(fs, decl_canon) != NULL) {
+                for (char *c = decl_canon; *c; c++) if (*c == '\\') *c = '/';
+                decl_path = decl_canon;
+            } else if (fs) {
+                decl_path = fs;
+            }
+        }
         IronLsp_SymbolId triple = ilsp_symbol_id_derive(sym, decl_path, program, &walk_arena);
         if (triple.hash != 0) {
             /* On the first references request, bulk-analyze every

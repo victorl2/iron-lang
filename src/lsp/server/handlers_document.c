@@ -38,6 +38,7 @@
 #include "lsp/facade/workspace_diagnostic.h"      /* Plan 06: cache evict */
 #include "lsp/workers/ast_worker.h"    /* Plan 05: start/shutdown worker */
 #include "lsp/workers/mailbox.h"       /* Plan 05: post COMPILE / PULL */
+#include "lsp/facade/compile.h"         /* empty pull reports */
 
 #include "vendor/yyjson/yyjson.h"
 #include "vendor/stb_ds.h"
@@ -79,6 +80,17 @@ static char *stringify_request_id(yyjson_val *id) {
 }
 
 /* ── Helpers ───────────────────────────────────────────────────────── */
+
+/* A pull diagnostic request still waiting in a document's mailbox when the
+ * document closes (or is reopened) gets an empty report: every request is
+ * answered. */
+static void answer_pending_pull(IronLsp_Server *s, struct IronLsp_Mailbox *m) {
+    char *id = ilsp_mailbox_take_pull(m);
+    if (id) {
+        ilsp_facade_pull_diagnostic_empty(s, id);
+        free(id);
+    }
+}
 
 /* Lazily initialize the documents map on first use. Idempotent. */
 static void ensure_documents_map(IronLsp_Server *s) {
@@ -151,6 +163,7 @@ void ilsp_handle_didOpen(IronLsp_Server *s, struct yyjson_doc *doc,
         IronLsp_Document *prev = s->documents[idx].value;
         ilsp_ast_worker_shutdown_and_join(prev);
         if (prev->mailbox) {
+            answer_pending_pull(s, prev->mailbox);
             ilsp_mailbox_destroy(prev->mailbox);
             prev->mailbox = NULL;
         }
@@ -206,24 +219,25 @@ void ilsp_handle_didChange(IronLsp_Server *s, struct yyjson_doc *doc,
     IronLsp_PositionEncoding enc = s->position_encoding;
 
     /* Apply each TextDocumentContentChangeEvent in order. Each event's
-     * `range` (optional) decides full-replace vs. incremental. The
-     * first event with a present range bumps to new_ver; subsequent
-     * events in the same didChange batch bump by one each so the
-     * monotonicity guard doesn't reject mid-batch edits. */
+     * `range` (optional) decides full-replace vs. incremental. The events
+     * of one notification together make version `new_ver`: the document
+     * apply functions insist on a rising version per edit, so the events
+     * step through base+1, base+2, ... and the document then takes the
+     * client's version. (It used to keep the last step's number, so
+     * after a notification with several events every later diagnostic
+     * carried a version the client never sent.) */
     size_t count = yyjson_arr_size(changes);
-    int32_t working_ver = d->version;
+    bool applied = false;
+    /* The worker snapshots under this lock: it sees the text before or
+     * after the whole notification, with the matching version. */
+    ilsp_document_lock(d);
     for (size_t i = 0; i < count; i++) {
         yyjson_val *ch    = yyjson_arr_get(changes, i);
         yyjson_val *range = yyjson_obj_get(ch, "range");
         yyjson_val *txt   = yyjson_obj_get(ch, "text");
         const char *ntxt  = yyjson_get_str(txt);
         size_t      nlen  = ntxt ? strlen(ntxt) : 0;
-
-        /* The final event targets new_ver; intermediate events step by 1. */
-        int32_t step_ver = (i + 1 == count)
-                           ? new_ver
-                           : (working_ver + 1);
-        if (step_ver <= working_ver) step_ver = working_ver + 1;
+        int32_t step_ver  = d->version + 1;
 
         if (range) {
             IronLsp_Range r = {0};
@@ -232,15 +246,17 @@ void ilsp_handle_didChange(IronLsp_Server *s, struct yyjson_doc *doc,
                                                   step_ver)) {
                 /* Edit rejected; stop applying further changes in this
                  * batch to preserve invariants. */
-                return;
+                break;
             }
         } else {
             if (!ilsp_document_apply_full_replace(d, ntxt, nlen, step_ver)) {
-                return;
+                break;
             }
         }
-        working_ver = d->version;
+        applied = true;
     }
+    if (applied) d->version = new_ver;
+    ilsp_document_unlock(d);
 
     /* Drift detection: if the client included a non-standard
      * "contentHash" string, compare against our SHA-256. Log WARN on
@@ -258,18 +274,11 @@ void ilsp_handle_didChange(IronLsp_Server *s, struct yyjson_doc *doc,
 
     /* Plan 05 CORE-14/CORE-15: post a COMPILE to the ASTWorker. Worker
      * debounces 150ms + coalesces rapid didChange floods into a single
-     * compile of the newest version. Register a per-version cancel flag
-     * so a subsequent edit can race-cancel the in-flight analyze. The
-     * cancel-flag key is "<uri>#v<version>" -- unique per edit, so
-     * cancel_signal can flip the right flag without cross-doc confusion. */
+     * compile of the newest version. (A per-version cancel flag was
+     * registered here, never signalled and never released: one allocation
+     * leaked per edit.) */
     if (d->mailbox && d->worker_started) {
-        char cancel_key[1024];
-        snprintf(cancel_key, sizeof(cancel_key),
-                  "%s#v%d", uri, d->version);
-        _Atomic bool *flag = s->cancels
-                               ? ilsp_cancel_register(s->cancels, cancel_key)
-                               : NULL;
-        ilsp_mailbox_post_compile(d->mailbox, d->version, flag);
+        ilsp_mailbox_post_compile(d->mailbox, d->version, NULL);
     }
 }
 
@@ -300,11 +309,34 @@ void ilsp_handle_didClose(IronLsp_Server *s, struct yyjson_doc *doc,
      * document body. */
     ilsp_ast_worker_shutdown_and_join(d);
     if (d->mailbox) {
+        answer_pending_pull(s, d->mailbox);
         ilsp_mailbox_destroy(d->mailbox);
         d->mailbox = NULL;
     }
+    /* The worker is stopped: clear what the closed file showed, after
+     * anything it published. */
+    ilsp_facade_publish_cleared(s, d->uri);
     ilsp_document_destroy(d);
     shdel(s->documents, uri);
+}
+
+/* A source file changed on disk. The open documents of its package are
+ * analyzed together with it (the saved contents of the package's other
+ * files), so their diagnostics may have changed: analyze them again, and
+ * ask a client that pulls diagnostics to pull again. */
+static void reanalyze_open_documents(IronLsp_Server *s, const char *changed_uri) {
+    if (!s || !s->documents) return;
+    bool any = false;
+    for (ptrdiff_t i = 0; i < shlen(s->documents); i++) {
+        IronLsp_Document *d = s->documents[i].value;
+        if (!d || !d->uri) continue;
+        if (changed_uri && strcmp(d->uri, changed_uri) == 0) continue;
+        any = true;
+        if (d->mailbox && d->worker_started) {
+            ilsp_mailbox_post_compile(d->mailbox, d->version, NULL);
+        }
+    }
+    if (any && s->client_pulls_diagnostics) ilsp_send_workspace_diagnostic_refresh(s);
 }
 
 /* ── textDocument/didSave ──────────────────────────────────────────── */
@@ -332,13 +364,19 @@ void ilsp_handle_didSave(IronLsp_Server *s, struct yyjson_doc *doc,
         ptrdiff_t idx = shgeti(s->documents, uri);
         if (idx >= 0) {
             IronLsp_Document *d = s->documents[idx].value;
-            /* didSave doesn't carry a version; bump by 1 to satisfy the
-             * monotonicity guard. */
-            (void)ilsp_document_apply_full_replace(d, ntxt, strlen(ntxt),
-                                                    d->version + 1);
+            /* didSave doesn't carry a version: the text is the client's
+             * current version, which the document keeps (the apply
+             * function wants a rising number, so step and restore). */
+            ilsp_document_lock(d);
+            int32_t keep = d->version;
+            if (ilsp_document_apply_full_replace(d, ntxt, strlen(ntxt),
+                                                 keep + 1))
+                d->version = keep;
+            ilsp_document_unlock(d);
         }
     }
     /* else: signal-only save -- no state change needed. */
+    reanalyze_open_documents(s, uri);
 }
 
 /* ── workspace/didChangeWatchedFiles ───────────────────────────────── */
@@ -386,6 +424,7 @@ void ilsp_handle_didChangeWatchedFiles(IronLsp_Server *s,
                     }
                     if (canon) free(canon);
                 }
+                reanalyze_open_documents(s, uri);
                 if (open_doc) {
                     fprintf(stderr,
                             "ironls: watched-files source stale-on-disk %s\n",
@@ -460,19 +499,20 @@ void ilsp_handle_text_document_diagnostic(IronLsp_Server *s,
     /* Post PULL_DIAGNOSTIC to the worker; the worker handles response
      * enqueue via ilsp_facade_pull_diagnostic. The mailbox duplicates
      * the request_id string internally; we free our copy after. */
-    ilsp_mailbox_post_pull(d->mailbox, d->version,
-                            request_id ? request_id : "");
+    char *displaced = ilsp_mailbox_post_pull(d->mailbox, d->version,
+                                             request_id ? request_id : "");
+    if (displaced) {
+        /* A newer pull for the same document replaced it before the
+         * worker got to it: the older request still needs a response. */
+        ilsp_facade_pull_diagnostic_empty(s, displaced);
+        free(displaced);
+    }
     free(request_id);
     return;
 
 no_doc:
     /* Unknown document: reply with an empty full report so the client
-     * doesn't time out waiting for a response. */
+     * doesn't wait for a response that never comes. */
+    ilsp_facade_pull_diagnostic_empty(s, request_id);
     free(request_id);
-    /* Note: actually emitting the response here would require
-     * duplicating the facade's response-building logic. For Plan 05,
-     * log and let the client's timeout handle it. A follow-up can
-     * synthesize an empty DocumentDiagnosticReport. */
-    fprintf(stderr,
-            "ironls: textDocument/diagnostic for unknown URI %s\n", uri);
 }

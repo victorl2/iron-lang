@@ -1,0 +1,34 @@
+-- #547: import atomic gives lock-free counters and flags shared by tasks.
+-- Copies of an AtomicInt (a capture, a field) refer to one value.
+import atomic
+
+object Stats {
+    val hits: AtomicInt
+    val busy: AtomicBool
+}
+
+func work(s: Stats, n: Int) -> Int {
+    for i in range(n) {
+        s.hits.add(1)
+    }
+    return 0
+}
+
+func main() {
+    val stats = Stats(AtomicInt.new(0), AtomicBool.new(false))
+    val a = spawn("a") { return work(stats, 10000) }
+    val b = spawn("b") { return work(stats, 10000) }
+    val c = spawn("c") { return work(stats, 10000) }
+    await a
+    await b
+    await c
+    for i in range(100) parallel {
+        stats.hits.add(-1)
+    }
+    println("hits {stats.hits.get()}")
+    println("swap {stats.hits.swap(5)} now {stats.hits.get()}")
+    println("cas {stats.hits.compare_and_set(5, 7)} {stats.hits.compare_and_set(5, 9)} {stats.hits.get()}")
+    println("flag {stats.busy.compare_and_set(false, true)} {stats.busy.get()} {stats.busy.swap(false)}")
+    stats.hits.set(-3)
+    println("set {stats.hits.get()}")
+}

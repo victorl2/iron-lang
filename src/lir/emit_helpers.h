@@ -300,6 +300,10 @@ typedef struct {
 const char *emit_mangle_name(const char *name, Iron_Arena *arena);
 const char *emit_object_type_name(const char *name, EmitCtx *ctx);
 const char *emit_mangle_func_name(const char *name, Iron_Arena *arena);
+/* #524: the build registers the C symbols of the runtime and standard
+ * library headers; iron_lir_emit_c renames a colliding free function. */
+void iron_lir_emit_add_reserved_c_name(const char *name);
+void emit_plan_func_renames(IronLIR_Module *module);
 const char *emit_resolve_func_c_name(EmitCtx *ctx, const char *ir_name);
 const char *emit_sanitize_label(const char *label, Iron_Arena *arena);
 
@@ -465,7 +469,7 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type);
 /* Phase 33 STDLIB-09 (Plan 33-05): synthesize the (non-generic) FileHandle glue.
  *   - typedef struct { int fd; } Iron_FileHandle;
  *   - Iron_FileHandle_open(Iron_String path) -> Iron_FileHandle
- *   - Iron_FileHandle_close(Iron_FileHandle*) closes + prints "closed fd"
+ *   - Iron_FileHandle_close(Iron_FileHandle*) closes the fd once and sets -1
  *   - Iron_FileHandle_drop(Iron_FileHandle*) scope-exit close
  * Idempotent via emitted_filehandle. */
 void emit_ensure_filehandle(EmitCtx *ctx);

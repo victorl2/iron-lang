@@ -51,8 +51,22 @@ static bool object_holds_list(const Iron_Type *t, int depth) {
     return false;
 }
 
+static bool tuple_owns_list(const Iron_Type *t);
+
+/* (A tuple holding a list is copied by copying the list too.) */
 static bool owns_list(const Iron_Type *t) {
-    return is_dynamic_list(t) || object_holds_list(t, 0);
+    return is_dynamic_list(t) || object_holds_list(t, 0) || tuple_owns_list(t);
+}
+
+/* A tuple with a component that owns a list (also through an optional). */
+static bool tuple_owns_list(const Iron_Type *t) {
+    if (!t || t->kind != IRON_TYPE_TUPLE) return false;
+    for (int i = 0; i < t->tuple.elem_count; i++) {
+        const Iron_Type *e = t->tuple.elem_types[i];
+        if (e && e->kind == IRON_TYPE_NULLABLE) e = e->nullable.inner;
+        if (owns_list(e) || tuple_owns_list(e)) return true;
+    }
+    return false;
 }
 
 static bool declared_primitive(const Iron_Type *t) {
@@ -276,6 +290,24 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
             Iron_ValDecl *vd = (Iron_ValDecl *)n;
             if (declared_primitive(vd->declared_type)) break;
             if (vd->binding_count == 0) require_fresh(c, vd->init);
+            /* `val (a, b) = t` with t a binding, parameter, field or element
+             * holding a list: the bindings would own the list t owns (a
+             * parameter's list was freed by the callee, #670). */
+            else if (vd->init && (vd->init->kind == IRON_NODE_IDENT ||
+                                  vd->init->kind == IRON_NODE_FIELD_ACCESS ||
+                                  vd->init->kind == IRON_NODE_INDEX) &&
+                     tuple_owns_list(((Iron_ExprNode *)vd->init)->resolved_type)) {
+                const char *name = place_text(vd->init);
+                char msg[320];
+                snprintf(msg, sizeof(msg),
+                         "destructuring '%s' would duplicate the list it holds",
+                         name ? name : "the tuple");
+                iron_diag_emit(c->diags, c->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_LIST_IMPLICIT_COPY, vd->span,
+                               iron_arena_strdup(c->arena, msg, strlen(msg)),
+                               "take the tuple apart where it is made (`val (a, b) = f()`), "
+                               "or pass the list on its own");
+            }
             break;
         }
         case IRON_NODE_VAR_DECL: {
@@ -296,6 +328,14 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
             Iron_ArrayLit *al = (Iron_ArrayLit *)n;
             for (int i = 0; i < al->element_count; i++)
                 require_fresh(c, al->elements[i]);
+            break;
+        }
+        /* An enum payload is owned by the enum like a field by its object:
+         * a list place in it is a duplicate (the payload kept the borrowed
+         * parameter's buffer, freed by the caller, #618). */
+        case IRON_NODE_ENUM_CONSTRUCT: {
+            Iron_EnumConstruct *ec = (Iron_EnumConstruct *)n;
+            for (int i = 0; i < ec->arg_count; i++) require_fresh(c, ec->args[i]);
             break;
         }
         case IRON_NODE_CONSTRUCT: {
@@ -319,6 +359,12 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
         case IRON_NODE_METHOD_CALL: {
             /* push / insert / set store their last argument in the list. */
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)n;
+            /* Generated `T.__fields(...)` stores its arguments in the new
+             * value, as positional construction does. */
+            if (mc->is_memberwise && mc->object && mc->object->kind == IRON_NODE_IDENT) {
+                for (int i = 0; i < mc->arg_count; i++) require_fresh(c, mc->args[i]);
+                break;
+            }
             Iron_Type *rt = mc->object ? node_type(mc->object) : NULL;
             if (!rt && mc->object)
                 rt = ((Iron_ExprNode *)mc->object)->resolved_type;

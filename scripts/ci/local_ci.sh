@@ -9,7 +9,8 @@
 #                  with a MySQL server for test_mysql_integration
 #   linux-release  Release: full ctest (no benchmarks)       build-and-test-release
 #   linux-leaks    tests/oracles/leak_check.sh under valgrind over the v4 corpus,
-#                  and the MySQL integration tests under valgrind
+#                  and the MySQL integration tests and the apps/inventory
+#                  service suite under valgrind
 #   mac-asan       Debug + IRON_ENABLE_SANITIZERS: full ctest (no benchmarks)
 #                                                              build-and-test (macos)
 #   mac-release    Release build of every target               build (macos-*)
@@ -78,7 +79,8 @@ linux_leg() {   # $1 = asan | release | leaks
         cmake --build "$dir" -j8 --target iron ironc >"$dir.build.log" 2>&1 &&
         LEAK_CHECK_JOBS=8 tests/oracles/leak_check.sh "$dir/iron" \
             $(find tests/integration/v4 -mindepth 1 -maxdepth 2 -type d) &&
-        { [ -z "${IRON_MYSQL_URL:-}" ] || IRON_MYSQL_LEAKS=1 tests/mysql/run.sh "$dir/ironc"; } ;;
+        { [ -z "${IRON_MYSQL_URL:-}" ] || IRON_MYSQL_LEAKS=1 tests/mysql/run.sh "$dir/ironc"; } &&
+        { [ -z "${IRON_MYSQL_URL:-}" ] || INVENTORY_VALGRIND=1 apps/inventory/tests/run.sh "$dir/iron"; } ;;
     esac
 }
 if [ "$what" = "--in-container" ]; then linux_leg "$2"; exit $?; fi
