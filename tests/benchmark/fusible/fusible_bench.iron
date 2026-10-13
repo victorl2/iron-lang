@@ -1,0 +1,53 @@
+// List pipeline fusion against the same stages forced to materialize through
+// observable intermediate lengths.
+import time
+
+object Result {
+    val total: Int
+    val witness: Int
+}
+
+func bump(x: Int) -> Int {
+    return x + 3
+}
+
+func keep(x: Int) -> Bool {
+    return x % 3 != 0
+}
+
+func fused(xs: [Int], rounds: Int) -> Result {
+    var total = 0
+    for r in range(rounds) {
+        total += xs.map(bump).filter(keep).sum()
+    }
+    return Result(total, 0)
+}
+
+func materialized(xs: [Int], rounds: Int) -> Result {
+    var total = 0
+    var witness = 0
+    for r in range(rounds) {
+        val mapped = xs.map(bump)
+        witness += mapped.len()
+        val kept = mapped.filter(keep)
+        witness += kept.len()
+        total += kept.sum()
+    }
+    return Result(total, witness)
+}
+
+func main() {
+    val n = 500000
+    val rounds = 20
+    var xs: [Int] = []
+    for i in range(n) { xs.push(i) }
+
+    var start = Time.now_ns()
+    val a = fused(xs, rounds)
+    val fused_ns = Time.now_ns() - start
+    start = Time.now_ns()
+    val b = materialized(xs, rounds)
+    val materialized_ns = Time.now_ns() - start
+    println("check {a.total == b.total} {a.witness} {b.witness}")
+    println("fused_us {fused_ns / 1000} materialized_us {materialized_ns / 1000}")
+}

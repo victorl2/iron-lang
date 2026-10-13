@@ -85,7 +85,7 @@ from pf_lang import Bail, Expected  # noqa: E402
 
 AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime',
          'numedge', 'genedge', 'ptredge', 'ctedge', 'strcoll', 'dropord',
-         'sync', 'arenax', 'jsonp', 'crypto', 'http', 'soa')
+         'sync', 'arenax', 'jsonp', 'crypto', 'http', 'soa', 'fusible')
 
 
 def generator(area):
@@ -181,8 +181,8 @@ def ssl_libs():
     return ['-lssl', '-lcrypto'] if ssl_flags() else []
 
 
-def asan_build(ironc, src, workdir, exe, rtlib, flavor='asan'):
-    b = subprocess.run([ironc, 'build', '--emit-c', os.path.abspath(src)], cwd=workdir,
+def asan_build(ironc, src, workdir, exe, rtlib, flavor='asan', build_args=()):
+    b = subprocess.run([ironc, 'build'] + list(build_args) + ['--emit-c', os.path.abspath(src)], cwd=workdir,
                        capture_output=True, text=True)
     if b.returncode != 0:
         return b
@@ -216,12 +216,52 @@ def check(ironc, outdir, area, seed, mode='plain', rtlib=None):
                 return value
             if outcome(d) != outcome(aos):
                 st, msg = 'wrong', 'SoA and AoS output, exit code or panic differs'
+    if st == 'ok' and area == 'fusible':
+        variants = []
+        plain_text = re.sub(r'(?m)^(\s*)//iron:fusible\s*$', r'\1', src_text)
+        for variant, text, args in (
+                ('plain', plain_text, ()),
+                ('noopt', src_text, ('--no-optimize',))):
+            vd = os.path.join(d, variant)
+            vst, vmsg, _ = check_text(ironc, vd, f'{area}_{seed}', text, expected,
+                                      mode, rtlib, args)
+            if vst != 'ok':
+                st, msg = vst, f'{variant}: {vmsg}'
+                break
+            variants.append(vd)
+        if st == 'ok':
+            def outcome(path):
+                with open(os.path.join(path, 'outcome.json'), encoding='utf-8') as f:
+                    value = json.load(f)
+                value['panic'] = value['panic'].replace(path, '<program>')
+                return value
+            baseline = outcome(d)
+            if any(outcome(vd) != baseline for vd in variants):
+                st, msg = 'wrong', 'hinted, hint-free, and no-optimize outcomes differ'
+        if st == 'ok':
+            marker = re.search(r'(?m)^// @fusion-loops: (\d+)$', src_text)
+            cg = os.path.join(d, 'generated')
+            os.makedirs(cg, exist_ok=True)
+            csrc = os.path.join(cg, f'{area}_{seed}.iron')
+            with open(csrc, 'w', encoding='utf-8') as f:
+                f.write(src_text)
+            b = subprocess.run([ironc, 'build', '--emit-c', os.path.abspath(csrc)], cwd=cg,
+                               capture_output=True, text=True)
+            cfile = os.path.join(cg, '.iron-build', f'{area}_{seed}.c')
+            if b.returncode != 0 or not marker or not os.path.exists(cfile):
+                st, msg = 'compile', 'could not inspect generated fusion loops\n' + b.stderr[:2000]
+            else:
+                with open(cfile, encoding='utf-8') as f:
+                    loops = f.read().count('Phase 49: Emit fused loop')
+                if loops != int(marker.group(1)):
+                    st, msg = 'wrong', f'expected {marker.group(1)} fused loops, found {loops}'
     if st == 'ok':
         shutil.rmtree(d, ignore_errors=True)
     return st, msg
 
 
-def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
+def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None,
+               build_args=()):
     """Returns (status, message, signature)."""
     os.makedirs(d, exist_ok=True)
     src = os.path.join(d, f'{name}.iron')
@@ -242,11 +282,11 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None):
     if os.path.exists(exe):
         os.remove(exe)
     if mode in ('asan', 'tsan') or (mode == 'plain' and rtlib):
-        b = asan_build(ironc, src, d, exe, rtlib, mode)
+        b = asan_build(ironc, src, d, exe, rtlib, mode, build_args)
     elif mode in ('helgrind', 'drd') and rtlib:
-        b = asan_build(ironc, src, d, exe, rtlib, 'vg')
+        b = asan_build(ironc, src, d, exe, rtlib, 'vg', build_args)
     else:
-        b = subprocess.run([ironc, 'build', src, '-o', exe], capture_output=True, text=True,
+        b = subprocess.run([ironc, 'build'] + list(build_args) + [src, '-o', exe], capture_output=True, text=True,
                            encoding='utf-8', errors='replace')
     out = b.stdout + b.stderr
     if errors:
@@ -554,7 +594,7 @@ SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure'
          'numedge': range(1, 49), 'strcoll': range(1, 49), 'genedge': range(1, 49),
          'ptredge': range(1, 49), 'ctedge': range(1, 25), 'dropord': range(1, 25),
          'sync': range(1, 9), 'arenax': range(1, 9), 'jsonp': range(1, 7), 'crypto': range(1, 7),
-         'http': range(1, 5), 'soa': range(1, 25)}
+         'http': range(1, 5), 'soa': range(1, 25), 'fusible': range(1, 9)}
 # `--suite IRONC OUTDIR` runs these; the other areas have ctest entries of
 # their own (`--suite IRONC OUTDIR conc`, `... num generic ptr comptime`,
 # `... sync arenax`, `... jsonp crypto http`).

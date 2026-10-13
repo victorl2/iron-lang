@@ -1670,6 +1670,11 @@ if(Python3_EXECUTABLE)
             --cached-runtime ${CMAKE_BINARY_DIR}/prog_fuzz_soa_runtime)
     # (about a minute on an idle machine: 8 programs, each built twice)
     set_tests_properties(prog_fuzz_soa PROPERTIES LABELS "codegen" TIMEOUT 900)
+    add_test(NAME prog_fuzz_fusible
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            fusible $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_fusible 1 8 -j2
+            --cached-runtime ${CMAKE_BINARY_DIR}/prog_fuzz_fusible_runtime)
+    set_tests_properties(prog_fuzz_fusible PROPERTIES LABELS "codegen" TIMEOUT 900)
     add_test(NAME prog_fuzz_types
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_types
