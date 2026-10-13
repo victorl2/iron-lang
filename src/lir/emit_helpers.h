@@ -22,6 +22,13 @@
 
 /* ── Loop fusion chain types (Phase 49) ──────────────────────────────────── */
 
+/* The members of a function's first parameter (self) that it may write
+ * (emit_c.c emit_self_writes). */
+struct EmitSelfWrites {
+    bool         all;
+    const char **members;   /* stb_ds array of arena strings */
+};
+
 typedef struct {
     IronLIR_ValueId call_vid;      /* ValueId of the CALL instruction */
     const char *method;            /* "map", "filter", "reduce", "forEach", "sum" */
@@ -227,6 +234,25 @@ typedef struct {
      * lists: their implementors are stored whole (AoS, no reduced storage)
      * so a set can move any element between the per-type arrays. */
     struct { char *key; bool value; } *iface_elem_assigned;
+
+    /* Mangled element types that have a list with layout: soa somewhere in
+     * the module: their Iron_List_<T> can hold columns (emit_structs.c). */
+    struct { char *key; bool value; } *soa_object_types;
+    /* Whole elements of such lists lent to the instruction being emitted
+     * (a method receiver, `&ps[i]`): each was gathered into the temporary
+     * of its GET_INDEX value and is written back after the call it was
+     * lent to. `ptr` is the ADDR_OF value that carries the address until a
+     * call takes it (INVALID once the write back may follow at once). */
+    struct EmitSoaBorrow {
+        IronLIR_ValueId vid;    /* the GET_INDEX */
+        IronLIR_ValueId ptr;
+        const char     *list_c; /* Iron_List_<T> */
+        bool            read_only;
+    } *soa_borrows;             /* stb_ds array */
+    /* Function name -> the members of its first parameter (self) that the
+     * function may write, so a lent element writes back only those
+     * (emit_self_writes). */
+    struct { char *key; struct EmitSelfWrites *value; } *soa_self_writes;
 
     /* Map of "iface_mangled:type_name" -> true for SoA types (Phase 48-02) */
     struct { char *key; bool value; } *soa_types;
@@ -520,3 +546,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx);
 
 #endif /* IRON_EMIT_HELPERS_H */
+
+bool emit_list_has_columns(EmitCtx *ctx, const Iron_Type *t);
+void emit_prescan_object_soa(EmitCtx *ctx);
+bool ir_is_runtime_provided_type(const char *name);

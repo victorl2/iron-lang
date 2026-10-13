@@ -716,6 +716,26 @@ static bool is_lvalue_expression(const Iron_Node *expr) {
     }
 }
 
+/* An address into an inline field or fixed array inside a growable list
+ * moves with the outer element too. Walk the whole storage path, rather
+ * than checking only an immediate index operand (#680). */
+static bool address_roots_in_growable_list(Iron_Node *expr) {
+    while (expr) {
+        if (expr->kind == IRON_NODE_FIELD_ACCESS) {
+            expr = ((Iron_FieldAccess *)expr)->object;
+        } else if (expr->kind == IRON_NODE_INDEX) {
+            Iron_Node *obj = ((Iron_IndexExpr *)expr)->object;
+            Iron_Type *t = obj ? ((Iron_ExprNode *)obj)->resolved_type : NULL;
+            if (t && t->kind == IRON_TYPE_ARRAY && t->array.size < 0 &&
+                !t->array.is_bounded) return true;
+            expr = obj;
+        } else {
+            return false;
+        }
+    }
+    return false;
+}
+
 /* Phase 20 PTR-07 (Plan 20-02a): set is_auto_address_target=true on the
  * given expression when its kind is one of the supported lvalue shapes
  * (IDENT, FIELD_ACCESS, INDEX). Pitfall 4 lock: flag-on-existing-node
@@ -3406,6 +3426,11 @@ static Iron_Type *resolve_array_builtin_method(const char *method,
 static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
                                     Iron_Node *receiver);
 
+static bool type_is_nocopy_element(const Iron_Type *t) {
+    return t && t->kind == IRON_TYPE_OBJECT && t->object.decl &&
+           t->object.decl->is_nocopy;
+}
+
 /* Type a builtin list method call: result type, arity and argument types.
  * `contains` needs element equality and `sort` an ordering, which only the
  * numeric, Bool (contains) and String element types have. */
@@ -3435,6 +3460,9 @@ static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc
                        "fixed-size arrays and bounded vectors are copied by value");
             return result;
         }
+        if (m[0] == 'c' && type_is_nocopy_element(arr_type->array.elem))
+            emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, mc->span,
+                       "cannot copy a list of nocopy elements", "use take() to transfer ownership");
         if (m[0] == 't') check_array_mutable(ctx, mc->object, mc->span, "take from");
     }
     /* A fixed-size array [T; N] keeps its length: push, pop, insert, remove
@@ -5364,20 +5392,15 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                  * checked against; only fixed-size arrays give stable
                  * element addresses. A borrow for the duration of a call
                  * (`f(&list[i])`) is allowed, like auto-addressing. */
-                if (ue->operand->kind == IRON_NODE_INDEX && !ue->is_call_arg) {
-                    Iron_Node *lo = ((Iron_IndexExpr *)ue->operand)->object;
-                    Iron_Type *lt = lo ? ((Iron_ExprNode *)lo)->resolved_type : NULL;
-                    if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.size < 0 &&
-                        !lt->array.is_bounded) {
-                        emit_error(ctx, IRON_ERR_PTR_INTO_LIST, ue->span,
-                                   "cannot take the address of a list element;"
-                                   " the list may reallocate its elements",
-                                   "point at a fixed-size array element, or"
-                                   " store the element in a binding first");
-                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
-                        ue->resolved_type = result;
-                        break;
-                    }
+                if (!ue->is_call_arg && address_roots_in_growable_list(ue->operand)) {
+                    emit_error(ctx, IRON_ERR_PTR_INTO_LIST, ue->span,
+                               "cannot take the address of a list element or its field;"
+                               " the list may reallocate its elements",
+                               "point at a fixed-size array element, or"
+                               " store the element in a binding first");
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ue->resolved_type = result;
+                    break;
                 }
                 bool is_var_src = arg_source_is_mutable(ctx, ue->operand);
                 mark_requires_mutable(ctx, ue->operand);
@@ -6439,6 +6462,13 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Type *lt = check_expr(ctx, mc->object);
                 if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.elem)
                     check_expr_with_expected(ctx, mc->args[mc->arg_count - 1], lt->array.elem);
+            }
+
+            if (mc->method && strcmp(mc->method, "filter") == 0 && mc->object) {
+                Iron_Type *ct = check_expr(ctx, mc->object);
+                if (ct && ct->kind == IRON_TYPE_ARRAY && type_is_nocopy_element(ct->array.elem))
+                    emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, mc->span,
+                               "cannot filter a list of nocopy elements", "filter copies the retained elements");
             }
 
             /* `x.copy()` on an object: the explicit duplicate (#174). An
@@ -8670,6 +8700,9 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             } else if (obj_type && obj_type->kind == IRON_TYPE_ARRAY && obj_type->array.elem &&
                 !obj_type->array.is_bounded &&
                 obj_type->array.elem->kind != IRON_TYPE_INTERFACE) {
+                if (type_is_nocopy_element(obj_type->array.elem))
+                    emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, se->span,
+                               "cannot slice a list of nocopy elements", "slicing copies its elements");
                 Iron_Type *lt = iron_type_make_array(ctx->arena, obj_type->array.elem, -1, false);
                 if (lt) result = lt;
             } else if (obj_type && obj_type->kind != IRON_TYPE_ERROR) {
@@ -10010,7 +10043,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (init_type && init_type->kind == IRON_TYPE_OBJECT &&
                 init_type->object.decl && init_type->object.decl->is_nocopy &&
                 (!decl_type || decl_type->kind == IRON_TYPE_OBJECT) &&
-                vd->init && vd->init->kind == IRON_NODE_IDENT) {
+                vd->init && (vd->init->kind == IRON_NODE_IDENT ||
+                             vd->init->kind == IRON_NODE_INDEX ||
+                             vd->init->kind == IRON_NODE_FIELD_ACCESS)) {
                 emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, vd->span,
                            "cannot copy nocopy type — assignment requires a copy operation",
                            "this type is nocopy: pass a pointer instead of a copy, `*T` to read it or `*var T` to change it");
@@ -10202,7 +10237,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (init_type && init_type->kind == IRON_TYPE_OBJECT &&
                 init_type->object.decl && init_type->object.decl->is_nocopy &&
                 (!decl_type || decl_type->kind == IRON_TYPE_OBJECT) &&
-                vd->init && vd->init->kind == IRON_NODE_IDENT) {
+                vd->init && (vd->init->kind == IRON_NODE_IDENT ||
+                             vd->init->kind == IRON_NODE_INDEX ||
+                             vd->init->kind == IRON_NODE_FIELD_ACCESS)) {
                 emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, vd->span,
                            "cannot copy nocopy type — assignment requires a copy operation",
                            "this type is nocopy: pass a pointer instead of a copy, `*T` to read it or `*var T` to change it");
@@ -13262,10 +13299,14 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
 
         if (decl->kind == IRON_NODE_VAL_DECL) {
             Iron_ValDecl *vd = (Iron_ValDecl *)decl;
+            /* The annotation is the initializer's expected type, as for a
+             * local binding: `var g: [T] = []` had no element type to
+             * infer (E0229) and a literal ignored the annotated layout. */
+            Iron_Type *ann_type = vd->type_ann
+                ? resolve_type_annotation(&ctx, vd->type_ann) : NULL;
             Iron_Type *init_type = NULL;
-            if (vd->init) init_type = check_expr(&ctx, vd->init);
-            Iron_Type *decl_type = vd->type_ann
-                ? resolve_type_annotation(&ctx, vd->type_ann) : init_type;
+            if (vd->init) init_type = check_expr_with_expected(&ctx, vd->init, ann_type);
+            Iron_Type *decl_type = vd->type_ann ? ann_type : init_type;
             vd->declared_type = decl_type;
             /* B9 soundness fix: check the initializer against an explicit
              * annotation (mirrors the function-local VAL_DECL binding check;
@@ -13278,10 +13319,14 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             if (sym) sym->type = decl_type;
         } else if (decl->kind == IRON_NODE_VAR_DECL) {
             Iron_VarDecl *vd = (Iron_VarDecl *)decl;
+            /* The annotation is the initializer's expected type, as for a
+             * local binding: `var g: [T] = []` had no element type to
+             * infer (E0229) and a literal ignored the annotated layout. */
+            Iron_Type *ann_type = vd->type_ann
+                ? resolve_type_annotation(&ctx, vd->type_ann) : NULL;
             Iron_Type *init_type = NULL;
-            if (vd->init) init_type = check_expr(&ctx, vd->init);
-            Iron_Type *decl_type = vd->type_ann
-                ? resolve_type_annotation(&ctx, vd->type_ann) : init_type;
+            if (vd->init) init_type = check_expr_with_expected(&ctx, vd->init, ann_type);
+            Iron_Type *decl_type = vd->type_ann ? ann_type : init_type;
             vd->declared_type = decl_type;
             /* B9 soundness fix: same annotation-vs-initializer check. */
             check_top_level_binding_init(&ctx, decl_type, init_type,
