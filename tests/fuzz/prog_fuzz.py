@@ -251,7 +251,7 @@ def check_fusible(ironc, d, name, src_text, expected, mode, rtlib):
     want_fused = fp.expected_fusion(src_text)
     want_warn = fp.expected_warnings(src_text)
     for variant, (text, args) in texts.items():
-        cg = os.path.join(d, 'c_' + variant)
+        cg = os.path.abspath(os.path.join(d, 'c_' + variant))
         os.makedirs(cg, exist_ok=True)
         csrc = os.path.join(cg, f'{name}.iron')
         with open(csrc, 'w', encoding='utf-8') as f:
