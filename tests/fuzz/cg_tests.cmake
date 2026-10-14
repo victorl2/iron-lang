@@ -18,8 +18,9 @@ if(Python3_EXECUTABLE)
         # A sanitizer build of ironc on a loaded machine needs more than
         # the default 120 s per build (60 s before a mutant's build counts
         # as a hang).
-        set_tests_properties(cg_fuzz_${_cg_kind} PROPERTIES LABELS "codegen" TIMEOUT 3600
-            ENVIRONMENT "PF_TIMEOUT=600;PF_MUTATE_TIMEOUT=300" PROCESSORS 4)
+        set_tests_properties(cg_fuzz_${_cg_kind} PROPERTIES
+            LABELS "codegen" PROCESSORS 4 TIMEOUT 3600
+            ENVIRONMENT "PF_TIMEOUT=600;PF_MUTATE_TIMEOUT=300")
     endforeach()
 endif()
 

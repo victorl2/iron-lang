@@ -3,6 +3,8 @@
 # arena scenario. Phase 15 baseline = 0% PASS (every fixture XFAIL because
 # no v4 implementation exists yet). Each subsequent phase increases the pass
 # count by >= N (N set per phase based on the corpus subset that phase enables).
+find_package(Python3 COMPONENTS Interpreter QUIET)
+
 if(NOT WIN32)
     add_test(
         NAME test_v4_acceptance
@@ -43,16 +45,18 @@ if(NOT WIN32)
         PROCESSORS 4
         RESOURCE_LOCK iron_exhaustive_corpus
         TIMEOUT 7200)
-
-    add_test(
-        NAME test_opt_parity_timeout_marker
-        COMMAND ${CMAKE_SOURCE_DIR}/tests/oracles/test_opt_parity_timeout.sh
-                ${CMAKE_SOURCE_DIR}/tests/oracles/opt_parity.sh
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    )
-    set_tests_properties(test_opt_parity_timeout_marker PROPERTIES
-        LABELS "oracle;unit"
-        TIMEOUT 15)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_EXECUTABLE)
+        add_test(
+            NAME test_opt_parity_scheduler_contract
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/integration/v4/test_scheduler_contract.py
+                    ${CMAKE_CTEST_COMMAND}
+                    ${CMAKE_BINARY_DIR}
+        )
+        set_tests_properties(test_opt_parity_scheduler_contract PROPERTIES
+            LABELS "oracle;unit")
+    endif()
 endif()
 
 # Generated C of byte scanning loops and constant tables (#658): inline
@@ -91,13 +95,24 @@ if(NOT WIN32)
         PROCESSORS 4
         RESOURCE_LOCK iron_exhaustive_corpus
         TIMEOUT 7200)
+
+    if(Python3_EXECUTABLE)
+        add_test(
+            NAME test_oracle_ctest_scheduling
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/test_oracle_ctest_scheduling.py
+                    ${CMAKE_BINARY_DIR}
+        )
+        set_tests_properties(test_oracle_ctest_scheduling PROPERTIES
+            LABELS "oracle;invariant"
+            TIMEOUT 180)
+    endif()
 endif()
 
 # Crypto cross-check: the crypto and encoding modules against Python's
 # hashlib, hmac, base64 and (when installed) cryptography on a few thousand
 # random inputs with a fresh seed each run (printed on failure).
 if(NOT WIN32)
-    find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_FOUND)
         add_test(
             NAME test_crypto_crosscheck
@@ -124,7 +139,5 @@ if(NOT WIN32)
     )
     set_tests_properties(test_freestanding PROPERTIES
         LABELS "oracle"
-        PROCESSORS 4
-        RESOURCE_LOCK iron_exhaustive_corpus
         TIMEOUT 1800)
 endif()

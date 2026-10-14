@@ -104,7 +104,41 @@ static const char *place_text(Iron_Node *n) {
     return NULL;
 }
 
-static void require_fresh(ListOwnCtx *c, Iron_Node *value) {
+/* A nocopy value (or one holding a nocopy field) that already has an
+ * owner, given a second one: its drop would run for each (#512). `val b =
+ * a` and `return a` of a nocopy object itself are reported by the type
+ * checker; `tc_covers` skips those. */
+static void require_fresh_nocopy(ListOwnCtx *c, Iron_Node *value, bool tc_covers) {
+    if (!value) return;
+    const Iron_Type *t = node_type(value);
+    const Iron_Type *nc = iron_type_nocopy_part(t);
+    if (!nc) return;
+    if (value->kind == IRON_NODE_IDENT) {
+        Iron_Symbol *sym = ((Iron_Ident *)value)->resolved_sym;
+        if (!sym || !(sym->sym_kind == IRON_SYM_VARIABLE || sym->sym_kind == IRON_SYM_PARAM ||
+                      sym->sym_kind == IRON_SYM_FIELD))
+            return;
+        if (tc_covers && t == nc) return;
+    } else if (value->kind != IRON_NODE_FIELD_ACCESS && value->kind != IRON_NODE_INDEX) {
+        return;
+    }
+    const char *name = place_text(value);
+    const char *tn = nc->object.decl->name ? nc->object.decl->name : "?";
+    char msg[320], help[400];
+    if (t == nc)
+        snprintf(msg, sizeof(msg), "'%s' is a nocopy %s and cannot be copied",
+                 name ? name : "this element", tn);
+    else
+        snprintf(msg, sizeof(msg), "'%s' holds a nocopy %s and cannot be copied",
+                 name ? name : "this element", tn);
+    snprintf(help, sizeof(help),
+             "a nocopy value has a single owner, and a copy would drop it a second time: "
+             "pass a pointer (`*T`) to read it, or create it as `rc %s(...)` to share it", tn);
+    iron_diag_emit(c->diags, c->arena, IRON_DIAG_ERROR,
+                   IRON_ERR_COPY_OF_NOCOPY_TYPE, value->span, msg, help);
+}
+
+static void require_fresh_list_only(ListOwnCtx *c, Iron_Node *value) {
     if (!is_list_place(value)) return;
     const char *name = place_text(value);
     char msg[320], help[320];
@@ -140,6 +174,19 @@ static void require_fresh(ListOwnCtx *c, Iron_Node *value) {
                    iron_arena_strdup(c->arena, help, strlen(help)));
 }
 
+/* A new owner receives `value`: it must be a fresh value. */
+static void require_fresh(ListOwnCtx *c, Iron_Node *value) {
+    require_fresh_nocopy(c, value, false);
+    require_fresh_list_only(c, value);
+}
+
+/* A binding initializer: the type checker reports `val b = a` of a nocopy
+ * object itself. */
+static void require_fresh_list(ListOwnCtx *c, Iron_Node *value) {
+    require_fresh_nocopy(c, value, true);
+    require_fresh_list_only(c, value);
+}
+
 /* A top-level declaration (module global) is not an owned local. */
 static bool is_top_level_decl(ListOwnCtx *c, Iron_Node *decl) {
     for (int i = 0; i < c->program->decl_count; i++)
@@ -151,6 +198,9 @@ static bool is_top_level_decl(ListOwnCtx *c, Iron_Node *decl) {
  * else (a parameter, which is borrowed, a global, a field, an element or a
  * loop variable) is still owned elsewhere. */
 static void check_return(ListOwnCtx *c, Iron_Node *value) {
+    /* a local moves out; a field or element is still owned (a nocopy
+     * binding itself is the type checker's E0286) */
+    if (value && value->kind != IRON_NODE_IDENT) require_fresh_nocopy(c, value, false);
     if (!is_list_place(value)) return;
     if (value->kind == IRON_NODE_IDENT) {
         Iron_Symbol *sym = ((Iron_Ident *)value)->resolved_sym;
@@ -289,7 +339,7 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)n;
             if (declared_primitive(vd->declared_type)) break;
-            if (vd->binding_count == 0) require_fresh(c, vd->init);
+            if (vd->binding_count == 0) require_fresh_list(c, vd->init);
             /* `val (a, b) = t` with t a binding, parameter, field or element
              * holding a list: the bindings would own the list t owns (a
              * parameter's list was freed by the callee, #670). */
@@ -313,7 +363,7 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
         case IRON_NODE_VAR_DECL: {
             Iron_VarDecl *vd = (Iron_VarDecl *)n;
             if (declared_primitive(vd->declared_type)) break;
-            require_fresh(c, vd->init);
+            require_fresh_list(c, vd->init);
             break;
         }
         case IRON_NODE_ASSIGN: {

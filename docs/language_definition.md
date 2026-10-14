@@ -46,21 +46,34 @@ types and list literals (`[Int; 4]`).
 
 ### 1.2 Comments
 
-A line comment starts with `--` and runs to the end of the line. There are
-no block comments, and `//` and `#` are not comments.
+Iron has one comment form: `//` starts a comment that runs to the end of
+the line. There are no block comments, and `#` is not a comment. A `//`
+inside a string literal is string text (`"http://example.com"`).
 
-A line starting with `///` is a documentation comment. A run of `///`
-lines directly above a declaration, field, enum variant or interface method
-(no blank line in between) is attached to it and shown by the language
-server; a blank line breaks the association. The compiler otherwise ignores
-doc comments.
+**Documentation.** A run of `//` comment lines directly above a
+declaration, an object field, an enum variant or an interface method, with
+no blank line between the lines or before the declaration, is its
+documentation. The language server shows it on hover, in completion and in
+signature help, with one leading space removed from each line. A blank line
+breaks the association, and a comment at the end of a line of code is never
+documentation. The compiler otherwise ignores comments.
+
+A comment never changes what a program means. One comment has a meaning to
+the compiler's own tests: a comment whose text starts with `@file:` (a
+*file marker*) tells the test harness's multi-file mode that the source
+after it belongs to another file. Only that mode
+(`IRON_MULTI_FILE_TEST=1`) honors it; in any other compile it is an
+ordinary comment, and diagnostics after it still name the file it is
+written in.
 
 ```iron
-/// Doubles its argument.
-/// Attached to `twice` because no blank line separates them.
+// Doubles its argument.
+// Attached to `twice` because no blank line separates them.
 func twice(x: Int) -> Int {
-    return x * 2   -- a line comment
+    return x * 2   // a comment at the end of a line
 }
+
+// A comment followed by a blank line documents nothing.
 
 func main() {
     println("{twice(21)}")
@@ -70,6 +83,58 @@ func main() {
 ```output
 42
 ```
+
+**Directives.** A comment written `//key:value`, with no space after `//`,
+a key of lowercase letters, digits and `_` starting with a letter, and a
+`:` right after the key, is a directive. A directive belongs to the
+declaration or field it sits directly above, as part of its comment run. It
+may instead trail an object field on that field's line. Directive lines are
+not part of the documentation. The value is the rest of the line.
+`// json:id`, with a space, is an ordinary comment.
+
+```iron
+object Item {
+    // The catalog number.
+    //db:primary_key
+    pub val item_id: Int  //json:id
+    pub val name: String  //json:name
+}
+
+func main() {
+    val it = Item(7, "lamp")
+    println("{it.item_id} {it.name}")
+}
+```
+
+```output
+7 lamp
+```
+
+The compiler keeps this metadata on each relevant AST node as its
+`doc_comment` text and a source-ordered `directives` list. Each directive is
+`(key, value, line, trailing)`; `line` is one-based and `trailing` can be true
+only for an object field. This is the representation available to the later
+compile-time reflection work in issue #455. Directives have no meaning of
+their own, except the `iron` key: `//iron:<hint>` is a compiler hint. A hint
+changes only how the compiler represents or optimizes a declaration (a
+function, object or field), never what the program does;
+anything that is part of a type or changes what type checks, such as
+`[T, layout: soa]` or `[I, unordered]`, is language syntax instead. The
+hints are:
+
+| Hint | On | Meaning |
+|------|----|---------|
+| `//iron:fusible` | a function or method, on the line above `func` | eligible for loop fusion of chained list operations (section 5.2) |
+
+An `//iron:` hint the compiler does not know, or one written above a
+declaration it does not apply to, is warning W0617, so a misspelling such
+as `//iron:fusable` does not pass silently.
+
+**Transition.** Earlier versions wrote line comments with `--`,
+documentation lines with `///` and the fusion hint as `@fusible`. These
+are still accepted, with the same meaning as `//`, `//` and
+`//iron:fusible`, while code moves over; `iron fmt --migrate-comments
+[paths]` rewrites them (section 10) and a later version will reject them.
 
 ### 1.3 Identifiers and keywords
 
@@ -103,10 +168,11 @@ implemented). `init`, `copy`, `drop`, `null` and `free` may additionally
 appear as method names after a `.` or after `func` inside an object body,
 which is how `Box.null()` and `b.free()` are spelled.
 
-The words `as`, `fusible`, `layout`, `soa`, `aos`, `unordered`,
-`allow_drop_skip` and `Self` are ordinary identifiers with a special meaning
-in specific positions (import aliases, `@fusible`, list attributes, `heap`
-options and the receiver type).
+The words `as`, `layout`, `soa`, `aos`, `unordered`, `allow_drop_skip`
+and `Self` are ordinary identifiers with a special meaning in specific
+positions (import aliases, list attributes, `heap` options and the
+receiver type). `fusible` is an ordinary identifier too; it is special only
+after `@` in the transitional `@fusible` (section 1.2).
 
 ### 1.4 Literals
 
@@ -856,6 +922,14 @@ are visible outside, and the closure may outlive the function that
 declared the `var` (a counter closure keeps its count). A lambda may
 capture a list only when it is passed directly as a call argument
 (`E0328` otherwise); to share a list with a stored closure use `rc [T]`.
+A `nocopy` value follows the same borrow rule (6.7): a lambda may capture
+one only when it is passed directly as an argument to a callee that just
+calls it during the call; it then reads the caller's binding, and the
+value is dropped once, by that binding (`E0286` otherwise). A callee
+keeps the closure, and the capture is rejected, when it stores the
+parameter, returns it, hands it to a callee that keeps it, or is a
+constructor, `push`, `insert` or a function without an Iron body; the
+list methods `map`, `filter`, `reduce` and `forEach` only call it.
 The environment of a closure is reference counted, so a closure may be
 returned, stored in a field or list, and copied. A recursive lambda is
 written by assigning it to the `var` it calls through
@@ -1408,8 +1482,10 @@ func main() {
 A top-level function name is a function value: `val f = twice`,
 `apply(twice, 4)` and `[twice]` work like the equivalent lambdas.
 
-`@fusible` before a `func` marks it as eligible for loop fusion of chained
-list operations; it changes nothing else about the function.
+The compiler hint `//iron:fusible` on the line directly above a `func`
+marks it as eligible for loop fusion of chained list operations; it changes
+nothing else about the function. The older `@fusible` before `func` means
+the same and is accepted while code migrates (section 1.2).
 
 ### 5.3 Objects
 
@@ -2308,7 +2384,26 @@ storing it is an error (`E0286`), which is how `Box`, `Channel`, `Mutex`,
 objects moves its elements (`take()`, `pop()`, `remove()`) and lends them
 (field reads, `for`, methods), but anything that would duplicate one is
 `E0286` too: `copy()`, a slice, `filter`, and binding an element or a
-field (`val p = ps[i]`). Each object has at most
+field (`val p = ps[i]`).
+
+A closure or a thread can only borrow a `nocopy` value, as it borrows a
+list (6.8): a lambda passed directly as an argument to a callee that only
+calls it (3.7), or a `spawn` surely awaited in the block that starts it
+(7.1), reads the value through its binding and never copies or drops it.
+Any other capture, by a lambda bound to a `val` or `var`, returned, stored
+in a field, list or map, passed to a callee that keeps it, or by a spawn
+that is not surely awaited, is `E0286`. The rule covers a `val` binding or
+parameter whose type is a `nocopy` object or holds one by value (in a
+field, a fixed array, an optional, a tuple or an enum payload). It does not
+cover a `var` binding, which a closure shares through its counted cell
+(3.7), a `heap` binding, `rc` values and pointers, or `Mutex`, `Channel`,
+`RWLock` and `Arena`: these are reference counted handles, and a closure or
+thread holds its own reference to them (7.1). To share a `nocopy` value
+with a closure that is stored or returned, or with a thread that may
+outlive the block, make it reference counted, `val h = rc FileHandle.open(p)`:
+each closure then holds its own reference and the value is dropped once,
+when the last holder is gone. Two threads that both use it guard the
+reference with a lock, `Mutex(rc Hasher.new(alg))`. Each object has at most
 one `drop` and one `copy` block (`E0284`, `E0285`); `drop` may not be
 `readonly` (`E0287`) and may not `return` early (`E0288`).
 
@@ -2354,6 +2449,56 @@ func main() {
 }
 ```
 
+```iron
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+
+func twice(f: func() -> Int) -> Int {
+    return f() + f()
+}
+
+func reader(r: rc Res) -> func() -> Int {
+    return func() -> Int { return r.id }
+}
+
+func main() {
+    val a = Res(1)
+    println("{twice(func() -> Int { return a.id })}")
+    val t = spawn("t") {
+        return a.id * 10
+    }
+    println("{await t}")
+    val b = rc Res(2)
+    val get = reader(b)
+    println("{get()}")
+}
+```
+
+```output
+2
+10
+2
+drop 2
+drop 1
+```
+
+<!-- doctest-expect-error: E0286 -->
+```iron
+nocopy object Res {
+    val id: Int
+}
+
+func main() {
+    val a = Res(1)
+    val get = func() -> Int { return a.id }
+    println("{get()}")
+}
+```
+
 ### 6.8 List ownership
 
 Lists are the one kind of value that is never copied implicitly. The
@@ -2368,9 +2513,12 @@ rules, all enforced at compile time with `E0328`:
   callee may move its elements while the other parameter refers to them);
   pass `xs.copy()` for the other one.
 - A lambda may capture a list only when the lambda is passed directly as a
-  call argument; a lambda that is bound, returned or stored cannot capture a
-  list. A `spawn` body that captures a list must be awaited in the block
-  that started it.
+  call argument to a callee that only calls it (3.7); a lambda that is
+  bound, returned or stored, or given to a callee that keeps it, cannot
+  capture a list. A `spawn` body that captures a list must be awaited in the
+  block that started it, by a later statement that always runs (no
+  `return`, `break` or `continue` before it). `nocopy` values follow the
+  same rules (6.7).
 - To share a list, use `rc [T]`.
 
 <!-- doctest-expect-error: E0328 -->
@@ -2401,12 +2549,19 @@ until it returns, and tasks beyond the pool's size wait their turn. Run
 long-lived loops as bound spawns, and see `Http.poller` (networking guide)
 for servers that keep many idle connections. The body may read `val` bindings of the enclosing
 function and use `Mutex`, `Channel` and `rc` values; a list captured by a
-spawn must be awaited in the same block (`E0328`). Writing a captured
+spawn must be awaited in the same block (`E0328`), and so must a `nocopy`
+value (or a value holding one), which the thread borrows from its binding
+without copying or dropping it (`E0286`, 6.7). For a `nocopy` value the
+await must be sure: a later statement of the same block that always runs,
+with no `return`, `break` or `continue` before it that could leave the
+block; to hand one to a thread that may outlive the block, make it `rc`
+(and guard it with a `Mutex` when both threads use it). Writing a captured
 `var` from a thread is a data race and warns (`W0604`). A thread keeps what
 it captured alive until it finishes, even when the block that declared it
 ends first (always possible for a spawn that is never awaited): it holds its
 own reference to each captured `Mutex`, `Channel`, `RWLock`, `Arena`, `rc`
-value and `var`, and its own copy of the other values. A thread that is still
+value and `var`, borrows a captured list or `nocopy` value (which is why
+such a spawn must be awaited), and keeps its own copy of the other values. A thread that is still
 running when the program ends is stopped with it. Named thread pools
 are not implemented: `spawn("name", pool)` is rejected (`E0326`).
 
@@ -2518,8 +2673,10 @@ func main() {
 threads and waits for all of them. The body must not write bindings of the
 enclosing scope (`E0208`); use a `Mutex` to accumulate. `range(n)` and lists
 may be iterated in parallel; a list is iterated through a binding
-(`for x in xs parallel`), not a list expression. The `parallel(pool)` form parses but pools are
-not implemented (`E0326`).
+(`for x in xs parallel`), not a list expression. A parallel body cannot
+capture a `nocopy` value (`E0286`): share it as `rc` and guard it with a
+`Mutex`, since several worker threads may use it. The `parallel(pool)` form
+parses but pools are not implemented (`E0326`).
 
 ```iron
 func main() {
@@ -3280,7 +3437,13 @@ runs the package's `test "name" { ... }` blocks (section 10.2.1) and every
 `tests/test_*.iron` program, and `iron fmt file.iron` reformats a file
 (`--check` only reports, and exits with 0 when the file is formatted, 1
 when it would change, 2 when it does not parse and 3 when it cannot be
-read). In a package, `iron build`, `iron run` and `iron
+read). `iron fmt --migrate-comments [paths]` rewrites
+the transitional `--` comments, `///` documentation lines and `@fusible`
+in every `.iron` file under the given files or directories (the current
+directory by default) to `//` and `//iron:fusible` (section 1.2); it
+changes only comments as the lexer reads them, checks that every rewritten
+file still lexes, parses and documents the same, and with `--check` only
+lists the files it would change. In a package, `iron build`, `iron run` and `iron
 check` take no file argument (program arguments follow `--` in `iron
 run`), and `iron test` takes one, a name filter (`iron test -- -name` for
 a filter that starts with `-`); any other argument is an error, as is a
@@ -3522,7 +3685,7 @@ codes cited in this manual:
 | E0268, E0270, E0271, E0294, E0295, E0296 | pointer arithmetic; address of a temporary; escaping stack reference; regime errors; `&` on an `rc` |
 | E0273, E0274, E0297, E0298 | `heap`/`rc`/`pool` in an invalid position |
 | E0278 | I/O in a `readonly` method |
-| E0284 to E0288 | duplicate `drop`/`copy`; copy of a `nocopy` value; `readonly drop`; early return in `drop` |
+| E0284 to E0288 | duplicate `drop`/`copy`; copy of a `nocopy` value (also a capture that is not a borrow, 6.7); `readonly drop`; early return in `drop` |
 | E0289 | checked/unchecked pointer mismatch |
 | E0293 | missing return |
 | E0299, E0301 | dereferencing a `weak rc`; `rc` inside an arena block |
@@ -3544,6 +3707,7 @@ codes cited in this manual:
 | E0700 to E0703 | web main loop rules |
 | W0601, W0604, W0605, W0606 | narrowing cast; spawn data race; arena skips `drop`; heap value never freed |
 | W0611, W0613, W0614 | unused import; `var` never reassigned; `var` parameter never reassigned |
+| W0617 | unknown `//iron:` compiler hint, or one on a declaration it does not apply to |
 
 `docs/dev/diagnostic-codes.md` lists every code with its message.
 
@@ -3575,6 +3739,20 @@ or one of the keywords allowed in name position. Newlines and comments are
 not part of the grammar: the parser skips them between any two tokens (see
 section 1.6). The grammar is checked against the fixture corpus by
 `scripts/grammar_check.py`.
+
+Comments are lexical (section 1.2):
+
+```text
+comment        ::= '//' { any character except newline }
+directive      ::= '//' KEY ':' { any character except newline }
+KEY            ::= 'a'..'z' { 'a'..'z' | '0'..'9' | '_' }
+doc_run        ::= { own-line comment, one per line, no blank line between }
+                   (documents the declaration, field, enum variant or
+                    interface method on the next line)
+```
+
+`--` and `///` are transitional spellings of `//`, and `@fusible` of the
+directive `//iron:fusible` (section 1.2).
 
 ```ebnf
 program        ::= { decl }
@@ -3677,7 +3855,7 @@ type           ::= 'weak' 'rc' type
                  | named_type
 ptr_type       ::= '*' [ 'var' ] [ 'unchecked' ] type
 tuple_type     ::= '(' type ',' type { ',' type } ')'
-list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']'
+list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']' [ '?' ]
 elem_type      ::= func_type | 'rc' type | 'weak' 'rc' type | list_type | ptr_type | tuple_type | named_type
 list_attr      ::= 'layout' ':' ( 'soa' | 'aos' ) | 'unordered'
 func_type      ::= 'func' [ '(' [ type { ',' type } ] ')' ] [ '->' type ]

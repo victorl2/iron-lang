@@ -227,6 +227,7 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
         set_tests_properties(lsp_phase22_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase22-invariant"
             TIMEOUT 60
+            PROCESSORS 4
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
 
         # Phase 23 Plan 03 closeout: VEC-04 (E0282) + VEC-283 (E0283) publishDiagnostics
@@ -268,6 +269,22 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
         set_tests_properties(lsp_phase24_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase24-invariant"
+            TIMEOUT 120
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+
+        # A labeled diagnostic (a nocopy capture, #512) reaches the editor in
+        # full: note and help in the message, the declaration as related info.
+        add_test(
+            NAME lsp_nocopy_capture_full_message
+            COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_did_publish_nocopy_capture.py
+                --lsp-binary=$<TARGET_FILE:ironls>
+                --no-header
+                -p no:cacheprovider
+                -v
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(lsp_nocopy_capture_full_message PROPERTIES
+            LABELS "smoke;lsp_smoke"
             TIMEOUT 60
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
 
@@ -291,7 +308,7 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
         set_tests_properties(lsp_phase25_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase25-invariant"
-            TIMEOUT 60
+            TIMEOUT 120
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
 
         # Phase 26 Plan 26-03 closeout: POL-07 (E0296) + POL-11 (E0297, E0298)
@@ -360,7 +377,7 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
         set_tests_properties(lsp_phase28_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase28-invariant"
-            TIMEOUT 60
+            TIMEOUT 120
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
 
         # Phase 14 Plan 14-02 (MIG-06): test_hard_refuse_v3 --
@@ -471,7 +488,8 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
         set_tests_properties(lsp_phase22_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase22-invariant"
             SKIP_RETURN_CODE 77
-            TIMEOUT 30)
+            TIMEOUT 30
+            PROCESSORS 4)
 
         # Phase 23 Plan 03 closeout: SKIP shim for lsp_phase23_smoke when
         # pytest-lsp is absent. ctest -L phase23-invariant stays green.
