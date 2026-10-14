@@ -83,6 +83,16 @@ awaited in the same block. To share a list, use `rc [T]`: every copy of the
 handle reaches the same list, which is freed with the last handle, and the
 list can be grown through any handle.
 
+A `nocopy` value (a `FileHandle`, a `Hasher`, a database handle, or an
+object holding one) follows the same rule: a closure may borrow it only as a
+lambda passed directly as an argument, and a `spawn` only when the task is
+awaited later in the same block. Any other capture is `E0286`. To keep one
+in a stored or returned closure, or hand it to a task that is not awaited,
+create it with `rc` (`val h = rc FileHandle.open(path)`); guard it with a
+`Mutex(rc ...)` when several threads use it. A parallel `for` cannot capture
+a `nocopy` value; use that `Mutex(rc ...)` form. A captured `var` is shared,
+not copied, so it is not affected.
+
 ```iron
 func make_counter() -> func() -> Int {
     val seen: rc [Int] = rc [1, 2, 3]

@@ -2961,6 +2961,11 @@
     "named": false
   },
   {
+    "type": "directive_comment",
+    "named": true,
+    "extra": true
+  },
+  {
     "type": "doc_comment",
     "named": true,
     "extra": true

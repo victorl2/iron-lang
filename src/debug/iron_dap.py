@@ -749,6 +749,7 @@ class Proxy:
         self.held_launch = None  # gdb: launch waits for configurationDone
         self.panic_frames = {}   # threadId -> index of the Iron frame that panicked
         self.panic_text = ""     # the debuggee's last panic message
+        self.panic_text_changed = threading.Condition()
         self.trapped = set()     # threads stopped on a debug trap (their abort follows)
         self.trap_texts = {}       # threadId -> message of the debug trap it stopped on
         self.bp_rules = {}       # (path, line) -> condition / hit count / log message
@@ -1075,7 +1076,9 @@ class Proxy:
             return
         for line in str(body.get("output", "")).splitlines():
             if PANIC_LINE.search(line):
-                self.panic_text = line.strip()
+                with self.panic_text_changed:
+                    self.panic_text = line.strip()
+                    self.panic_text_changed.notify_all()
 
     def note_no_scripting(self, msg):
         """An lldb-dap whose LLDB has no Python cannot load iron_lldb.py:
@@ -1114,6 +1117,13 @@ class Proxy:
                     src = f.get("source") or {}
                     if is_iron_source(src.get("path") or src.get("name")):
                         self.panic_frames[tid] = i
+                        # GDB may forward the abort stop before the stderr
+                        # output event even though the runtime flushed the
+                        # message before aborting. Give its reader thread a
+                        # bounded chance to deliver that already-written line.
+                        with self.panic_text_changed:
+                            if not self.panic_text:
+                                self.panic_text_changed.wait(timeout=1.0)
                         msg = dict(msg, body=dict(body, reason="exception", description="Panic",
                                                   text=self.panic_text or "Iron panic"))
                         break
@@ -1135,17 +1145,15 @@ class Proxy:
         Iron line; the panic itself (and its abort) runs on continue."""
         args = {"expression": "(const char *)iron_debug_panic_message",
                 "frameId": frame.get("id"), "context": "watch"}
-        # lldb-dap can transiently reject the first evaluation at a trap
-        # (#741). Give it one more request before exposing the raw SIGTRAP.
+        r = {}
         for _ in range(2):
             r = self.request("evaluate", args)
-            if not r.get("success"):
-                continue
-            m = re.search(r'"((?:[^"\\]|\\.)*)"',
-                          str((r.get("body") or {}).get("result", "")))
-            if m and m.group(1):
-                return m.group(1)
-        return None
+            if r.get("success"):
+                break
+        if not r.get("success"):
+            return None
+        m = re.search(r'"((?:[^"\\]|\\.)*)"', str((r.get("body") or {}).get("result", "")))
+        return m.group(1) if m and m.group(1) else None
 
     # ── Iron expressions in evaluate and breakpoints ───────────────────────
 

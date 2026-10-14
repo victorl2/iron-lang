@@ -10,6 +10,9 @@ This checks workflow contracts, not a reimplementation of Actions scheduling.
 
 import fnmatch
 from pathlib import Path
+import re
+import subprocess
+import tomllib
 import unittest
 
 import yaml
@@ -26,6 +29,30 @@ def read_workflow(name):
 
 
 class RequiredWorkflowTests(unittest.TestCase):
+    def test_zed_grammar_pin_is_a_real_commit_with_generated_sources(self):
+        extension = tomllib.loads(
+            (ROOT / "editors" / "zed" / "extension.toml").read_text()
+        )
+        commit = extension["grammars"]["iron"]["commit"]
+        self.assertRegex(commit, re.compile(r"^[0-9a-f]{40}$"))
+        exists = subprocess.run(
+            ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(0, exists.returncode, exists.stderr)
+        tree = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", commit,
+             "grammars/tree-sitter/iron"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        self.assertIn("grammars/tree-sitter/iron/grammar.js", tree)
+        self.assertIn("grammars/tree-sitter/iron/src/parser.c", tree)
+
     def test_required_workflows_accept_every_main_pr_change(self):
         for name in ("ci.yml", "release.yml", "build-time.yml"):
             with self.subTest(workflow=name):

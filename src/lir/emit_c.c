@@ -109,8 +109,9 @@ static const char *cap_c_name(const char *n) {
 }
 
 /* The env struct `<lambda>_env_t` of a capturing closure, written once into
- * struct_bodies: a var capture is a pointer to the shared slot, a val
- * capture a copy of the value. */
+ * struct_bodies: a var capture is a pointer to the shared slot, a borrowed
+ * nocopy capture is a pointer to its sole owning binding, and another val
+ * capture is a copy of the value. */
 static void emit_closure_env_typedef(EmitCtx *ctx, const char *env_type,
                                      Iron_CaptureEntry *cap_meta, int cap_count) {
     if (shgeti(ctx->mono_registry, (char *)env_type) >= 0) return;
@@ -123,7 +124,8 @@ static void emit_closure_env_typedef(EmitCtx *ctx, const char *env_type,
                                  ? emit_type_to_c(cap_meta[ci].type, ctx)
                                  : "void*";
         iron_strbuf_appendf(&ctx->struct_bodies,
-                            cap_meta[ci].is_mutable ? "    %s *%s;\n" : "    %s %s;\n",
+                            cap_meta[ci].is_mutable || cap_meta[ci].is_borrowed
+                                ? "    %s *%s;\n" : "    %s %s;\n",
                             field_type, cap_c_name(cap_meta[ci].name));
     }
     iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n\n", env_type);
@@ -1346,7 +1348,9 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
                                         cap->is_mutable ? "*" : "", cap_c_name(cap->name));
                     return;
                 }
-                iron_strbuf_appendf(sb, "%s_e->%s", cap->is_mutable ? "" : "&", cap_c_name(cap->name));
+                iron_strbuf_appendf(sb, "%s_e->%s",
+                                    cap->is_mutable || cap->is_borrowed ? "" : "&",
+                                    cap_c_name(cap->name));
                 return;
             }
         }
@@ -2340,6 +2344,18 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             iron_strbuf_appendf(sb, "))");
             break;
         }
+        if (lty && lty->kind == IRON_TYPE_PTR && !lty->ptr.is_unchecked) {
+            /* Checked pointers are 16-byte Iron_FatPtr values, so C cannot
+             * compare them as structs. Identity includes the generation: a
+             * stale snapshot is not the same pointer as a later allocation
+             * that reused its address (#707). */
+            iron_strbuf_appendf(sb, "iron_fatptr_equal(");
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, ", ");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, ")");
+            break;
+        }
         if (!bare_cmp) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " == ");
@@ -2394,6 +2410,14 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             iron_strbuf_appendf(sb, "), &(");
             emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
             iron_strbuf_appendf(sb, ")))");
+            break;
+        }
+        if (lty && lty->kind == IRON_TYPE_PTR && !lty->ptr.is_unchecked) {
+            iron_strbuf_appendf(sb, "(!iron_fatptr_equal(");
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, ", ");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, "))");
             break;
         }
         if (!bare_cmp) iron_strbuf_appendf(sb, "(");
@@ -3865,6 +3889,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             iron_strbuf_appendf(sb, "), &(");
             emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, "))");
+        } else if (lty && lty->kind == IRON_TYPE_PTR && !lty->ptr.is_unchecked) {
+            iron_strbuf_appendf(sb, "iron_fatptr_equal(");
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", ");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ")");
         } else {
             emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, " == ");
@@ -3917,6 +3947,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             iron_strbuf_appendf(sb, "), &(");
             emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ")))");
+        } else if (lty && lty->kind == IRON_TYPE_PTR && !lty->ptr.is_unchecked) {
+            iron_strbuf_appendf(sb, "(!iron_fatptr_equal(");
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ", ");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, "))");
         } else {
             emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, " != ");
@@ -4237,8 +4273,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     const char *vt = emit_type_to_c(instr->type ? instr->type : cap->type, ctx);
                     iron_strbuf_appendf(sb, "*((%s *)(%s_e->%s).addr);\n", vt,
                                         cap->is_mutable ? "*" : "", cap_c_name(cap->name));
-                } else if (cap->is_mutable) {
-                    /* var capture: dereference pointer field */
+                } else if (cap->is_mutable || cap->is_borrowed) {
+                    /* var capture or nocopy borrow: dereference pointer field */
                     iron_strbuf_appendf(sb, "*_e->%s;\n", cap_c_name(cap->name));
                 } else {
                     /* val capture: read field directly */
@@ -7326,7 +7362,35 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * fn-ptr for types with drop need; NULL for primitives / no-drop. */
         const char *drop_fn_arg = "NULL";
         char drop_fn_name_buf[256];
-        if (od && od_has_rc_drop_need(ctx, od)) {
+        /* `rc Mutex(v)` / `rc Channel[T](n)` / `rc RWLock(v)`: the last
+         * reference destroys the handle like a binding's scope exit does
+         * (it leaked the lock and its value). */
+        const char *res_kind = NULL;
+        if (od && od->name && instr->type->rc.inner->object.elem) {
+            if (strcmp(od->name, "Mutex") == 0) res_kind = "Mutex";
+            else if (strcmp(od->name, "Channel") == 0) res_kind = "Channel";
+            else if (strcmp(od->name, "RWLock") == 0) res_kind = "RWLock";
+        }
+        if (res_kind) {
+            const Iron_Type *re = instr->type->rc.inner->object.elem;
+            if (res_kind[0] == 'M') emit_ensure_mutex(ctx, re);
+            else if (res_kind[0] == 'C') emit_ensure_channel(ctx, re);
+            else emit_ensure_rwlock(ctx, re);
+            const char *esc = emit_elem_c_escaped(ctx, re);
+            int n = snprintf(drop_fn_name_buf, sizeof(drop_fn_name_buf),
+                             "Iron_%s_%s_rc_drop", res_kind, esc ? esc : "");
+            if (esc && n > 0 && (size_t)n < sizeof(drop_fn_name_buf)) {
+                if (shgeti(ctx->mono_registry, drop_fn_name_buf) < 0) {
+                    char *key = iron_arena_strdup(ctx->arena, drop_fn_name_buf, (size_t)n);
+                    if (!key) iron_oom_abort("emit_c RC_ALLOC rc_drop name");
+                    shput(ctx->mono_registry, key, true);
+                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                        "static void %s(void *p) { Iron_%s_%s_destroy((%s *)p); }\n",
+                        drop_fn_name_buf, res_kind, esc, val_type);
+                }
+                drop_fn_arg = drop_fn_name_buf;
+            }
+        } else if (od && od_has_rc_drop_need(ctx, od)) {
             emit_ensure_rc_drop(ctx, val_type, od);
             int n = snprintf(drop_fn_name_buf, sizeof(drop_fn_name_buf),
                              "%s_rc_drop", val_type);
@@ -8419,6 +8483,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 Iron_StrBuf obj_drops = iron_strbuf_create(64);
                 for (int ci = 0; ci < cap_count; ci++) {
                     if (cap_meta[ci].is_mutable) continue;
+                    if (cap_meta[ci].is_borrowed) continue;  /* the binding drops it (#512) */
                     Iron_Type *ct = cap_meta[ci].type;
                     if (!ct || !(ct->kind == IRON_TYPE_OBJECT || ct->kind == IRON_TYPE_INTERFACE ||
                                  ct->kind == IRON_TYPE_NULLABLE || ct->kind == IRON_TYPE_ENUM ||
@@ -8571,11 +8636,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             for (int ci = 0; ci < cap_count; ci++) {
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "_env_%u->%s = ", instr->id, cap_c_name(cap_meta[ci].name));
-                if (cap_meta[ci].is_mutable) {
+                if (cap_meta[ci].is_mutable || cap_meta[ci].is_borrowed) {
                     /* var capture: store the address of the outer variable's
-                     * storage (an alloca, the mutating receiver's self
-                     * pointer, a parameter, or an enclosing lambda's
-                     * capture). */
+                     * storage. A borrowed nocopy capture uses the same address
+                     * path but remains immutable in the lifted body (#704). */
                     emit_receiver_addr(sb, fn, ctx, instr->make_closure.captures[ci],
                                        ctx->current_block_id);
                 } else {
@@ -8603,7 +8667,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
                 /* A captured val object (interface, vector, optional) is a
                  * copy the env owns: fix it up like any other copy (#257). */
-                if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                if (!cap_meta[ci].is_mutable && !cap_meta[ci].is_borrowed && cap_meta[ci].type &&
                     (cap_meta[ci].type->kind == IRON_TYPE_OBJECT ||
                      cap_meta[ci].type->kind == IRON_TYPE_INTERFACE ||
                      cap_meta[ci].type->kind == IRON_TYPE_NULLABLE ||
@@ -8683,7 +8747,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     const char *field_type = cap_meta[ci].type
                                              ? emit_type_to_c(cap_meta[ci].type, ctx)
                                              : "void*";
-                    if (cap_meta[ci].is_mutable) {
+                    if (cap_meta[ci].is_mutable || cap_meta[ci].is_borrowed) {
                         iron_strbuf_appendf(&ctx->struct_bodies,
                             "    %s *%s;\n", field_type, cap_c_name(cap_meta[ci].name));
                     } else {
@@ -8737,6 +8801,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             Iron_StrBuf spawn_obj_drops = iron_strbuf_create(64);
             for (int ci = 0; cap_meta && ci < cap_count; ci++) {
                 if (cap_meta[ci].is_mutable) continue;
+                if (cap_meta[ci].is_borrowed) continue;  /* the binding drops it (#512) */
                 Iron_Type *ct = cap_meta[ci].type;
                 if (!ct || !(ct->kind == IRON_TYPE_OBJECT || ct->kind == IRON_TYPE_INTERFACE ||
                              ct->kind == IRON_TYPE_NULLABLE || ct->kind == IRON_TYPE_ENUM ||
@@ -8816,7 +8881,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 for (int ci = 0; ci < cap_count; ci++) {
                     emit_indent(sb, ind);
                     iron_strbuf_appendf(sb, "_env_%u->%s = ", instr->id, cap_c_name(cap_meta[ci].name));
-                    if (cap_meta[ci].is_mutable) {
+                    if (cap_meta[ci].is_mutable || cap_meta[ci].is_borrowed) {
                         /* the outer variable's storage, as for a closure:
                          * in a lifted body that is the enclosing env's
                          * pointer, not the address of its alias slot */
@@ -8839,7 +8904,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                             instr->id, cap_c_name(cap_meta[ci].name));
                     }
                     /* A captured val object is the env's own copy (#262). */
-                    if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                    if (!cap_meta[ci].is_mutable && !cap_meta[ci].is_borrowed && cap_meta[ci].type &&
                         (cap_meta[ci].type->kind == IRON_TYPE_OBJECT ||
                          cap_meta[ci].type->kind == IRON_TYPE_INTERFACE ||
                          cap_meta[ci].type->kind == IRON_TYPE_NULLABLE ||
@@ -8891,7 +8956,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 for (int ci = 0; ci < cap_count; ci++) {
                     emit_indent(sb, inner);
                     iron_strbuf_appendf(sb, "_env_%u->%s = ", instr->id, cap_c_name(cap_meta[ci].name));
-                    if (cap_meta[ci].is_mutable) {
+                    if (cap_meta[ci].is_mutable || cap_meta[ci].is_borrowed) {
                         /* the outer variable's storage, as for a closure:
                          * in a lifted body that is the enclosing env's
                          * pointer, not the address of its alias slot */
@@ -8914,7 +8979,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                             instr->id, cap_c_name(cap_meta[ci].name));
                     }
                     /* A captured val object is the env's own copy (#262). */
-                    if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                    if (!cap_meta[ci].is_mutable && !cap_meta[ci].is_borrowed && cap_meta[ci].type &&
                         (cap_meta[ci].type->kind == IRON_TYPE_OBJECT ||
                          cap_meta[ci].type->kind == IRON_TYPE_INTERFACE ||
                          cap_meta[ci].type->kind == IRON_TYPE_NULLABLE ||
@@ -8945,6 +9010,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_spawn_env_string_releases(&ff_drops, ctx, cap_meta, cap_count);
                     for (int ci = 0; ci < cap_count; ci++) {
                         if (cap_meta[ci].is_mutable) continue;
+                        if (cap_meta[ci].is_borrowed) continue;  /* the binding drops it (#512) */
                         Iron_Type *ct = cap_meta[ci].type;
                         if (!ct || !(ct->kind == IRON_TYPE_OBJECT || ct->kind == IRON_TYPE_INTERFACE ||
                                      ct->kind == IRON_TYPE_NULLABLE || ct->kind == IRON_TYPE_ENUM ||

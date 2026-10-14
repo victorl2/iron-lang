@@ -955,11 +955,13 @@ void ilsp_facade_hover(struct IronLsp_Server   *server,
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)decl;
             sig = signature_val(vd, sym, arena);
+            dc  = vd->doc_comment;
             break;
         }
         case IRON_NODE_VAR_DECL: {
             Iron_VarDecl *vd = (Iron_VarDecl *)decl;
             sig = signature_var(vd, sym, arena);
+            dc  = vd->doc_comment;
             break;
         }
         case IRON_NODE_FIELD: {
@@ -1088,6 +1090,24 @@ void ilsp_facade_hover(struct IronLsp_Server   *server,
     if (dc && *dc) {
         sb_append(&md, "\n\n");
         sb_append(&md, dc);
+    }
+
+    /* Directive comments (`//key:value`), as written, in source order. */
+    {
+        const Iron_Directive *dirs = NULL;
+        int ndirs = 0;
+        (void)iron_node_doc(decl, NULL, &dirs, &ndirs);
+        if (ndirs > 0) {
+            sb_append(&md, "\n\n```iron\n");
+            for (int i = 0; i < ndirs; i++) {
+                if (i > 0) sb_append(&md, "\n");
+                sb_append(&md, "//");
+                sb_append(&md, dirs[i].key);
+                sb_append(&md, ":");
+                sb_append(&md, dirs[i].value);
+            }
+            sb_append(&md, "\n```");
+        }
     }
 
     /* Active-diag footer (D-04 step 4): scan diags from the

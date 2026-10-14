@@ -167,10 +167,9 @@ static Iron_Node *iron_parse_block(Iron_Parser *p);
 static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p);
 static Iron_Node *iron_parse_type_annotation(Iron_Parser *p);
 static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_pub, bool is_nocopy, Iron_Node ***extra_decls_out);
-static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private, bool is_pub, bool is_nocopy, Iron_Node ***extra_decls_out);
+static Iron_Node *iron_parse_decl(Iron_Parser *p, int start_pos, bool is_private, bool is_pub, bool is_nocopy, Iron_Node ***extra_decls_out);
 /* NAV-14: forward decl for doc-comment attachment helper used by
  * iron_parse_decl's post-hook. Definition lives after iron_parse_decl_impl. */
-static void iron_attach_doc_comment(Iron_Node *n, const char *doc);
 static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, bool is_pub);
 static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool is_pub, bool is_nocopy, Iron_Node ***extra_decls_out);
 static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub, Iron_Node ***extra_decls_out);
@@ -205,6 +204,7 @@ Iron_Parser iron_parser_create(Iron_Token *tokens, int token_count,
     p.in_error_recovery = false;
     p.stmt_errored      = false;
     p.v3_strict_mode    = true;
+    p.quiet_hints       = false;
     p.mode              = IRON_ANALYSIS_MODE_CLI; /* HARD-02: default preserves legacy behaviour */
     p.cancel_flag       = NULL;                   /* HARD-05: default = never cancel */
     p.recur_depth       = 0;                      /* HARD-08: recursion-depth guard baseline */
@@ -268,90 +268,241 @@ static void iron_skip_newlines(Iron_Parser *p) {
     }
 }
 
-/* Phase 3 NAV-14: aggregate the doc-comment run immediately preceding
- * the current token position. Walks BACKWARDS from p->pos - 1 over a
- * maximal run of (NEWLINE | DOC_COMMENT) tokens.
+/* Documentation and directives (see Iron_Directive in ast.h).
  *
- * Association rule: a doc-comment run associates with the following
- * decl if and only if there is AT MOST ONE newline between the last
- * `///` line and the decl's first token. The token stream after
- * `/// foo\n<decl>` is `DOC_COMMENT, NEWLINE, <decl>` — one newline, so
- * the doc attaches. The token stream after `/// foo\n\n<decl>` is
- * `DOC_COMMENT, NEWLINE, NEWLINE, <decl>` — two newlines (a blank line
- * between the doc and the decl) breaks the association.
- *
- * Returns NULL if no doc comment is attached. Callers: iron_parse_decl
- * (top-level decls) and per-decl field/variant/method-sig loops. */
-static const char *iron_collect_doc_run(Iron_Parser *p, Iron_Arena *arena) {
-    if (p->pos == 0 || arena == NULL) return NULL;
+ * The comment run of a node is the maximal sequence of own-line comment
+ * lines directly above its first token: walking back from that token,
+ * every line must be a comment line (a NEWLINE token carrying an own-line
+ * comment, or a `///` DOC_COMMENT token and the NEWLINE after it). A blank
+ * line, a code line, a line with a trailing comment or a `@file:` marker
+ * ends the run. Directive lines become directives; every other line is a
+ * documentation line (one leading space removed; `///` bodies come
+ * stripped from the lexer). A trailing `//key:value` at the end of the
+ * line a field starts on is a directive of that field too. */
+typedef struct {
+    const char     *text;       /* documentation, NULL if none */
+    Iron_Directive *dirs;       /* own-line directives, source order */
+    int             dir_count;
+    int             anchor;     /* token index of the node's first token */
+} Iron_DocRun;
 
-    /* Step 1: count the run of trailing NEWLINEs immediately before p->pos
-     * (i.e. between the last doc/content token and the decl we're about
-     * to parse). If >= 2, no doc attaches (blank line breaks). */
-    long long idx = (long long)p->pos - 1;
-    int trailing_nls = 0;
-    while (idx >= 0 && p->tokens[idx].kind == IRON_TOK_NEWLINE) {
-        trailing_nls++;
-        idx--;
-    }
-    if (trailing_nls >= 2) return NULL;
+static void iron_directive_from_text(Iron_Arena *arena, const char *text,
+                                     uint32_t line, bool trailing,
+                                     Iron_Directive *out) {
+    const char *colon = strchr(text, ':');
+    size_t klen = colon ? (size_t)(colon - text) : strlen(text);
+    out->key      = iron_arena_strdup(arena, text, klen);
+    out->value    = iron_arena_strdup(arena, colon ? colon + 1 : "",
+                                      colon ? strlen(colon + 1) : 0);
+    if (!out->key) out->key = "";
+    if (!out->value) out->value = "";
+    out->line     = line;
+    out->trailing = trailing;
+}
 
-    /* Step 2: walk back collecting DOC_COMMENTs. Between consecutive
-     * doc lines there is exactly one NEWLINE (the `\n` terminating the
-     * previous `///` line) — two newlines between docs also breaks
-     * their aggregation. */
-    long long last_doc_idx = -1;   /* inclusive */
-    long long first_doc_idx = -1;  /* inclusive */
+static Iron_DocRun iron_collect_doc_run_at(Iron_Parser *p, Iron_Arena *arena,
+                                           int anchor) {
+    Iron_DocRun run = { NULL, NULL, 0, anchor };
+    if (anchor <= 0 || anchor > p->token_count || arena == NULL) return run;
+
+    /* Walk back to the first line of the run. */
+    long long idx = (long long)anchor - 1;
+    long long first = anchor;  /* first token index of the run */
+    int lines = 0;
     while (idx >= 0) {
-        Iron_TokenKind k = p->tokens[idx].kind;
-        if (k == IRON_TOK_DOC_COMMENT) {
-            if (last_doc_idx < 0) last_doc_idx = idx;
-            first_doc_idx = idx;
-            idx--;
-            /* Allow one NEWLINE between consecutive doc lines. */
-            int inner_nls = 0;
-            while (idx >= 0 && p->tokens[idx].kind == IRON_TOK_NEWLINE) {
-                inner_nls++;
-                idx--;
-            }
-            if (inner_nls >= 2) break;  /* blank line splits doc blocks */
+        const Iron_Token *t = &p->tokens[idx];
+        if (t->kind == IRON_TOK_NEWLINE && (t->comment & IRON_COMMENT_PRESENT)) {
+            if (!(t->comment & IRON_COMMENT_OWN_LINE) ||
+                (t->comment & IRON_COMMENT_MARKER)) break;
+            first = idx; lines++; idx--;
             continue;
         }
-        /* Any non-doc non-newline token (or exhaustion of newlines)
-         * terminates the backwards walk. */
+        if (t->kind == IRON_TOK_NEWLINE && t->comment == 0 && idx >= 1 &&
+            p->tokens[idx - 1].kind == IRON_TOK_DOC_COMMENT &&
+            (p->tokens[idx - 1].comment & IRON_COMMENT_OWN_LINE)) {
+            first = idx - 1; lines++; idx -= 2;
+            continue;
+        }
         break;
     }
-    if (first_doc_idx < 0) return NULL;
+    if (lines == 0) return run;
 
-    /* Join bodies in source order (first_doc_idx .. last_doc_idx) with '\n'.
-     * Tokens between them are newlines — skip those. Use a local buffer
-     * via a size pass + a single arena strdup. */
+    /* Gather in source order. */
     size_t total = 0;
-    int    count = 0;
-    for (long long i = first_doc_idx; i <= last_doc_idx; i++) {
-        if (p->tokens[i].kind != IRON_TOK_DOC_COMMENT) continue;
-        const char *v = p->tokens[i].value ? p->tokens[i].value : "";
-        total += strlen(v);
-        count++;
+    int doc_lines = 0, dir_lines = 0;
+    for (long long i = first; i < anchor; i++) {
+        const Iron_Token *t = &p->tokens[i];
+        if (!(t->comment & IRON_COMMENT_PRESENT)) continue;
+        if (t->comment & IRON_COMMENT_DIRECTIVE) { dir_lines++; continue; }
+        const char *v = t->value ? t->value : "";
+        if (t->kind == IRON_TOK_NEWLINE && v[0] == ' ') v++;
+        total += strlen(v) + 1;
+        doc_lines++;
     }
-    if (count == 0) return NULL;
-    /* count lines joined by '\n' -> (count - 1) separators. */
-    total += (size_t)(count - 1);
-    char *buf = (char *)iron_arena_alloc(arena, total + 1, 1);
-    if (!buf) return NULL;
+    if (dir_lines > 0) {
+        run.dirs = (Iron_Directive *)iron_arena_alloc(
+            arena, sizeof(Iron_Directive) * (size_t)dir_lines,
+            _Alignof(Iron_Directive));
+    }
+    char *buf = doc_lines > 0 ? (char *)iron_arena_alloc(arena, total + 1, 1) : NULL;
     char *w = buf;
-    int   written = 0;
-    for (long long i = first_doc_idx; i <= last_doc_idx; i++) {
-        if (p->tokens[i].kind != IRON_TOK_DOC_COMMENT) continue;
-        const char *v = p->tokens[i].value ? p->tokens[i].value : "";
+    for (long long i = first; i < anchor; i++) {
+        const Iron_Token *t = &p->tokens[i];
+        if (!(t->comment & IRON_COMMENT_PRESENT)) continue;
+        const char *v = t->value ? t->value : "";
+        if (t->comment & IRON_COMMENT_DIRECTIVE) {
+            if (run.dirs) {
+                iron_directive_from_text(arena, v, t->line, false,
+                                         &run.dirs[run.dir_count++]);
+            }
+            continue;
+        }
+        if (!buf) continue;
+        if (t->kind == IRON_TOK_NEWLINE && v[0] == ' ') v++;
         size_t vl = strlen(v);
-        if (written > 0) *w++ = '\n';
+        if (w != buf) *w++ = '\n';
         memcpy(w, v, vl);
         w += vl;
-        written++;
     }
-    *w = '\0';
-    return buf;
+    if (buf) { *w = '\0'; run.text = buf; }
+    return run;
+}
+
+/* The comment run above the current token. Callers: iron_parse_decl
+ * (top-level decls) and per-decl field/variant/method-sig loops. */
+static Iron_DocRun iron_collect_doc_run(Iron_Parser *p, Iron_Arena *arena) {
+    return iron_collect_doc_run_at(p, arena, p->pos);
+}
+
+/* The documentation and directive slots of a node, or false for a node
+ * kind that has none. */
+static bool iron_doc_slots(Iron_Node *n, const char ***doc,
+                           Iron_Directive ***dirs, int **count) {
+    if (!n) return false;
+    switch ((int)n->kind) {
+#define SLOTS(T) { T *x = (T *)n; *doc = &x->doc_comment; \
+                   *dirs = &x->directives; *count = &x->directive_count; \
+                   return true; }
+        case IRON_NODE_IMPORT_DECL:    SLOTS(Iron_ImportDecl)
+        case IRON_NODE_OBJECT_DECL:    SLOTS(Iron_ObjectDecl)
+        case IRON_NODE_INTERFACE_DECL: SLOTS(Iron_InterfaceDecl)
+        case IRON_NODE_ENUM_DECL:      SLOTS(Iron_EnumDecl)
+        case IRON_NODE_FUNC_DECL:      SLOTS(Iron_FuncDecl)
+        case IRON_NODE_METHOD_DECL:    SLOTS(Iron_MethodDecl)
+        case IRON_NODE_VAL_DECL:       SLOTS(Iron_ValDecl)
+        case IRON_NODE_VAR_DECL:       SLOTS(Iron_VarDecl)
+        case IRON_NODE_FIELD:          SLOTS(Iron_Field)
+        case IRON_NODE_ENUM_VARIANT:   SLOTS(Iron_EnumVariant)
+#undef SLOTS
+        default:
+            /* Val / var / error nodes have no documentation. */
+            return false;
+    }
+}
+
+/* Compiler hints: `//iron:<hint>` directives. A hint changes only how the
+ * compiler represents or optimizes a declaration, never what the program
+ * does (manual section 1.2). Known hints:
+ *   fusible   on a func or method: same as the `@fusible` annotation.
+ * Any other name, or a hint on a declaration it does not apply to, gets
+ * W0617 (a typo like `//iron:fusable` must not pass silently). */
+static void iron_apply_iron_hints(Iron_Parser *p, Iron_Node *n,
+                                  const Iron_Directive *dirs, int count) {
+    for (int i = 0; i < count; i++) {
+        if (strcmp(dirs[i].key, "iron") != 0) continue;
+        const char *v = dirs[i].value;
+        size_t vl = strlen(v);
+        while (vl > 0 && (v[vl - 1] == ' ' || v[vl - 1] == '\t')) vl--;
+        Iron_Span sp = iron_span_make(p->filename, dirs[i].line, 1,
+                                      dirs[i].line, 1);
+        /* The span takes the file of the node (stdlib prepend, markers). */
+        if (n->span.filename) sp.filename = n->span.filename;
+        char msg[256];
+        if (vl == 7 && memcmp(v, "fusible", 7) == 0) {
+            if (!dirs[i].trailing && n->kind == IRON_NODE_FUNC_DECL) {
+                ((Iron_FuncDecl *)n)->is_fusible = true;
+                continue;
+            }
+            if (!dirs[i].trailing && n->kind == IRON_NODE_METHOD_DECL) {
+                ((Iron_MethodDecl *)n)->is_fusible = true;
+                continue;
+            }
+            if (p->quiet_hints) continue;
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_WARNING,
+                           IRON_WARN_UNKNOWN_IRON_HINT, sp,
+                           dirs[i].trailing
+                               ? "`//iron:fusible` must be above a function or method"
+                               : "`//iron:fusible` applies to a function or method",
+                           "move it directly above the `func` it is for");
+            continue;
+        }
+        if (p->quiet_hints) continue;
+        snprintf(msg, sizeof(msg), "unknown compiler hint `//iron:%.*s`",
+                 (int)(vl > 120 ? 120 : vl), v);
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_WARNING,
+                       IRON_WARN_UNKNOWN_IRON_HINT, sp,
+                       iron_arena_strdup(p->arena, msg, strlen(msg)),
+                       "the known hints are: fusible");
+    }
+}
+
+/* Attaches a comment run, and the trailing directive of the node's first
+ * line, to `n`. A node that already has documentation or directives (a
+ * member parsed by iron_parse_decl, then by its block loop) keeps them. */
+static void iron_apply_doc_run(Iron_Parser *p, Iron_Node *n, Iron_DocRun run) {
+    const char **doc; Iron_Directive **dirs; int *count;
+    if (!iron_doc_slots(n, &doc, &dirs, &count)) {
+        /* A hint above a declaration that takes none still gets checked. */
+        if (n && n->kind != IRON_NODE_ERROR && run.dir_count > 0)
+            iron_apply_iron_hints(p, n, run.dirs, run.dir_count);
+        return;
+    }
+    if (!*doc && run.text) *doc = run.text;
+    if (*count > 0) return;
+
+    /* A field accepts a trailing directive even in a compact one-line object.
+     * Other declarations are scanned only from the first token on their line,
+     * solely so a misplaced trailing `//iron:` can be diagnosed. */
+    const Iron_Token *trail = NULL;
+    int a = run.anchor;
+    if (a >= 0 && a < p->token_count &&
+        (n->kind == IRON_NODE_FIELD || a == 0 ||
+         p->tokens[a - 1].kind == IRON_TOK_NEWLINE)) {
+        for (int j = a; j < p->token_count; j++) {
+            Iron_TokenKind k = p->tokens[j].kind;
+            if (k == IRON_TOK_EOF) break;
+            if (k != IRON_TOK_NEWLINE) continue;
+            uint8_t c = p->tokens[j].comment;
+            if ((c & IRON_COMMENT_DIRECTIVE) && !(c & IRON_COMMENT_OWN_LINE))
+                trail = &p->tokens[j];
+            break;
+        }
+    }
+    /* Only fields accept a trailing directive. Other declarations accept
+     * directives from the own-line run above them. A trailing `//iron:` on
+     * a non-field is still diagnosed as a misplaced compiler hint, but is
+     * not stored on the declaration (#690, #691). */
+    bool attach_trail = trail && n->kind == IRON_NODE_FIELD;
+    int total = run.dir_count + (attach_trail ? 1 : 0);
+    if (trail && !attach_trail && trail->value &&
+        strncmp(trail->value, "iron:", 5) == 0) {
+        Iron_Directive misplaced;
+        iron_directive_from_text(p->arena, trail->value, trail->line, true,
+                                 &misplaced);
+        iron_apply_iron_hints(p, n, &misplaced, 1);
+    }
+    if (total == 0) return;
+    Iron_Directive *all = (Iron_Directive *)iron_arena_alloc(
+        p->arena, sizeof(Iron_Directive) * (size_t)total, _Alignof(Iron_Directive));
+    if (!all) return;
+    for (int i = 0; i < run.dir_count; i++) all[i] = run.dirs[i];
+    if (attach_trail) {
+        iron_directive_from_text(p->arena, trail->value ? trail->value : "",
+                                 trail->line, true, &all[run.dir_count]);
+    }
+    *dirs  = all;
+    *count = total;
+    iron_apply_iron_hints(p, n, all, total);
 }
 
 /* Return current token and advance; automatically skips newlines after */
@@ -4735,7 +4886,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
         /* The `///` run above a member documents it: methods dropped it, so
          * hover showed nothing and a deprecated no-op could not be told
          * apart (#322). */
-        const char *member_doc = iron_collect_doc_run(p, p->arena);
+        Iron_DocRun member_doc = iron_collect_doc_run(p, p->arena);
 
         /* Phase 83 ACCESS-02: optional `pub` modifier on fields and methods.
          * At method level in Plan 83-01 the bit is silently accepted but has
@@ -4883,7 +5034,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->is_drop              = (strcmp(kw_name, "drop") == 0);
             m->is_copy              = (strcmp(kw_name, "copy") == 0);
 
-            if (!m->doc_comment) m->doc_comment = member_doc;
+            iron_apply_doc_run(p, (Iron_Node *)m, member_doc);
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -5052,7 +5203,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->init_name            = init_name;  /* NULL for anonymous */
             m->is_patch_member      = false;  /* Phase 94 LIB-02: in-block init on regular object */
 
-            if (!m->doc_comment) m->doc_comment = member_doc;
+            iron_apply_doc_run(p, (Iron_Node *)m, member_doc);
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -5199,7 +5350,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->is_patch_member      = false;  /* Phase 94 LIB-02: in-block func on regular object */
             m->is_static            = member_is_static;
 
-            if (!m->doc_comment) m->doc_comment = member_doc;
+            iron_apply_doc_run(p, (Iron_Node *)m, member_doc);
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -5220,10 +5371,6 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             continue;
         }
 
-        /* Phase 3 NAV-14: capture the doc-comment run that sits between
-         * the previous field and this one (or between the object header
-         * and the first field). Must be done BEFORE consuming val/var. */
-        const char *field_doc = iron_collect_doc_run(p, p->arena);
 
         bool is_var = false;
         Iron_Token *field_start = iron_current(p);
@@ -5317,7 +5464,9 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
          * consumed earlier in this iteration. Plan 83-02 reads it to drive
          * accessor synthesis. */
         field->is_pub     = member_is_pub;
-        field->doc_comment = field_doc;  /* Phase 3 NAV-14 */
+        /* The comment run above the member, collected before its `pub`
+         * (collecting it here, after `pub`, lost the docs of pub fields). */
+        iron_apply_doc_run(p, (Iron_Node *)field, member_doc);
         arrput(fields, (Iron_Node *)field);
         field_count++;
         if (is_var) var_field_count++;
@@ -5982,7 +6131,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
-        const char *member_doc = iron_collect_doc_run(p, p->arena);  /* #322 */
+        Iron_DocRun member_doc = iron_collect_doc_run(p, p->arena);  /* #322 */
 
         /* Optional pub modifier (Phase 83). */
         bool member_is_pub = false;
@@ -6087,7 +6236,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->is_drop              = (strcmp(kw_name, "drop") == 0);
             m->is_copy              = (strcmp(kw_name, "copy") == 0);
 
-            if (!m->doc_comment) m->doc_comment = member_doc;
+            iron_apply_doc_run(p, (Iron_Node *)m, member_doc);
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -6227,7 +6376,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->init_name            = init_name;
             m->is_patch_member      = true;  /* Phase 94 LIB-02: stub generator suppresses */
 
-            if (!m->doc_comment) m->doc_comment = member_doc;
+            iron_apply_doc_run(p, (Iron_Node *)m, member_doc);
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -6357,7 +6506,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->is_patch_member      = true;  /* Phase 94 LIB-02: stub generator suppresses */
             m->is_static            = member_is_static;
 
-            if (!m->doc_comment) m->doc_comment = member_doc;
+            iron_apply_doc_run(p, (Iron_Node *)m, member_doc);
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -6449,7 +6598,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         if (iron_check(p, IRON_TOK_RBRACE)) break;
 
         /* Phase 3 NAV-14: capture doc-comment run for this method signature. */
-        const char *sig_doc = iron_collect_doc_run(p, p->arena);
+        Iron_DocRun sig_doc = iron_collect_doc_run(p, p->arena);
 
         /* Phase 85 INIT-15 / Phase 87 IFACE-04: interfaces describe behavior,
          * not construction. Reject `init` in interface bodies with a clear
@@ -6570,8 +6719,8 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         /* Phase 87 IFACE-01: tier modifier bits from the pre-func consumption above. */
         sig->is_readonly          = member_is_readonly;
         sig->is_pure              = member_is_pure;
-        sig->doc_comment          = sig_doc;  /* Phase 3 NAV-14 */
         sig->is_static            = member_is_static;
+        iron_apply_doc_run(p, (Iron_Node *)sig, sig_doc);
         arrput(method_sigs, (Iron_Node *)sig);
         method_count++;
         iron_skip_newlines(p);
@@ -6625,7 +6774,7 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub) {
         if (iron_check(p, IRON_TOK_RBRACE)) break;
         /* Phase 3 NAV-14: capture doc-comment run for this variant BEFORE
          * consuming its identifier. */
-        const char *variant_doc = iron_collect_doc_run(p, p->arena);
+        Iron_DocRun variant_doc = iron_collect_doc_run(p, p->arena);
         /* `func flip() -> Dir { ... }` in an enum body: enums have no
          * methods (manual 5.6). Say so, then skip the whole method so the
          * rest of the enum and the file parse normally. */
@@ -6675,7 +6824,7 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub) {
         v->explicit_value     = 0;
         v->payload_type_anns  = NULL;
         v->payload_count      = 0;
-        v->doc_comment        = variant_doc;  /* Phase 3 NAV-14 */
+        iron_apply_doc_run(p, (Iron_Node *)v, variant_doc);
 
         /* Check for payload types: VariantName(Type, Type, ...) */
         if (iron_match(p, IRON_TOK_LPAREN)) {
@@ -6767,54 +6916,22 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub) {
  * NAV-14: after the decl is built, attach any aggregated doc comment run
  * to it. iron_parse_decl_impl captures the run at entry (before p->pos
  * advances). */
-static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private, bool is_pub,
-                                  bool is_nocopy, Iron_Node ***extra_decls_out) {
+static Iron_Node *iron_parse_decl(Iron_Parser *p, int start_pos, bool is_private,
+                                  bool is_pub, bool is_nocopy,
+                                  Iron_Node ***extra_decls_out) {
     if (iron_parser_depth_exceeded(p)) {
         return iron_make_error(p);
     }
     p->recur_depth++;
-    /* Collect the doc-comment run NOW, before any advance inside _impl
-     * moves p->pos. The run is anchored to the position of the decl's
-     * first token. */
-    const char *doc = iron_collect_doc_run(p, p->arena);
+    /* Collect the comment run NOW, before any advance inside _impl moves
+     * p->pos. It is anchored at the declaration's first token, its first
+     * modifier when it has any (`start_pos`): anchored after `pub`, a
+     * `pub func` lost its documentation. */
+    Iron_DocRun doc = iron_collect_doc_run_at(p, p->arena, start_pos);
     Iron_Node *r = iron_parse_decl_impl(p, is_private, is_pub, is_nocopy, extra_decls_out);
-    iron_attach_doc_comment(r, doc);
+    iron_apply_doc_run(p, r, doc);
     p->recur_depth--;
     return r;
-}
-
-/* NAV-14: attach a collected doc-comment run to the appropriate AST
- * node kind. No-op for ErrorNode / unknown kinds. Cast to int so the
- * -Werror=switch-enum audit is satisfied via the default arm (val/var
- * decl, error nodes, and every non-decl node kind intentionally drop
- * the doc). */
-static void iron_attach_doc_comment(Iron_Node *n, const char *doc) {
-    if (!n || !doc) return;
-    switch ((int)n->kind) {
-        case IRON_NODE_IMPORT_DECL:
-            ((Iron_ImportDecl *)n)->doc_comment = doc;
-            break;
-        case IRON_NODE_OBJECT_DECL:
-            ((Iron_ObjectDecl *)n)->doc_comment = doc;
-            break;
-        case IRON_NODE_INTERFACE_DECL:
-            ((Iron_InterfaceDecl *)n)->doc_comment = doc;
-            break;
-        case IRON_NODE_ENUM_DECL:
-            ((Iron_EnumDecl *)n)->doc_comment = doc;
-            break;
-        case IRON_NODE_FUNC_DECL:
-            ((Iron_FuncDecl *)n)->doc_comment = doc;
-            break;
-        case IRON_NODE_METHOD_DECL:
-            ((Iron_MethodDecl *)n)->doc_comment = doc;
-            break;
-        default:
-            /* Val / var / error nodes — no doc_comment field. Silently
-             * drop; the lexer already arena-interned the body so nothing
-             * leaks. */
-            break;
-    }
 }
 
 static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_pub,
@@ -7020,6 +7137,7 @@ Iron_Node *iron_parse(Iron_Parser *p) {
         int pos_before = p->pos;
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_EOF)) break;
+        int decl_start = p->pos;  /* before any modifier */
 
         /* Skip stray closing braces from incomplete declarations. In a file
          * with no error so far the brace is the error itself (it used to be
@@ -7150,7 +7268,8 @@ Iron_Node *iron_parse(Iron_Parser *p) {
             break;
         }
 
-        Iron_Node *d = iron_parse_decl(p, is_private, is_pub, is_nocopy, &extra_decls);
+        Iron_Node *d = iron_parse_decl(p, decl_start, is_private, is_pub,
+                                       is_nocopy, &extra_decls);
         arrput(decls, d);
         decl_count++;
         /* Phase 82: flush any in-block methods synthesized during this decl

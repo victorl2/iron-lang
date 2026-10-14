@@ -1,0 +1,5 @@
+// SYNTAX TEST "source.iron" "comments.iron-legacy"
+-- a transitional dash comment
+// <- comment.line.double-dash.iron
+/// a transitional doc comment
+// <- comment.block.documentation.iron

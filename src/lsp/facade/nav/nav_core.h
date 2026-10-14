@@ -120,6 +120,27 @@ void ilsp_facade_nav_references(struct IronLsp_Server         *server,
                                   IronLsp_RefSite              **out_sites,
                                   size_t                        *out_n);
 
+/* The names in the other workspace files that name the same declaration
+ * as (key_decl, key_name) of `doc`'s analysis: a type in a type annotation
+ * or a constructor call, a field or a method in a member access, a
+ * function, a variant... The reverse-ref index only knows the identifiers
+ * that resolve to a symbol; this reads every written name of each file's
+ * analyzed program (ilsp_nav_name_occurrences), which a package analyzed
+ * together resolves across its files, and matches declarations by file,
+ * position and name. Files are read as the index has them (saved
+ * contents); stdlib and dependency files are skipped, and so is `doc`.
+ * `out_is_decl[i]` says the site is the declaration's own name. Sites are
+ * arena-allocated. */
+void ilsp_nav_package_occurrences(struct IronLsp_Server    *server,
+                                  struct IronLsp_Document  *doc,
+                                  const Iron_Node          *key_decl,
+                                  const char               *key_name,
+                                  _Atomic bool             *cancel,
+                                  Iron_Arena               *arena,
+                                  IronLsp_RefSite         **out_sites,
+                                  bool                    **out_is_decl,
+                                  size_t                   *out_n);
+
 /* ── Hover (Plan 04 Task 02, NAV-09, D-04) ──────────────────────── */
 
 typedef struct IronLsp_HoverResult {

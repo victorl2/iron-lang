@@ -384,7 +384,7 @@ static int js_number(JsonScan *j) {
     }
     uint64_t mant = 0;
     int digits = 0;        /* significant digits accumulated into mant */
-    int dropped = 0;       /* integer digits that did not fit in mant */
+    int64_t dropped = 0;   /* integer digits that did not fit in mant */
     int nonzero_dropped = 0;
     if (p[i] == '0') {
         i++;
@@ -400,7 +400,7 @@ static int js_number(JsonScan *j) {
         }
     }
     int is_float = 0;
-    int frac_digits = 0;
+    int64_t frac_digits = 0;
     if (i < len && p[i] == '.') {
         is_float = 1;
         i++;
@@ -430,8 +430,12 @@ static int js_number(JsonScan *j) {
             js_fail(j, IRON_ERR_JSON_BAD_NUMBER, start, "expected a digit in the exponent");
             return 0;
         }
+        /* Saturate far beyond any digit count the input can hold, so that
+         * exp10 - frac_digits + dropped below stays exact whenever it can
+         * matter: a saturated exponent leaves |e| > 10^16, which only the
+         * strtod path (on the full text) or the zero path handles. */
         while (i < len && p[i] >= '0' && p[i] <= '9') {
-            if (exp10 < 100000) exp10 = exp10 * 10 + (p[i] - '0');
+            if (exp10 < 100000000000000000LL) exp10 = exp10 * 10 + (p[i] - '0');
             i++;
         }
         if (eneg) exp10 = -exp10;
@@ -639,7 +643,11 @@ Iron_JsonTape Iron_jsonnative_scan(Iron_String text, int64_t max_depth, int64_t 
     memset(&j, 0, sizeof(j));
     j.p = (const unsigned char *)iron_string_cstr(&text);
     j.len = iron_string_byte_len(&text);
+    /* Limits below 1 mean 1; above IRON_JSON_MAX_DEPTH they are clamped so
+     * that every operation on the resulting tree stays within the stack
+     * (dropping a tree is the one recursive operation left). */
     j.max_depth = max_depth > 0 ? max_depth : 1;
+    if (j.max_depth > IRON_JSON_MAX_DEPTH) j.max_depth = IRON_JSON_MAX_DEPTH;
 
     if (max_bytes >= 0 && (int64_t)j.len > max_bytes) {
         js_fail(&j, IRON_ERR_JSON_TOO_LARGE, 0, "input is larger than the size limit");

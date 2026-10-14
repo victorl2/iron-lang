@@ -25,7 +25,15 @@ left queued.
 """
 from pf_seg import Seg, SegProgram, iron_lit, ind
 
-HELPERS = '''object P {
+HELPERS = '''nocopy object NoC {
+    val id: Int
+    val s: String
+    drop {
+        println("drop noc {self.id}")
+    }
+}
+
+object P {
     val a: Int
     val s: String
 }
@@ -330,8 +338,8 @@ class SyncGen(SegProgram):
         r = self.r
         pick = r.choices(
             ['mutex', 'rwlock', 'shared', 'chan', 'results', 'ring', 'order', 'store', 'panic', 'rpc',
-             'fnchan', 'fnmap'],
-            [5, 3, 2, 4, 2, 1, 1, 1, 0.6, 1, 1.5, 1.5])[0]
+             'fnchan', 'fnmap', 'nocopy'],
+            [5, 3, 2, 4, 2, 1, 1, 1, 0.6, 1, 1.5, 1.5, 1.5])[0]
         self.segs.append(getattr(self, 'seg_' + pick)())
 
     # ---------------------------------------------------------- workers
@@ -761,6 +769,53 @@ class SyncGen(SegProgram):
             lines.append(f'val {self.fresh("z")} = await {h}')
         add = sum(j + 1 for j in range(k))
         return Seg(lines, [f'ring {q * 10 + add}' for q in range(R)])
+
+    def seg_nocopy(self):
+        """Tasks borrow nocopy values (#512): each task is awaited later in
+        the block that starts it, reads the values without copying them, and
+        a Mutex(rc NoC) is shared by tasks and main; each value is dropped
+        once, by main, at the end of the segment."""
+        r = self.r
+        n = r.randint(1, 3)
+        vals = []
+        lines = []
+        for _ in range(n):
+            x = self.fresh('nc')
+            ident = r.randint(1, 999)
+            vals.append((x, ident))
+            lines.append(f'val {x} = NoC({ident}, {iron_lit(r.choice(["n", LONG]))})')
+        shared = r.random() < 0.5
+        sid = r.randint(1000, 1999)
+        m = self.fresh('m')
+        if shared:
+            lines.append(f'val {m} = Mutex(rc NoC({sid}, "shared"))')
+        k = r.randint(1, 4)
+        hs, total = [], 0
+        for t in range(k):
+            h, j = self.fresh('h'), self.fresh('j')
+            mul = r.randint(1, 5)
+            body = [f'var {j} = 0']
+            for x, ident in vals:
+                body.append(f'{j} += {x}.id * {mul} + {x}.s.len() * 0')
+                total += ident * mul
+            if shared:
+                g, v = self.fresh('g'), self.fresh('v')
+                body += [f'val {g} = {m}.lock()', f'val {v}: rc NoC = {g}.get()', f'{j} += {v}.id']
+                total += sid
+            body.append(f'return {j}')
+            lines += [f'val {h} = spawn("nc{t}") {{'] + ind(body) + ['}']
+            hs.append(h)
+        r.shuffle(hs)
+        acc = self.fresh('acc')
+        lines.append(f'var {acc} = 0')
+        for h in hs:
+            lines.append(f'{acc} += await {h}')
+        lines.append(f'println("nocopy {{{acc}}}")')
+        out = [f'nocopy {total}']
+        if shared:
+            out.append(f'drop noc {sid}')
+        out += [f'drop noc {ident}' for _, ident in reversed(vals)]
+        return Seg(lines, out)
 
     def seg_order(self):
         """Two locks always taken in the same order by every thread."""

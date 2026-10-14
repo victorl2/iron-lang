@@ -68,13 +68,24 @@ static void synthesize_one(Iron_Program *program, Iron_Arena *arena,
     /* The method text may begin with blank lines (a doc comment, layout):
      * its first token must land on the declaration's line. */
     uint32_t lead = 0;
-    for (const char *c = method_src; *c == '\n' || *c == ' ' || *c == '\t' || *c == '\r'; c++)
-        if (*c == '\n') lead++;
+    for (const char *c = method_src; *c; ) {
+        if (*c == '\n') { lead++; c++; continue; }
+        if (*c == ' ' || *c == '\t' || *c == '\r') { c++; continue; }
+        /* The printed documentation and directive lines. */
+        if (c[0] == '/' && c[1] == '/') {
+            const char *nl = strchr(c, '\n');
+            if (!nl) break;
+            c = nl;
+            continue;
+        }
+        break;
+    }
     if (sig->span.line > 1 + lead) iron_lexer_set_origin(&lexer, sig->span.line - 1 - lead, 1);
     Iron_Token *tokens = iron_lex_all(&lexer);
     int token_count = (int)arrlen(tokens);
     Iron_Parser parser = iron_parser_create(tokens, token_count, snippet, src_name,
                                             arena, diags);
+    parser.quiet_hints = true;  /* reported on the original */
     /* The copy is compiler-generated code for a type that opted in with
      * `impl`: it may use the generated-code forms (#455). */
     parser.generated = true;

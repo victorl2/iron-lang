@@ -77,7 +77,7 @@ for dir in "$@"; do
         [ -e "$src" ] || continue
         name=$(basename "$src" .iron)
         [ -f "$dir/$name.expected" ] || { skipped=$((skipped+1)); continue; }
-        if head -n 10 "$src" | grep -qE '^[[:space:]]*--[[:space:]]*@(expect-panic|compile-only|leaks-by-design)'; then
+        if head -n 10 "$src" | grep -qE '^[[:space:]]*(--|//)[[:space:]]*@(expect-panic|compile-only|leaks-by-design)'; then
             skipped=$((skipped+1)); continue
         fi
         echo "$src" >> "$work/list"
