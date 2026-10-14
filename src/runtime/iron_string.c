@@ -18,8 +18,8 @@
 typedef struct { _Atomic uint64_t rc; uint64_t _pad; } IronStrHdr;
 
 /* heap.codepoint_count of a string from iron_string_seal_bytes: not
- * counted yet (iron_string_codepoint_count counts on demand). */
-#define IRON_STRING_COUNT_UNKNOWN UINT32_MAX
+ * counted yet, IRON_STRING_COUNT_UNKNOWN in iron_runtime.h
+ * (iron_string_codepoint_count counts on demand). */
 
 static char *iron__str_alloc(size_t byte_len, const char *where) {
     IronStrHdr *h = (IronStrHdr *)malloc(sizeof(IronStrHdr) + byte_len + 1);
@@ -814,14 +814,7 @@ Iron_String Iron_string_char_at(Iron_String self, int64_t i) {
 }
 
 /* Number of characters (code points). */
-int64_t Iron_string_len(Iron_String self) {
-    return (int64_t)iron_string_codepoint_count(&self);
-}
-
-/* Size in bytes of the UTF-8 encoding. */
-int64_t Iron_string_byte_len(Iron_String self) {
-    return (int64_t)iron_string_byte_len(&self);
-}
+/* Iron_string_len and Iron_string_byte_len are inline in iron_runtime.h. */
 
 int64_t Iron_string_count(Iron_String self, Iron_String sub) {
     const char *s    = iron_string_cstr(&self);
@@ -1109,15 +1102,7 @@ int64_t Iron_string_rindex_of(Iron_String self, Iron_String sub) {
     return -1;
 }
 
-/* Byte value at index `i` (0..len-1). Returns -1 for out-of-range indices
- * so callers can branch on the negative result without a separate length
- * check. */
-int64_t Iron_string_byte_at(Iron_String self, int64_t i) {
-    size_t len = iron_string_byte_len(&self);
-    if (i < 0 || (size_t)i >= len) return -1;
-    const char *s = iron_string_cstr(&self);
-    return (int64_t)(unsigned char)s[i];
-}
+/* Iron_string_byte_at is inline in iron_runtime.h. */
 
 /* Bytes [start, end) of the string, the byte counterpart of substring for
  * binary data (digests, ciphertexts, packets). Both ends are clamped to the

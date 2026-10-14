@@ -1483,6 +1483,11 @@ target_link_libraries(test_bvec_oob_panic iron_compiler iron_runtime unity)
 add_test(NAME test_bvec_oob_panic COMMAND test_bvec_oob_panic)
 set_tests_properties(test_bvec_oob_panic PROPERTIES LABELS "unit;phase23-invariant" TIMEOUT 30)
 
+add_executable(test_codegen_byte_loops test_codegen_byte_loops.c)
+target_link_libraries(test_codegen_byte_loops iron_compiler iron_runtime unity)
+add_test(NAME test_codegen_byte_loops COMMAND test_codegen_byte_loops)
+set_tests_properties(test_codegen_byte_loops PROPERTIES LABELS "unit" TIMEOUT 30)
+
 # ── Phase 26 POL-06: rc policy refcount substrate (Plan 26-01) ───────────────
 # Wave 0 RED → GREEN after Task 2 lands the iron_rc_alloc / iron_rc_retain /
 # iron_rc_release implementation on Iron_RcHeader.
