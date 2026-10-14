@@ -1,0 +1,56 @@
+// A list of an interface type keeps its elements per implementing type, so
+// a fused loop over it would visit them type by type. Such a list is never
+// the source of a fused loop: its first stage runs as written, in list
+// order, and the stages after it fuse like any others.
+
+interface Shape {
+    readonly func area() -> Int
+}
+
+object Square impl Shape {
+    val side: Int
+
+    readonly func area() -> Int {
+        return self.side * self.side
+    }
+}
+
+object Rect impl Shape {
+    val w: Int
+    val h: Int
+
+    readonly func area() -> Int {
+        return self.w * self.h
+    }
+}
+
+func big(x: Int) -> Bool {
+    return x > 1
+}
+
+func mix(acc: Int, x: Int) -> Int {
+    return acc * 31 + x
+}
+
+func one(s: Shape) -> Int {
+    return 1
+}
+
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+func main() {
+    val shapes: [Shape] = [Square(1), Rect(2, 3), Square(4), Rect(1, 1), Square(2)]
+    val areas = shapes.map(func(s: Shape) -> Int { return s.area() })
+    println("{areas[0]} {areas[1]} {areas[2]} {areas[3]} {areas[4]}")
+    val kept = shapes.map(func(s: Shape) -> Int { return s.area() }).filter(big)
+    println("{kept.len()} {kept[0]} {kept[1]} {kept[2]}")
+    println("{shapes.map(func(s: Shape) -> Int { return s.area() }).reduce(0, mix)}")
+
+    // A callback that does not look at the element is effect free, and the
+    // list is still read by an ordinary first stage.
+    println("{shapes.map(one).map(inc).filter(big).reduce(0, mix)}")  // @fused: map filter reduce
+    val wide = shapes.filter(func(s: Shape) -> Bool { return true }).map(one)
+    println("{wide.len()}")
+}

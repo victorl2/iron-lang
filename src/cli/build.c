@@ -42,6 +42,7 @@
 #include "lir/emit_c.h"
 #include "lir/emit_web.h"
 #include "lir/lir_optimize.h"
+#include "lir/fusion_safety.h"
 #include "lir/web_main_loop_split.h"
 #include "lir/print.h"
 #include "diagnostics/diagnostics.h"
@@ -2330,6 +2331,10 @@ int iron_build(const char *source_path, const char *output_path,
         }
     }
 
+    /* W0618: `//iron:fusible` on a function that cannot be fused. Checked
+     * before optimization so the answer is the same in every build mode. */
+    iron_lir_check_fusible_hints(ir_module, &diags, &arena);
+
     /* 7a. IR optimization passes */
     IronLIR_OptimizeInfo optimize_info;
     /* --debug keeps every function and binding where the source has it. */
@@ -2490,6 +2495,8 @@ int iron_build(const char *source_path, const char *output_path,
     /* --emit-c: the generated C is the product; nothing is compiled. */
     if (opts.emit_c) {
         if (opts.verbose) fprintf(stderr, "Emitted: %s\n", c_file_path);
+        /* (Warnings are part of every build, also one that stops at C.) */
+        if (diags.warning_count > 0) iron_diag_print_all(&diags, source);
         free(c_file_path);
         free(derived_output);
         iron_diaglist_free(&diags);

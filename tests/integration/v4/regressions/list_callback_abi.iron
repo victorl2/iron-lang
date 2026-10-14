@@ -1,0 +1,11 @@
+// A list-valued closure parameter keeps the one-list closure ABI. Array
+// parameter scalarization must not rewrite only the lifted wrapper (#848).
+func first(xs: [Int]) -> Int {
+    return xs[0]
+}
+
+func main() {
+    val nested = [[1, 2], [3, 4]]
+    val heads = nested.map(first)
+    println("{heads[0]} {heads[1]}")
+}

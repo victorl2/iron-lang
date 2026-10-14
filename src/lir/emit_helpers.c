@@ -9,6 +9,7 @@
 
 #include "lir/emit_helpers.h"
 #include "lir/emit_c.h"
+#include "lir/fusion_safety.h"
 #include "vendor/stb_ds.h"
 
 #include <stdio.h>
@@ -2586,6 +2587,8 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
     }
     hmfree(ctx->fusion_chain_member);
     hmfree(ctx->fusion_chain_position);
+    iron_lir_fusion_safety_free(ctx->fusion_safety);
+    ctx->fusion_safety = NULL;
     hmfree(ctx->monomorphic_collections);
     shfree(ctx->specialization_registry);
     iron_vr_free(&ctx->value_range);

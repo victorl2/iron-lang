@@ -1,0 +1,19 @@
+// @expect-panic: index: 5 bound: 3
+// A checked index can panic. The map panics on its second element (index
+// 5); a fused loop would have reached the filter first, which panics on the
+// first element (index 10).
+
+val table = [10, 20, 30]
+
+func pick(x: Int) -> Int {
+    return table[x]
+}
+
+func big(x: Int) -> Bool {
+    return table[x] > 10
+}
+
+func main() {
+    println("{[0, 1, 2].map(pick).sum()}")
+    println("{[0, 5].map(pick).filter(big).sum()}")
+}

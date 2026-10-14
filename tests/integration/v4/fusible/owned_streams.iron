@@ -1,0 +1,126 @@
+// Only values without copy, drop or reference count bookkeeping flow from
+// one stage of a fused loop to the next. A String, a list, an rc handle, an
+// optional, an enum with a payload or an object that owns any of them keeps
+// its intermediate list, so every such value is created and released
+// exactly as written. The source list may hold anything.
+
+object Ref {
+    val id: Int
+}
+
+object Named {
+    val name: String
+    val n: Int
+}
+
+object Pair {
+    val a: Int
+    val b: Int
+}
+
+enum Shape {
+    Dot,
+    Line(Int),
+}
+
+func text(x: Int) -> String {
+    return "item-{x}-padding-padding"
+}
+
+func text_size(s: String) -> Int {
+    return s.len()
+}
+
+func wrapped(x: Int) -> [Int] {
+    return [x, x + 10]
+}
+
+func first(xs: [Int]) -> Int {
+    return xs[0]
+}
+
+func shared(x: Int) -> rc Ref {
+    return rc Ref(x)
+}
+
+func ref_id(r: rc Ref) -> Int {
+    return r.id
+}
+
+func named(x: Int) -> Named {
+    return Named("n{x}", x)
+}
+
+func named_n(v: Named) -> Int {
+    return v.n
+}
+
+func maybe(x: Int) -> Int? {
+    if x % 2 == 0 {
+        return null
+    }
+    return x
+}
+
+func or_zero(x: Int?) -> Int {
+    if x != null {
+        return x
+    }
+    return 0
+}
+
+func shape(x: Int) -> Shape {
+    if x % 2 == 0 {
+        return Shape.Dot
+    }
+    return Shape.Line(x)
+}
+
+func shape_len(s: Shape) -> Int {
+    match s {
+        Shape.Dot -> return 0
+        Shape.Line(n) -> return n
+    }
+    return -1
+}
+
+func pair(x: Int) -> Pair {
+    return Pair(x, x + 1)
+}
+
+func pos(x: Int) -> Bool {
+    return x > 0
+}
+
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+func main() {
+    val xs = [1, 2, 3]
+    println("{xs.map(text).map(text_size).sum()}")
+    println("{xs.map(wrapped).map(first).sum()}")
+    println("{xs.map(shared).map(ref_id).sum()}")
+    println("{xs.map(maybe).map(or_zero).sum()}")
+
+    // The stage that reads an owned value fuses with what follows it when
+    // it only looks at the value: a field of an object, the variant of an
+    // enum. The list of owned values it reads exists.
+    println("{xs.map(named).map(named_n).sum()}")  // @fused: map sum
+    println("{xs.map(shape).map(shape_len).sum()}")  // @fused: map sum
+
+    // After the owned stream ends, the numbers fuse again.
+    println("{xs.map(text).map(text_size).map(inc).filter(pos).sum()}")  // @fused: map filter sum
+    println("{xs.map(shape).map(shape_len).filter(pos).sum()}")  // @fused: map filter sum
+
+    // An object made only of numbers is trivial.
+    println("{xs.map(pair).filter(func(p: Pair) -> Bool { return p.a > 1 }).map(func(p: Pair) -> Int { return p.b }).sum()}")  // @fused: map filter map sum
+
+    // A source of owned elements is read in place.
+    val words = ["a", "bb", "ccc"]
+    println("{words.map(func(s: String) -> Int { return 1 }).map(inc).sum()}")  // @fused: map map sum
+    val lists = [[1], [2, 3]]
+    println("{lists.map(func(l: [Int]) -> Int { return 2 }).filter(pos).sum()}")  // @fused: map filter sum
+    val kept = words.filter(func(s: String) -> Bool { return true }).filter(func(s: String) -> Bool { return true })
+    println("{kept.len()}")
+}

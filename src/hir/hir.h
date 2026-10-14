@@ -585,6 +585,10 @@ struct IronHIR_Func {
     /* A free function of the program (not the standard library, not
      * extern): its C name avoids the runtime's symbols (#524). */
     bool               is_user_func;
+    /* The declaration carries `//iron:fusible`; see IronLIR_Func. */
+    bool               is_fusible_hint;
+    Iron_Span          fusible_hint_span;
+    const char        *fusible_hint_name;
     bool               is_runtime_stub;
     Iron_CaptureEntry *captures;       /* from capture analysis; NULL for non-capturing */
     int                capture_count;

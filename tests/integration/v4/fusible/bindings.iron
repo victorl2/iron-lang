@@ -1,0 +1,98 @@
+// A chain written over several statements fuses when its intermediate list
+// has one reader and nothing but argument setup stands between the stages.
+// Anything that could change what an earlier stage reads keeps that stage
+// where it is written.
+
+var offset = 1
+
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+func add_offset(x: Int) -> Int {
+    return x + offset
+}
+
+func pos(x: Int) -> Bool {
+    return x > 0
+}
+
+func dbl(x: Int) -> Int {
+    return x * 2
+}
+
+func total(xs: [Int]) -> Int {
+    var t = 0
+    for x in xs {
+        t += x
+    }
+    return t
+}
+
+func pick(choose: Bool) -> Int {
+    val xs = [1, 2, 3]
+    val ys = [10, 20]
+    var m = xs.map(inc)
+    if choose {
+        m = ys.map(dbl)
+    }
+    return m.sum()
+}
+
+func main() {
+    var xs = [1, 2, 3]
+
+    // Three statements, one loop.
+    val a = xs.map(inc)
+    val b = a.filter(pos)
+    println("{b.sum()}")  // @fused: map filter sum
+
+    // A constant bound in between does not matter.
+    val c = xs.map(inc)
+    val k = 7
+    println("{c.sum() + k}")  // @fused: map sum
+
+    // A global the map reads is written in between.
+    val d = xs.map(add_offset)
+    offset = 100
+    println("{d.filter(pos).sum()}")  // @fused: filter sum
+    offset = 1
+
+    // The source grows in between.
+    val e = xs.map(inc)
+    xs.push(100)
+    xs[0] = 50
+    println("{e.filter(pos).sum()}")  // @fused: filter sum
+
+    // The last stage is in a loop that changes the source.
+    val f = xs.map(inc)
+    for i in range(3) {
+        xs.push(i)
+        println("{f.sum()}")
+    }
+
+    // Output between the stages keeps them apart (it is a call).
+    val g = xs.map(inc)
+    println("between")
+    println("{g.sum()}")
+
+    // An intermediate with two readers exists; what follows it still fuses.
+    val h = xs.map(inc)
+    println("{h.len()} {h.filter(pos).sum()}")  // @fused: filter sum
+    val i2 = xs.map(inc)
+    println("{total(i2)} {i2.sum()}")
+
+    // A binding assigned on two paths.
+    println("{pick(true)} {pick(false)}")
+
+    // The source is replaced by its own pipeline.
+    var ys = [1, 2, 3]
+    ys = ys.map(inc).filter(func(x: Int) -> Bool { return x > 2 })  // @fused: map filter
+    println("{ys.len()} {ys[0]}")
+    var n = 0
+    while n < 3 {
+        ys = ys.map(inc).filter(func(x: Int) -> Bool { return x > 2 })  // @fused: map filter
+        n += 1
+    }
+    println("{ys.len()} {ys[0]} {ys[1]}")
+}

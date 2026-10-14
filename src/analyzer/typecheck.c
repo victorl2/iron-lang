@@ -3299,6 +3299,12 @@ static Iron_Type *resolve_array_ext_method(TypeCtx *ctx,
                         inferred_u = arg0_type->func.return_type;
                     }
                 }
+                if (inferred_u && inferred_u->kind == IRON_TYPE_TUPLE) {
+                    /* `xs.map(f)` with f returning a tuple would be a
+                     * list of tuples, which no list type can name. */
+                    report_tuple_list(ctx, mc->span);
+                    return iron_type_make_primitive(IRON_TYPE_ERROR);
+                }
                 if (inferred_u) {
                     return iron_type_make_array(ctx->arena, inferred_u, -1, false);
                 }

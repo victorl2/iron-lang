@@ -1,0 +1,36 @@
+// An empty source calls no callback: sum is zero, reduce is its initial
+// value, a collecting stage makes an empty list. A filter that keeps
+// nothing behaves the same.
+
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+func never(x: Int) -> Bool {
+    return x != x
+}
+
+func add(acc: Int, x: Int) -> Int {
+    return acc + x
+}
+
+func half(x: Float) -> Float {
+    return x / 2.0
+}
+
+func main() {
+    val none: [Int] = []
+    println("{none.map(inc).sum()}")  // @fused: map sum
+    println("{none.map(inc).reduce(41, add)}")  // @fused: map reduce
+    val out = none.map(inc).filter(never)  // @fused: map filter
+    println("{out.len()}")
+
+    val xs = [1, 2, 3]
+    println("{xs.filter(never).map(inc).sum()}")  // @fused: filter map sum
+    println("{xs.filter(never).reduce(41, add)}")  // @fused: filter reduce
+    val gone = xs.map(inc).filter(never)  // @fused: map filter
+    println("{gone.len()}")
+
+    val nofloats: [Float] = []
+    println("{nofloats.map(half).sum()}")  // @fused: map sum
+}

@@ -1,0 +1,79 @@
+// A pipeline inside loops, conditions and early exits: the fused loop runs
+// where the last stage is written, as often as it is reached.
+
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+func even(x: Int) -> Bool {
+    return x % 2 == 0
+}
+
+func add(acc: Int, x: Int) -> Int {
+    return acc + x
+}
+
+func first_big(rows: [[Int]]) -> Int {
+    for row in rows {
+        val s = row.map(inc).filter(even).sum()  // @fused: map filter sum
+        if s > 10 {
+            return s
+        }
+    }
+    return -1
+}
+
+func count_until(xs: [Int], limit: Int) -> Int {
+    var rounds = 0
+    var cur = xs.copy()
+    while cur.map(inc).filter(even).sum() < limit {  // @fused: map filter sum
+        cur = cur.map(inc)
+        rounds += 1
+        if rounds > 20 {
+            break
+        }
+    }
+    return rounds
+}
+
+func guarded(xs: [Int], on: Bool) -> Int {
+    if on and xs.map(inc).sum() > 5 {  // @fused: map sum
+        return 1
+    }
+    if not on or xs.filter(even).reduce(0, add) == 2 {  // @fused: filter reduce
+        return 2
+    }
+    return 3
+}
+
+func describe(k: Int, xs: [Int]) -> Int {
+    match k {
+        0 -> return xs.map(inc).sum()  // @fused: map sum
+        1 -> return xs.filter(even).sum()  // @fused: filter sum
+        else -> return -1
+    }
+    return -2
+}
+
+func deferred(xs: [Int]) -> Int {
+    defer println("deferred {xs.map(inc).sum()}")  // @fused: map sum
+    return xs.filter(even).sum()  // @fused: filter sum
+}
+
+func main() {
+    println("{first_big([[1, 2], [3, 5, 7], [9]])}")
+    println("{first_big([[1]])}")
+    println("{count_until([1, 2, 3], 30)}")
+    println("{guarded([1, 2, 3], true)} {guarded([1], true)} {guarded([1, 2], false)} {guarded([1, 2, 3], true)}")
+    println("{describe(0, [1, 2])} {describe(1, [1, 2])} {describe(2, [1, 2])}")
+    println("{deferred([1, 2, 3, 4])}")
+
+    var total = 0
+    for i in range(4) {
+        if i == 2 {
+            continue
+        }
+        total += [i, i + 1, i + 2].map(inc).filter(even).sum()  // @fused: map filter sum
+    }
+    println("{total}")
+}

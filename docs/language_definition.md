@@ -124,11 +124,12 @@ hints are:
 
 | Hint | On | Meaning |
 |------|----|---------|
-| `//iron:fusible` | a function or method, on the line above `func` | eligible for loop fusion of chained list operations (section 5.2) |
+| `//iron:fusible` | a function or method, on the line above `func` | the function can run inside a fused list loop: no effects, no panics (sections 5.2 and 9.3.1) |
 
 An `//iron:` hint the compiler does not know, or one written above a
 declaration it does not apply to, is warning W0617, so a misspelling such
-as `//iron:fusable` does not pass silently.
+as `//iron:fusable` does not pass silently. A `//iron:fusible` function
+that cannot keep the claim is warning W0618.
 
 **Transition.** Earlier versions wrote line comments with `--`,
 documentation lines with `///` and the fusion hint as `@fusible`. These
@@ -1482,10 +1483,15 @@ func main() {
 A top-level function name is a function value: `val f = twice`,
 `apply(twice, 4)` and `[twice]` work like the equivalent lambdas.
 
-The compiler hint `//iron:fusible` on the line directly above a `func`
-marks it as eligible for loop fusion of chained list operations; it changes
-nothing else about the function. The older `@fusible` before `func` means
-the same and is accepted while code migrates (section 1.2).
+The compiler hint `//iron:fusible` on the line directly above a `func` or
+a method is a checked claim: the function can run inside a fused list loop
+(section 9.3.1), which means that it has no observable effect and cannot
+panic. The compiler verifies the claim when it builds the program and
+reports warning W0618, with the reason, for a function that does not keep
+it. The hint changes nothing else: fusion is decided by the same proof for
+every callback, hinted or not, and a program prints the same with its hints
+removed. The older `@fusible` before `func` means the same and is accepted
+while code migrates (section 1.2).
 
 ### 5.3 Objects
 
@@ -2886,8 +2892,9 @@ is an index out of bounds panic, like `xs[i]`. `contains` compares with
 `==`, so a list never contains NaN.
 
 The lambdas passed to `map`, `filter`, `reduce` and `forEach` must write
-their parameter types. Chains of `map`/`filter`/`reduce` calls are fused
-into one loop by the optimizer.
+their parameter types. `map` cannot produce tuples (a list cannot hold
+them, E0202). A chain of these calls may be fused into one loop (section
+9.3.1); that never changes what the program does.
 
 ```iron
 func main() {
@@ -2916,6 +2923,134 @@ func main() {
 1,2,3,4,5,
 5 60 8 2
 abc
+```
+
+#### 9.3.1 Loop fusion
+
+`map`, `filter`, `reduce`, `forEach` and `sum` each run one loop over their
+list, and `map` and `filter` allocate the list they return. Written as a
+chain, `xs.map(f).filter(g).sum()` is three loops and two intermediate
+lists. The optimizer may *fuse* such a chain into one loop that takes one
+element of `xs` through every stage before it reads the next, and builds
+no intermediate list.
+
+The fused loop calls the callbacks in a different order (`f`, `g`, `f`,
+`g`, ... instead of every `f` and then every `g`). Fusion is therefore done
+only where no program can tell the difference. All of the following must
+hold; where one does not, the calls run as written.
+
+**The stages.** A chain is two or more of the five methods, each called on
+the result of the one before. `map` and `filter` may be anywhere; `reduce`,
+`sum` and `forEach` return no list and can only be last. Any other method
+(`copy`, `len`, a slice, an index, ...) is not a stage: the chain ends
+before it and a new one may start after it. A chain is split wherever a
+rule below fails, and each part of two or more stages is fused on its own.
+
+**The callbacks.** Each callback must be a named function or a lambda the
+compiler can see at the call: written there, or a `val` bound to one. A
+callback received as a parameter, read from a field or stored in a `var`
+is unknown. A lambda may capture `val` bindings (it gets a copy); one that
+captures a `var` shares it with the enclosing function and is not fused.
+The body, and the body of every function it calls, must be proven free of
+effects and of anything that can panic. What is allowed is:
+
+- arithmetic, comparison, logic and bit operations on numbers and `Bool`,
+  and conversions between numeric types;
+- integer `/` and `%` by a constant other than zero, and shifts by a
+  constant count (float division never panics);
+- `if`, `while`, `match`, local `val` and `var`, `return`;
+- reading a field of an object, tuple or enum value held directly, and
+  constructing an object or tuple;
+- reading a global;
+- calling a function or method of the program that itself passes, generic
+  or not. A recursive function does not pass.
+
+Everything else keeps the stage out of a fused loop: any I/O, writing a
+global, a field, a list element or through a pointer, a `var` parameter,
+indexing a list, integer division or modulo by a value that is not a
+constant, a shift by a count that is not a constant, anything that builds
+a String or a list, allocation, reading through an rc, heap or pointer
+value, optionals, closures, tasks, and every function implemented outside
+Iron (the String and list methods among them).
+
+**The values between stages.** The values one stage hands to the next must
+be numbers, `Bool`, or objects made only of those with no `copy` or `drop`
+hook and not `nocopy`. So must the accumulator of a `reduce`. A `map` that
+produces Strings, lists, rc handles, optionals, enums or objects that own
+any of them really builds its list, and every such value is created,
+copied and dropped exactly as written. The stage that reads that list may
+start a new chain. The source list of a chain may hold anything; it is
+read in place.
+
+**The source.** A list of an interface type is never read by a fused loop
+(it keeps its elements per implementing type, and a loop over it must
+still visit them in list order). Every other list can be: a binding, a
+parameter, a global, a literal or call result (kept alive until the loop
+is done), an `rc [T]`, a fixed-size array, a bounded vector, a slice, a
+list of either layout. A `map` or `filter` at the end of a chain makes a
+list of the layout its type asks for.
+
+**Bindings.** The stages need not be in one expression. `val a = xs.map(f)`
+followed by `a.filter(g).sum()` is one chain when `a` has no other reader
+and nothing but argument setup stands between the two calls: constants,
+arithmetic, building the callbacks, constructing an object. Any call or
+other statement in between could change what the earlier stage reads (the
+source list, a global), so it ends the chain there, as does a branch or a
+loop between the two calls. The arguments of a later stage count as "in
+between": in `xs.map(f).reduce(next_id(), g)` the call of `next_id` runs
+after `map` has finished, as written.
+
+**What a fused loop does.** It visits the source in list order. For each
+element it applies the stages in order: `map` replaces the value, `filter`
+drops the element when its callback returns false, `reduce` updates the
+accumulator (starting from its first argument), `sum` adds to a total that
+starts at zero, `forEach` calls its callback. A `map` or `filter` in last
+position appends to the new list. An empty source calls nothing: the
+result is zero, the initial value of `reduce`, or an empty list. The loop
+runs where the last stage is written, once each time that point is
+reached.
+
+Fusion is local to one function body and to the stages that pass; a
+pipeline inside a callback is a list method call like any other (the outer
+stage is not fused, the inner pipeline is, on its own). It adds and removes
+no synchronization: a pipeline in a `spawn` or `parallel` body is fused by
+the same rules. Only an optimizing build fuses: with `--no-optimize` or
+`--debug` every call runs as written, so the two builds of a program must
+print the same, and that is how the test suite checks fusion.
+
+`iron build --warn-fusion-break` prints, for every list method call that
+was left out of a fused loop, the rule that stopped it:
+
+```text
+note: --warn-fusion-break: main.iron:12: .map() is not fused: its callback calls 'println', whose effects the compiler cannot rule out
+note: --warn-fusion-break: main.iron:20: .sum() is not fused with the .map() before it: the intermediate list has another reader
+```
+
+```iron
+var calls = 0
+
+//iron:fusible
+func double(x: Int) -> Int {
+    return x * 2
+}
+
+func counted(x: Int) -> Int {
+    calls += 1
+    return x + 1
+}
+
+func main() {
+    val xs = [1, 2, 3, 4]
+    // one loop, no intermediate list
+    println("{xs.map(double).filter(func(x: Int) -> Bool { return x > 2 }).sum()}")
+    // counted writes a global: map runs first, then filter and sum in one loop
+    println("{xs.map(counted).filter(func(x: Int) -> Bool { return x > calls }).sum()}")
+}
+```
+
+```output
+18
+5
 ```
 
 ### 9.4 `math` (import)
@@ -3703,6 +3838,7 @@ codes cited in this manual:
 | W0601, W0604, W0605, W0606 | narrowing cast; spawn data race; arena skips `drop`; heap value never freed |
 | W0611, W0613, W0614 | unused import; `var` never reassigned; `var` parameter never reassigned |
 | W0617 | unknown `//iron:` compiler hint, or one on a declaration it does not apply to |
+| W0618 | `//iron:fusible` on a function that has an effect or can panic (reported by `build` and `run`) |
 
 `docs/dev/diagnostic-codes.md` lists every code with its message.
 
