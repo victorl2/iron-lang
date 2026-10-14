@@ -516,6 +516,7 @@ bool emit_val_is_any_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid);
  * For HEAP_ALLOC: returns emit_type_to_c(instr->type, ctx).
  * For ADDR_OF targeting HEAP_ALLOC: returns the heap alloc's C type.
  * Returns NULL if not a fat ptr. */
+const char *emit_debug_fatptr(EmitCtx *ctx, const char *pointee_c);
 const char *emit_fat_ptr_pointee_type_c(IronLIR_Func *fn, IronLIR_ValueId vid, EmitCtx *ctx);
 bool emit_val_is_type_ref(IronLIR_Func *fn, IronLIR_ValueId vid);
 Iron_Type *emit_get_value_type(IronLIR_Func *fn, IronLIR_ValueId vid);

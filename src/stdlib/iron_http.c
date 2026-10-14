@@ -2127,6 +2127,27 @@ Iron_HttpResponse Iron_httpclient_request(
     return out;
 }
 
+/* What the debugger formatters (src/debug) show for an HttpClient, whose
+ * Iron object holds only a handle: the origin and the state of its
+ * connections. Called by the debugger while the program is stopped, so it
+ * reads without the client's lock. The text lives in a per-thread buffer
+ * until the next call. */
+__attribute__((used)) const char *iron_http_debug_text(int64_t h) {
+    static _Thread_local char out[HTTP_MAX_HOST + 160];
+    HttpClientState *client = (HttpClientState *)(intptr_t)h;
+    if (!client) return "null";
+    int64_t open = 0, busy = 0;
+    for (int64_t i = 0; i < client->slot_count && client->slots; i++) {
+        if (client->slots[i].connected) open++;
+        if (client->slots[i].busy) busy++;
+    }
+    snprintf(out, sizeof(out), "%s://%s, %lld of %lld connections open, %lld busy%s",
+             client->origin.secure ? "https" : "http", client->origin.host_header,
+             (long long)open, (long long)client->slot_count, (long long)busy,
+             client->closing ? ", closing" : "");
+    return out;
+}
+
 void Iron_httpclient_close(Iron_HttpClient handle) {
     HttpClientState *client = (HttpClientState *)(intptr_t)handle.handle;
     if (!client) return;

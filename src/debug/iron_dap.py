@@ -46,20 +46,34 @@ install a debugger when there is none, and exits 1 then.
 Only the Python standard library is used.
 """
 import json
+import math
 import os
 import queue
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OWN_SEQ_BASE = 1000000000
 SYNTH_REF_BASE = 1500000000   # variablesReferences the adapter answers itself
 ARRAY_SHOWN = 100
 POINTER = re.compile(r"^(\([^)]*\)\s*)?0x[0-9a-fA-F]+$")
+
+
+def is_c_array_value(value, type_name=None):
+    """A list kept as a C array is a pointer (`xs`, with `xs_len` beside
+    it). lldb-dap writes a pointer with what it points at
+    (`0x16fdfc9d4 3.04e-314`, `6171906384 "..."` for a uint8_t *)."""
+    t = c_type_of(type_name)
+    if t:
+        return t.endswith("*")
+    v = str(value or "")
+    return bool(POINTER.match(v) or re.match(r"^0x[0-9a-fA-F]+ ", v))
 # Every Iron panic prints its message and ends in the C library's abort().
 PANIC_FUNCTIONS = ("abort", "__abort", "raise", "__pthread_kill", "pthread_kill",
                    "__pthread_kill_implementation", "gsignal")
@@ -94,12 +108,111 @@ def read_message(stream):
         if not chunk:
             return None
         body += chunk
-    return json.loads(body.decode("utf-8"))
+    msg = json.loads(body.decode("utf-8"))
+    # (A body that is JSON null is a message, not the end of the input.)
+    return msg if msg is not None else NOT_A_MESSAGE
+
+
+NOT_A_MESSAGE = []      # read_message's value for a `null` body
 
 
 def frame(msg):
     body = json.dumps(msg, separators=(",", ":")).encode("utf-8")
     return b"Content-Length: %d\r\n\r\n" % len(body) + body
+
+
+IRON_KEYWORDS = ["and", "or", "not", "true", "false", "null", "len"]
+
+# Requests that let the program run.
+RESUME_REQUESTS = ("launch", "attach", "restart", "continue", "next", "stepIn", "stepOut",
+                   "stepBack", "reverseContinue", "restartFrame", "goto")
+# Debugger commands typed in the debug console that do.
+RESUME_COMMAND = re.compile(r"^\s*`?\s*(-exec\s+)?(c|continue|n|next|s|step|si|ni|stepi|nexti|"
+                            r"fin|finish|r|run|start|until|advance|jump|kill|"
+                            r"process\s+[\w-]+|thread\s+[\w-]+)(\s+[\w./-]|\s*$)")
+
+# The requests of the Debug Adapter Protocol: anything else is answered
+# with an error here (lldb-dap leaves an unknown request unanswered).
+DAP_REQUESTS = {
+    "initialize", "launch", "attach", "restart", "disconnect", "terminate", "breakpointLocations",
+    "setBreakpoints", "setFunctionBreakpoints", "setExceptionBreakpoints", "dataBreakpointInfo",
+    "setDataBreakpoints", "setInstructionBreakpoints", "configurationDone", "continue", "next",
+    "stepIn", "stepOut", "stepBack", "reverseContinue", "restartFrame", "goto", "pause",
+    "stackTrace", "scopes", "variables", "setVariable", "source", "threads", "terminateThreads",
+    "modules", "loadedSources", "evaluate", "setExpression", "stepInTargets", "gotoTargets",
+    "completions", "exceptionInfo", "readMemory", "writeMemory", "disassemble", "locations",
+    "cancel", "runInTerminal", "startDebugging",
+}
+INT_ARGS = ("threadId", "frameId", "variablesReference", "startFrame", "levels", "line",
+            "column", "start", "count", "targetId", "offset", "instructionCount",
+            "instructionOffset", "sourceReference")
+
+
+# Requests a debugger answers only when its initialize response says so;
+# lldb-dap 18 stops answering (or crashes on) the others.
+CAPABILITY_OF = {
+    "loadedSources": "supportsLoadedSourcesRequest", "modules": "supportsModulesRequest",
+    "readMemory": "supportsReadMemoryRequest", "writeMemory": "supportsWriteMemoryRequest",
+    "disassemble": "supportsDisassembleRequest", "setVariable": "supportsSetVariable",
+    "goto": "supportsGotoTargetsRequest", "gotoTargets": "supportsGotoTargetsRequest",
+    "stepBack": "supportsStepBack", "reverseContinue": "supportsStepBack",
+    "restartFrame": "supportsRestartFrame", "setExpression": "supportsSetExpression",
+    "stepInTargets": "supportsStepInTargetsRequest",
+    "terminateThreads": "supportsTerminateThreadsRequest",
+    "dataBreakpointInfo": "supportsDataBreakpoints", "setDataBreakpoints": "supportsDataBreakpoints",
+    "setInstructionBreakpoints": "supportsInstructionBreakpoints",
+    "breakpointLocations": "supportsBreakpointLocationsRequest",
+    "cancel": "supportsCancelRequest", "setFunctionBreakpoints": "supportsFunctionBreakpoints",
+    "restart": "supportsRestartRequest", "terminate": "supportsTerminateRequest",
+    "locations": "supportsLocationsRequest", "runInTerminal": "-", "startDebugging": "-",
+}
+# Arguments a request cannot do without (the protocol's required ones).
+REQUIRED = {
+    "stackTrace": ("threadId",), "continue": ("threadId",), "next": ("threadId",),
+    "stepIn": ("threadId",), "stepOut": ("threadId",), "pause": ("threadId",),
+    "stepBack": ("threadId",), "reverseContinue": ("threadId",), "goto": ("threadId", "targetId"),
+    "exceptionInfo": ("threadId",), "scopes": ("frameId",), "variables": ("variablesReference",),
+    "setBreakpoints": ("source",), "readMemory": ("memoryReference", "count"),
+    "writeMemory": ("memoryReference", "data"), "disassemble": ("memoryReference", "instructionCount"),
+    "setVariable": ("variablesReference", "name", "value"), "evaluate": ("expression",),
+    "source": ("sourceReference",), "setExpression": ("expression", "value"),
+    "restartFrame": ("frameId",), "gotoTargets": ("source", "line"),
+    "stepInTargets": ("frameId",), "breakpointLocations": ("source", "line"),
+    "dataBreakpointInfo": ("name",), "setDataBreakpoints": ("breakpoints",),
+    "setInstructionBreakpoints": ("breakpoints",), "setFunctionBreakpoints": ("breakpoints",),
+    "completions": ("text", "column"),
+}
+
+
+def bad_arguments(a):
+    """Why a request's arguments cannot be what the protocol says (an id
+    that is not an integer, a source that is not an object...), or None.
+    Debuggers handle such requests badly (lldb-dap stops answering)."""
+    for k in INT_ARGS:
+        if k in a and a[k] is not None and (not isinstance(a[k], int) or isinstance(a[k], bool)
+                                            or not -(1 << 62) < a[k] < (1 << 62)):
+            return "%s must be an integer" % k
+    for k in ("expression", "program", "context", "cwd", "name", "value", "text"):
+        if k in a and a[k] is not None and not isinstance(a[k], str):
+            return "%s must be a string" % k
+    if "source" in a and a["source"] is not None:
+        src = a["source"]
+        if not isinstance(src, dict):
+            return "source must be an object"
+        if "path" in src and src["path"] is not None and not isinstance(src["path"], str):
+            return "source.path must be a string"
+    for k in ("breakpoints", "filters", "args"):
+        if k in a and a[k] is not None and not isinstance(a[k], list):
+            return "%s must be a list" % k
+    for bp in a.get("breakpoints") or []:
+        if not isinstance(bp, dict):
+            return "each breakpoint must be an object"
+        bad = bad_arguments(bp)
+        if bad:
+            return "a breakpoint's " + bad
+    if "env" in a and a["env"] is not None and not isinstance(a["env"], dict):
+        return "env must be an object"
+    return None
 
 
 # ── Naming rules shared with iron_lldb.py / iron_gdb.py ──────────────────────
@@ -113,7 +226,48 @@ def iron_name(c_name):
     return c_name, False
 
 
-def iron_function_name(c_name, test=None):
+_METHODS = {}
+
+
+def source_methods(path):
+    """{lowercased type name: (type name, {method names})} declared in the
+    Iron file `path` (objects, enums, patch blocks, receiver-form methods),
+    to name a method's frame Counter.add rather than counter_add."""
+    if path in _METHODS:
+        return _METHODS[path]
+    out = {}
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except (OSError, TypeError, ValueError):
+        _METHODS[path] = out
+        return out
+    current, depth = None, 0
+    for line in text.splitlines():
+        code = line.split("//")[0]
+        if current is None:
+            m = re.match(r"^\s*(?:pub\s+)?(?:patch\s+)?(?:object|enum|interface)\s+([A-Z]\w*)", code)
+            if m and "{" in code:
+                current, depth = m.group(1), 0
+                out.setdefault(current.lower(), (current, set()))
+            m2 = re.match(r"^\s*(?:pub\s+)?(?:\w+\s+)*func\s+([A-Z]\w*)\.(\w+)\s*\(", code)
+            if m2:
+                out.setdefault(m2.group(1).lower(), (m2.group(1), set()))[1].add(m2.group(2))
+        if current is not None:
+            if depth == 1:
+                m = re.match(r"^\s*(?:\w+\s+)*func\s+(\w+)\s*\(", code)
+                if m:
+                    out[current.lower()][1].add(m.group(1))
+                if re.match(r"^\s*(?:\w+\s+)*init\s*\(", code):
+                    out[current.lower()][1].add("init")
+            depth += code.count("{") - code.count("}")
+            if depth <= 0 and "}" in code:
+                current = None
+    _METHODS[path] = out
+    return out
+
+
+def iron_function_name(c_name, test=None, source=None):
     """The Iron name of a frame's C function. A `test "..."` block compiles
     to Iron_iron__test_<n>: it is shown as test "<name>" when the session
     debugs that one test (`test`), else as test."""
@@ -122,10 +276,26 @@ def iron_function_name(c_name, test=None):
         return ('test "%s"' % test if test else "test") + m.group(1)
     m = re.match(r"^Iron_(\w+)(.*)$", c_name)
     if m:
-        return m.group(1) + m.group(2)
+        base, rest = m.group(1), m.group(2)
+        # A method is Iron_<type, lowercased>_<method>: Counter.add
+        mm = re.match(r"^([a-z0-9]+)_(\w+)$", base)
+        types = source_methods(source) if source else {}
+        if mm and mm.group(1) in types and mm.group(2) in types[mm.group(1)][1]:
+            return "%s.%s%s" % (types[mm.group(1)][0], mm.group(2), rest)
+        # A generic instance: gid__Int is gid[Int]
+        parts = base.split("__")
+        if len(parts) > 1 and all(p and p[0].isalpha() and p.isalnum() for p in parts):
+            return "%s[%s]%s" % (parts[0], ", ".join(parts[1:]), rest)
+        return base + rest
     m = re.match(r"^__lambda_\d+(.*)$", c_name)
     if m:
         return "func" + m.group(1)
+    m = re.match(r"^__spawn_\d+(.*)$", c_name)
+    if m:
+        return "spawn" + m.group(1)
+    m = re.match(r"^__pfor_\d+(.*)$", c_name)
+    if m:
+        return "parallel for" + m.group(1)
     return c_name
 
 
@@ -375,10 +545,199 @@ class IronEvalError(Exception):
     pass
 
 
-TOKEN = re.compile(r'\s*(?:(\d+\.\d+)|(\d+)|("(?:[^"\\]|\\.)*")|([A-Za-z_][A-Za-z0-9_]*)|'
-                   r'(==|!=|<=|>=|&&|\|\||[-+*/%<>()\[\].,!]))')
+# ── Values as Iron shows them ────────────────────────────────────────────────
+
+def float_text(v, is_f32=False):
+    """A float as Iron prints it (src/runtime/iron_fmt.c): the shortest
+    digits that read back to the value, no trailing .0, inf / -inf / NaN."""
+    if math.isnan(v):
+        return "NaN"
+    if math.isinf(v):
+        return "inf" if v > 0 else "-inf"
+    if v == 0:
+        return "0"
+    for p in range(1, 10 if is_f32 else 18):
+        sci = "%.*e" % (p - 1, v)
+        if (to_f32(float(sci)) == to_f32(v)) if is_f32 else float(sci) == v:
+            break
+    neg = sci.startswith("-")
+    mant, e = sci.lstrip("-").split("e")
+    e = int(e)
+    digits = mant.replace(".", "").rstrip("0") or "0"
+    n = len(digits)
+    out = "-" if neg else ""
+    if -6 <= e < 21:
+        if e >= 0:
+            out += "".join(digits[i] if i < n else "0" for i in range(e + 1))
+            if n > e + 1:
+                out += "." + digits[e + 1:]
+        else:
+            out += "0." + "0" * (-e - 1) + digits
+    else:
+        out += digits[0] + ("." + digits[1:] if n > 1 else "")
+        out += "e%s%d" % ("-" if e < 0 else "+", abs(e))
+    return out
+
+
+def to_f32(x):
+    try:
+        return struct.unpack("f", struct.pack("f", x))[0]
+    except OverflowError:
+        return math.copysign(math.inf, x)
+
+
+def iron_quote(s):
+    """A string as an Iron literal: the escapes of the manual (\\n, \\t,
+    \\\\, \\"), any other control character (a zero byte too) as \\u{H}.
+    The value formatters (iron_lldb.py, iron_gdb.py) write strings so."""
+    out = []
+    for ch in s:
+        o = ord(ch)
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\t":
+            out.append("\\t")
+        elif o < 0x20 or o == 0x7f:
+            out.append("\\u{%x}" % o)
+        else:
+            out.append(ch)
+    return '"%s"' % "".join(out)
+
+
+ESCAPE = re.compile(r'\\(u\{([0-9a-fA-F]{1,6})\}|.)', re.S)
+
+
+def iron_unescape(body):
+    """The text of an Iron string literal's body (manual 1.4): \\n, \\t,
+    \\\\, \\", \\{, \\}, \\u{H}; any other backslash is kept."""
+    def rep(m):
+        if m.group(2):
+            try:
+                return chr(int(m.group(2), 16))
+            except (ValueError, OverflowError):
+                return m.group(0)
+        c = m.group(1)
+        return {"n": "\n", "t": "\t", "\\": "\\", '"': '"', "{": "{", "}": "}"}.get(c, m.group(0))
+    return ESCAPE.sub(rep, body)
+
+
+# An Iron integer type: (name, bits, signed); a literal has none and takes
+# its partner's (manual 1.4).
+INT_C_TYPES = {"int8_t": ("Int8", 8, True), "int16_t": ("Int16", 16, True),
+               "int32_t": ("Int32", 32, True), "int64_t": ("Int", 64, True),
+               "uint8_t": ("UInt8", 8, False), "uint16_t": ("UInt16", 16, False),
+               "uint32_t": ("UInt32", 32, False), "uint64_t": ("UInt", 64, False),
+               "signed char": ("Int8", 8, True), "unsigned char": ("UInt8", 8, False),
+               "short": ("Int16", 16, True), "unsigned short": ("UInt16", 16, False),
+               "int": ("Int32", 32, True), "unsigned int": ("UInt32", 32, False),
+               "long": ("Int", 64, True), "long long": ("Int", 64, True),
+               "unsigned long": ("UInt", 64, False),
+               "unsigned long long": ("UInt", 64, False)}
+INT64 = ("Int", 64, True)
+
+
+class IInt(int):
+    """An integer with its Iron type (None: a literal)."""
+
+    def __new__(cls, v, ty=None):
+        o = int.__new__(cls, v)
+        o.ty = ty
+        return o
+
+
+class IFloat(float):
+    """A float, Float32 when f32 (None: a literal)."""
+
+    def __new__(cls, v, f32=None):
+        o = float.__new__(cls, to_f32(v) if f32 else v)
+        o.f32 = f32
+        return o
+
+
+class Variant:
+    """`Color.Green`, `Shape.Rect(2, 3)` written in an expression: equal to
+    an enum value the debugger shows as `Green`, `Rect(2, 3)`."""
+
+    def __init__(self, enum, name, args=None):
+        self.enum, self.name, self.args = enum, name, args
+
+    def text(self):
+        if self.args is None:
+            return self.name
+        return "%s(%s)" % (self.name, ", ".join(fmt(a) for a in self.args))
+
+
+def wrap_int(v, ty):
+    _, bits, signed = ty or INT64
+    v &= (1 << bits) - 1
+    if signed and v >> (bits - 1):
+        v -= 1 << bits
+    return IInt(v, ty)
+
+
+def c_type_of(text):
+    t = re.sub(r"\b(const|volatile)\b", "", str(text or "")).strip()
+    return re.sub(r"\s+", " ", t)
+
+
+def clean_value(text, type_name=None):
+    """A value as the debugger wrote it, as Iron shows it. lldb-dap writes
+    a scalar or a pointer followed by its summary (`0x1006d61a8 rc Point
+    {...}`, `0.10000000000000001 0.1`, `Iron_Color_Green Green`): the
+    summary is kept. Without the value formatters (an LLDB without
+    Python), a float is written as Iron prints it and Int8 / UInt8 as a
+    number rather than a character."""
+    t = str(text if text is not None else "")
+    ty = c_type_of(type_name)
+    m = RAW_THEN_SUMMARY.match(t)
+    if m and ((ty.endswith("*") and not ty.startswith(("char", "const char", "unsigned char",
+                                                       "uint8_t", "signed char"))) or
+              ty in ("double", "float") or m.group(1).startswith("Iron_")):
+        t = m.group(2)
+    if ty in ("double", "float"):
+        try:
+            v = float(t)
+        except ValueError:
+            return t
+        return float_text(v, ty == "float")
+    if ty in ("int8_t", "uint8_t", "signed char", "unsigned char", "char"):
+        m = re.match(r"^(-?\d+) '.*'$", t)              # gdb: -5 '\373'
+        if m:
+            return m.group(1)
+        m = re.fullmatch(r"'(\\x[0-9a-fA-F]{1,2}|\\[0-7]{1,3}|\\.|.)'", t)   # lldb: '\xfb'
+        if m:
+            c = m.group(1)
+            if c.startswith("\\x"):
+                v = int(c[2:], 16)
+            elif re.fullmatch(r"\\[0-7]{1,3}", c):
+                v = int(c[1:], 8)
+            elif c.startswith("\\"):
+                v = ord({"n": "\n", "t": "\t", "r": "\r", "0": "\0", "a": "\a", "b": "\b",
+                         "f": "\f", "v": "\v", "e": "\x1b"}.get(c[1], c[1]))
+            else:
+                v = ord(c)
+            if ty in ("int8_t", "signed char") and v > 127:
+                v -= 256
+            return str(v)
+    return t
+
+
+RAW_THEN_SUMMARY = re.compile(r"^(0x[0-9a-fA-F]+|[-+]?\d[\d.]*(?:[eE][-+]?\d+)?|"
+                              r"[-+]?(?:inf|nan)|Iron_\w+) (.+)$", re.I | re.S)
+
+
+# ── Parsing ──────────────────────────────────────────────────────────────────
+
+TOKEN = re.compile(r'\s*(?:(\d+\.\d+)|(0[xX][0-9a-fA-F]+|0[bB][01]+|\d+)|("(?:[^"\\]|\\.)*")|'
+                   r'([A-Za-z_][A-Za-z0-9_]*)|'
+                   r'(==|!=|<=|>=|&&|\|\||<<|>>|[-+*/%<>()\[\].,!&|^~]))', re.S)
 BINARY = {"or": 1, "and": 2, "==": 3, "!=": 3, "<": 4, ">": 4, "<=": 4, ">=": 4,
-          "+": 5, "-": 5, "*": 6, "/": 6, "%": 6}
+          "|": 5, "^": 6, "&": 7, "<<": 8, ">>": 8,
+          "+": 9, "-": 9, "*": 10, "/": 10, "%": 10}
 IRON_ONLY = re.compile(r'\b(and|or|not)\b|\.\s*(len|is_empty|has|get|get_or|contains)\s*\(|'
                        r'\blen\s*\(|"')
 
@@ -393,16 +752,57 @@ def tokenize(text):
         pos = m.end()
         f, i, s, name, op = m.groups()
         if f is not None:
-            out.append(("num", float(f)))
+            out.append(("num", IFloat(float(f))))
         elif i is not None:
-            out.append(("num", int(i)))
+            out.append(("num", IInt(int(i, 0))))
         elif s is not None:
-            out.append(("str", bytes(s[1:-1], "utf-8").decode("unicode_escape")))
+            out.append(("str", s[1:-1]))      # unescaped (and interpolated) by the parser
         elif name is not None:
             out.append(("name", name))
         else:
             out.append(("op", {"&&": "and", "||": "or", "!": "not"}.get(op, op)))
     return out
+
+
+def split_interpolation(body):
+    """An Iron string literal's body as [("text", str) | ("expr", src)]:
+    `{expr}` is interpolated unless its brace is escaped (manual 3.3)."""
+    parts, i, buf = [], 0, []
+    while i < len(body):
+        c = body[i]
+        if c == "\\" and i + 1 < len(body):
+            m = re.match(r"\\u\{[0-9a-fA-F]{1,6}\}", body[i:])
+            n = len(m.group(0)) if m else 2
+            buf.append(body[i:i + n])
+            i += n
+            continue
+        if c == "{":
+            depth, j = 1, i + 1
+            in_str = False
+            while j < len(body) and depth:
+                if body[j] == "\\":
+                    j += 2
+                    continue
+                if body[j] == '"':
+                    in_str = not in_str
+                elif not in_str and body[j] == "{":
+                    depth += 1
+                elif not in_str and body[j] == "}":
+                    depth -= 1
+                j += 1
+            if depth:
+                raise IronEvalError("unclosed `{` in a string")
+            if buf:
+                parts.append(("text", iron_unescape("".join(buf))))
+                buf = []
+            parts.append(("expr", body[i + 1:j - 1]))
+            i = j
+            continue
+        buf.append(c)
+        i += 1
+    if buf or not parts:
+        parts.append(("text", iron_unescape("".join(buf))))
+    return parts
 
 
 class Parser:
@@ -418,7 +818,7 @@ class Parser:
         t = self.toks[self.i]
         if kind and t[0] != kind and not (kind == "op" and t[0] == "name" and t[1] in ("and", "or", "not")):
             return None
-        if value is not None and t[1] != value:
+        if value is not None and (t[0] not in ("op", "name") or t[1] != value):
             return None
         return t
 
@@ -450,27 +850,51 @@ class Parser:
 
     def unary(self):
         t = self.peek()
-        if t and t[1] == "not":
+        if t and t[0] in ("op", "name") and t[1] == "not":
             self.i += 1
             return ("not", self.unary())
         if t and t == ("op", "-"):
             self.i += 1
             return ("neg", self.unary())
+        if t and t == ("op", "~"):
+            self.i += 1
+            return ("bnot", self.unary())
         return self.postfix(self.primary())
 
     def primary(self):
         t = self.take()
-        if t[0] in ("num", "str"):
+        if t[0] == "num":
             return ("lit", t[1])
+        if t[0] == "str":
+            parts = split_interpolation(t[1])
+            if len(parts) == 1 and parts[0][0] == "text":
+                return ("lit", parts[0][1])
+            return ("interp", [(k, v if k == "text" else Parser(v).parse()) for k, v in parts])
         if t[0] == "name":
             if t[1] in ("true", "false"):
                 return ("lit", t[1] == "true")
             if t[1] == "null":
                 return ("lit", None)
-            if self.peek(value="("):        # len(x)
+            if self.peek(value="("):        # len(x), Int(x)
                 self.i += 1
                 args = self.args()
                 return ("call", t[1], args)
+            if t[1] == "String" and self.peek(value=".") and \
+                    self.i + 2 < len(self.toks) and self.toks[self.i + 1] == ("name", "from_byte") \
+                    and self.toks[self.i + 2] == ("op", "("):
+                self.i += 3
+                return ("call", "String.from_byte", self.args())
+            if t[1][:1].isupper() and self.peek(value=".") and \
+                    self.i + 1 < len(self.toks) and self.toks[self.i + 1][0] == "name" and \
+                    self.toks[self.i + 1][1][:1].isupper():
+                # Color.Green, Shape.Rect(2, 3): an enum variant (manual 3.6)
+                self.i += 1
+                v = self.take()[1]
+                args = None
+                if self.peek(value="("):
+                    self.i += 1
+                    args = self.args()
+                return ("variant", t[1], v, args)
             return ("var", t[1])
         if t[1] == "(":
             e = self.expr(0)
@@ -511,14 +935,42 @@ class Parser:
                 return e
 
 
+def is_field_path(tree):
+    """A name or a field (`total`, `p.x`): what the debugger reads
+    directly, with its type and children. (An element, `xs[i]`, is the
+    evaluator's: it checks the index against the list's length.)"""
+    k = tree[0]
+    if k == "var":
+        return True
+    if k == "field":
+        return is_field_path(tree[1])
+    return False
+
+
 class Ref:
     """A value the debugger holds: its path, its text and its children."""
 
-    def __init__(self, path, text, ref):
-        self.path, self.text, self.ref = path, text, ref
+    def __init__(self, path, text, ref, type_name=None):
+        self.path, self.text, self.ref, self.type = path, text, ref, type_name
 
 
-SIZE = re.compile(r"\bsize=(\d+)|^(?:Map|Set)?\[(\d+)\]$")   # lldb, gdb
+SIZE = re.compile(r"\bsize=(\d+)|^(?:Map|Set)\[(\d+)\]$")   # lldb, gdb
+CONVERSIONS = {"Int": INT64, "Int64": ("Int64", 64, True), "Int32": ("Int32", 32, True),
+               "Int16": ("Int16", 16, True), "Int8": ("Int8", 8, True),
+               "UInt": ("UInt", 64, False), "UInt64": ("UInt64", 64, False),
+               "UInt32": ("UInt32", 32, False), "UInt16": ("UInt16", 16, False),
+               "UInt8": ("UInt8", 8, False)}
+
+
+def int_name(ty):
+    return (ty or INT64)[0]
+
+
+def same_int(a, b):
+    """Int and Int64 are one type to the debugger (both int64_t)."""
+    na, nb = int_name(a), int_name(b)
+    norm = {"Int64": "Int", "UInt64": "UInt"}
+    return norm.get(na, na) == norm.get(nb, nb)
 
 
 class IronEval:
@@ -526,17 +978,20 @@ class IronEval:
         self.proxy = proxy
         self.frame_id = frame_id
 
+    def ask(self, path):
+        return self.proxy.request("evaluate", {"expression": path, "frameId": self.frame_id,
+                                               "context": "watch"})
+
     def fetch(self, path):
-        r = self.proxy.request("evaluate", {"expression": path, "frameId": self.frame_id,
-                                            "context": "watch"})
+        r = self.ask(path)
         if not r.get("success") and re.fullmatch(r"[A-Za-z_]\w*", path):
             # A var captured by a closure lives behind `_ref_<name>` (the
-            # Locals view shows it as <name>); read it through that pointer.
-            ref_path = "(*_ref_%s)" % path
-            r2 = self.proxy.request("evaluate", {"expression": ref_path,
-                                                 "frameId": self.frame_id, "context": "watch"})
-            if r2.get("success"):
-                r, path = r2, ref_path
+            # Locals view shows it as <name>); a global is `Iron_g_<name>`.
+            for alt in ("(*_ref_%s)" % path, "Iron_g_%s" % path):
+                r2 = self.ask(alt)
+                if r2.get("success"):
+                    r, path = r2, alt
+                    break
         if not r.get("success"):
             if "." in path or "[" in path:
                 raise IronEvalError("`%s` has no value here" % path)
@@ -545,28 +1000,82 @@ class IronEval:
         text = str(b.get("result", ""))
         if not text and b.get("variablesReference"):
             text = self.proxy.struct_text("", b["variablesReference"], b.get("type"))
-        return self.value(path, text, b.get("variablesReference", 0))
+        return self.value(path, text, b.get("variablesReference", 0), b.get("type"))
 
     @staticmethod
-    def value(path, text, ref):
-        t = text.strip()
+    def value(path, text, ref, type_name=None):
+        ty = c_type_of(type_name)
+        t = clean_value(text, type_name).strip()
+        m = re.match(r"^Iron_Optional_(\w+)$", ty)
+        if m and t != "null":
+            ty = m.group(1).replace("Iron_String", "")
+        if ty in ("double", "float"):
+            try:
+                return IFloat(float(t), ty == "float")
+            except ValueError:
+                pass
+        if ty.endswith("*"):
+            return Ref(path, t, ref, type_name)     # a pointer, however it is written
         if re.fullmatch(r"-?\d+", t):
-            return int(t)
-        if re.fullmatch(r"-?\d+\.\d*(e[-+]?\d+)?", t, re.I):
-            return float(t)
+            return IInt(int(t), INT_C_TYPES.get(ty, INT64))
+        if re.fullmatch(r"-?\d+\.\d*(e[-+]?\d+)?|-?inf|NaN", t, re.I):
+            return IFloat(float(t.replace("NaN", "nan")))
         if t in ("true", "false"):
             return t == "true"
         if t == "null":
             return None
-        if len(t) >= 2 and t[0] == '"' and t[-1] == '"':
-            return t[1:-1].replace('\\"', '"')
-        return Ref(path, t, ref)
+        if len(t) >= 2 and t[0] == '"' and t[-1] == '"' and \
+                re.fullmatch(r'"(?:[^"\\]|\\.)*"', t, re.S):
+            return iron_unescape(t[1:-1])
+        return Ref(path, t, ref, type_name)
 
     def children(self, v):
         if not isinstance(v, Ref) or not v.ref:
             return []
+        synth = getattr(self.proxy, "synth", {})
+        if v.ref in synth:
+            return synth[v.ref]
         r = self.proxy.request("variables", {"variablesReference": v.ref})
-        return (r.get("body") or {}).get("variables", []) if r.get("success") else []
+        if not r.get("success"):
+            return []
+        return [dict(c, value=clean_value(c.get("value"), c.get("type")))
+                for c in (r.get("body") or {}).get("variables", [])]
+
+    def list_len(self, base):
+        m = SIZE.search(base.text)
+        if m:
+            return int(m.group(1) or m.group(2))
+        if base.text == "[]":
+            return 0
+        if is_c_array_value(base.text, base.type) and re.fullmatch(r"[A-Za-z_]\w*", base.path):
+            n = self.fetch(base.path + "_len")      # a list kept as a C array
+            if isinstance(n, int):
+                return n
+        if base.text.startswith("["):
+            # A list shows its first elements: its length is the struct's count.
+            if re.fullmatch(r"[A-Za-z_][\w.]*", base.path or ""):
+                try:
+                    n = self.fetch(base.path + ".count")
+                    if isinstance(n, int) and not isinstance(n, bool) and n >= 0:
+                        return n
+                except IronEvalError:
+                    pass
+            return len(self.children(base))
+        return None
+
+    def element(self, base, idx):
+        n = self.list_len(base)
+        if n is not None and not 0 <= idx < n:
+            raise IronEvalError("index out of bounds (index %d, bound %d)" % (idx, n))
+        for c in self.children(base):
+            if c.get("name") == "[%d]" % idx:
+                return self.value("%s[%d]" % (base.path, idx), str(c.get("value", "")),
+                                  c.get("variablesReference", 0), c.get("type"))
+        try:
+            return self.fetch("%s[%d]" % (base.path, idx))
+        except IronEvalError:
+            raise IronEvalError("index out of bounds (index %d, bound %s)" %
+                                (idx, n if n is not None else "?"))
 
     def ev(self, e):
         k = e[0]
@@ -574,50 +1083,68 @@ class IronEval:
             return e[1]
         if k == "var":
             return self.fetch(e[1])
+        if k == "interp":
+            return "".join(p if kind == "text" else text_of(self.ev(p)) for kind, p in e[1])
+        if k == "variant":
+            return Variant(e[1], e[2], None if e[3] is None else [self.ev(a) for a in e[3]])
         if k == "field":
             base = self.ev(e[1])
             if not isinstance(base, Ref):
                 raise IronEvalError("`%s` has no fields" % fmt(base))
+            for c in self.children(base):     # an object's field, also behind rc
+                if c.get("name") == e[2]:
+                    return self.value("%s.%s" % (base.path, e[2]), str(c.get("value", "")),
+                                      c.get("variablesReference", 0), c.get("type"))
             return self.fetch("%s.%s" % (base.path, e[2]))
         if k == "index":
             base, idx = self.ev(e[1]), self.ev(e[2])
-            if isinstance(base, str) and isinstance(idx, int):
-                if not 0 <= idx < len(base):
-                    raise IronEvalError("index %d out of range" % idx)
-                return base[idx]
+            if not isinstance(idx, int) or isinstance(idx, bool):
+                raise IronEvalError("an index must be an Int")
+            if isinstance(base, str):
+                # s[i] is s.char_at(i): "" out of range (manual 9.2)
+                return base[idx] if 0 <= idx < len(base) else ""
             if not isinstance(base, Ref):
                 raise IronEvalError("`%s` cannot be indexed" % fmt(base))
-            if isinstance(idx, int):
-                m = SIZE.search(base.text)
-                n = int(m.group(1) or m.group(2)) if m else None
-                if n is None and base.text.startswith("["):
-                    n = len(self.children(base))     # a list: [1, 2, 3]
-                if n is not None and not 0 <= idx < n:
-                    raise IronEvalError("index %d is out of range for a list of length %d"
-                                        % (idx, n))
-                try:
-                    return self.fetch("%s[%d]" % (base.path, idx))
-                except IronEvalError:
-                    # gdb indexes the list struct, not its elements: take
-                    # the element from the value printer's children.
-                    for c in self.children(base):
-                        if c.get("name") == "[%d]" % idx:
-                            return self.value("%s[%d]" % (base.path, idx), str(c.get("value", "")),
-                                              c.get("variablesReference", 0))
-                    raise
-            raise IronEvalError("a list index must be an Int")
+            return self.element(base, idx)
         if k == "not":
             return not self.truth(self.ev(e[1]))
         if k == "neg":
             v = self.ev(e[1])
-            if not isinstance(v, (int, float)) or isinstance(v, bool):
-                raise IronEvalError("`-` needs a number")
-            return -v
+            if isinstance(v, IFloat):
+                return IFloat(-v, v.f32)
+            if isinstance(v, int) and not isinstance(v, bool):
+                return wrap_int(-v, v.ty) if getattr(v, "ty", None) else IInt(-v)
+            raise IronEvalError("`-` needs a number")
+        if k == "bnot":
+            v = self.ev(e[1])
+            if not isinstance(v, int) or isinstance(v, bool):
+                raise IronEvalError("`~` needs an integer")
+            return wrap_int(~v, v.ty) if getattr(v, "ty", None) else IInt(~v)
         if k == "bin":
             return self.binary(e[1], e[2], e[3])
         if k == "call":
-            if e[1] == "len" and len(e[2]) == 1:
-                return self.length(self.ev(e[2][0]))
+            args = [self.ev(a) for a in e[2]]
+            if e[1] == "len" and len(args) == 1:
+                return self.length(args[0])
+            if e[1] == "String.from_byte" and len(args) == 1 and isinstance(args[0], int):
+                b = int(args[0]) & 0xff
+                return chr(b) if b < 0x80 else "\ufffd"
+            if len(args) == 1 and e[1] in CONVERSIONS:
+                v = args[0]
+                if isinstance(v, float):
+                    if math.isnan(v):
+                        return IInt(0, CONVERSIONS[e[1]])
+                    _, bits, signed = CONVERSIONS[e[1]]
+                    lo, hi = (-(1 << (bits - 1)), (1 << (bits - 1)) - 1) if signed else \
+                        (0, (1 << bits) - 1)
+                    v = max(lo, min(hi, int(v))) if not math.isinf(v) else (hi if v > 0 else lo)
+                    return IInt(v, CONVERSIONS[e[1]])
+                if isinstance(v, int) and not isinstance(v, bool):
+                    return wrap_int(v, CONVERSIONS[e[1]])
+            if len(args) == 1 and e[1] in ("Float", "Float64", "Float32"):
+                v = args[0]
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    return IFloat(float(v), e[1] == "Float32")
             raise IronEvalError("`%s(...)` is not available while debugging" % e[1])
         if k == "method":
             return self.method(self.ev(e[1]), e[2], [self.ev(a) for a in e[3]])
@@ -627,6 +1154,26 @@ class IronEval:
         if isinstance(v, bool):
             return v
         raise IronEvalError("expected a Bool, got %s" % fmt(v))
+
+    def numbers(self, op, a, b):
+        """The common type of two numbers (manual 2.1): one integer type,
+        or one float type; a literal takes its partner's type."""
+        ints = all(isinstance(x, int) and not isinstance(x, bool) for x in (a, b))
+        floats = all(isinstance(x, float) for x in (a, b))
+        if ints:
+            ta, tb = getattr(a, "ty", None), getattr(b, "ty", None)
+            if ta and tb and not same_int(ta, tb):
+                raise IronEvalError("`%s` mixes %s and %s; convert one (%s(x))" %
+                                    (op, int_name(ta), int_name(tb), int_name(tb)))
+            return "int", ta or tb or INT64
+        if floats:
+            fa, fb = getattr(a, "f32", None), getattr(b, "f32", None)
+            if fa is not None and fb is not None and fa != fb:
+                raise IronEvalError("`%s` mixes Float and Float32; convert one" % op)
+            return "float", bool(fa or fb)
+        if all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in (a, b)):
+            raise IronEvalError("`%s` mixes an integer and a float; convert one (Float(x))" % op)
+        return None, None
 
     def binary(self, op, le, re_):
         if op in ("and", "or"):
@@ -638,91 +1185,180 @@ class IronEval:
             return self.truth(self.ev(re_))
         a, b = self.ev(le), self.ev(re_)
         if op in ("==", "!="):
-            if isinstance(a, Ref) or isinstance(b, Ref):
-                eq = isinstance(a, Ref) and isinstance(b, Ref) and a.text == b.text
-            else:
-                eq = a == b and type(a) is type(b) or (a is None and b is None)
+            eq = self.equal(a, b)
             return eq if op == "==" else not eq
         if op == "+" and isinstance(a, str) and isinstance(b, str):
             return a + b
-        nums = all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in (a, b))
         strs = isinstance(a, str) and isinstance(b, str)
-        if op in ("<", ">", "<=", ">="):
-            if not (nums or strs):
-                raise IronEvalError("`%s` compares numbers or strings" % op)
+        if op in ("<", ">", "<=", ">=") and strs:
             return {"<": a < b, ">": a > b, "<=": a <= b, ">=": a >= b}[op]
-        if not nums:
+        kind, ty = self.numbers(op, a, b)
+        if kind is None:
+            if op in ("<", ">", "<=", ">="):
+                raise IronEvalError("`%s` compares numbers or strings" % op)
             raise IronEvalError("`%s` needs numbers" % op)
-        if op in ("/", "%") and b == 0:
-            raise IronEvalError("division by zero")
-        if op == "/" and isinstance(a, int) and isinstance(b, int):
-            q = abs(a) // abs(b)
-            return q if (a >= 0) == (b >= 0) else -q
-        if op == "%" and isinstance(a, int) and isinstance(b, int):
-            q = abs(a) // abs(b)
-            q = q if (a >= 0) == (b >= 0) else -q
-            return a - q * b
-        return {"+": a + b, "-": a - b, "*": a * b, "/": a / b if b else 0, "%": a % b}[op]
+        if op in ("<", ">", "<=", ">="):
+            return {"<": a < b, ">": a > b, "<=": a <= b, ">=": a >= b}[op]
+        if kind == "float":
+            if op in ("&", "|", "^", "<<", ">>"):
+                raise IronEvalError("`%s` takes integers" % op)
+            try:
+                if op == "/":
+                    if b == 0:
+                        v = math.nan if a == 0 or math.isnan(a) else \
+                            math.copysign(math.inf, a) * math.copysign(1.0, b)
+                    else:
+                        v = a / b
+                elif op == "%":
+                    v = math.fmod(a, b) if b != 0 and not math.isinf(a) else math.nan
+                else:
+                    v = {"+": a + b, "-": a - b, "*": a * b}[op]
+            except OverflowError:
+                v = math.inf
+            return IFloat(v, ty)
+        x, y = int(a), int(b)
+        bits = ty[1]
+        if op in ("/", "%"):
+            if y == 0:
+                raise IronEvalError("integer division by zero")
+            q = abs(x) // abs(y)
+            q = q if (x >= 0) == (y >= 0) else -q
+            return wrap_int(q if op == "/" else x - q * y, ty)
+        if op in ("<<", ">>"):
+            if y < 0:
+                raise IronEvalError("shift by a negative count")
+            if y >= bits:
+                return wrap_int(0 if op == "<<" or x >= 0 else -1, ty)
+            return wrap_int(x << y if op == "<<" else x >> y, ty)
+        return wrap_int({"+": x + y, "-": x - y, "*": x * y, "&": x & y, "|": x | y,
+                         "^": x ^ y}[op], ty)
+
+    def equal(self, a, b):
+        if isinstance(a, Variant) or isinstance(b, Variant):
+            v, o = (a, b) if isinstance(a, Variant) else (b, a)
+            if isinstance(o, Variant):
+                return v.text() == o.text()
+            return isinstance(o, Ref) and o.text == v.text()
+        if isinstance(a, Ref) or isinstance(b, Ref):
+            return isinstance(a, Ref) and isinstance(b, Ref) and a.text == b.text
+        if a is None or b is None:
+            return a is None and b is None
+        if isinstance(a, bool) or isinstance(b, bool):
+            return isinstance(a, bool) and isinstance(b, bool) and a == b
+        if isinstance(a, str) or isinstance(b, str):
+            return isinstance(a, str) and isinstance(b, str) and a == b
+        kind, _ = self.numbers("==", a, b)
+        return kind is not None and a == b
 
     def length(self, v):
         if isinstance(v, str):
-            return len(v)
+            return IInt(len(v))
         if isinstance(v, Ref):
-            m = SIZE.search(v.text)
-            if m:
-                return int(m.group(1) or m.group(2))
-            if v.text == "[]":
-                return 0
-            if POINTER.match(v.text) and re.fullmatch(r"[A-Za-z_]\w*", v.path):
-                n = self.fetch(v.path + "_len")      # a list kept as a C array
-                if isinstance(n, int):
-                    return n
-            return len(self.children(v))
+            n = self.list_len(v)
+            return IInt(n if n is not None else len(self.children(v)))
         raise IronEvalError("len takes a list, map, set or String")
 
     def method(self, v, name, args):
-        if name in ("len", "count") and not args:
+        if name in ("len", "count") and not args and not isinstance(v, str):
+            return self.length(v)
+        if isinstance(v, str):
+            return self.string_method(v, name, args)
+        if name == "len" and not args:
             return self.length(v)
         if name == "is_empty" and not args:
             return self.length(v) == 0
         if name == "to_string" and not args and not isinstance(v, Ref):
-            return fmt(v).strip('"') if not isinstance(v, str) else v
+            return text_of(v)
         if isinstance(v, Ref) and name in ("has", "get", "get_or", "contains") and args:
+            kids = self.children(v)
+            is_list = v.text.startswith("[")
+            # A set's items are named [0], [1]... like a map's integer keys:
+            # its type tells them apart.
+            is_set = "Iron_Set_" in str(v.type or "") or v.text.startswith("Set[")
+            if is_set:
+                is_list = True
+            if is_list and name == "get" and len(args) == 1 and isinstance(args[0], int):
+                return self.element(v, args[0])
             key = fmt(args[0])
-            for c in self.children(v):
+            for c in kids:
                 cname = str(c.get("name", ""))
-                cval = str(c.get("value", ""))
-                if cname in ("[%s]" % key, key):               # map entry (lldb, gdb)
+                if not is_list and cname == "[%s]" % key and name in ("has", "get", "get_or"):
                     if name == "has":
                         return True
-                    if name in ("get", "get_or"):
-                        return self.value("", cval, c.get("variablesReference", 0))
-                if name in ("has", "contains") and cval == key:  # set or list element
-                    return True
+                    return self.value("", str(c.get("value", "")), c.get("variablesReference", 0),
+                                      c.get("type"))
             if name in ("has", "contains"):
+                # a set's items, a list's elements
+                if (is_list or name == "has") and any(
+                        re.fullmatch(r"\[\d+\]", str(c.get("name", ""))) and
+                        str(c.get("value", "")) == key for c in kids):
+                    return True
                 return False
             if name == "get_or" and len(args) == 2:
                 return args[1]
-            raise IronEvalError("no entry %s" % key)
-        if isinstance(v, str) and name in ("contains", "starts_with", "ends_with") and \
-                len(args) == 1 and isinstance(args[0], str):
-            return {"contains": args[0] in v, "starts_with": v.startswith(args[0]),
-                    "ends_with": v.endswith(args[0])}[name]
+            raise IronEvalError("key not found in map")
+        raise IronEvalError("`.%s()` is not available while debugging" % name)
+
+    def string_method(self, s, name, args):
+        a = args
+        if name in ("len", "count") and not a:
+            return IInt(len(s))
+        if name == "byte_len" and not a:
+            return IInt(len(s.encode("utf-8", "surrogatepass")))
+        if name == "is_empty" and not a:
+            return s == ""
+        if name in ("upper", "lower", "trim") and not a:
+            return {"upper": s.upper(), "lower": s.lower(), "trim": s.strip()}[name]
+        if name == "to_string" and not a:
+            return s
+        if len(a) == 1 and isinstance(a[0], str):
+            x = a[0]
+            if name == "contains":
+                return x in s
+            if name == "starts_with":
+                return s.startswith(x)
+            if name == "ends_with":
+                return s.endswith(x)
+            if name == "index_of":
+                return IInt(s.find(x))
+            if name == "rindex_of":
+                return IInt(s.rfind(x))
+            if name == "count":
+                return IInt(s.count(x) if x else 0)
+        if name == "char_at" and len(a) == 1 and isinstance(a[0], int):
+            return s[a[0]] if 0 <= a[0] < len(s) else ""
+        if name == "substring" and len(a) == 2 and all(isinstance(x, int) for x in a):
+            lo, hi = max(0, min(a[0], len(s))), max(0, min(a[1], len(s)))
+            return s[lo:hi] if lo < hi else ""
+        if name == "replace" and len(a) == 2 and all(isinstance(x, str) for x in a):
+            return s.replace(a[0], a[1]) if a[0] else s
+        if name == "repeat" and len(a) == 1 and isinstance(a[0], int):
+            return s * max(0, a[0])
         raise IronEvalError("`.%s()` is not available while debugging" % name)
 
 
+def text_of(v):
+    """The text Iron interpolates for a value (manual 3.3)."""
+    if isinstance(v, str):
+        return v
+    return fmt(v)
+
+
 def fmt(v):
+    """A value as the debugger shows it."""
     if isinstance(v, bool):
         return "true" if v else "false"
     if v is None:
         return "null"
     if isinstance(v, str):
-        return '"%s"' % v.replace('"', '\\"')
+        return iron_quote(v)
     if isinstance(v, Ref):
         return v.text
+    if isinstance(v, Variant):
+        return v.text()
     if isinstance(v, float):
-        return repr(v)
-    return str(v)
+        return float_text(v, bool(getattr(v, "f32", False)))
+    return str(int(v))
 
 
 def iron_evaluate(proxy, frame_id, text):
@@ -745,6 +1381,7 @@ class Proxy:
         self.own = {}            # proxy requests: seq -> [event, response]
         self.own_seq = OWN_SEQ_BASE
         self.local_scopes = {}   # variablesReference -> frameId
+        self.global_scopes = set()  # variablesReference of a Globals scope
         self.configured = False  # the client sent configurationDone
         self.held_launch = None  # gdb: launch waits for configurationDone
         self.panic_frames = {}   # threadId -> index of the Iron frame that panicked
@@ -760,6 +1397,13 @@ class Proxy:
         self.adapter_path = None
         self.warned_no_scripting = False
         self.build_dir = None    # this session's --debug builds (see build_plan)
+        self.launched = False    # a launch or attach went to the debugger
+        self.label_frames = set()  # frame ids the adapter made up (spawn sites)
+        self.capabilities = {}     # the debugger's initialize response
+        self.threads_asked = False  # the first stop asked lldb-dap for its threads
+        self.resumed = True      # a request that runs the program went out since the last stop
+        self.pending_since = {}  # client request seq -> when it went to the debugger
+        threading.Thread(target=self.watchdog, daemon=True).start()
 
     # Output to the client.
     def send(self, msg):
@@ -779,6 +1423,10 @@ class Proxy:
 
     # Output to the debugger.
     def to_child(self, msg):
+        if msg.get("command") in RESUME_REQUESTS or (
+                msg.get("command") == "evaluate" and
+                RESUME_COMMAND.match(str((msg.get("arguments") or {}).get("expression") or ""))):
+            self.resumed = True
         with self.child_lock:
             if self.child and self.child.stdin:
                 self.child.stdin.write(frame(msg))
@@ -845,17 +1493,134 @@ class Proxy:
 
     # Client -> debugger.
     def from_client(self, msg):
+        """One message from the client. A message that is not a request
+        the adapter can answer is ignored (and said so on stderr); a
+        request it cannot handle gets an error response: nothing a client
+        sends ends the session."""
+        if not isinstance(msg, dict):
+            sys.stderr.write("iron dap: ignored a message that is not a JSON object\n")
+            return
         if msg.get("type") != "request":
-            self.to_child(msg)
+            if msg.get("type") == "response":     # to a reverse request (runInTerminal)
+                self.to_child(msg)
+            else:
+                sys.stderr.write("iron dap: ignored a message of type %r\n" % (msg.get("type"),))
+            return
+        seq = msg.get("seq")
+        if not isinstance(seq, int) or isinstance(seq, bool):
+            sys.stderr.write("iron dap: ignored a request without a numeric seq\n")
             return
         cmd = msg.get("command")
+        if not isinstance(cmd, str) or not cmd:
+            self.respond_error(msg, "a request needs a command")
+            return
+        if "arguments" in msg and msg["arguments"] is not None and \
+                not isinstance(msg["arguments"], dict):
+            self.respond_error(msg, "%s: the arguments must be an object" % cmd)
+            return
+        if self.child is None and cmd != "initialize":
+            if cmd in ("disconnect", "terminate"):
+                self.respond(msg, {})
+            else:
+                self.respond_error(msg, "%s: the session is not initialized (send initialize "
+                                        "first)" % cmd)
+            return
+        if self.child is not None and self.child.poll() is not None and \
+                cmd not in ("disconnect", "terminate"):
+            self.respond_error(msg, "%s: the debugger has exited" % cmd)
+            return
+        if cmd not in DAP_REQUESTS:
+            self.respond_error(msg, "%s: not a request iron dap supports" % cmd)
+            return
+        bad = bad_arguments(msg.get("arguments") or {})
+        if bad:
+            self.respond_error(msg, "%s: %s" % (cmd, bad))
+            return
+        missing = [k for k in REQUIRED.get(cmd, ()) if (msg.get("arguments") or {}).get(k) is None]
+        if missing:
+            self.respond_error(msg, "%s: the arguments need %s" % (cmd, ", ".join(missing)))
+            return
+        cap = CAPABILITY_OF.get(cmd)
+        if cap and self.child is not None and not self.capabilities.get(cap):
+            self.respond_error(msg, "%s: %s does not support it" % (cmd, self.kind or "the debugger"))
+            return
+        if cmd == "setExceptionBreakpoints":
+            a = dict(msg.get("arguments") or {})
+            if not isinstance(a.get("filters"), list):
+                a["filters"] = []
+            msg = dict(msg, arguments=a)
+        fid = (msg.get("arguments") or {}).get("frameId")
+        if fid in self.label_frames:
+            if cmd == "scopes":
+                self.respond(msg, {"scopes": []})
+            else:
+                self.respond_error(msg, "%s: this frame only shows where a task was spawned" % cmd)
+            return
+        if cmd == "configurationDone" and self.configured:
+            # lldb-dap resumes the program on a second one.
+            self.respond(msg, {})
+            return
+        if self.child is not None and cmd == "initialize":
+            self.respond_error(msg, "initialize: the session is already initialized")
+            return
+        if self.child is not None and not self.launched and \
+                cmd not in ("initialize", "launch", "attach", "disconnect", "terminate"):
+            # lldb-dap leaves such requests unanswered until there is a target.
+            self.respond_error(msg, "%s: no program is being debugged yet (send launch first)"
+                               % cmd)
+            return
+        if cmd == "initialize":
+            a = dict(msg.get("arguments") or {})
+            for k, v in (("adapterID", "iron"), ("pathFormat", "path"), ("linesStartAt1", True),
+                         ("columnsStartAt1", True)):
+                a.setdefault(k, v)
+            msg = dict(msg, arguments=a)
+        try:
+            self.dispatch(msg, cmd)
+        except Exception as e:    # never drop the session over one request
+            sys.stderr.write("iron dap: %s failed: %r\n" % (cmd, e))
+            self.respond_error(msg, "%s failed in iron dap: %s" % (cmd, e))
+
+    def watchdog(self):
+        """A request the debugger never answers gets an error after a
+        while, so a client never waits forever."""
+        while True:
+            time.sleep(5)
+            now = time.monotonic()
+            for seq, t in list(self.pending_since.items()):
+                req = self.pending.get(seq)
+                if req is None:
+                    self.pending_since.pop(seq, None)
+                    continue
+                limit = 900 if req.get("command") in ("launch", "attach") else 120
+                if now - t > limit:
+                    self.pending.pop(seq, None)
+                    self.pending_since.pop(seq, None)
+                    self.respond_error(req, "%s: %s did not answer within %ds"
+                                       % (req.get("command"), self.kind or "the debugger", limit))
+
+    def guarded(self, fn, msg, *args):
+        """Run a request's handler on its own thread: a failure is an
+        error response, not a lost answer."""
+        try:
+            fn(msg, *args)
+        except Exception as e:
+            sys.stderr.write("iron dap: %s failed: %r\n" % (msg.get("command"), e))
+            self.respond_error(msg, "%s failed in iron dap: %s" % (msg.get("command"), e))
+
+    def dispatch(self, msg, cmd):
         if cmd == "initialize" and self.child is None:
             err = self.start_child()
             if err:
                 self.respond_error(msg, err)
                 return
         if cmd == "evaluate":
-            threading.Thread(target=self.handle_evaluate, args=(msg,), daemon=True).start()
+            threading.Thread(target=self.guarded, args=(self.handle_evaluate, msg),
+                             daemon=True).start()
+            return
+        if cmd == "completions":
+            threading.Thread(target=self.guarded, args=(self.handle_completions, msg),
+                             daemon=True).start()
             return
         if cmd == "exceptionInfo":
             tid = (msg.get("arguments") or {}).get("threadId")
@@ -867,8 +1632,9 @@ class Proxy:
                 self.respond(msg, {"exceptionId": "panic", "breakMode": "always",
                                    "description": text})
                 return
-        if cmd == "stepIn" and self.configured:
-            threading.Thread(target=self.step_in, args=(msg,), daemon=True).start()
+        if cmd in ("stepIn", "next", "stepOut") and self.configured:
+            threading.Thread(target=self.guarded, args=(self.step, msg, cmd),
+                             daemon=True).start()
             return
         if cmd == "variables":
             ref = (msg.get("arguments") or {}).get("variablesReference")
@@ -888,19 +1654,24 @@ class Proxy:
             msg = self.rewrite_launch(msg)
             if msg is None:
                 return
+            self.launched = True
             if self.kind == "gdb" and not self.configured:
                 # gdb starts the program on `launch`; clients send their
                 # breakpoints after it, so the program would run past
                 # them. Launch once the configuration is done.
                 self.held_launch = msg
                 return
+        if cmd in ("launch", "attach"):
+            self.launched = True
         self.pending[msg["seq"]] = msg
+        self.pending_since[msg["seq"]] = time.monotonic()
         self.to_child(msg)
         if cmd == "configurationDone":
             self.configured = True
             if self.held_launch is not None:
                 held, self.held_launch = self.held_launch, None
                 self.pending[held["seq"]] = held
+                self.pending_since[held["seq"]] = time.monotonic()
                 self.to_child(held)
 
     def rewrite_launch(self, req):
@@ -986,8 +1757,21 @@ class Proxy:
             return
         if msg.get("type") != "response":
             ev = msg.get("event") if msg.get("type") == "event" else None
+            if self.kind == "gdb":
+                # gdb reports a function it calls in the program (a value
+                # formatter asking the runtime what a handle holds, a call
+                # typed in the console) as `continued` then `stopped`
+                # ("function call"). The program is where it was: a client
+                # told otherwise reads the Locals again, which calls again.
+                if ev == "stopped" and (msg.get("body") or {}).get("reason") == "function call":
+                    return
+                if ev == "continued" and not self.resumed:
+                    return
+                if ev == "stopped":
+                    self.resumed = False
             if ev in ("stopped", "continued"):
                 self.local_scopes.clear()
+                self.global_scopes.clear()
                 self.synth.clear()
                 self.panic_frames.clear()
             if ev == "output":
@@ -1005,6 +1789,7 @@ class Proxy:
                 return
             self.send(msg)
             return
+        self.pending_since.pop(msg.get("request_seq"), None)
         req = self.pending.pop(msg.get("request_seq"), None)
         if not req or not msg.get("success"):
             self.send(msg)
@@ -1012,12 +1797,14 @@ class Proxy:
         cmd = req.get("command")
         body = msg.get("body") or {}
         if cmd == "initialize":
+            self.capabilities = dict(body)
             # The debugger's exception filters (C++ throw, Ada, Objective-C)
             # do not apply to Iron programs.
             body["exceptionBreakpointFilters"] = []
             body.update(supportsConditionalBreakpoints=True,
                         supportsHitConditionalBreakpoints=True,
-                        supportsLogPoints=True, supportsEvaluateForHovers=True)
+                        supportsLogPoints=True, supportsEvaluateForHovers=True,
+                        supportsCompletionsRequest=True)
             msg["body"] = body
             self.send(msg)
         elif cmd == "setBreakpoints":
@@ -1035,6 +1822,8 @@ class Proxy:
                         s.get("variablesReference"):
                     self.local_scopes[s["variablesReference"]] = \
                         (req.get("arguments") or {}).get("frameId")
+                if re.match(r"^globals$", s.get("name", ""), re.I) and s.get("variablesReference"):
+                    self.global_scopes.add(s["variablesReference"])
             self.send(msg)
         elif cmd == "variables":
             ref = (req.get("arguments") or {}).get("variablesReference")
@@ -1045,6 +1834,20 @@ class Proxy:
                 threading.Thread(target=self.finish_variables, args=(msg, frame_id),
                                  daemon=True).start()
             else:
+                globals_ = ref in self.global_scopes
+                out = []
+                for v in body.get("variables", []):
+                    if globals_:
+                        # The program's globals (Iron_g_<name>) under their
+                        # Iron names; the compiler's statics are hidden.
+                        n = str(v.get("name", ""))
+                        if not n.startswith("Iron_g_"):
+                            continue
+                        v = dict(v, name=n[7:])
+                    if "value" in v:
+                        v = dict(v, value=clean_value(v.get("value"), v.get("type")))
+                    out.append(v)
+                msg["body"] = dict(body, variables=out)
                 self.send(msg)
         elif cmd == "stackTrace":
             # Stopped in a panic: the stack starts at the Iron frame that
@@ -1056,18 +1859,71 @@ class Proxy:
                 body["stackFrames"] = frames
                 if isinstance(body.get("totalFrames"), int):
                     body["totalFrames"] = max(len(frames), body["totalFrames"] - skip)
+            spawned = [f for f in body.get("stackFrames", [])
+                       if re.match(r"^__spawn_\d+", str(f.get("name", "")))]
             for f in body.get("stackFrames", []):
                 name = f.get("name")
-                if isinstance(name, str):
-                    f["name"] = iron_function_name(name, self.test)
                 src = f.get("source") or {}
+                if isinstance(name, str):
+                    path = src.get("path") if is_iron_source(src.get("path")) else None
+                    f["raw_name"] = name
+                    f["name"] = iron_function_name(name, self.test, path)
                 if not is_iron_source(src.get("path") or src.get("name")):
                     f["presentationHint"] = "subtle"
                     if src:
                         src["presentationHint"] = "deemphasize"
+            if spawned:
+                # Reading where the tasks were spawned takes requests of
+                # our own, whose answers arrive on this thread.
+                threading.Thread(target=self.guarded_stack, args=(msg,), daemon=True).start()
+                return
+            for f in body.get("stackFrames", []):
+                f.pop("raw_name", None)
             self.send(msg)
         else:
             self.send(msg)
+
+    def guarded_stack(self, msg):
+        try:
+            self.finish_stack(msg)
+        except Exception as e:
+            sys.stderr.write("iron dap: stackTrace: %r\n" % e)
+            self.send(msg)
+
+    def finish_stack(self, msg):
+        """A spawned task's stack: its body is `spawn "name"`, and under it
+        a label frame says where the task was spawned (a --debug build
+        records it in iron_dbg_spawn_<body>), the async part of its stack."""
+        out = []
+        for f in msg["body"].get("stackFrames", []):
+            raw = f.pop("raw_name", "")
+            out.append(f)
+            m = re.match(r"^(__spawn_\d+)", str(raw))
+            src = f.get("source") or {}
+            if not m or not is_iron_source(src.get("path") or src.get("name")):
+                continue
+            r = self.request("evaluate", {"expression": "(const char *)iron_dbg_spawn_%s" % m.group(1),
+                                          "frameId": f.get("id"), "context": "watch"})
+            text = str((r.get("body") or {}).get("result", "")) if r.get("success") else ""
+            q = re.search(r'"((?:[^"\\]|\\.)*)"', text)
+            if not q:
+                continue
+            site = q.group(1).encode("latin-1", "backslashreplace").decode("unicode_escape")
+            parts = site.split("|", 3)
+            if len(parts) != 4 or not parts[1].isdigit():
+                continue
+            path, line, parent, name = parts
+            if name:
+                f["name"] = 'spawn "%s"' % name
+            self.synth_seq += 1
+            out.append({"id": self.synth_seq, "name": "spawned in %s" %
+                        iron_function_name("Iron_" + parent if parent and not parent.startswith("_")
+                                           else parent, self.test, path),
+                        "source": {"name": os.path.basename(path), "path": path},
+                        "line": int(line), "column": 1, "presentationHint": "label"})
+            self.label_frames.add(self.synth_seq)
+        msg["body"]["stackFrames"] = out
+        self.send(msg)
 
     def note_output(self, msg):
         """Remember the debuggee's last panic message."""
@@ -1099,6 +1955,13 @@ class Proxy:
         body = msg.get("body") or {}
         tid = body.get("threadId")
         self.trap_texts.pop(tid, None)   # set again below if this stop is a trap
+        if self.kind == "lldb-dap" and not self.threads_asked:
+            # lldb-dap answers its first threads request with the list it
+            # kept when the configuration was done: a client that asks only
+            # now (nvim-dap) would not find the thread of a stop in a
+            # spawned task. Ask once ourselves.
+            self.threads_asked = True
+            self.request("threads", {})
         if tid is not None and body.get("reason") in ("breakpoint", "signal", "exception",
                                                        "function breakpoint", "stopped", None):
             r = self.request("stackTrace", {"threadId": tid, "startFrame": 0, "levels": 40})
@@ -1162,47 +2025,95 @@ class Proxy:
                    "command": req.get("command"), "success": True, "body": body})
 
     def handle_evaluate(self, req):
-        """Iron syntax is computed here; anything else goes to the
-        debugger first (a raw debugger command starts with a backquote),
-        and what it cannot evaluate is tried as Iron."""
+        """An Iron expression is computed here, with Iron's rules; a name
+        or a field (`total`, `p.x`) is read from the debugger, which gives
+        its type and children; anything that is not Iron (a debugger
+        command typed in the console, a C expression) goes to the debugger
+        as written, and so does text starting with a backquote."""
         a = req.get("arguments") or {}
         text = str(a.get("expression", ""))
         frame_id = a.get("frameId")
         raw = text.startswith("`")
-        iron_first = frame_id is not None and not raw and bool(IRON_ONLY.search(text))
-        debugger_error = "cannot evaluate"
-        if not iron_first:
-            r = self.request("evaluate", a, timeout=30)
-            if r.get("success") or frame_id is None or raw:
-                b = r.get("body") or {}
-                if r.get("success") and not b.get("result") and b.get("variablesReference"):
-                    b = dict(b, result=self.struct_text("", b["variablesReference"], b.get("type")))
-                    r = dict(r, body=b)
-                if r.get("success") and frame_id is not None and \
-                        re.fullmatch(r"[A-Za-z_]\w*", text) and POINTER.match(str(b.get("result", ""))):
-                    # A list kept as a C array: show its elements.
-                    n = self.request("evaluate", {"expression": text + "_len", "frameId": frame_id,
-                                                  "context": "watch"})
-                    count = str((n.get("body") or {}).get("result", "")) if n.get("success") else ""
-                    if re.fullmatch(r"\d+", count):
-                        shown, ref, _ = self.array_view(text, int(count), frame_id)
-                        r = dict(r, body=dict(b, result=shown, variablesReference=ref))
-                self.send(dict(r, seq=0, request_seq=req["seq"], command="evaluate"))
-                return
-            debugger_error = r.get("message") or debugger_error
-        try:
-            tree = Parser(text).parse()
-        except IronEvalError as e:
-            # Not Iron (a debugger command typed in the console, say): the
-            # debugger's own message says more.
-            self.respond_error(req, str(e) if iron_first else debugger_error)
+        tree = None
+        if frame_id is not None and not raw:
+            try:
+                tree = Parser(text).parse()
+            except (IronEvalError, RecursionError):
+                tree = None
+        if tree is not None and not is_field_path(tree):
+            self.evaluate_iron(req, tree, frame_id)
             return
+        if a.get("context") == "hover":
+            # lldb-dap 18 answers a hover with `frame variable`'s whole line,
+            # `(int32_t) t4 = -45`: ask for the value as a watch does.
+            a = dict(a, context="watch")
+        r = self.request("evaluate", a, timeout=30)
+        if r.get("success") or tree is None:
+            b = r.get("body") or {}
+            if r.get("success"):
+                if not b.get("result") and b.get("variablesReference"):
+                    b = dict(b, result=self.struct_text("", b["variablesReference"], b.get("type")))
+                b = dict(b, result=clean_value(b.get("result"), b.get("type")))
+                r = dict(r, body=b)
+            if r.get("success") and frame_id is not None and \
+                    re.fullmatch(r"[A-Za-z_]\w*", text) and \
+                    is_c_array_value(b.get("result"), b.get("type")):
+                # A list kept as a C array: show its elements.
+                n = self.request("evaluate", {"expression": text + "_len", "frameId": frame_id,
+                                              "context": "watch"})
+                count = str((n.get("body") or {}).get("result", "")) if n.get("success") else ""
+                if re.fullmatch(r"\d+", count):
+                    shown, ref, _ = self.array_view(text, int(count), frame_id)
+                    r = dict(r, body=dict(b, result=shown, variablesReference=ref))
+            self.send(dict(r, seq=0, request_seq=req["seq"], command="evaluate"))
+            return
+        # A name the debugger does not know: a captured var (`_ref_`), a
+        # global (`Iron_g_`), a field behind a formatter's children.
+        self.evaluate_iron(req, tree, frame_id)
+
+    def evaluate_iron(self, req, tree, frame_id):
         try:
             v = IronEval(self, frame_id).ev(tree)
         except IronEvalError as e:
             self.respond_error(req, str(e))
             return
-        self.respond(req, {"result": fmt(v), "variablesReference": v.ref if isinstance(v, Ref) else 0})
+        except RecursionError:
+            self.respond_error(req, "the expression is nested too deeply")
+            return
+        body = {"result": fmt(v), "variablesReference": v.ref if isinstance(v, Ref) else 0}
+        if isinstance(v, Ref) and v.type:
+            body["type"] = v.type
+        self.respond(req, body)
+
+    def handle_completions(self, req):
+        """Debug console completions: the Iron names in scope (the frame's
+        locals under their Iron names) and Iron's keywords, for the word
+        before the cursor. Answered here: the debugger's completions are C
+        names and debugger commands (and lldb-dap 18 crashes on a request
+        without a frame)."""
+        a = req.get("arguments") or {}
+        text = a.get("text") if isinstance(a.get("text"), str) else ""
+        col = a.get("column") if isinstance(a.get("column"), int) else len(text) + 1
+        col = max(0, min(col - 1, len(text)))     # columnsStartAt1
+        m = re.search(r"[A-Za-z_]\w*$", text[:col])
+        prefix = m.group(0) if m else ""
+        names = []
+        fid = a.get("frameId")
+        if isinstance(fid, int) and not isinstance(fid, bool) and fid not in self.label_frames:
+            r = self.request("scopes", {"frameId": fid})
+            for sc in ((r.get("body") or {}).get("scopes", []) if r.get("success") else []):
+                if not re.match(r"^(locals|arguments)$", str(sc.get("name", "")), re.I):
+                    continue
+                vr = self.request("variables", {"variablesReference": sc.get("variablesReference")})
+                for v in ((vr.get("body") or {}).get("variables", []) if vr.get("success") else []):
+                    n = iron_name(str(v.get("name", "")))
+                    if n:
+                        names.append(n[0])
+        words = sorted(set(names)) + [k for k in IRON_KEYWORDS if k not in names]
+        targets = [{"label": w, "text": w, "start": col - len(prefix), "length": len(prefix),
+                    "type": "variable" if w in names else "keyword"}
+                   for w in words if w.startswith(prefix) and w != prefix]
+        self.respond(req, {"targets": targets[:200]})
 
     def keep_breakpoint_rules(self, req):
         """Iron conditions, hit counts and log messages stay here; the
@@ -1289,10 +2200,20 @@ class Proxy:
         return (frames[0] if frames else {}), len(frames)
 
     def step_in(self, req):
-        """Step into Iron code only: a step that lands outside a .iron file
-        (the runtime's C, a generated helper) steps back out, and a step
-        that comes back to the line it started on steps in again, so
-        `println(...)` goes to the next line and `square(4)` into square."""
+        self.step(req, "stepIn")
+
+    def frames_of(self, tid):
+        r = self.request("stackTrace", {"threadId": tid, "startFrame": 0, "levels": 50})
+        return (r.get("body") or {}).get("stackFrames", []) if r.get("success") else []
+
+    def step(self, req, kind):
+        """Step In, Over and Out stay in Iron code. Step In: a step that
+        lands outside a .iron file (the runtime's C, a generated helper)
+        steps back out, and a step that comes back to the line it started
+        on steps in again, so `println(...)` goes to the next line and
+        `square(4)` into square. Any step that leaves the program's Iron
+        code altogether (out of main, into the C main that calls it) lets
+        the program run on to its end instead of stopping in the C."""
         tid = (req.get("arguments") or {}).get("threadId")
         start, start_depth = self.top_frame(tid)
         start_at = ((start.get("source") or {}).get("path"), start.get("line"))
@@ -1300,7 +2221,7 @@ class Proxy:
         self.step_waiter = queue.Queue()
         last = None
         try:
-            command = "stepIn"
+            command = kind
             for _ in range(60):
                 self.request(command, {"threadId": tid}, timeout=30)
                 try:
@@ -1310,18 +2231,30 @@ class Proxy:
                     break
                 if last["body"].get("reason") not in ("step", None):
                     break          # a breakpoint, a panic: show it
-                top, depth = self.top_frame(tid)
+                frames = self.frames_of(tid)
+                top, depth = (frames[0] if frames else {}), len(frames)
                 src = top.get("source") or {}
                 if not is_iron_source(src.get("path") or src.get("name")):
+                    if not any(is_iron_source((f.get("source") or {}).get("path") or
+                                              (f.get("source") or {}).get("name"))
+                               for f in frames):
+                        # Out of the program's Iron code: run on.
+                        self.step_waiter = None
+                        self.request("continue", {"threadId": tid}, timeout=30)
+                        last = None
+                        break
                     # An Iron function's prologue is the generated C's until
                     # its first statement: go on to that line. Anything else
                     # (the runtime, whose builtins are Iron_ too, a generated
                     # helper) is stepped out of.
-                    iron_fn = str(top.get("name", "")).startswith("Iron_") and \
+                    iron_fn = str(top.get("name", "")).startswith(
+                        ("Iron_", "__lambda_", "__spawn_", "__pfor_")) and \
                         not is_runtime_source(src.get("path") or src.get("name"))
-                    command = "next" if iron_fn and depth > start_depth else "stepOut"
+                    command = "next" if kind == "stepIn" and iron_fn and depth > start_depth \
+                        else "stepOut"
                     continue
-                if (src.get("path"), top.get("line")) == start_at and depth == start_depth:
+                if kind == "stepIn" and (src.get("path"), top.get("line")) == start_at and \
+                        depth == start_depth:
                     command = "stepIn"
                     continue
                 break
@@ -1360,6 +2293,10 @@ class Proxy:
                     item[k] = b[k]
             out.append(item)
         out = self.join_array_lengths(out, frame_id)
+        out = [dict(v, value=clean_value(v.get("value"), v.get("type")))
+               if "value" in v and not v.get("_joined") else v for v in out]
+        for v in out:
+            v.pop("_joined", None)
         msg = dict(msg)
         msg["body"] = dict(msg.get("body") or {}, variables=out)
         self.send(msg)
@@ -1374,13 +2311,15 @@ class Proxy:
             if not v.get("value") and v.get("variablesReference"):
                 v = dict(v, value=self.struct_text("", v["variablesReference"], v.get("type")))
             name = str(v.get("name", ""))
-            if name.endswith("_len") and POINTER.match(str(by_name.get(name[:-4], {}).get("value", ""))):
+            base = by_name.get(name[:-4], {}) if name.endswith("_len") else {}
+            if base and is_c_array_value(base.get("value"), base.get("type")):
                 continue
             n_var = by_name.get(name + "_len")
-            if n_var and POINTER.match(str(v.get("value", ""))) and \
+            if n_var and is_c_array_value(v.get("value"), v.get("type")) and \
                     re.fullmatch(r"\d+", str(n_var.get("value", ""))):
                 text, ref, count = self.array_view(name, int(n_var["value"]), frame_id)
-                v = dict(v, value=text, variablesReference=ref, indexedVariables=count)
+                v = dict(v, value=text, variablesReference=ref, indexedVariables=count,
+                         _joined=True)
             out.append(v)
         return out
 
@@ -1392,7 +2331,8 @@ class Proxy:
             r = self.request("evaluate", {"expression": "%s[%d]" % (name, i),
                                           "frameId": frame_id, "context": "watch"})
             b = (r.get("body") or {}) if r.get("success") else {}
-            elems.append({"name": "[%d]" % i, "value": str(b.get("result", "?")),
+            elems.append({"name": "[%d]" % i,
+                          "value": clean_value(b.get("result", "?"), b.get("type")),
                           "variablesReference": b.get("variablesReference", 0),
                           "evaluateName": "%s[%d]" % (name, i)})
         shown = ", ".join(e["value"] for e in elems[:20])
@@ -1421,16 +2361,27 @@ class Proxy:
 
     def run(self):
         while True:
-            msg = read_message(sys.stdin.buffer)
+            try:
+                msg = read_message(sys.stdin.buffer)
+            except (ValueError, UnicodeError, RecursionError) as e:
+                # A body that is not JSON (ValueError covers JSONDecodeError).
+                sys.stderr.write("iron dap: ignored a message that is not JSON: %s\n" % e)
+                continue
             if msg is None:
                 break
             self.from_client(msg)
         if self.child:
+            # The client is gone: end the debugger (and with it the
+            # program), by force when it does not stop on its own.
             try:
                 self.child.terminate()
-                self.child.wait(timeout=10)
+                self.child.wait(timeout=3)
             except (OSError, subprocess.TimeoutExpired):
-                pass
+                try:
+                    self.child.kill()
+                    self.child.wait(timeout=3)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
         if self.build_dir:
             shutil.rmtree(self.build_dir, ignore_errors=True)
 

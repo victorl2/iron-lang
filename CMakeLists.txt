@@ -3338,6 +3338,12 @@ install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib COMPONENT iron FILES_MATCHI
 find_package(Python3 COMPONENTS Interpreter QUIET)
 # Also on Windows, with LLVM's lldb-dap (#388).
 if(Python3_Interpreter_FOUND)
+  # A source line longer than a diagnostic's snippet is not cut inside a
+  # UTF-8 sequence (#721).
+  add_test(NAME diag_long_utf8_line
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_utf8.py
+                   $<TARGET_FILE:ironc>
+                   ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/long_utf8_line.iron W0601)
   add_test(NAME debug_dap_smoke
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/dap_client.py
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/stepping.iron
@@ -3360,6 +3366,24 @@ if(Python3_Interpreter_FOUND)
                    $<TARGET_FILE:iron> dap)
   set_tests_properties(debug_dap_temporaries PROPERTIES
       PROCESSORS 2 TIMEOUT 300 SKIP_RETURN_CODE 77)
+  # Regressions the debugger fuzzer found: values, the evaluator, stepping,
+  # spawned tasks, malformed requests.
+  add_test(NAME debug_dap_regress
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/dap_regress_client.py
+                   ${CMAKE_SOURCE_DIR}/tests/integration/debug/regress.iron
+                   $<TARGET_FILE:iron> dap)
+  set_tests_properties(debug_dap_regress PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+  # The debugger fuzzer (tests/fuzz/dbg_fuzz.py) on fixed seeds (POSIX
+  # hosts: it runs process groups and fork programs).
+  if(NOT WIN32)
+  foreach(_dbg_area values eval step panic proto)
+    add_test(NAME dbg_fuzz_${_dbg_area}
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/dbg_fuzz.py
+                     --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/dbg_fuzz_${_dbg_area} ${_dbg_area})
+    set_tests_properties(dbg_fuzz_${_dbg_area} PROPERTIES TIMEOUT 600 SKIP_RETURN_CODE 77
+                         LABELS "debugger")
+  endforeach()
+  endif()
 endif()
 if(NOT WIN32 AND Python3_Interpreter_FOUND)
   # What iron dap, iron debug and iron debug --check say when Python,
@@ -3389,6 +3413,14 @@ if(NOT WIN32)
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
   set_tests_properties(debug_tuple_names PROPERTIES TIMEOUT 120
     ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:detect_stack_use_after_return=1")
+endif()
+# A generic instance's statements keep their own lines in a --debug build
+# (#722).
+if(NOT WIN32)
+  add_test(NAME debug_generic_lines
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_generic_lines.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_generic_lines PROPERTIES TIMEOUT 120)
 endif()
 # #312: a panic stops the debugger on the Iron line (iron debug, iron dap).
 if(NOT WIN32)

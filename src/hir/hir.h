@@ -573,6 +573,12 @@ struct IronHIR_Expr {
 
 struct IronHIR_Func {
     const char        *name;
+    /* A spawned task's body: the `spawn("name")` name, given to its thread. */
+    const char        *task_name;
+    /* ...and where it was spawned: the spawn statement and the function
+     * around it (the debugger shows them under the task's stack). */
+    Iron_Span          spawn_span;
+    const char        *spawn_parent;
     Iron_Type         *return_type;
     IronHIR_Param     *params;         /* stb_ds array */
     int                param_count;

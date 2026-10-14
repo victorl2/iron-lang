@@ -219,6 +219,10 @@ void iron_mysql_scramble_sha256(const uint8_t *scramble, size_t scramble_len,
 size_t iron_mysql_escape_bytes(char *out, const char *in, size_t len,
                                bool no_backslash_escapes);
 
+/* The debugger's summary of a result (kind 0), connection (1) or pool (2)
+ * handle (src/debug formatters). */
+const char *iron_mysql_debug_text(int64_t h, int64_t kind);
+
 /* Protocol conformance and benchmark hooks. These drive the production
  * codec over an in-process byte transport; they never open a socket. The
  * returned byte buffer belongs to the caller and is released with

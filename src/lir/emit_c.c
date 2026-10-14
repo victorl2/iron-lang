@@ -116,6 +116,19 @@ static void emit_closure_env_typedef(EmitCtx *ctx, const char *env_type,
                                      Iron_CaptureEntry *cap_meta, int cap_count) {
     if (shgeti(ctx->mono_registry, (char *)env_type) >= 0) return;
     shput(ctx->mono_registry, (char *)env_type, true);
+    /* A var capture points at its shared cell through a typedef of its
+     * own, <env>_cell_<name>: the debugger formatters (src/debug) tell it
+     * from a captured value that is itself a pointer and show the value. */
+    for (int ci = 0; ci < cap_count; ci++) {
+        if (!cap_meta[ci].is_mutable) continue;
+        const char *field_type = cap_meta[ci].is_heap_handle
+                                 ? "Iron_FatPtr"
+                                 : cap_meta[ci].type
+                                 ? emit_type_to_c(cap_meta[ci].type, ctx)
+                                 : "void*";
+        iron_strbuf_appendf(&ctx->struct_bodies, "typedef %s %s_cell_%s;\n",
+                            field_type, env_type, cap_c_name(cap_meta[ci].name));
+    }
     iron_strbuf_appendf(&ctx->struct_bodies, "typedef struct {\n");
     for (int ci = 0; ci < cap_count; ci++) {
         const char *field_type = cap_meta[ci].is_heap_handle
@@ -123,10 +136,15 @@ static void emit_closure_env_typedef(EmitCtx *ctx, const char *env_type,
                                  : cap_meta[ci].type
                                  ? emit_type_to_c(cap_meta[ci].type, ctx)
                                  : "void*";
-        iron_strbuf_appendf(&ctx->struct_bodies,
-                            cap_meta[ci].is_mutable || cap_meta[ci].is_borrowed
-                                ? "    %s *%s;\n" : "    %s %s;\n",
-                            field_type, cap_c_name(cap_meta[ci].name));
+        /* A captured var is a pointer to its cell type (see above); a
+         * borrowed capture (a nocopy value, #613) is a plain pointer. */
+        if (cap_meta[ci].is_mutable)
+            iron_strbuf_appendf(&ctx->struct_bodies, "    %s_cell_%s *%s;\n", env_type,
+                                cap_c_name(cap_meta[ci].name), cap_c_name(cap_meta[ci].name));
+        else
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                                cap_meta[ci].is_borrowed ? "    %s *%s;\n" : "    %s %s;\n",
+                                field_type, cap_c_name(cap_meta[ci].name));
     }
     iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n\n", env_type);
 }
@@ -1095,7 +1113,9 @@ static Iron_Type *emit_value_c_type(IronLIR_Func *fn, IronLIR_Instr *instr);
 static const char *emit_hoisted_decl_type(IronLIR_Func *fn, IronLIR_Instr *in,
                                           EmitCtx *ctx) {
     if (in->kind == IRON_LIR_HEAP_ALLOC || in->kind == IRON_LIR_ARENA_ALLOC)
-        return "Iron_FatPtr";
+        return emit_debug_fatptr(ctx, emit_type_to_c(in->type, ctx));
+    if (in->kind == IRON_LIR_ADDR_OF)
+        return emit_debug_fatptr(ctx, emit_fat_ptr_pointee_type_c(fn, in->id, ctx));
     return emit_local_decl_type(fn, in, emit_value_c_type(fn, in), ctx);
 }
 
@@ -3095,7 +3115,15 @@ static const char *emit_local_decl_type(IronLIR_Func *fn,
                                         EmitCtx *ctx) {
     const char *narrowed = iron_vr_get_local_narrowed_type(
         &ctx->value_range, fn, instr->id);
-    return narrowed ? narrowed : emit_type_to_c(declared_type, ctx);
+    if (narrowed) return narrowed;
+    if (declared_type && declared_type->kind == IRON_TYPE_PTR && !declared_type->ptr.is_unchecked &&
+        declared_type->ptr.pointee)
+        return emit_debug_fatptr(ctx, emit_type_to_c(declared_type->ptr.pointee, ctx));
+    if (fn && instr && emit_val_is_any_fat_ptr(fn, instr->id)) {
+        const char *pc = emit_fat_ptr_pointee_type_c(fn, instr->id, ctx);
+        if (pc) return emit_debug_fatptr(ctx, pc);
+    }
+    return emit_type_to_c(declared_type, ctx);
 }
 
 /* Is `instr` a call of a list method whose runtime body bounds-checks
@@ -3470,6 +3498,109 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
 }
 
+/* --debug: a constant the optimizer placed ahead of its statement (a
+ * `false` for an `and` after a loop, emitted before the loop): its own
+ * line would put that later statement's line in the middle of earlier
+ * code, where a breakpoint on it stopped too soon and stepping visited it
+ * early. True when neither the line before it nor the next instruction's
+ * in its block is the constant's. */
+static bool emit_const_moved(IronLIR_Func *fn, EmitCtx *ctx, IronLIR_Instr *instr) {
+    if (instr->kind < IRON_LIR_CONST_INT || instr->kind > IRON_LIR_CONST_NULL) return false;
+    if ((unsigned)instr->span.line == g_line_fn_last) return false;
+    IronLIR_Block *b = NULL;
+    for (int bi = 0; bi < fn->block_count; bi++)
+        if (fn->blocks[bi]->id == ctx->current_block_id) { b = fn->blocks[bi]; break; }
+    if (!b) return false;
+    int i = 0;
+    while (i < b->instr_count && b->instrs[i] != instr) i++;
+    for (i++; i < b->instr_count; i++) {
+        IronLIR_Instr *n = b->instrs[i];
+        if (n->kind == IRON_LIR_ALLOCA || n->span.line <= 0) continue;
+        if (n->kind >= IRON_LIR_CONST_INT && n->kind <= IRON_LIR_CONST_NULL &&
+            n->span.line == instr->span.line) continue;
+        return n->span.line != instr->span.line;
+    }
+    return false;
+}
+
+static IronLIR_Block *emit_block_by_id(IronLIR_Func *fn, IronLIR_BlockId id) {
+    for (int bi = 0; bi < fn->block_count; bi++)
+        if (fn->blocks[bi]->id == id) return fn->blocks[bi];
+    return NULL;
+}
+
+/* --debug: the code that runs a function's exit (the jumps between its
+ * deferred statements, the return of the value computed before them)
+ * carried the `return` statement's line: stepping out of a deferred
+ * statement went back to the `return` line before the next one. It takes
+ * the line of what ran before it. */
+static bool emit_in_return_exit(IronLIR_Func *fn, EmitCtx *ctx) {
+    IronLIR_Block *b = emit_block_by_id(fn, ctx->current_block_id);
+    if (b && b->label && strncmp(b->label, "return_exit", 11) == 0) return true;
+    /* The drops that run just before the return (after the deferred
+     * statements) are the closing brace's too, not the return's line. */
+    if (b && b->label && strncmp(b->label, "drop_cleanup", 12) == 0 && b->instr_count > 0) {
+        IronLIR_Instr *t = b->instrs[b->instr_count - 1];
+        IronLIR_Block *tb = t->kind == IRON_LIR_JUMP ? emit_block_by_id(fn, t->jump.target) : NULL;
+        return tb && tb->label && strncmp(tb->label, "return_exit", 11) == 0;
+    }
+    return false;
+}
+
+/* --debug: a jump (the end of an if's branch, of a deferred statement, of
+ * a loop's pass) carried the if's, the return's or the loop's line, so
+ * stepping out of a branch went back to the `if` line. It takes the line
+ * of the last statement of its block, or in a block of its own (an empty
+ * merge) the line of where it goes. */
+static unsigned emit_target_line(IronLIR_Func *fn, IronLIR_BlockId target);
+
+/* A block that only moves values and jumps (an if's merge: the loads of
+ * its phis): it runs as part of where it goes. */
+static bool emit_block_passthrough(IronLIR_Block *b) {
+    if (!b || b->instr_count == 0 || b->instrs[b->instr_count - 1]->kind != IRON_LIR_JUMP)
+        return false;
+    for (int i = 0; i < b->instr_count - 1; i++) {
+        int k = b->instrs[i]->kind;
+        if (k != IRON_LIR_LOAD && k != IRON_LIR_STORE && k != IRON_LIR_ALLOCA) return false;
+        if (k != IRON_LIR_ALLOCA && b->instrs[i]->span.line > 0) return false;
+    }
+    return true;
+}
+
+static unsigned emit_jump_line(IronLIR_Func *fn, EmitCtx *ctx, IronLIR_Instr *instr) {
+    IronLIR_Block *b = emit_block_by_id(fn, ctx->current_block_id);
+    if (emit_block_passthrough(b))
+        return emit_target_line(fn, b->instrs[b->instr_count - 1]->jump.target);
+    for (int i = b ? b->instr_count - 1 : -1; i >= 0; i--) {
+        IronLIR_Instr *n = b->instrs[i];
+        if (n == instr || n->kind == IRON_LIR_JUMP || n->kind == IRON_LIR_ALLOCA) continue;
+        /* (a constant may have been placed here from a later statement) */
+        if (n->kind >= IRON_LIR_CONST_INT && n->kind <= IRON_LIR_CONST_NULL) continue;
+        if (n->span.line > 0) return (unsigned)n->span.line;
+    }
+    return emit_target_line(fn, instr->jump.target);
+}
+
+static unsigned emit_target_line(IronLIR_Func *fn, IronLIR_BlockId target) {
+    IronLIR_Block *t = emit_block_by_id(fn, target);
+    for (int depth = 0; t && depth < 8; depth++) {
+        IronLIR_Block *next = NULL;
+        for (int i = 0; i < t->instr_count; i++) {
+            IronLIR_Instr *n = t->instrs[i];
+            if (n->kind == IRON_LIR_ALLOCA) continue;
+            if (n->kind == IRON_LIR_JUMP) { next = emit_block_by_id(fn, n->jump.target); break; }
+            if (n->span.line > 0) return (unsigned)n->span.line;
+        }
+        t = next;
+    }
+    return 0;
+}
+
+static bool emit_exit_glue(IronLIR_Func *fn, EmitCtx *ctx) {
+    IronLIR_Block *b = emit_block_by_id(fn, ctx->current_block_id);
+    return b && b->label && strncmp(b->label, "return_exit", 11) == 0;
+}
+
 static void emit_line_directive(Iron_StrBuf *sb, unsigned line, const char *file) {
     iron_strbuf_appendf(sb, "#line %u \"", line);
     for (const char *c = file; *c; c++) {
@@ -3517,6 +3648,16 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
     /* --debug: every instruction restates its Iron line (a `#line` also
      * numbers the C lines after it, which belong to the same instruction
      * only until the next one). */
+    if (g_emit_line_directives && (instr->span.line == 0 || !instr->span.filename) &&
+        instr->kind != IRON_LIR_ALLOCA && g_line_fn == fn && fn->end_file &&
+        sb->len > 0 && iron_strbuf_get(sb)[sb->len - 1] == '\n' &&
+        (instr->kind == IRON_LIR_JUMP ||
+         emit_block_passthrough(emit_block_by_id(fn, ctx->current_block_id)))) {
+        /* A jump or a merge's loads without a line of their own would take
+         * the line of whatever C came before them (see emit_jump_line). */
+        unsigned l = emit_jump_line(fn, ctx, instr);
+        if (l) emit_line_directive(sb, l, fn->end_file);
+    }
     if (g_emit_line_directives && instr->span.filename && instr->span.line > 0 &&
         sb->len > 0 && iron_strbuf_get(sb)[sb->len - 1] == '\n') {
         /* Locals are declared up front, in the entry block, with the line
@@ -3534,15 +3675,18 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (l > 0 && l < g_line_fn_first) g_line_fn_first = l;
             }
         }
-        /* A constant has no effect of its own, and the optimizer may have
-         * placed it ahead of its statement (a folded `n < n` emitted before
-         * the loop that precedes it): it keeps the line of what precedes it,
-         * so a breakpoint on its statement does not stop early (#595). */
-        bool is_const = instr->kind == IRON_LIR_CONST_INT || instr->kind == IRON_LIR_CONST_FLOAT ||
-                        instr->kind == IRON_LIR_CONST_BOOL || instr->kind == IRON_LIR_CONST_STRING ||
-                        instr->kind == IRON_LIR_CONST_NULL;
         if (instr->kind == IRON_LIR_ALLOCA) line = g_line_fn_first;
-        else if (is_const) line = g_line_fn_last > 0 ? g_line_fn_last : g_line_fn_first;
+        else if (emit_in_return_exit(fn, ctx) && fn->end_line > 0)
+            line = fn->end_line;     /* the return itself: on the closing brace */
+        else if (instr->kind == IRON_LIR_JUMP && emit_jump_line(fn, ctx, instr))
+            line = emit_jump_line(fn, ctx, instr);
+        else if (instr->kind != IRON_LIR_ALLOCA &&
+                 emit_block_passthrough(emit_block_by_id(fn, ctx->current_block_id)) &&
+                 emit_jump_line(fn, ctx, instr))
+            line = emit_jump_line(fn, ctx, instr);
+        else if ((emit_const_moved(fn, ctx, instr) || emit_exit_glue(fn, ctx)) &&
+                 g_line_fn_last > 0)
+            line = g_line_fn_last;   /* belongs to the statement before it */
         else g_line_fn_last = line;
         emit_line_directive(sb, line, instr->span.filename);
     }
@@ -7312,7 +7456,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * do NOT emit iron_heap_free here. */
         const char *val_type = emit_type_to_c(instr->type, ctx);
         emit_indent(sb, ind);
-        if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_FatPtr ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_debug_fatptr(ctx, val_type));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb,
             " = iron_heap_alloc(IRON_SITE, sizeof(%s));\n",
@@ -7429,7 +7573,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * (ARENA-05/11 TLS-default resolution). */
         const char *val_type = emit_type_to_c(instr->type, ctx);
         emit_indent(sb, ind);
-        if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_FatPtr ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_debug_fatptr(ctx, val_type));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = iron_arena_rt_alloc(");
         if (instr->arena_alloc.arena_val != IRON_LIR_VALUE_INVALID) {
@@ -9345,7 +9489,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
      * literal: gen comes from the source tag; addr is `&_vT`. */
     case IRON_LIR_ADDR_OF: {
         emit_indent(sb, ind);
-        if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_FatPtr ");
+        if (!is_hoisted)
+            iron_strbuf_appendf(sb, "%s ", emit_debug_fatptr(ctx,
+                emit_fat_ptr_pointee_type_c(fn, instr->id, ctx)));
         emit_val(sb, instr->id);
         /* 2026-07 remediation (4.2 boundary_field_pointer): `&container.field`
          * arrives as ADDR_OF targeting a GET_FIELD result. Emitting `&_vT`
@@ -9782,6 +9928,10 @@ void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
             if (fn->is_mut_receiver_method && i == 0) {
                 iron_strbuf_appendf(sb, "%s *%s",
                                     emit_type_to_c(pt, ctx), emit_vname(param_val_id));
+            } else if (pt->kind == IRON_TYPE_PTR && !pt->ptr.is_unchecked && pt->ptr.pointee) {
+                iron_strbuf_appendf(sb, "%s %s",
+                                    emit_debug_fatptr(ctx, emit_type_to_c(pt->ptr.pointee, ctx)),
+                                    emit_vname(param_val_id));
             } else {
                 iron_strbuf_appendf(sb, "%s %s",
                                     emit_type_to_c(pt, ctx), emit_vname(param_val_id));
@@ -10061,6 +10211,12 @@ static void emit_structured_loop(Iron_StrBuf *sb, IronLIR_Func *fn,
     emitted[hi] = true;
     ctx->current_block_id = header->id;
 
+    /* --debug: clang puts a branch on `while (1)`: on the loop's own line,
+     * not the line of whatever C was emitted before it. */
+    if (g_emit_line_directives && fn->end_file) {
+        unsigned l = emit_target_line(fn, header->id);
+        if (l) emit_line_directive(sb, l, fn->end_file);
+    }
     emit_indent(sb, ctx->indent);
     iron_strbuf_appendf(sb, "%s:;\n",
         emit_make_block_label(header->id, header->label, ctx->arena));
@@ -10086,6 +10242,12 @@ static void emit_structured_loop(Iron_StrBuf *sb, IronLIR_Func *fn,
             emit_structured_member_block(sb, fn, ctx, loops, loop, bi, emitted);
     }
     ctx->indent = saved_indent;
+    /* --debug: the loop's exit (its `break` lands after this brace) runs
+     * as part of what follows the loop, not the line emitted last. */
+    if (g_emit_line_directives && fn->end_file) {
+        unsigned l = emit_target_line(fn, fn->blocks[loop->exit_bi]->id);
+        if (l) emit_line_directive(sb, l, fn->end_file);
+    }
     emit_indent(sb, ctx->indent);
     iron_strbuf_appendf(sb, "}\n");
     emit_indent(sb, ctx->indent);
@@ -10421,6 +10583,9 @@ static void debug_name_value(EmitValueName **map, DebugTakenName **taken,
     /* `iron__...`: a binding the parser made up (assert_eq's operands), a
      * temporary rather than one of the program's names. */
     if (strncmp(name, "iron__", 6) == 0) return;
+    /* `__tuple_tmp_N` and the like: the lowering's own bindings, also
+     * temporaries (a destructured tuple showed as `tuple_tmp_5_179`). */
+    if (strncmp(name, "__", 2) == 0) return;
     char buf[160];
     if (!c_name_reserved(name) && shgeti(*taken, name) < 0) {
         snprintf(buf, sizeof(buf), "%s", name);
@@ -10589,11 +10754,30 @@ static void emit_debug_body(Iron_StrBuf *out, Iron_StrBuf *body) {
     iron_strbuf_free(&hidden);
 }
 
+/* --debug: the C function's closing brace on the Iron function's closing
+ * `}`. Clang gives every return one shared epilogue at the closing brace:
+ * on the last statement's line, stepping out of `return 0` showed the
+ * other `return` below it. */
+static void emit_closing_line(Iron_StrBuf *body, IronLIR_Func *fn) {
+    if (!fn->end_line || !fn->end_file || body->len < 2) return;
+    const char *s = iron_strbuf_get(body);
+    size_t n = body->len;
+    while (n > 0 && s[n - 1] == '\n') n--;
+    if (n == 0 || s[n - 1] != '}' || (n > 1 && s[n - 2] != '\n')) return;
+    Iron_StrBuf out = iron_strbuf_create(body->len + 128);
+    iron_strbuf_append(&out, s, n - 1);
+    emit_line_directive(&out, fn->end_line, fn->end_file);
+    iron_strbuf_append(&out, s + n - 1, body->len - (n - 1));
+    iron_strbuf_free(body);
+    *body = out;
+}
+
 static void emit_func_body_named(EmitCtx *ctx, IronLIR_Func *fn) {
     if (!is_lifted_func(fn->name)) {
         if (g_emit_line_directives) {
             Iron_StrBuf body = iron_strbuf_create(4096);
             emit_func_body_into(ctx, fn, &body);
+            emit_closing_line(&body, fn);
             emit_debug_body(&ctx->implementations, &body);
             iron_strbuf_free(&body);
         } else {
@@ -10608,8 +10792,10 @@ static void emit_func_body_named(EmitCtx *ctx, IronLIR_Func *fn) {
      * middle of the function being emitted. Collect the body first. */
     Iron_StrBuf body = iron_strbuf_create(4096);
     emit_func_body_into(ctx, fn, &body);
-    if (g_emit_line_directives)
+    if (g_emit_line_directives) {
+        emit_closing_line(&body, fn);
         emit_debug_body(&ctx->lifted_funcs, &body);
+    }
     else
         iron_strbuf_append(&ctx->lifted_funcs, iron_strbuf_get(&body), body.len);
     emit_line_reset(&ctx->lifted_funcs);
@@ -11548,6 +11734,38 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
     if (fn->takes_local_addr) {
         emit_indent(sb, 1);
         iron_strbuf_appendf(sb, "uint64_t _iron_stack_saved = iron_stack_enter();\n");
+    }
+    /* --debug: where a task was spawned, for the debugger to show under
+     * the task's stack: "<file>|<line>|<function>|<name>". */
+    if (g_emit_line_directives && fn->spawn_span.filename && fn->spawn_span.line > 0) {
+        iron_strbuf_appendf(&ctx->forward_decls,
+                            "__attribute__((used)) static const char iron_dbg_spawn_%s[] = \"",
+                            fn->name);
+        char site[1200];
+        snprintf(site, sizeof(site), "%s|%u|%s|%s", fn->spawn_span.filename,
+                 (unsigned)fn->spawn_span.line, fn->spawn_parent ? fn->spawn_parent : "",
+                 fn->task_name ? fn->task_name : "");
+        for (const char *c = site; *c; c++) {
+            unsigned char ch = (unsigned char)*c;
+            if (ch == '\\' || ch == '"') iron_strbuf_appendf(&ctx->forward_decls, "\\%c", ch);
+            else if (ch < 0x20 || ch == 0x7f)
+                iron_strbuf_appendf(&ctx->forward_decls, "\\%03o", ch);
+            else iron_strbuf_appendf(&ctx->forward_decls, "%c", ch);
+        }
+        iron_strbuf_appendf(&ctx->forward_decls, "\";\n");
+    }
+    /* A spawned task names its thread after `spawn("name")` (the debugger's
+     * threads view, crash reports). */
+    if (fn->task_name && *fn->task_name) {
+        emit_indent(sb, 1);
+        iron_strbuf_appendf(sb, "iron_thread_set_name(\"");
+        for (const char *c = fn->task_name; *c; c++) {
+            unsigned char ch = (unsigned char)*c;
+            if (ch == '\\' || ch == '"') iron_strbuf_appendf(sb, "\\%c", ch);
+            else if (ch < 0x20 || ch == 0x7f) iron_strbuf_appendf(sb, "\\%03o", ch);
+            else iron_strbuf_appendf(sb, "%c", ch);
+        }
+        iron_strbuf_appendf(sb, "\");\n");
     }
 
     /* ── Capture alias setup for lifted lambda functions ─────────────────────

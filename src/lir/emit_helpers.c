@@ -555,6 +555,34 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
                 }
                 if (strcmp(on, "Mutex") == 0) {
                     if (t->object.elem) emit_ensure_mutex(ctx, t->object.elem);
+                    /* --debug: a typedef named after the value's C type
+                     * (Iron_Mutex__int64_t), so the formatters can show
+                     * the value the lock holds. */
+                    if (iron_lir_emit_debug_build() && t->object.elem) {
+                        const char *ec = emit_type_to_c(t->object.elem, ctx);
+                        bool ident = ec && *ec;
+                        for (const char *c = ec; ident && *c; c++)
+                            if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') ||
+                                  (*c >= '0' && *c <= '9') || *c == '_')) ident = false;
+                        if (ident) {
+                            char nm[300];
+                            snprintf(nm, sizeof(nm), "Iron_Mutex__%s", ec);
+                            const char *res = iron_arena_strdup(ctx->arena, nm, strlen(nm));
+                            if (!res) iron_oom_abort("emit_helpers.c:emit_type_to_c Mutex");
+                            if (shgeti(ctx->emitted_mono_list_types, res) < 0) {
+                                shput(ctx->emitted_mono_list_types, res, true);
+                                iron_strbuf_appendf(&ctx->forward_decls,
+                                    "typedef Iron_Mutex %s;\n"
+                                    "__attribute__((used)) static %s *const iron_dbg_type_%s = 0;\n",
+                                    res, ec, res);
+                            }
+                            char pt[320];
+                            snprintf(pt, sizeof(pt), "%s *", res);
+                            const char *r2 = iron_arena_strdup(ctx->arena, pt, strlen(pt));
+                            if (!r2) iron_oom_abort("emit_helpers.c:emit_type_to_c Mutex ptr");
+                            return r2;
+                        }
+                    }
                     return "Iron_Mutex *";
                 }
                 if (strcmp(on, "Channel") == 0) {
@@ -751,6 +779,30 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
                 return emit_ensure_nested_list(ctx, t->array.elem);
             }
             const char *elem_c = emit_type_to_c(t->array.elem, ctx);
+            /* A list of an integer width the runtime does not instantiate
+             * (Int8, Int16, UInt16, UInt32, UInt64): the type was named
+             * but never declared, and the C did not compile. */
+            if (strcmp(elem_c, "int8_t") == 0 || strcmp(elem_c, "int16_t") == 0 ||
+                strcmp(elem_c, "uint16_t") == 0 || strcmp(elem_c, "uint32_t") == 0 ||
+                strcmp(elem_c, "uint64_t") == 0) {
+                char list_name[64];
+                snprintf(list_name, sizeof(list_name), "Iron_List_%s", elem_c);
+                const char *res = iron_arena_strdup(ctx->arena, list_name, strlen(list_name));
+                if (!res) iron_oom_abort("emit_helpers.c:emit_type_to_c int list");
+                if (shgeti(ctx->emitted_mono_list_types, res) < 0) {
+                    shput(ctx->emitted_mono_list_types, res, true);
+                    iron_strbuf_appendf(&ctx->struct_bodies,
+                        "typedef struct %s {\n"
+                        "    %s *items;\n"
+                        "    int64_t count;\n"
+                        "    int64_t capacity;\n"
+                        "} %s;\n"
+                        "IRON_LIST_DECL(%s, %s)\n"
+                        "IRON_LIST_IMPL(%s, %s)\n",
+                        res, elem_c, res, elem_c, elem_c, elem_c, elem_c);
+                }
+                return res;
+            }
             Iron_StrBuf sb = iron_strbuf_create(64);
             bool is_iface_elem = t->array.elem &&
                                  t->array.elem->kind == IRON_TYPE_INTERFACE &&
@@ -1690,6 +1742,33 @@ bool emit_val_is_any_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
            instr->kind == IRON_LIR_ARENA_ALLOC ||
            instr->kind == IRON_LIR_ADDR_OF ||
            emit_is_heap_handle_load(instr, fn);
+}
+
+/* --debug: the C type of a checked pointer or heap handle to `pointee_c`,
+ * a typedef of Iron_FatPtr named after the pointee
+ * (Iron_FatPtr__Iron_Worker), so the debugger formatters (src/debug) can
+ * show the value it points at. Plain Iron_FatPtr in other builds, and for a
+ * pointee that is not a C identifier. */
+const char *emit_debug_fatptr(EmitCtx *ctx, const char *pointee_c) {
+    if (!iron_lir_emit_debug_build() || !pointee_c || !*pointee_c) return "Iron_FatPtr";
+    for (const char *c = pointee_c; *c; c++)
+        if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') ||
+              (*c >= '0' && *c <= '9') || *c == '_')) return "Iron_FatPtr";
+    char name[300];
+    snprintf(name, sizeof(name), "Iron_FatPtr__%s", pointee_c);
+    const char *res = iron_arena_strdup(ctx->arena, name, strlen(name));
+    if (!res) iron_oom_abort("emit_helpers.c:emit_debug_fatptr");
+    if (shgeti(ctx->emitted_mono_list_types, res) < 0) {
+        shput(ctx->emitted_mono_list_types, res, true);
+        /* The pointer variable keeps the pointee in the debug info: a type
+         * only sizeof names is left out of it (dsymutil prunes it even
+         * with -fno-eliminate-unused-debug-types). */
+        iron_strbuf_appendf(&ctx->forward_decls,
+                            "typedef Iron_FatPtr %s;\n"
+                            "__attribute__((used)) static %s *const iron_dbg_type_%s = 0;\n",
+                            res, pointee_c, pointee_c);
+    }
+    return res;
 }
 
 /* Phase 21: Return the C pointee-type string for any Iron_FatPtr value.

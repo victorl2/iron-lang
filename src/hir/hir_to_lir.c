@@ -15,6 +15,7 @@
 
 #include "hir/hir_to_lir.h"
 #include "lir/verify.h"
+#include "lir/emit_c.h"
 #include "diagnostics/diagnostics.h"
 #include "analyzer/types.h"
 #include "vendor/stb_ds.h"
@@ -4739,6 +4740,17 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                     if (hmgeti(ctx->current_func->value_names, init_val) < 0) {
                         hmput(ctx->current_func->value_names, init_val,
                               iron_hir_var_name(ctx->hir, vid));
+                    } else if (iron_lir_emit_debug_build() && init_val != IRON_LIR_VALUE_INVALID &&
+                               ctx->current_block && !block_is_terminated(ctx->current_block) &&
+                               iron_hir_var_name(ctx->hir, vid)) {
+                        /* --debug: `val b = a` shares a's value, which
+                         * already carries a's name, so no debugger listed
+                         * b. A slot of its own, written once here, names
+                         * it (the program keeps using the value). */
+                        IronLIR_ValueId shadow = emit_alloca_in_entry(
+                            ctx, type, iron_hir_var_name(ctx->hir, vid), span);
+                        iron_lir_store(ctx->current_func, ctx->current_block, shadow,
+                                       init_val, span);
                     }
                     tag_arena_ctor_binding(ctx, init_val, vid);
                     /* Phase 26 POL-06 / Phase 27 POL-08 / Phase 37 rc-balance:
@@ -5849,6 +5861,12 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
                                          lir_params, param_count, ret_type);
     }
 
+    lir_func->end_file = hir_func->end_span.filename;
+    lir_func->end_line = hir_func->end_span.filename ? hir_func->end_span.line : 0;
+    lir_func->task_name = hir_func->task_name;
+    lir_func->spawn_span = hir_func->spawn_span;
+    lir_func->spawn_parent = hir_func->spawn_parent;
+
     /* Propagate capture metadata from HIR func to LIR func (for lifted lambdas) */
     lir_func->capture_metadata = hir_func->captures;
     lir_func->capture_count    = hir_func->capture_count;
@@ -5982,14 +6000,17 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
     /* Emit implicit void return if function doesn't end with a terminator.
      * Route through defer cleanup chain if defers are pending. */
     if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
-        /* The closing brace's line (#595): without one the return and the
-         * cleanup before it took the last statement's line, and clang gave
-         * it to stray instructions of earlier statements too. */
         Iron_Span zero_span = {0};
-        if (hir_func->end_span.filename && hir_func->end_span.line > 0) {
-            zero_span.filename = hir_func->end_span.filename;
-            zero_span.line = hir_func->end_span.line;
-            zero_span.end_line = hir_func->end_span.line;
+        /* --debug: the return itself is on the closing `}` (#595). Without a
+         * line it took the last statement's, which clang also gives to
+         * stray instructions (padding copies) in earlier statements, so a
+         * breakpoint on the last line could stop in the middle of an
+         * earlier one. */
+        Iron_Span end_span = {0};
+        if (iron_lir_emit_debug_build() && hir_func->end_span.filename &&
+            hir_func->end_span.line > 0) {
+            end_span.filename = hir_func->end_span.filename;
+            end_span.line = end_span.end_line = hir_func->end_span.line;
         }
         if (ctx->defer_stacks && ctx->defer_depth > 0) {
             /* Create exit block for the actual RETURN */
@@ -5999,12 +6020,12 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
             emit_var_param_writebacks(ctx, zero_span);
             if (!block_is_terminated(ctx->current_block)) {
                 iron_lir_return(lir_func, ctx->current_block,
-                                IRON_LIR_VALUE_INVALID, true, NULL, zero_span);
+                                IRON_LIR_VALUE_INVALID, true, NULL, end_span);
             }
         } else {
             emit_var_param_writebacks(ctx, zero_span);
             iron_lir_return(lir_func, ctx->current_block,
-                            IRON_LIR_VALUE_INVALID, true, NULL, zero_span);
+                            IRON_LIR_VALUE_INVALID, true, NULL, end_span);
         }
     }
     pop_defer_scope(ctx);
