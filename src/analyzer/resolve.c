@@ -968,6 +968,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_IF: {
             Iron_IfStmt *is = (Iron_IfStmt *)node;
+            if (is->is_comptime) break;
             resolve_expr(ctx, is->condition);
             if (is->body) resolve_node(ctx, is->body);
             /* elif branches */
@@ -998,6 +999,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
+            if (fs->is_comptime) break;
             /* Resolve iterable in current scope (not the for's inner scope) */
             resolve_expr(ctx, fs->iterable);
             push_scope(ctx, IRON_SCOPE_BLOCK);
@@ -1018,6 +1020,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_MATCH: {
             Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
+            if (ms->is_comptime) break;
             resolve_expr(ctx, ms->subject);
             for (int i = 0; i < ms->case_count; i++) {
                 if (ms->cases[i]) resolve_node(ctx, ms->cases[i]);

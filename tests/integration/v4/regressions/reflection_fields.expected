@@ -1,0 +1,16 @@
+0:id:private:7;1:name:public:Ada;2:count:private:3;3:note:private:nullable;
+idnamecountnote
+id:false;name:false;count:false;note:true;
+0:id:private:7;1:name:public:;2:count:private:0;3:note:private:nullable;
+4:Bee:0
+5:Dee:0
+name
+true
+int
+list:other
+map:other:int
+nullable:int
+describe
+built
+
+id;pub;other;other;

@@ -689,6 +689,11 @@ void iron_diag_set_user_start_line(uint32_t line);
 #define IRON_ERR_IFACE_VALUE_CALL         354   /* calling a static function, or a method taking `Self`, through an interface value */
 #define IRON_ERR_CONSTRAINT_NO_STATIC     355   /* `T.f()` on a type parameter whose constraint declares no static function f */
 #define IRON_ERR_GENERATED_ONLY           356   /* `T.__fields(...)` (memberwise construction) or a member named __fields outside compiler-generated code */
+#define IRON_ERR_REFLECTION_CONTEXT       357   /* reflection form survived outside a concrete compile-time expansion context */
+#define IRON_ERR_REFLECTION_TYPE          358   /* fields(T) or Fields[T] names a non-object or unresolved concrete type */
+#define IRON_ERR_COMPTIME_CONDITION       359   /* comptime if condition is not a reflection-time constant */
+#define IRON_ERR_COMPTIME_MATCH           360   /* no comptime match arm applies and there is no else arm */
+#define IRON_ERR_FIELDS_DEFAULT           361   /* Fields[T] cannot construct a safe initial value for a field */
 
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400

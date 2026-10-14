@@ -313,6 +313,7 @@ add_library(iron_compiler STATIC
     src/analyzer/iface_collect.c
     src/analyzer/iface_defaults.c
     src/analyzer/generics.c
+    src/analyzer/expand.c
     src/analyzer/analyzer.c
     src/comptime/comptime.c
     src/hir/hir.c
@@ -503,6 +504,25 @@ add_subdirectory(tests/lsp)                 # Phase 1 Plan 05: parity harness
 add_subdirectory(tests/integration)
 add_subdirectory(tests/integration/v4)
 add_subdirectory(tests/integration/v4-fail)
+
+if(NOT WIN32)
+    add_test(
+        NAME reflection_codegen_is_static
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/oracles/reflection_codegen.sh
+                $<TARGET_FILE:ironc>
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/regressions/reflection_fields.iron)
+    set_tests_properties(reflection_codegen_is_static PROPERTIES
+        LABELS "integration;oracle;reflection"
+        TIMEOUT 60)
+
+    add_test(
+        NAME reflection_hash_benchmark
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/benchmark/run_reflection_hash_bench.sh
+                $<TARGET_FILE:ironc>)
+    set_tests_properties(reflection_hash_benchmark PROPERTIES
+        LABELS "benchmark;reflection"
+        TIMEOUT 60)
+endif()
 add_subdirectory(tests/compile_fail)
 add_subdirectory(tests/algorithms)
 add_subdirectory(tests/composite)
@@ -1707,6 +1727,11 @@ if(Python3_EXECUTABLE)
             num generic ptr comptime)
     set_tests_properties(prog_fuzz_types PROPERTIES
         LABELS "codegen" PROCESSORS 4 TIMEOUT 1800)
+    add_test(NAME prog_fuzz_reflection
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz_reflection
+            reflect)
+    set_tests_properties(prog_fuzz_reflection PROPERTIES LABELS "codegen;reflection" TIMEOUT 900)
     # The same for concurrency (spawn / await, Mutex, channels, parallel
     # for; outputs deterministic by construction) and for arenas.
     add_test(NAME prog_fuzz_conc

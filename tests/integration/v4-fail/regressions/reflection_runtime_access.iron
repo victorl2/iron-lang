@@ -1,0 +1,7 @@
+object ReflectAccessBox {
+    val value: Int
+}
+
+func read(box: ReflectAccessBox, f: Int) -> Int {
+    return box.(f)
+}

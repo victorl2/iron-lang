@@ -1,0 +1,12 @@
+object ReflectErrorBox {
+    val value: Float
+}
+
+func main() {
+    comptime for f in fields(ReflectErrorBox) {
+        comptime match f.type {
+            Int -> println("int")
+            else -> comptime error("unsupported reflected field")
+        }
+    }
+}

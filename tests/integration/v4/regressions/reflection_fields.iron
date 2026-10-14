@@ -1,0 +1,169 @@
+interface Describe {
+    readonly func describe() -> String {
+        var out = ""
+        comptime if typeinfo(Self).tag("json") == null and typeinfo(Self).doc == null {
+            out = out + ""
+        }
+        comptime for f in fields(Self) {
+            comptime if f.tag("json") == null and f.doc == null {
+                out = out + "{f.index}:{f.name}:{f.visibility}:"
+            }
+            comptime match f.type {
+                Int -> out = out + self.(f).to_string()
+                String -> out = out + self.(f)
+                E? -> out = out + "nullable"
+                else -> comptime error("unsupported field in Describe")
+            }
+            out = out + ";"
+        }
+        return out
+    }
+}
+
+interface ClearVars {
+    func clear_vars() {
+        comptime for f in fields(Self) {
+            comptime if f.is_var {
+                comptime match f.type {
+                    Int -> self.(f) = 0
+                    String -> self.(f) = ""
+                    else -> comptime error("unsupported mutable field")
+                }
+            }
+        }
+    }
+}
+
+interface FromText {
+    static func from_text(id: Int, name: String) -> Self {
+        var b = Fields[Self]()
+        comptime for f in fields(Self) {
+            comptime match f.type {
+                Int -> { b.(f) = id }
+                String -> { b.(f) = name }
+                [E] -> { b.(f) = [] }
+                else -> comptime error("unsupported builder field")
+            }
+        }
+        return b.build()
+    }
+
+    static func first_missing(id: Int) -> String? {
+        var b = Fields[Self]()
+        comptime for f in fields(Self) {
+            comptime if f.name == "id" {
+                b.(f) = id
+            }
+        }
+        return b.missing()
+    }
+}
+
+object User impl Describe, ClearVars {
+    val id: Int
+    pub var name: String
+    var count: Int
+    val note: String?
+    init(id: Int, name: String, count: Int, note: String?) {
+        self.id = id
+        self.name = name
+        self.count = count
+        self.note = note
+    }
+}
+
+object Built impl FromText {
+    val id: Int
+    val name: String
+    val tags: [String]
+}
+
+object WithDefaults impl FromText {
+    val id: Int
+    val name: String
+    val tags: [String]
+    init() {
+        self.id = 99
+        self.name = "default"
+        self.tags = ["kept until overwritten"]
+    }
+}
+
+func names[T]() -> String {
+    var out = ""
+    comptime for f in fields(T) {
+        out = out + f.name
+    }
+    return out
+}
+
+func concrete_names() -> String {
+    var out = ""
+    comptime for f in fields(User) {
+        out = out + "{f.name}:{f.is_nullable};"
+    }
+    return out
+}
+
+func classify[T]() -> String {
+    comptime match T {
+        Int -> { return "int" }
+        [E] -> { return "list:" + classify[E]() }
+        Map[K, V] -> { return "map:" + classify[K]() + ":" + classify[V]() }
+        E? -> { return "nullable:" + classify[E]() }
+        Describe -> { return "describe" }
+        Built -> { return "built" }
+        else -> { return "other" }
+    }
+}
+
+func typed_name(value: User) -> String {
+    comptime for f in fields(User) {
+        comptime if f.name == "name" {
+            val copied: f.type = value.(f)
+            return copied
+        }
+    }
+    return ""
+}
+
+func field_categories() -> String {
+    var out = ""
+    comptime for f in fields(User) {
+        comptime if f.name == "id" {
+            out = out + "id;"
+        } elif f.is_pub {
+            out = out + "pub;"
+        } else {
+            out = out + "other;"
+        }
+    }
+    return out
+}
+
+func main() {
+    var u = User(7, "Ada", 3, null)
+    println(u.describe())
+    println(names[User]())
+    println(concrete_names())
+    u.clear_vars()
+    println(u.describe())
+    val built = Built.from_text(4, "Bee")
+    println("{built.id}:{built.name}:{built.tags.len()}")
+    val defaults = WithDefaults.from_text(5, "Dee")
+    println("{defaults.id}:{defaults.name}:{defaults.tags.len()}")
+    val missing = Built.first_missing(1)
+    if missing != null {
+        println(missing)
+    }
+    val no_missing = WithDefaults.first_missing(1)
+    println("{no_missing == null}")
+    println(classify[Int]())
+    println(classify[[String]]())
+    println(classify[Map[String, Int]]())
+    println(classify[Int?]())
+    println(classify[User]())
+    println(classify[Built]())
+    println(typed_name(u))
+    println(field_categories())
+}

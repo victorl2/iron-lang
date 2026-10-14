@@ -33,7 +33,7 @@ ironls = ">= 5.0.0, < 6.0.0"
 # Bump it whenever grammar.js changes.
 [grammars.iron]
 repository = "https://github.com/victorl2/iron-lang"
-commit = "c08fd0ba02d385f4df0755168c988b9ecd08d0e5"
+commit = "e5cf1cd4591e71056bfcdecdcbdd72f269c168fb"
 path = "grammars/tree-sitter/iron"
 
 # The ironls download: zed::download_file only reaches declared hosts and

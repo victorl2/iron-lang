@@ -193,6 +193,26 @@ void test_static_interface_formatting_is_idempotent(void) {
     free(copy);
 }
 
+void test_reflection_syntax_formatting_is_idempotent(void) {
+    const char *once = fmt_ok(
+        "func inspect[T](v: T) {\n"
+        "  comptime for f in fields(T) {\n"
+        "    comptime if f.is_var { v.(f) = v.(f) } else { println(f.name) }\n"
+        "    comptime match f.type {\n"
+        "      Int -> println(\"int\")\n"
+        "      E? -> println(\"nullable\")\n"
+        "      else -> comptime error(\"unsupported\")\n"
+        "    }\n"
+        "  }\n"
+        "}\n");
+    char *copy = strdup(once);
+    TEST_ASSERT_NOT_NULL(strstr(copy, "comptime for f in fields(T)"));
+    TEST_ASSERT_NOT_NULL(strstr(copy, "v.(f)"));
+    TEST_ASSERT_NOT_NULL(strstr(copy, "comptime match f.type"));
+    TEST_ASSERT_EQUAL_STRING(copy, fmt_ok(copy));
+    free(copy);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_empty_source_returns_ok_with_zero_length);
@@ -206,5 +226,6 @@ int main(void) {
     RUN_TEST(test_multiline_string_is_verbatim);
     RUN_TEST(test_formatting_is_idempotent);
     RUN_TEST(test_static_interface_formatting_is_idempotent);
+    RUN_TEST(test_reflection_syntax_formatting_is_idempotent);
     return UNITY_END();
 }

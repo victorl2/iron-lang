@@ -50,7 +50,8 @@ REPO = os.path.normpath(os.path.join(HERE, '..', '..'))
 GRAMMAR = os.path.join(REPO, 'grammars', 'tree-sitter', 'iron')
 sys.path.insert(0, HERE)
 
-AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime')
+AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime',
+         'reflect')
 
 # Constructs the grammar does not cover by design (see
 # tests/grammars/tree_sitter/parse_fixtures.sh): a source matching one of

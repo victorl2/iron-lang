@@ -1,0 +1,5 @@
+func main() {
+    comptime if len("runtime") == 7 {
+        println("unreachable")
+    }
+}

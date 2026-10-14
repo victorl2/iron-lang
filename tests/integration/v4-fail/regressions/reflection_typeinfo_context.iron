@@ -1,0 +1,8 @@
+object ReflectInfo {
+    val value: Int
+}
+
+func invalid() {
+    val value = typeinfo(ReflectInfo)
+    println("{value}")
+}
