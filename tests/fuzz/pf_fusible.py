@@ -277,12 +277,15 @@ class FusibleGen:
             if shape < 0.20:
                 lim = r.randint(3, 30)
 
-                def rec(x):
-                    return 0 if x <= 0 or x > lim else rec(x - 1) + 1
+                def rec(st, x):
+                    # the statements in front run at every level
+                    if hook:
+                        hook(st, x)
+                    return 0 if x <= 0 or x > lim else rec(st, x - 1) + 1
                 h = Helper(name, 'x: Int', 'Int',
                            pre + [f'if x <= 0 or x > {lim} {{', '    return 0', '}',
                                   f'return {name}(x - 1) + 1'],
-                           (lambda st, x: (hook(st, x) if hook else None, rec(x))[1]),
+                           rec,
                            blame('is recursive'), src, out)
                 return self.add(h)
             if shape < 0.32:
