@@ -1,0 +1,22 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- A callee that hands its closure parameter to a callee that keeps it keeps it too (#512).
+object B {
+    val f: func() -> Int
+}
+func keep(f: func() -> Int) -> B {
+    return B(f)
+}
+func relay(f: func() -> Int) -> Int {
+    val b = keep(f)
+    return b.f()
+}
+func main() {
+    val r = Res(1)
+    println("{relay(func() -> Int { return r.id })}")
+}

@@ -199,6 +199,10 @@ _Static_assert(sizeof(Iron_FatPtr) == 16,
                "silent perf regression on every pointer pass. "
                "See docs/dev/POINTER-LAYOUT.md for the public ABI commitment.");
 
+static inline bool iron_fatptr_equal(Iron_FatPtr a, Iron_FatPtr b) {
+    return a.addr == b.addr && a.gen == b.gen;
+}
+
 /* IronAllocHdr is the header prepended to every iron_heap_alloc'd block.
  * Release build: 16B; Debug build (IRON_DEBUG_ALLOCATOR): 32B with site
  * capture. Both sizes yield 16B-aligned user pointer (sizeof is multiple
