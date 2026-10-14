@@ -36,6 +36,8 @@ Areas:
               results as constants, E0230 / E0231 / E0232
     dropord   destruction order of objects, interfaces, lists, closures, rc;
               reference cycles
+    nocopy    closures and spawns borrowing nocopy values (each dropped once)
+              and the captures rejected with E0286 (#512)
 
     prog_fuzz.py AREA IRONC OUTDIR SEED [COUNT] [--valgrind | --helgrind [RTDIR] |
                  --drd [RTDIR] | --asan RTDIR | --tsan RTDIR] [--runs N]
@@ -85,7 +87,7 @@ from pf_lang import Bail, Expected  # noqa: E402
 
 AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime',
          'numedge', 'genedge', 'ptredge', 'ctedge', 'strcoll', 'dropord',
-         'sync', 'arenax', 'jsonp', 'crypto', 'http', 'soa', 'fusible')
+         'sync', 'arenax', 'jsonp', 'crypto', 'http', 'nocopy', 'soa', 'fusible')
 
 
 def generator(area):
@@ -610,7 +612,8 @@ SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure'
          'numedge': range(1, 49), 'strcoll': range(1, 49), 'genedge': range(1, 49),
          'ptredge': range(1, 49), 'ctedge': range(1, 25), 'dropord': range(1, 25),
          'sync': range(1, 9), 'arenax': range(1, 9), 'jsonp': range(1, 7), 'crypto': range(1, 7),
-         'http': range(1, 5), 'soa': range(1, 25), 'fusible': range(1, 13)}
+         'http': range(1, 5), 'nocopy': range(1, 33), 'soa': range(1, 25),
+         'fusible': range(1, 13)}
 # `--suite IRONC OUTDIR` runs these; the other areas have ctest entries of
 # their own (`--suite IRONC OUTDIR conc`, `... num generic ptr comptime`,
 # `... sync arenax`, `... jsonp crypto http`).

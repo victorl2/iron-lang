@@ -4689,7 +4689,11 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
              * the subject frees. It was copied bytewise and freed at the
              * arm's end, so the next match on the subject, or its own drop,
              * freed the buffer again. */
-            bool pattern_borrows = stmt->let.borrows && hir_type_owns_list(type, 0);
+            bool pattern_borrows = stmt->let.borrows &&
+                                   (hir_type_owns_list(type, 0) ||
+                                    /* a nocopy payload has the subject as its
+                                     * single owner, likewise */
+                                    iron_type_nocopy_part(type) != NULL);
             bool needs_drop_alloca = stmt->let.init &&
                                      !init_is_heap_or_rc && !enum_borrows && !pattern_borrows &&
                                      type_needs_drop(type, ctx->program) &&

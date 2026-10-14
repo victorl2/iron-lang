@@ -32,6 +32,7 @@
 
 #include "lsp/facade/edit/rename/collision.h"
 #include "lsp/facade/nav/nav_common.h"
+#include "lsp/facade/nav/nav_core.h"
 #include "lsp/facade/nav/node_at.h"
 #include "lsp/facade/nav/symbol_id.h"
 #include "lsp/facade/nav/references_index.h"
@@ -271,9 +272,23 @@ void ilsp_facade_rename(IronLsp_Server        *server,
             decl_in_doc = true;
         }
     }
-    /* A member or binding declared in another file, with no symbol to
-     * find its uses there: renaming only this file would break them. */
-    if (!sym && !decl_in_doc) goto done;
+    /* The names in the package's other files: the type in an annotation,
+     * the field or method in a member access, the declaration itself when
+     * it is in another file. */
+    IronLsp_RefSite *pkg_sites = NULL;
+    bool *pkg_is_decl = NULL;
+    size_t pkg_n = 0;
+    ilsp_nav_package_occurrences(server, doc, key_decl, key_name, cancel, arena,
+                                 &pkg_sites, &pkg_is_decl, &pkg_n);
+    if (cancel && atomic_load(cancel)) {
+        out->outcome = ILSP_RENAME_FAIL_CANCELLED; goto done;
+    }
+    bool decl_in_package = false;
+    for (size_t i = 0; i < pkg_n; i++) if (pkg_is_decl[i]) decl_in_package = true;
+    /* A member or binding declared in a file that was not found, with no
+     * symbol to find its uses there: renaming only this file would break
+     * them. */
+    if (!sym && !decl_in_doc && !decl_in_package) goto done;
 
     /* Step 3: Same-name short-circuit (D-10). */
     const char *old_name = key_name;
@@ -473,7 +488,7 @@ void ilsp_facade_rename(IronLsp_Server        *server,
     SiteRaw *raw = NULL;
     size_t   raw_n = 0;
     {
-        size_t cap = occ_n + workspace_n + 1;
+        size_t cap = occ_n + workspace_n + pkg_n + 1;
         raw = (SiteRaw *)iron_arena_alloc(arena, cap * sizeof(*raw), _Alignof(SiteRaw));
         if (!raw) goto done;
         const char *doc_uri = doc->uri
@@ -491,6 +506,24 @@ void ilsp_facade_rename(IronLsp_Server        *server,
             raw[raw_n].uri      = u;
             raw[raw_n].range    = workspace_sites[i].range;
             raw[raw_n].sort_key = range_sort_key(workspace_sites[i].range);
+            raw_n++;
+        }
+
+        /* The package's other files, less what the index already gave. */
+        for (size_t i = 0; i < pkg_n; i++) {
+            const char *u = pkg_sites[i].uri;
+            if (!u || (doc->uri && strcmp(u, doc->uri) == 0)) continue;
+            uint64_t key = range_sort_key(pkg_sites[i].range);
+            bool already = false;
+            for (size_t j = 0; j < raw_n; j++) {
+                if (raw[j].sort_key == key && raw[j].uri && strcmp(raw[j].uri, u) == 0) {
+                    already = true; break;
+                }
+            }
+            if (already) continue;
+            raw[raw_n].uri      = u;
+            raw[raw_n].range    = pkg_sites[i].range;
+            raw[raw_n].sort_key = key;
             raw_n++;
         }
 

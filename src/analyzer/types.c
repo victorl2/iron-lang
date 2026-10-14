@@ -676,6 +676,65 @@ bool iron_type_is_float(const Iron_Type *t) {
     }
 }
 
+/* Is `t` one of the runtime's reference counted handles a closure or a
+ * task may share (manual 7.1)? Their guards are not: they stay nocopy. */
+bool iron_type_is_shared_handle(const Iron_Type *t) {
+    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || !t->object.decl->name)
+        return false;
+    const char *n = t->object.decl->name;
+    return strcmp(n, "Mutex") == 0 || strcmp(n, "Channel") == 0 ||
+           strcmp(n, "RWLock") == 0 || strcmp(n, "Arena") == 0;
+}
+
+/* The nocopy object type `t` is or holds by value (through fields, fixed
+ * arrays, optionals, tuples and enum payloads), or NULL. A dynamic list is
+ * left to the list rule (E0328); rc, weak rc and pointers share. */
+static const Iron_Type *nocopy_part(const Iron_Type *t, int depth) {
+    if (!t || depth > 16) return NULL;
+    switch ((int)t->kind) {
+        case IRON_TYPE_NULLABLE:
+            return nocopy_part(t->nullable.inner, depth + 1);
+        case IRON_TYPE_ARRAY:
+            if (t->array.size < 0 && !t->array.is_bounded) return NULL;
+            return nocopy_part(t->array.elem, depth + 1);
+        case IRON_TYPE_TUPLE:
+            for (int i = 0; i < t->tuple.elem_count; i++) {
+                const Iron_Type *r = nocopy_part(t->tuple.elem_types[i], depth + 1);
+                if (r) return r;
+            }
+            return NULL;
+        case IRON_TYPE_ENUM:
+            if (!t->enu.decl || !t->enu.variant_payload_types) return NULL;
+            for (int v = 0; v < t->enu.decl->variant_count; v++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)t->enu.decl->variants[v];
+                if (!ev || !t->enu.variant_payload_types[v]) continue;
+                for (int k = 0; k < ev->payload_count; k++) {
+                    const Iron_Type *r =
+                        nocopy_part(t->enu.variant_payload_types[v][k], depth + 1);
+                    if (r) return r;
+                }
+            }
+            return NULL;
+        case IRON_TYPE_OBJECT: {
+            if (!t->object.decl || iron_type_is_shared_handle(t)) return NULL;
+            Iron_ObjectDecl *od = t->object.decl;
+            if (od->is_nocopy) return t;
+            for (int i = 0; i < od->field_count; i++) {
+                Iron_Field *f = (Iron_Field *)od->fields[i];
+                const Iron_Type *r = f ? nocopy_part(f->resolved_type, depth + 1) : NULL;
+                if (r) return r;
+            }
+            return NULL;
+        }
+        default:
+            return NULL;
+    }
+}
+
+const Iron_Type *iron_type_nocopy_part(const Iron_Type *t) {
+    return nocopy_part(t, 0);
+}
+
 bool iron_type_is_numeric(const Iron_Type *t) {
     return iron_type_is_integer(t) || iron_type_is_float(t);
 }

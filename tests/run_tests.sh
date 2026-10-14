@@ -54,6 +54,37 @@ PATH="$_clean_path"
 export PATH
 unset _clean_path _p
 
+detect_test_jobs() {
+    if [ -n "${IRON_TEST_JOBS:-}" ]; then
+        printf '%s\n' "${IRON_TEST_JOBS}"
+        return
+    fi
+
+    local cores quota period quota_cores cpu_max_file
+    cores=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
+    # nproc reports the host's affinity mask in some containers rather than
+    # the CPU quota. Keep the worker pool inside a cgroup v2 CPU allowance.
+    cpu_max_file="${IRON_TEST_CPU_MAX_FILE:-/sys/fs/cgroup/cpu.max}"
+    if [ -r "${cpu_max_file}" ]; then
+        read -r quota period < "${cpu_max_file}" || true
+        if [[ "${quota:-}" =~ ^[0-9]+$ ]] && [[ "${period:-}" =~ ^[0-9]+$ ]] && \
+                [ "${period}" -gt 0 ]; then
+            quota_cores=$(((quota + period - 1) / period))
+            [ "${quota_cores}" -lt "${cores}" ] && cores="${quota_cores}"
+        fi
+    fi
+
+    cores=$((cores / 2))
+    [ "${cores}" -lt 2 ] && cores=2
+    printf '%s\n' "${cores}"
+}
+
+if [ "${IRON_TEST_PRINT_JOBS:-}" = 1 ]; then
+    detect_test_jobs
+    exit 0
+fi
+
 # Returns 0 (true) if the fixture should be treated as XFAIL given the directive
 # and the current phase. Phase 15 baseline: IRON_CURRENT_PHASE defaults to 15;
 # fixtures with @expected-pass-after: phase-N where N > IRON_CURRENT_PHASE are XFAIL.
@@ -126,10 +157,12 @@ shopt -s nullglob
 # tests/integration/multi_file/<case>/ with N >= 1 .iron files plus a sibling
 # `expected` file (no leading dot — there is no <name>.iron to pair against).
 # The runner concatenates the .iron files in lexicographic order (so lib.iron
-# precedes main.iron alphabetically) with a synthetic `-- @file: <basename>`
+# precedes main.iron alphabetically) with a synthetic `// @file: <basename>`
 # directive between them. The lexer recognizes that directive and re-tags
 # subsequent tokens with the named filename so the resolver's cross-module
-# check (E0320) sees real per-file source identity.
+# check (E0320) sees real per-file source identity. The lexer honors the
+# directive in multi-file test mode only (IRON_MULTI_FILE_TEST=1, set on the
+# build below); in any other compile it is a plain comment.
 #
 # A fixture directory without an `expected` sibling is treated as compile-only.
 if [ -z "${IRON_TEST_ONE:-}" ] && [ "${CATEGORY}" = "integration" ] && [ -d "${TEST_DIR}/multi_file" ]; then
@@ -160,7 +193,7 @@ if [ -z "${IRON_TEST_ONE:-}" ] && [ "${CATEGORY}" = "integration" ] && [ -d "${T
         combined="${build_dir}/${case_name}.iron"
         : > "${combined}"
         for f in "${iron_files[@]}"; do
-            printf -- '-- @file: %s\n' "$(basename "${f}")" >> "${combined}"
+            printf -- '// @file: %s\n' "$(basename "${f}")" >> "${combined}"
             cat "${f}" >> "${combined}"
             printf '\n' >> "${combined}"
         done
@@ -168,7 +201,9 @@ if [ -z "${IRON_TEST_ONE:-}" ] && [ "${CATEGORY}" = "integration" ] && [ -d "${T
         echo -n "[RUN ] multi_file/${case_name} ... "
 
         build_stderr="${build_dir}/build.err"
-        if ! (cd "${build_dir}" && "${IRON_BIN}" build "${combined}") 2>"${build_stderr}"; then
+        # IRON_MULTI_FILE_TEST=1 is multi-file test mode: only there does the
+        # compiler honor an `@file:` comment in the source it is given.
+        if ! (cd "${build_dir}" && IRON_MULTI_FILE_TEST=1 "${IRON_BIN}" build "${combined}") 2>"${build_stderr}"; then
             echo "[FAIL] (build failed)"
             cat "${build_stderr}" >&2
             FAIL=$((FAIL + 1))
@@ -518,15 +553,10 @@ fi
 # pool sized to the core count (IRON_TEST_JOBS overrides; 1 runs them
 # inline). Output is replayed in corpus order once every worker is done,
 # so the report reads exactly as the serial one did.
-JOBS="${IRON_TEST_JOBS:-}"
-if [ -z "${JOBS}" ]; then
-    # Half the cores: ctest runs several of these runners side by side
-    # (-j4 in CI) next to the optimizer parity oracle, which starved when
-    # every runner took all of them.
-    JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-    JOBS=$((JOBS / 2))
-    [ "${JOBS}" -lt 2 ] && JOBS=2
-fi
+# Half the available cores: ctest runs several of these runners side by side
+# (-j4 in CI) next to the optimizer parity oracle. detect_test_jobs also
+# accounts for container CPU quotas that nproc does not report.
+JOBS="$(detect_test_jobs)"
 RESULTS_DIR="${WORK_DIR}/results"
 mkdir -p "${RESULTS_DIR}"
 _ordered_files=""
@@ -585,7 +615,14 @@ if [ "${CATEGORY}" = "v4-fail" ] || [ "${CATEGORY}" = "compile_fail" ]; then
 
         build_log="${WORK_DIR}/$(basename "${test_file}" .iron)_$$.log"
         set +e
-        (cd "${WORK_DIR}" && "${IRON_BIN}" check "${test_file}") > "${build_log}" 2>&1
+        # A fixture whose header says `@multi-file` holds several files
+        # under `@file:` comments: those are markers in multi-file test mode
+        # only (IRON_MULTI_FILE_TEST=1), and plain comments otherwise.
+        multi_file_mode=0
+        if grep -qE '^[[:space:]]*--[[:space:]]*@multi-file' <<< "$(head -n 10 "${test_file}")"; then
+            multi_file_mode=1
+        fi
+        (cd "${WORK_DIR}" && IRON_MULTI_FILE_TEST="${multi_file_mode}" "${IRON_BIN}" check "${test_file}") > "${build_log}" 2>&1
         build_rc=$?
         set -e
 

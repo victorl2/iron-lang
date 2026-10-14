@@ -1,0 +1,15 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- A nocopy parameter cannot be captured by a stored closure either (#512).
+func f(r: Res) -> Int {
+    val g = func() -> Int { return r.id }
+    return g()
+}
+func main() {
+    println("{f(Res(1))}")
+}

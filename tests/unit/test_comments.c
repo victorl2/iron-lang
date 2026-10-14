@@ -102,7 +102,15 @@ static void test_lex_markers_inside_strings_stay_text(void) {
 static void test_lex_slash_file_marker(void) {
     int n;
     const char *src = "// @file: other.iron\nval x = 1\n";
+    /* A file marker is honored in multi-file test mode; in user source it
+     * is a comment like any other. */
+    Iron_Token *plain = lex(src, &n);
+    TEST_ASSERT_FALSE(plain[0].comment & IRON_COMMENT_MARKER);
+    TEST_ASSERT_TRUE(plain[0].comment & IRON_COMMENT_PRESENT);
+    arrfree(plain);
+    iron_file_markers_set_test_mode(true);
     Iron_Token *t = lex(src, &n);
+    iron_file_markers_set_test_mode(false);
     TEST_ASSERT_TRUE(t[0].comment & IRON_COMMENT_MARKER);
     TEST_ASSERT_EQUAL_STRING("other.iron", t[1].filename);
     arrfree(t);

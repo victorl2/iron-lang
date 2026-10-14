@@ -46,6 +46,14 @@ typedef struct {
     Iron_Span       span;
     const char     *message;     /* arena-allocated */
     const char     *suggestion;  /* arena-allocated, NULL if none */
+    /* Optional richer form (iron_diag_emit_labeled), all NULL / zero in a
+     * plain diagnostic: a label under the primary caret, a second location
+     * with its own label (the declaration a use refers to; line 0 when
+     * absent), and a note printed before the help. */
+    const char     *label;
+    Iron_Span       related_span;
+    const char     *related_label;
+    const char     *note;
 } Iron_Diagnostic;
 
 /* ── Diagnostic list ─────────────────────────────────────────────────────── */
@@ -67,6 +75,26 @@ void iron_diag_emit(Iron_DiagList *list,
                     const char    *message,
                     const char    *suggestion);
 
+/* iron_diag_emit with a label under the caret, a related location with its
+ * own label (related_span.line == 0 for none) and a note. Any of the extra
+ * strings may be NULL. The help (suggestion) may span several lines. */
+void iron_diag_emit_labeled(Iron_DiagList *list,
+                            Iron_Arena    *arena,
+                            Iron_DiagLevel level,
+                            int            code,
+                            Iron_Span      span,
+                            const char    *message,
+                            const char    *label,
+                            Iron_Span      related_span,
+                            const char    *related_label,
+                            const char    *note,
+                            const char    *suggestion);
+
+/* The whole text of a diagnostic for a client that shows only one message
+ * (an editor): the message, then the labels, the note and the help, one per
+ * line. Arena-allocated. */
+const char *iron_diag_full_text(const Iron_Diagnostic *d, Iron_Arena *arena);
+
 /* Print a single diagnostic with optional source context.
  * source_text may be NULL; if non-NULL, a 3-line context window is shown.
  */
@@ -80,6 +108,93 @@ void iron_diaglist_truncate(Iron_DiagList *list, int count);
 void iron_diag_print_all(const Iron_DiagList *list, const char *source_text);
 
 void iron_diaglist_free(Iron_DiagList *list);
+
+/* ── Source file markers ─────────────────────────────────────────────────
+ *
+ * A file marker is a line comment whose text starts with `@file:`:
+ *
+ *     <comment> @file: <name> [@line: <n>] [@lines: <count>] [@packed]
+ *
+ * It tags the source after it with another file name (and, with `@line:`,
+ * restarts line numbering there), which is how one buffer carries several
+ * files. A marker is honored only where the compiler or the test harness
+ * wrote it:
+ *
+ *   - in the prelude the compiler puts above the user's source (the
+ *     standard library files, then the marker that names the user's file),
+ *     that is on the physical lines before the user's first line;
+ *   - in a source packed from several files (the target/combined.iron and
+ *     target/tests.iron that `iron` writes, compiled with --packed-source;
+ *     or a buffer whose prelude marker for the user's file says `@packed`),
+ *     on the lines between files: each of its markers gives the length of
+ *     the file under it with `@lines:`, and nothing inside that file is a
+ *     marker. A marker without `@lines:` is the last: its file runs to the
+ *     end of the buffer;
+ *   - anywhere, in multi-file test mode (the test harness packs the files
+ *     of a fixture into one source this way).
+ *
+ * Everywhere else, and so in all user source, the same text is a plain
+ * comment.
+ *
+ * The marker is keyed on the comment's text, not on how the comment is
+ * introduced: iron_comment_intro_len is the one place that knows the
+ * comment forms. */
+
+/* How the compiler writes the start of a marker for a quoted name; the
+ * name, a closing quote and the attributes follow. The one place that spells
+ * the comment the compiler's own markers are written in. */
+#define IRON_FILE_MARKER_OPEN "// @file: \""
+
+typedef struct {
+    const char *name;       /* not NUL terminated; points into the text */
+    size_t      name_len;
+    uint32_t    line_reset; /* the `@line:` value; 0 when absent */
+    bool        has_lines;  /* an `@lines:` length was given */
+    uint32_t    lines;      /* physical lines of the file under the marker */
+    bool        packed;     /* `@packed`: what follows is a packed source */
+} Iron_FileMarker;
+
+/* Length of the line comment introducer at the start of `text` (`//` that
+ * is not the `///` of a doc line, or the transitional `--`); 0 when there
+ * is none. */
+size_t iron_comment_intro_len(const char *text, size_t len);
+
+/* Parse the text of a comment (what follows the introducer, up to the end
+ * of the line) as a file marker. `name` is bare (up to whitespace) or
+ * quoted (may hold spaces). False when the text is not a well formed
+ * marker. */
+bool iron_file_marker_parse(const char *text, size_t len, Iron_FileMarker *out);
+
+/* Which markers of one buffer are honored. */
+typedef struct {
+    bool     test_mode;   /* multi-file test mode: every marker */
+    bool     packed;      /* the user part is a source packed by `iron` */
+    uint32_t user_start;  /* first physical line of the user part */
+    uint32_t trust_from;  /* packed: the next line a marker may sit on */
+} Iron_FileMarkerGate;
+
+/* The gate of a buffer whose user part starts on physical line
+ * `user_start_line` (1, or 0, when nothing was put above it). */
+Iron_FileMarkerGate iron_file_marker_gate(uint32_t user_start_line);
+
+/* Is the marker `m`, on physical line `phys_line`, honored? Call it once
+ * per marker, in source order. */
+bool iron_file_marker_admit(Iron_FileMarkerGate *gate, uint32_t phys_line,
+                            const Iron_FileMarker *m);
+
+/* Multi-file test mode, off by default. The compiler turns it on when the
+ * environment has IRON_MULTI_FILE_TEST=1; unit tests call this directly. */
+void iron_file_markers_set_test_mode(bool on);
+bool iron_file_markers_test_mode(void);
+
+/* The source being compiled was packed by `iron` (--packed-source). */
+void iron_file_markers_set_packed_source(bool on);
+bool iron_file_markers_packed_source(void);
+
+/* The first physical line of the user part of the buffer that
+ * iron_diag_print is given, so the excerpt it prints follows the same
+ * markers the lexer honored. */
+void iron_diag_set_user_start_line(uint32_t line);
 
 /* ── Error codes ─────────────────────────────────────────────────────────── */
 
