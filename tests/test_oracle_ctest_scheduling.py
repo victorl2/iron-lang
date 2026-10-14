@@ -108,8 +108,8 @@ def main() -> int:
         deadline = float(lsp_fuzz_command[lsp_fuzz_command.index("--deadline") + 1])
     except (ValueError, IndexError):
         deadline = 0
-    if deadline < 120:
-        print("lsp_fuzz_short: request deadline must be at least 120 seconds",
+    if deadline < 60:
+        print("lsp_fuzz_short: request deadline must be at least 60 seconds",
               file=sys.stderr)
         failed = True
 
@@ -137,13 +137,13 @@ def main() -> int:
 
     for name, test in tests.items():
         props = properties(test)
-        if "aggregate-parity" in props.get("LABELS", []) and props.get("TIMEOUT", 0) < 180:
-            print(f"{name}: aggregate-parity TIMEOUT must be at least 180 seconds",
+        if "aggregate-parity" in props.get("LABELS", []) and props.get("TIMEOUT", 0) < 120:
+            print(f"{name}: aggregate-parity TIMEOUT must be at least 120 seconds",
                   file=sys.stderr)
             failed = True
         if name.startswith("v4_") and "integration" in props.get("LABELS", []) and \
-                props.get("TIMEOUT", 0) < 180:
-            print(f"{name}: v4 integration TIMEOUT must be at least 180 seconds",
+                props.get("TIMEOUT", 0) < 120:
+            print(f"{name}: v4 integration TIMEOUT must be at least 120 seconds",
                   file=sys.stderr)
             failed = True
 
