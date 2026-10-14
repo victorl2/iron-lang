@@ -1,0 +1,43 @@
+-- Compare binary protocol values with a reference client's text protocol.
+import mysql
+import encoding
+import os
+
+val COLUMNS = "ti, tu, si, su, mi, mu, i, iu, bi, bu, dc, f, d, dt, tm, dtm, ts, yr, bt, js, en, st, tb, bl, mb, lb, tt, tx, mt, lt"
+
+func main() {
+    val url = OS.env_or("IRON_MYSQL_URL", "")
+    var conn = Mysql.connect_url(url)
+    if conn.failed() {
+        println("ERROR connect {conn.error.code}: {conn.error.message}")
+        return
+    }
+    val result = conn.exec("SELECT {COLUMNS} FROM iron_differential WHERE id >= ? ORDER BY id", [MysqlValue.Int(0)])
+    if result.failed() {
+        println("ERROR query {result.error.code}: {result.error.message}")
+        return
+    }
+    var row = 0
+    while row < result.row_count() {
+        var line = ""
+        var col = 0
+        while col < result.column_count() {
+            if col > 0 {
+                line = line + "\t"
+            }
+            val (value, error) = result.get_text(row, col)
+            if error.code == 7005 {
+                line = line + "NULL"
+            } else {
+                if error.code != 0 {
+                    line = line + "ERROR:{error.code}"
+                } else {
+                    line = line + Hex.encode(value)
+                }
+            }
+            col += 1
+        }
+        println(line)
+        row += 1
+    }
+}

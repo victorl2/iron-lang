@@ -922,6 +922,14 @@ are visible outside, and the closure may outlive the function that
 declared the `var` (a counter closure keeps its count). A lambda may
 capture a list only when it is passed directly as a call argument
 (`E0328` otherwise); to share a list with a stored closure use `rc [T]`.
+A `nocopy` value follows the same borrow rule (6.7): a lambda may capture
+one only when it is passed directly as an argument to a callee that just
+calls it during the call; it then reads the caller's binding, and the
+value is dropped once, by that binding (`E0286` otherwise). A callee
+keeps the closure, and the capture is rejected, when it stores the
+parameter, returns it, hands it to a callee that keeps it, or is a
+constructor, `push`, `insert` or a function without an Iron body; the
+list methods `map`, `filter`, `reduce` and `forEach` only call it.
 The environment of a closure is reference counted, so a closure may be
 returned, stored in a field or list, and copied. A recursive lambda is
 written by assigning it to the `var` it calls through
@@ -2376,7 +2384,26 @@ storing it is an error (`E0286`), which is how `Box`, `Channel`, `Mutex`,
 objects moves its elements (`take()`, `pop()`, `remove()`) and lends them
 (field reads, `for`, methods), but anything that would duplicate one is
 `E0286` too: `copy()`, a slice, `filter`, and binding an element or a
-field (`val p = ps[i]`). Each object has at most
+field (`val p = ps[i]`).
+
+A closure or a thread can only borrow a `nocopy` value, as it borrows a
+list (6.8): a lambda passed directly as an argument to a callee that only
+calls it (3.7), or a `spawn` surely awaited in the block that starts it
+(7.1), reads the value through its binding and never copies or drops it.
+Any other capture, by a lambda bound to a `val` or `var`, returned, stored
+in a field, list or map, passed to a callee that keeps it, or by a spawn
+that is not surely awaited, is `E0286`. The rule covers a `val` binding or
+parameter whose type is a `nocopy` object or holds one by value (in a
+field, a fixed array, an optional, a tuple or an enum payload). It does not
+cover a `var` binding, which a closure shares through its counted cell
+(3.7), a `heap` binding, `rc` values and pointers, or `Mutex`, `Channel`,
+`RWLock` and `Arena`: these are reference counted handles, and a closure or
+thread holds its own reference to them (7.1). To share a `nocopy` value
+with a closure that is stored or returned, or with a thread that may
+outlive the block, make it reference counted, `val h = rc FileHandle.open(p)`:
+each closure then holds its own reference and the value is dropped once,
+when the last holder is gone. Two threads that both use it guard the
+reference with a lock, `Mutex(rc Hasher.new(alg))`. Each object has at most
 one `drop` and one `copy` block (`E0284`, `E0285`); `drop` may not be
 `readonly` (`E0287`) and may not `return` early (`E0288`).
 
@@ -2422,6 +2449,56 @@ func main() {
 }
 ```
 
+```iron
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+
+func twice(f: func() -> Int) -> Int {
+    return f() + f()
+}
+
+func reader(r: rc Res) -> func() -> Int {
+    return func() -> Int { return r.id }
+}
+
+func main() {
+    val a = Res(1)
+    println("{twice(func() -> Int { return a.id })}")
+    val t = spawn("t") {
+        return a.id * 10
+    }
+    println("{await t}")
+    val b = rc Res(2)
+    val get = reader(b)
+    println("{get()}")
+}
+```
+
+```output
+2
+10
+2
+drop 2
+drop 1
+```
+
+<!-- doctest-expect-error: E0286 -->
+```iron
+nocopy object Res {
+    val id: Int
+}
+
+func main() {
+    val a = Res(1)
+    val get = func() -> Int { return a.id }
+    println("{get()}")
+}
+```
+
 ### 6.8 List ownership
 
 Lists are the one kind of value that is never copied implicitly. The
@@ -2436,9 +2513,12 @@ rules, all enforced at compile time with `E0328`:
   callee may move its elements while the other parameter refers to them);
   pass `xs.copy()` for the other one.
 - A lambda may capture a list only when the lambda is passed directly as a
-  call argument; a lambda that is bound, returned or stored cannot capture a
-  list. A `spawn` body that captures a list must be awaited in the block
-  that started it.
+  call argument to a callee that only calls it (3.7); a lambda that is
+  bound, returned or stored, or given to a callee that keeps it, cannot
+  capture a list. A `spawn` body that captures a list must be awaited in the
+  block that started it, by a later statement that always runs (no
+  `return`, `break` or `continue` before it). `nocopy` values follow the
+  same rules (6.7).
 - To share a list, use `rc [T]`.
 
 <!-- doctest-expect-error: E0328 -->
@@ -2469,12 +2549,19 @@ until it returns, and tasks beyond the pool's size wait their turn. Run
 long-lived loops as bound spawns, and see `Http.poller` (networking guide)
 for servers that keep many idle connections. The body may read `val` bindings of the enclosing
 function and use `Mutex`, `Channel` and `rc` values; a list captured by a
-spawn must be awaited in the same block (`E0328`). Writing a captured
+spawn must be awaited in the same block (`E0328`), and so must a `nocopy`
+value (or a value holding one), which the thread borrows from its binding
+without copying or dropping it (`E0286`, 6.7). For a `nocopy` value the
+await must be sure: a later statement of the same block that always runs,
+with no `return`, `break` or `continue` before it that could leave the
+block; to hand one to a thread that may outlive the block, make it `rc`
+(and guard it with a `Mutex` when both threads use it). Writing a captured
 `var` from a thread is a data race and warns (`W0604`). A thread keeps what
 it captured alive until it finishes, even when the block that declared it
 ends first (always possible for a spawn that is never awaited): it holds its
 own reference to each captured `Mutex`, `Channel`, `RWLock`, `Arena`, `rc`
-value and `var`, and its own copy of the other values. A thread that is still
+value and `var`, borrows a captured list or `nocopy` value (which is why
+such a spawn must be awaited), and keeps its own copy of the other values. A thread that is still
 running when the program ends is stopped with it. Named thread pools
 are not implemented: `spawn("name", pool)` is rejected (`E0326`).
 
@@ -2586,8 +2673,10 @@ func main() {
 threads and waits for all of them. The body must not write bindings of the
 enclosing scope (`E0208`); use a `Mutex` to accumulate. `range(n)` and lists
 may be iterated in parallel; a list is iterated through a binding
-(`for x in xs parallel`), not a list expression. The `parallel(pool)` form parses but pools are
-not implemented (`E0326`).
+(`for x in xs parallel`), not a list expression. A parallel body cannot
+capture a `nocopy` value (`E0286`): share it as `rc` and guard it with a
+`Mutex`, since several worker threads may use it. The `parallel(pool)` form
+parses but pools are not implemented (`E0326`).
 
 ```iron
 func main() {
@@ -3670,7 +3759,7 @@ codes cited in this manual:
 | E0268, E0270, E0271, E0294, E0295, E0296 | pointer arithmetic; address of a temporary; escaping stack reference; regime errors; `&` on an `rc` |
 | E0273, E0274, E0297, E0298 | `heap`/`rc`/`pool` in an invalid position |
 | E0278 | I/O in a `readonly` method |
-| E0284 to E0288 | duplicate `drop`/`copy`; copy of a `nocopy` value; `readonly drop`; early return in `drop` |
+| E0284 to E0288 | duplicate `drop`/`copy`; copy of a `nocopy` value (also a capture that is not a borrow, 6.7); `readonly drop`; early return in `drop` |
 | E0289 | checked/unchecked pointer mismatch |
 | E0293 | missing return |
 | E0299, E0301 | dereferencing a `weak rc`; `rc` inside an arena block |

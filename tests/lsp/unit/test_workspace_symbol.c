@@ -9,7 +9,7 @@
  *   2. overlong query is rejected with an empty result (T-03-07).
  *   3. empty query / no workspace_index -> empty result.
  *   4. path-prefix filter narrows results via '/' split.
- *   5. dirty open documents do not expose stale indexed ranges.
+ *   5. modified open documents do not expose stale indexed symbols.
  */
 #include "unity.h"
 
@@ -182,14 +182,19 @@ static void test_path_prefix_filter(void) {
     fx_destroy(&f);
 }
 
-/* ── Test 05: dirty open document suppresses stale index entry ── */
+/* -- Test 05: edited open document suppresses stale index entry -- */
 
-static void test_dirty_open_document_omits_stale_symbol(void) {
+static void test_modified_open_document_suppresses_stale_symbols(void) {
     fx_t f; fx_init(&f);
 
-    char uri[640];
+    char uri[600];
     snprintf(uri, sizeof(uri), "file://%s/main.iron", f.root);
-    IronLsp_Document *doc = ilsp_document_create(uri, "x", 1, 2);
+    const char *disk_text =
+        "pub func greeter() {}\n"
+        "func reader()  {}\n"
+        "func writer()  {}\n";
+    IronLsp_Document *doc = ilsp_document_create(
+        uri, disk_text, strlen(disk_text), 1);
     TEST_ASSERT_NOT_NULL(doc);
     sh_new_strdup(f.server.documents);
     shput(f.server.documents, uri, doc);
@@ -197,9 +202,20 @@ static void test_dirty_open_document_omits_stale_symbol(void) {
     Iron_Arena arena = iron_arena_create(16 * 1024);
     IronLsp_WorkspaceSymbol *out = NULL;
     size_t n = 0;
-    ilsp_facade_nav_workspace_symbol(&f.server, "greeter", NULL, &arena,
+    ilsp_facade_nav_workspace_symbol(&f.server, "gret", NULL, &arena,
                                        &out, &n);
+    TEST_ASSERT_GREATER_OR_EQUAL_size_t(1, n);
+    iron_arena_free(&arena);
 
+    const char *edited_text = "pub func x() {}\n";
+    TEST_ASSERT_TRUE(ilsp_document_apply_full_replace(
+        doc, edited_text, strlen(edited_text), 2));
+
+    arena = iron_arena_create(16 * 1024);
+    out = NULL;
+    n = 0;
+    ilsp_facade_nav_workspace_symbol(&f.server, "gret", NULL, &arena,
+                                       &out, &n);
     TEST_ASSERT_EQUAL_size_t(0, n);
 
     iron_arena_free(&arena);
@@ -212,6 +228,6 @@ int main(void) {
     RUN_TEST(test_query_too_long_returns_empty);
     RUN_TEST(test_no_workspace_index_empty);
     RUN_TEST(test_path_prefix_filter);
-    RUN_TEST(test_dirty_open_document_omits_stale_symbol);
+    RUN_TEST(test_modified_open_document_suppresses_stale_symbols);
     return UNITY_END();
 }
