@@ -242,6 +242,23 @@ static void report_tuple_list(TypeCtx *ctx, Iron_Span sp) {
     emit_error(ctx, IRON_ERR_TYPE_MISMATCH, sp, TUPLE_LIST_MSG, TUPLE_LIST_HELP);
 }
 
+/* `guard.get()` hands out a copy of the locked value: not for a nocopy
+ * one, which would then be dropped by the copy and by the lock. */
+static void check_guard_get_nocopy(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                   const char *guard, Iron_Type *elem) {
+    const Iron_Type *nc = iron_type_nocopy_part(elem);
+    if (!nc) return;
+    const char *tn = nc->object.decl->name ? nc->object.decl->name : "T";
+    char msg[256], help[400];
+    snprintf(msg, sizeof(msg),
+             "%s.get() would copy the nocopy value the lock holds (%s)", guard, tn);
+    snprintf(help, sizeof(help),
+             "a lock hands out copies of its value, and a nocopy value has a single owner: "
+             "store a reference counted one instead, `Mutex(rc %s(...))`, and get() hands out "
+             "another reference to it", tn);
+    emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, mc->span, msg, help);
+}
+
 
 /* Help for a method name that does not exist on `type_name`: the closest
  * declared method ("did you mean 'upper'?"), else a list of the type's
@@ -7418,6 +7435,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 }
                 if (strcmp(rn, "MutexGuard") == 0 &&
                     strcmp(mc->method, "get") == 0) {
+                    check_guard_get_nocopy(ctx, mc, "MutexGuard", elem);
                     result = elem ? elem
                         : iron_type_make_primitive(IRON_TYPE_ERROR);
                     mc->resolved_type = result;
@@ -7472,6 +7490,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 if ((strcmp(rn, "RWReadGuard") == 0 ||
                      strcmp(rn, "RWWriteGuard") == 0) &&
                     strcmp(mc->method, "get") == 0) {
+                    check_guard_get_nocopy(ctx, mc, rn, elem);
                     result = elem ? elem
                         : iron_type_make_primitive(IRON_TYPE_ERROR);
                     mc->resolved_type = result;

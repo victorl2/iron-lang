@@ -243,6 +243,10 @@ done:
                 ? iron_arena_strdup(arena, od->message, strlen(od->message))
                 : NULL;
             dc->suggestion = NULL;    /* not read post-facade; don't carry */
+            dc->label = NULL;         /* nor the labeled form's strings */
+            dc->related_label = NULL;
+            dc->note = NULL;
+            dc->related_span.filename = NULL;
             dc->span.filename = NULL; /* dangling pointers past the free */
             arr[ai].originating_diag = dc;
         }

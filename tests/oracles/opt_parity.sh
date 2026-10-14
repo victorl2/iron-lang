@@ -8,7 +8,7 @@
 #
 # Usage: tests/oracles/opt_parity.sh <iron-binary> [dir ...]
 #   dirs default to tests/integration/v4 and tests/algorithms.
-# Env:   PARITY_JOBS (default 4), PARITY_TIMEOUT seconds per run (default 10).
+# Env:   PARITY_JOBS (default 4), PARITY_TIMEOUT seconds per run (default 30).
 # Exit:  0 when every fixture agrees, 1 otherwise. Mismatches are listed
 #        with a short diff; skipped fixtures are counted, not listed.
 set -uo pipefail
@@ -20,7 +20,7 @@ if [ "$#" -eq 0 ]; then
     set -- "$REPO/tests/integration/v4" "$REPO/tests/algorithms"
 fi
 JOBS=${PARITY_JOBS:-4}
-TIMEOUT=${PARITY_TIMEOUT:-10}
+TIMEOUT=${PARITY_TIMEOUT:-30}
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/iron_parity.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 

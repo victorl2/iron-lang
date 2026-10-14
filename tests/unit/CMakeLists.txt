@@ -424,7 +424,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_http_iron_concurrency PROPERTIES
-        LABELS "integration;networking;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 60 PROCESSORS 4)
 
     add_test(
         NAME test_websocket_iron_roundtrip
@@ -432,7 +432,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_websocket_iron_roundtrip PROPERTIES
-        LABELS "integration;networking;websocket;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;websocket;v4-acceptance" TIMEOUT 60 PROCESSORS 4)
 
     add_test(
         NAME test_file_operations_iron_roundtrip
@@ -440,7 +440,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_file_operations_iron_roundtrip PROPERTIES
-        LABELS "integration;file-io;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;file-io;v4-acceptance" TIMEOUT 60 PROCESSORS 4)
 
     add_test(
         NAME test_http_example_check
@@ -455,7 +455,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_udp_iron_payload_roundtrip PROPERTIES
-        LABELS "integration;networking;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 60 PROCESSORS 4)
 endif()
 
 # ── Phase 2 (CLI + TOML scaffold) tests ──────────────────────────────────────

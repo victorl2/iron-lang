@@ -23,6 +23,7 @@
 #include "vendor/yyjson/yyjson.h"
 #include "vendor/stb_ds.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -94,13 +95,33 @@ static yyjson_mut_val *build_diagnostics_array(yyjson_mut_doc           *d,
         /* source */
         yyjson_mut_obj_add_strcpy(d, obj, "source", "iron");
 
-        /* message */
-        yyjson_mut_obj_add_strcpy(d, obj, "message",
-                                    dg->message ? dg->message : "");
+        /* message: a labeled diagnostic (label, note, related location)
+         * carries all of its text, since most editors show only this. */
+        bool labeled = dg->label || dg->note || dg->related_label;
+        Iron_Arena tmp = iron_arena_create(1024);
+        const char *text = labeled ? iron_diag_full_text(dg, &tmp)
+                                   : (dg->message ? dg->message : "");
+        yyjson_mut_obj_add_strcpy(d, obj, "message", text);
+        iron_arena_free(&tmp);
+
+        yyjson_mut_val *rel_arr = NULL;
+        /* related location (the declaration a use refers to) */
+        if (dg->related_label && dg->related_span.line > 0) {
+            rel_arr = yyjson_mut_arr(d);
+            yyjson_mut_val *rel_obj = yyjson_mut_obj(d);
+            yyjson_mut_val *loc = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_strcpy(d, loc, "uri",
+                                        doc && doc->uri ? doc->uri : "");
+            attach_range(d, loc, "range",
+                         ilsp_span_to_lsp_range(dg->related_span, doc, enc));
+            yyjson_mut_obj_add_val(d, rel_obj, "location", loc);
+            yyjson_mut_obj_add_strcpy(d, rel_obj, "message", dg->related_label);
+            yyjson_mut_arr_append(rel_arr, rel_obj);
+        }
 
         /* suggestion -> relatedInformation */
         if (dg->suggestion && dg->suggestion[0] != '\0') {
-            yyjson_mut_val *rel_arr = yyjson_mut_arr(d);
+            if (!rel_arr) rel_arr = yyjson_mut_arr(d);
             yyjson_mut_val *rel_obj = yyjson_mut_obj(d);
             /* location: { uri, range } */
             yyjson_mut_val *loc = yyjson_mut_obj(d);
@@ -108,14 +129,17 @@ static yyjson_mut_val *build_diagnostics_array(yyjson_mut_doc           *d,
                                         doc && doc->uri ? doc->uri : "");
             attach_range(d, loc, "range", range);
             yyjson_mut_obj_add_val(d, rel_obj, "location", loc);
-            /* message */
-            char sugg_msg[512];
-            snprintf(sugg_msg, sizeof(sugg_msg),
-                     "suggestion: %s", dg->suggestion);
-            yyjson_mut_obj_add_strcpy(d, rel_obj, "message", sugg_msg);
+            /* message (a help may be long: never truncated) */
+            size_t sl = strlen(dg->suggestion) + sizeof("suggestion: ");
+            char *sugg_msg = (char *)malloc(sl);
+            if (sugg_msg) {
+                snprintf(sugg_msg, sl, "suggestion: %s", dg->suggestion);
+                yyjson_mut_obj_add_strcpy(d, rel_obj, "message", sugg_msg);
+                free(sugg_msg);
+            }
             yyjson_mut_arr_append(rel_arr, rel_obj);
-            yyjson_mut_obj_add_val(d, obj, "relatedInformation", rel_arr);
         }
+        if (rel_arr) yyjson_mut_obj_add_val(d, obj, "relatedInformation", rel_arr);
 
         yyjson_mut_arr_append(arr, obj);
     }

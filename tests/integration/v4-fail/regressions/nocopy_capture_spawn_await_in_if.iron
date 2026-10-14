@@ -1,0 +1,17 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- An await that only one branch runs does not make the borrow safe (#512).
+func main() {
+    val r = Res(1)
+    val t = spawn("t") {
+        return r.id
+    }
+    if r.id > 5 {
+        println("{await t}")
+    }
+}
