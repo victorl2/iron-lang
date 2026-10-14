@@ -1,0 +1,21 @@
+// reduce with a String accumulator released nothing: every intermediate
+// String leaked (#862). The result is an owned String of its own, also when
+// the list is empty and the result is the initial value.
+func join(acc: String, x: Int) -> String {
+    return "{acc}{x};"
+}
+
+func prefix() -> String {
+    return "a prefix long enough to live on the heap: "
+}
+
+func main() {
+    val xs = [1200000000, 500000000, 1000000000, 300000000, 200000000]
+    println(xs.reduce("", join))
+    val s = xs.reduce(prefix(), join)
+    println(s)
+    val none: [Int] = []
+    val t = none.reduce(prefix(), join)
+    println("{t}{t.len()}")
+    println("{none.reduce("", join).len()}")
+}

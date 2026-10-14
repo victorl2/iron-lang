@@ -587,6 +587,12 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
     iron_strbuf_appendf(sb, " = ");
     emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
     iron_strbuf_appendf(sb, ";\n");
+    if (at->kind == IRON_TYPE_STRING) {
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "iron_string_retain(&");
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, ");\n");
+    }
     emit_indent(sb, ind);
     iron_strbuf_appendf(sb, "{\n");
     emit_indent(sb, ind + 1);
@@ -598,21 +604,37 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
     emit_indent(sb, ind + 1);
     iron_strbuf_appendf(sb, "for (int64_t _i = 0; _i < ");
     emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-    iron_strbuf_appendf(sb, ".%s; _i++) ", f_count);
-    emit_val(sb, instr->id);
-    iron_strbuf_appendf(sb, " = _hof_fn%u(", id);
+    iron_strbuf_appendf(sb, ".%s; _i++) {\n", f_count);
+    /* A String accumulator: the result is an owned String, so it starts as
+     * a reference of its own to the initial value, and each step releases
+     * the accumulator it replaces. Without this every intermediate String
+     * leaked (#862). */
+    bool acc_string = (at->kind == IRON_TYPE_STRING);
+    emit_indent(sb, ind + 2);
+    iron_strbuf_appendf(sb, "%s _acc%u = _hof_fn%u(", at_c, id, id);
     emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
     iron_strbuf_appendf(sb, ".env, ");
     emit_val(sb, instr->id);
     iron_strbuf_appendf(sb, ", ");
     if (emit_list_has_columns(ctx, lt)) {
-            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
-            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-            iron_strbuf_appendf(sb, ", _i));\n ");
-        } else {
-            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-            iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
-        }
+        iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
+        emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ", _i));\n");
+    } else {
+        emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
+    }
+    if (acc_string) {
+        emit_indent(sb, ind + 2);
+        iron_strbuf_appendf(sb, "iron_string_release(&");
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, ");\n");
+    }
+    emit_indent(sb, ind + 2);
+    emit_val(sb, instr->id);
+    iron_strbuf_appendf(sb, " = _acc%u;\n", id);
+    emit_indent(sb, ind + 1);
+    iron_strbuf_appendf(sb, "}\n");
     emit_indent(sb, ind);
     iron_strbuf_appendf(sb, "}\n");
     return true;
