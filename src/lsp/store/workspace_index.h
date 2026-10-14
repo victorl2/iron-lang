@@ -152,6 +152,18 @@ void                    ilsp_workspace_index_destroy(IronLsp_WorkspaceIndex *wi)
 void                    ilsp_workspace_index_warm_seed(IronLsp_WorkspaceIndex *wi,
                                                         _Atomic bool          *cancel);
 
+/* Parse an in-memory source buffer with the same parse-only pipeline used
+ * by warm seed. The returned program belongs to `arena`; diagnostics remain
+ * caller-owned. Navigation uses this to overlay unsaved open documents on
+ * the disk-backed index. */
+Iron_Program           *ilsp_workspace_index_parse_buffer(
+                            const char          *source,
+                            size_t               len,
+                            const char          *filename,
+                            Iron_Arena           *arena,
+                            Iron_DiagList        *diags,
+                            const _Atomic bool   *cancel);
+
 /* Per-path lookup. Returns pointer into the entries map (lifetime tied
  * to the index); caller MUST NOT free. Bumps last_used_tick. NULL on miss.
  * The mutex is held only for the shget + tick bump; subsequent reads of

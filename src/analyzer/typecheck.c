@@ -3714,8 +3714,18 @@ static bool method_may_change_self(Iron_MethodDecl *md) {
  * looks mutating: declared without `readonly` but no implementation changes
  * self (`func area() -> Float { return self.s * self.s }`). Declaring it
  * readonly is then the fix, not `var`. NULL when that is not known. */
+static bool is_readonly_compatible_type(const Iron_Type *t, TypeCtx *ctx);
+
 static const char *readonly_hint(TypeCtx *ctx, Iron_Type *t, const char *method) {
     if (!ctx->program || !t || !method) return NULL;
+    /* An instance of a generic method (`pick__Int`): the help names the
+     * method as declared (it suggested `readonly func pick[Int](...)`). */
+    const char *shown = method;
+    Iron_Node *gdecl = strstr(method, "__")
+        ? iron_generics_instance_of(method, NULL, NULL) : NULL;
+    if (gdecl && gdecl->kind == IRON_NODE_METHOD_DECL &&
+        ((Iron_MethodDecl *)gdecl)->method_name)
+        shown = ((Iron_MethodDecl *)gdecl)->method_name;
     if (t->kind == IRON_TYPE_NULLABLE) t = t->nullable.inner;
     if (!t) return NULL;
     const char *iface_name = NULL;
@@ -3749,6 +3759,12 @@ static const char *readonly_hint(TypeCtx *ctx, Iron_Type *t, const char *method)
                 strcmp(md->method_name, method) != 0) continue;
             if (md->is_readonly || md->is_pure) continue;
             if (method_may_change_self(md)) return NULL;
+            /* A readonly method could not return this type (E0280): the
+             * fix is `var`, not `readonly`. */
+            if (md->resolved_return_type &&
+                md->resolved_return_type->kind != IRON_TYPE_VOID &&
+                !is_readonly_compatible_type(md->resolved_return_type, ctx))
+                return NULL;
             seen++;
         }
     }
@@ -3758,11 +3774,11 @@ static const char *readonly_hint(TypeCtx *ctx, Iron_Type *t, const char *method)
         snprintf(buf, sizeof(buf),
                  "'%s' does not change self in any implementation: declare it "
                  "`readonly func %s(...)` in '%s' and its implementations",
-                 method, method, iface_name);
+                 shown, shown, iface_name);
     else
         snprintf(buf, sizeof(buf),
                  "'%s' does not change self: declare it `readonly func %s(...)`",
-                 method, method);
+                 shown, shown);
     return iron_arena_strdup(ctx->arena, buf, strlen(buf));
 }
 
@@ -4553,6 +4569,28 @@ static Iron_Type *check_hash_method(TypeCtx *ctx, Iron_MethodCallExpr *mc,
     return result ? result : iron_type_make_primitive(IRON_TYPE_ERROR);
 }
 
+/* The value argument of ch.send(v), guard.set(v) and write_guard.set(v):
+ * one argument of the element type (it was not checked, so a value of
+ * another type reached the C compiler). */
+static void check_resource_value_arg(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                     Iron_Type *elem) {
+    if (mc->arg_count != 1) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "'%s' expects 1 argument(s), got %d",
+                 mc->method, mc->arg_count);
+        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+        return;
+    }
+    Iron_Type *at = check_expr_with_expected(ctx, mc->args[0], elem);
+    if (elem && at && at->kind != IRON_TYPE_ERROR && elem->kind != IRON_TYPE_ERROR &&
+        !types_assignable(elem, at) && !is_int_literal_narrowing(elem, at, mc->args[0])) {
+        char msg[320];
+        snprintf(msg, sizeof(msg), "'%s' argument 1 expects '%s', got '%s'", mc->method,
+                 iron_type_to_string(elem, ctx->arena), iron_type_to_string(at, ctx->arena));
+        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->args[0]->span, msg, NULL);
+    }
+}
+
 /* ── User generics: instantiation at call sites (see generics.h) ──────── */
 
 /* A type written in expression position (`f[Int]`, `C[Int]`) as an
@@ -4602,6 +4640,20 @@ static Iron_Node *type_ann_from_expr(TypeCtx *ctx, Iron_Node *n) {
         ta->span = n->span;
         ta->is_rc = true;
         ta->rc_inner = inner;
+        return (Iron_Node *)ta;
+    }
+    if (n->kind == IRON_NODE_WEAK_RC_NULL && ((Iron_WeakRcNullExpr *)n)->is_alloc_form) {
+        /* `weak rc T` in a list literal written as a type argument
+         * (`Map[String, [weak rc T]]()`). */
+        Iron_Node *inner = type_ann_from_expr(ctx, ((Iron_WeakRcNullExpr *)n)->alloc_inner);
+        if (!inner) return NULL;
+        Iron_TypeAnnotation *ta = ARENA_ALLOC(ctx->arena, Iron_TypeAnnotation);
+        if (!ta) return NULL;
+        memset(ta, 0, sizeof(*ta));
+        ta->kind = IRON_NODE_TYPE_ANNOTATION;
+        ta->span = n->span;
+        ta->is_weak_rc = true;
+        ta->weak_rc_inner = inner;
         return (Iron_Node *)ta;
     }
     if (n->kind == IRON_NODE_ARRAY_LIT && ((Iron_ArrayLit *)n)->type_ann &&
@@ -7443,12 +7495,14 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 }
                 if (strcmp(rn, "MutexGuard") == 0 &&
                     strcmp(mc->method, "set") == 0) {
+                    check_resource_value_arg(ctx, mc, elem);
                     result = iron_type_make_primitive(IRON_TYPE_VOID);
                     mc->resolved_type = result;
                     break;
                 }
                 if (strcmp(rn, "Channel") == 0 &&
                     strcmp(mc->method, "send") == 0) {
+                    check_resource_value_arg(ctx, mc, elem);
                     result = iron_type_make_primitive(IRON_TYPE_VOID);
                     mc->resolved_type = result;
                     break;
@@ -7498,6 +7552,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 }
                 if (strcmp(rn, "RWWriteGuard") == 0 &&
                     strcmp(mc->method, "set") == 0) {
+                    check_resource_value_arg(ctx, mc, elem);
                     result = iron_type_make_primitive(IRON_TYPE_VOID);
                     mc->resolved_type = result;
                     break;
@@ -12824,10 +12879,13 @@ static void check_method_decl_inner(TypeCtx *ctx, Iron_MethodDecl *md) {
         !is_readonly_compatible_type(ret_type, ctx)) {
         const char *ts = iron_type_to_string(ret_type, ctx->arena);
         char msg[256];
+        /* An instance of a generic method is shown as written. */
+        const char *mname = md->method_name ? md->method_name : "?";
+        const char *pretty = iron_generics_prettify(mname, ctx->arena);
         snprintf(msg, sizeof(msg),
                  "readonly method '%s.%s' return type '%s' is not readonly-compatible",
                  md->type_name ? md->type_name : "?",
-                 md->method_name ? md->method_name : "?",
+                 pretty ? pretty : mname,
                  ts ? ts : "?");
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                        IRON_ERR_READONLY_RETURN_TYPE, md->span, msg,

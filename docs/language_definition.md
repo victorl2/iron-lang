@@ -621,7 +621,9 @@ func main() {
 `func(T1, T2) -> R` is the type of functions and lambdas taking `T1` and
 `T2` and returning `R`; omit `-> R` for a function that returns nothing.
 Function values are created from lambda expressions (section 3.7); they
-can be stored in bindings, fields and lists and passed as arguments. The
+can be stored in bindings, fields and lists and passed as arguments, and a
+function type can be a type argument (`Channel[func(Int) -> Int](4)`,
+`Map[String, func(Int) -> Int]()`, section 13). The
 name of a top-level function is a function value too (`val f = twice`,
 `apply(twice, 4)`, `xs.map(twice)`).
 
@@ -658,10 +660,14 @@ Functions, objects and enums may take type parameters in square brackets:
 `[T: Hashable]`, which every type argument must satisfy (`E0206`). Type
 arguments are inferred from the arguments of a call or construction
 (`Pair(1, "one")`) or written on the type (`Stack[Int]()`,
-`val r: Result[Int, String]`). Generic code is instantiated per set of type
-arguments at compile time. A type parameter's constraint also provides its
-static functions, called on the parameter itself: `T.parse(text)` in
-`func read[T: Parse](text: String) -> T?` (section 5.5).
+`val r: Result[Int, String]`). A type argument written in an expression
+may be any type: a function type, a tuple, an `rc`, `weak rc` or pointer
+type (`id[func(Int) -> Int](twice)`, `Box[rc Node](n)`,
+`Stack[(Int, String)]()`, `p.first[*Node](a, b)`). Generic code is
+instantiated per set of type arguments at compile time. A type parameter's
+constraint also provides its static functions, called on the parameter
+itself: `T.parse(text)` in `func read[T: Parse](text: String) -> T?`
+(section 5.5).
 
 ```iron
 func largest[T](xs: [T], less: func(T, T) -> Bool) -> T {
@@ -2595,7 +2601,9 @@ func main() {
 
 `Channel[T](capacity)` creates a bounded queue of `T`; the element type
 is written as the type argument (`val ch = Channel[Int](4)`), since no
-argument carries it.
+argument carries it. `T` may be any type, a function type included, so a
+channel can carry closures between tasks (`Channel[func(Int) -> Int](4)`)
+and `rc` handles (`Channel[rc Job](8)`).
 `ch.send(v)` blocks while the channel is full and `ch.recv()` blocks while
 it is empty. Channels are `nocopy` and are closed when their
 owner goes out of scope; there is no explicit close and no non-blocking
@@ -2665,6 +2673,34 @@ func main() {
 30
 200
 5
+```
+
+A channel of closures hands work to another task; each closure keeps what
+it captured alive until it has run:
+
+```iron
+func main() {
+    val jobs = Channel[func(Int) -> Int](4)
+    val base = 100
+    val producer = spawn("producer") {
+        for i in range(3) {
+            val k = i * 10
+            jobs.send(func(x: Int) -> Int { return x + k + base })
+        }
+        return 0
+    }
+    var total = 0
+    for i in range(3) {
+        val job: func(Int) -> Int = jobs.recv()
+        total += job(i)
+    }
+    await producer
+    println("{total}")
+}
+```
+
+```output
+333
 ```
 
 ### 7.4 Parallel `for`
@@ -3173,8 +3209,11 @@ integer types, `Bool` and `String` do, and an object does when it declares
 `impl Hashable` with `pure func hash() -> Int` and `pure func
 equals(other: Hashable) -> Bool` (section 5.5); two keys are the same
 entry when their hashes agree and `equals` is true. The value type may be
-anything that can be stored in a list, including lists, `rc` handles and
-other maps.
+anything that can be stored in a list, including lists, `rc` handles,
+closures and other maps; function, `rc` and pointer types are written as
+type arguments like any other (`Map[String, func(Int) -> Int]()`,
+`Map[Int, rc Node]()`). A function type, an `rc` handle or a pointer is
+not `Hashable`, so it cannot be a key or a set item.
 
 | Method | Meaning |
 |---|---|
@@ -3828,16 +3867,16 @@ heap_opts      ::= '(' heap_opt { ',' heap_opt } ')'
 heap_opt       ::= 'in' ':' expr | 'allow_drop_skip' ':' ( 'true' | 'false' )
 postfix        ::= primary { '.' NAME [ type_args ] [ call_args ]
                            | '[' expr [ '..' [ expr ] ] ']'
-                           | '[' type { ',' type } ']'
+                           | '[' elem { ',' elem } ']'
                            | call_args }
+elem           ::= expr | type
 call_args      ::= '(' [ expr { ',' expr } [ ',' ] ] ')'
 type_args      ::= '[' type { ',' type } ']'
 primary        ::= INT | FLOAT | STRING | 'true' | 'false' | 'null' | IDENT | 'self'
                  | '(' expr ')'
-                 | '(' expr ',' expr { ',' expr } [ ',' ] ')'
+                 | '(' elem ',' elem { ',' elem } [ ',' ] ')'
                  | '[' type ';' expr ']'
-                 | '[' [ expr { ',' expr } [ ',' ] ] ']'
-                 | '[' type ']'
+                 | '[' [ elem { ',' elem } [ ',' ] ] ']'
                  | lambda
 lambda         ::= 'func' param_list [ '->' type ] block
 
@@ -3865,10 +3904,32 @@ operators, with every binary operator left associative and `is` binding
 loosest of all. In `postfix`, `X.Y(args)` and `X.Y` where `X` and `Y` both
 start with an uppercase letter denote an enum variant construction, and
 `x.m[T](args)` is only read as a generic method call when the token after
-`[` is a type name starting with an uppercase letter or `[`. Between the
-brackets of `postfix` and of a list `primary`, an element containing `?`
-(outside parentheses) is read as a `type` (`Map[String, Int?]()`,
-`Map[String, [Int?]]()`), every other element as an `expr`. In `pattern`,
+`[` is a type name starting with an uppercase letter, `[`, or a token that
+starts a `type` by the rule below, and a `(` follows the `]`. Between the
+brackets of `postfix` and of a list `primary`, and between the parentheses
+of a tuple `primary`, an element is read as a `type` when
+
+- it starts with `?` or `*`: no expression does (there is no prefix `*`
+  operator), so `Set[*Node]()` and `Channel[?*Node](1)` hold types;
+- it starts with `func` and its signature is not followed by `{`: a
+  `lambda` always has a block, so `Channel[func(Int) -> Int](4)` and
+  `Map[String, func(func(Int) -> Int) -> Int]()` hold function types while
+  `[func(x: Int) -> Int { return x }]`, `[func(x) { return x }]` and
+  `[func() { }]` are lists of lambdas;
+- it starts with `rc` or `weak rc` (other than the expression
+  `weak rc null`) between the brackets of `postfix`, where nothing is
+  indexed by a handle (`Box[rc Node](n)`, `Channel[weak rc Node](8)`). In
+  a list or a tuple `rc x` is an element (`[rc p, rc Node(1)]`), so there
+  such an element is a `type` only when what follows the `rc` is one by
+  this rule (`[rc func(Int) -> Int]`, `[rc *Node]`, `[rc Node?]`); `[rc
+  Node]` stays an `rc` expression and reads as the list type where a type
+  is expected (`Map[String, [rc Node]]()`);
+- it contains `?` outside parentheses (`Map[String, Int?]()`,
+  `Map[String, [Int?]]()`).
+
+Every other element is an `expr`; one that names a type (`Int`,
+`Map[String, Int]`, `[Int]`, `(Int, String)`) is taken as that type where
+a type argument is expected. In `pattern`,
 the first alternative is used when the arm starts with `IDENT '.'` or with
 an uppercase identifier followed by `(`, and `expr` otherwise. The
 standalone form `func (r: T) method()` is recognized only to report
