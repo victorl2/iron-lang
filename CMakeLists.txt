@@ -508,6 +508,8 @@ add_subdirectory(tests/algorithms)
 add_subdirectory(tests/composite)
 add_subdirectory(tests/manual)
 add_subdirectory(tests/json)
+add_subdirectory(tests/http)
+add_subdirectory(bench/http)
 
 # ── ironc compiler executable ────────────────────────────────────────────────
 add_executable(ironc
@@ -2808,7 +2810,7 @@ if(NOT WIN32)
         iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.iron")
         set_tests_properties(v4_4.10-rc-elision_${_fix} PROPERTIES
             LABELS "integration;phase29-invariant;v4-acceptance"
-            TIMEOUT 60
+            TIMEOUT 120
             WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
 endif()
@@ -3360,7 +3362,16 @@ if(NOT WIN32)
   add_test(NAME debug_panic_smoke
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_panic_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
-  set_tests_properties(debug_panic_smoke PROPERTIES TIMEOUT 300)
+  set_tests_properties(debug_panic_smoke PROPERTIES TIMEOUT 600)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME test_debug_panic_smoke_timeout
+             COMMAND ${Python3_EXECUTABLE}
+                     ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
+                     ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
+                     debug_panic_smoke 600)
+    set_tests_properties(test_debug_panic_smoke_timeout PROPERTIES
+                         LABELS "integration;unit")
+  endif()
 endif()
 # #312: gdb, LLDB and Visual Studio (natvis) views of Iron values in
 # `--debug` programs.

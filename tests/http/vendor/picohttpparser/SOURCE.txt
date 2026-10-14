@@ -1,0 +1,6 @@
+picohttpparser
+https://github.com/h2o/picohttpparser
+commit 465a7ff09fbd3432fe56c673451f5460154d1f07
+
+The two source files are unmodified. The project offers the MIT License or
+the Perl license; this repository uses the MIT terms reproduced in LICENSE.
