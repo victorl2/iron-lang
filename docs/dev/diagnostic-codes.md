@@ -161,6 +161,9 @@ the invalid internal state being reported.
 | E0354 | `IRON_ERR_IFACE_VALUE_CALL` | Interface value cannot dispatch a static or Self-dependent function. | Call a static interface function through `i: I`. | emitted |
 | E0355 | `IRON_ERR_CONSTRAINT_NO_STATIC` | Generic constraint declares no requested static function. | Call `T.parse()` without such a constrained member. | emitted |
 | E0356 | `IRON_ERR_GENERATED_ONLY` | Compiler-only member name is used by source code. | Call or declare `__fields`. | emitted |
+| E0368 | `IRON_ERR_ALIGN_VALUE` | `//iron:align` is invalid or cannot be honored. | Alignment 3, or below the natural alignment. | emitted |
+| E0369 | `IRON_ERR_VIEW_ESCAPE` | A borrowed view escapes its block. | Store a view in an object field or return it. | emitted |
+| E0370 | `IRON_ERR_VIEW_SOURCE` | A view's borrowed source is invalid or changed. | Mutate the source list while the view is live. | emitted |
 | E0400 | `IRON_ERR_LOWER_UNSUPPORTED` | Lowering received an unsupported analyzed construct. | Compiler bug while lowering a valid AST node. | emitted |
 | E0401 | `IRON_ERR_LOWER_UNRESOLVED_IDENT` | Reserved lowering check for unresolved identifiers. | No current trigger. | reserved |
 | E0402 | `IRON_ERR_LOWER_INVALID_ASSIGN` | Reserved lowering check for invalid assignment targets. | No current trigger. | reserved |
@@ -182,6 +185,7 @@ the invalid internal state being reported.
 | W0615 | `IRON_WARN_CONSTANT_TYPE_TEST` | Type test result is known statically. | Test an `Int` binding with `is Int`. | emitted |
 | W0616 | `IRON_WARN_NULL_COMPARE_NEVER` | Null comparison on a non-nullable value is constant. | Compare `n: Int` with `null`. | emitted |
 | W0617 | `IRON_WARN_UNKNOWN_IRON_HINT` | Compiler hint is unknown or does not apply to that declaration. | Put `//iron:fusable` above a function. | emitted |
+| W0631 | `IRON_WARN_INLINE_NOT_HONORED` | `//iron:inline` cannot be honored. | A recursive function marked `//iron:inline`. | emitted |
 | E0700 | `IRON_ERR_WEB_MULTIPLE_MAIN_LOOPS` | Web build has more than one main-loop registration. | Call the raylib frame-loop form twice. | emitted |
 | E0701 | `IRON_ERR_WEB_NON_CANONICAL_MAIN_LOOP` | Web main loop does not use the required canonical form. | Put the frame loop in an unsupported shape. | emitted |
 | E0702 | `IRON_ERR_WEB_NESTED_MAIN_LOOP` | Web main loop appears inside another control-flow construct. | Put it inside an `if`. | emitted |
