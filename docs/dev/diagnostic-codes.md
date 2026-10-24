@@ -185,6 +185,7 @@ the invalid internal state being reported.
 | W0615 | `IRON_WARN_CONSTANT_TYPE_TEST` | Type test result is known statically. | Test an `Int` binding with `is Int`. | emitted |
 | W0616 | `IRON_WARN_NULL_COMPARE_NEVER` | Null comparison on a non-nullable value is constant. | Compare `n: Int` with `null`. | emitted |
 | W0617 | `IRON_WARN_UNKNOWN_IRON_HINT` | Compiler hint is unknown or does not apply to that declaration. | Put `//iron:fusable` above a function. | emitted |
+| W0618 | `IRON_WARN_FUSIBLE_HINT_UNMET` | `//iron:fusible` is on a function that has an effect or can panic. | A `//iron:fusible` function that prints. | emitted |
 | W0631 | `IRON_WARN_INLINE_NOT_HONORED` | `//iron:inline` cannot be honored. | A recursive function marked `//iron:inline`. | emitted |
 | E0700 | `IRON_ERR_WEB_MULTIPLE_MAIN_LOOPS` | Web build has more than one main-loop registration. | Call the raylib frame-loop form twice. | emitted |
 | E0701 | `IRON_ERR_WEB_NON_CANONICAL_MAIN_LOOP` | Web main loop does not use the required canonical form. | Put the frame loop in an unsupported shape. | emitted |

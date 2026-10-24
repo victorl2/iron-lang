@@ -1,0 +1,23 @@
+// @expect-panic: generic_method_panic_site.iron:15
+// The same for a method of a generic object (#859).
+object Hold[T] {
+    var items: [T]
+
+    init() {
+        self.items = []
+    }
+
+    func put(x: T) {
+        self.items.push(x)
+    }
+
+    func at(i: Int) -> T {
+        return self.items[i + 1]
+    }
+}
+
+func main() {
+    var h = Hold[Int]()
+    h.put(4)
+    println("{h.at(2)}")
+}

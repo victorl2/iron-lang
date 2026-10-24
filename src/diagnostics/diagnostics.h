@@ -743,6 +743,7 @@ void iron_diag_set_user_start_line(uint32_t line);
 #define IRON_WARN_CONSTANT_TYPE_TEST 615  /* `c is T` on a concrete value: known at compile time (#179) */
 #define IRON_WARN_NULL_COMPARE_NEVER 616  /* `x == null` where x is not nullable: always the same answer */
 #define IRON_WARN_UNKNOWN_IRON_HINT  617  /* `//iron:<hint>` names no compiler hint, or one that does not apply there */
+#define IRON_WARN_FUSIBLE_HINT_UNMET 618  /* `//iron:fusible` on a function that cannot run inside a fused loop */
 #define IRON_WARN_INLINE_NOT_HONORED   631   /* `//iron:inline` on a function that calls itself: clang cannot inline it everywhere */
 
 /* Phase 28 ARENA-09 (Plan 28-03): arena-allocated type with a transitive

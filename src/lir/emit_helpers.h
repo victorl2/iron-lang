@@ -19,6 +19,7 @@
 #include "analyzer/iface_collect.h"
 #include "analyzer/types.h"
 #include "diagnostics/diagnostics.h"
+#include "lir/fusion_safety.h"
 
 /* ── Loop fusion chain types (Phase 49) ──────────────────────────────────── */
 
@@ -42,8 +43,6 @@ typedef struct {
     FusionChainNode *nodes;        /* stb_ds array, in execution order */
     int node_count;
     IronLIR_ValueId source;        /* original collection input to the chain */
-    bool is_split;                 /* true if source is a split collection */
-    const char *sp_iface;          /* interface name if split, NULL otherwise */
     /* $drop glue of the lambda temporaries an interior node borrowed:
      * emitted after the fused loop instead of after the (unemitted)
      * interior call, which ran before the loop and freed the env (#190). */
@@ -276,6 +275,9 @@ typedef struct {
     struct { const void *key; bool value; } *fusion_dead;  /* keyed by instruction */
         /* maps call_vid -> chain_index; positive = chain idx */
     struct { IronLIR_ValueId key; int value; } *fusion_chain_position;
+    /* Which functions may run inside a fused loop (fusion_safety.c); made
+     * on first use, one per module. */
+    IronLIR_FusionSafety *fusion_safety;
         /* maps call_vid -> position within its chain (0 = first, N-1 = terminal) */
 
     /* Monomorphic collection tracking (Phase 49) */

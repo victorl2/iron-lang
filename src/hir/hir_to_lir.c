@@ -3687,24 +3687,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                         strcmp(coll_method, "clear") != 0 && strcmp(coll_method, "set") != 0 &&
                         strcmp(coll_method, "sort") != 0 && strcmp(coll_method, "reverse") != 0 &&
                         strcmp(coll_method, "take") != 0 && strcmp(coll_method, "set_unchecked") != 0;
-                    /* (Chained collection calls such as xs.map(f).sum() are
-                     * fused and never materialise the intermediate list. Only
-                     * map/filter feeding map, filter, reduce, forEach or sum
-                     * fuse: the result of xs.map(f).len() or xs.copy().len()
-                     * is an ordinary temporary, and was leaked.) */
+                    /* Record every fresh receiver as owned. The C emitter
+                     * removes this drop when the receiver is an eliminated
+                     * fusion intermediate, and moves it after the fused loop
+                     * when it remains the chain's materialized source. */
                     IronHIR_Expr *ro = expr->method_call.object;
-                    const char *rm = (ro && ro->kind == IRON_HIR_EXPR_METHOD_CALL)
-                                     ? ro->method_call.method : NULL;
-                    bool fuses = rm && (strcmp(rm, "map") == 0 || strcmp(rm, "filter") == 0) &&
-                                 (strcmp(coll_method, "map") == 0 ||
-                                  strcmp(coll_method, "filter") == 0 ||
-                                  strcmp(coll_method, "reduce") == 0 ||
-                                  strcmp(coll_method, "forEach") == 0 ||
-                                  strcmp(coll_method, "sum") == 0);
-                    bool list_chain = fuses && ro->method_call.object &&
-                                      ro->method_call.object->type &&
-                                      ro->method_call.object->type->kind == IRON_TYPE_ARRAY;
-                    if (reads_only && ro && !list_chain)
+                    if (reads_only && ro)
                         note_owned_temp(ctx, &coll_temps, ro, self_val, span);
                 }
                 /* push / insert store their element argument: the list owns
@@ -6182,6 +6170,9 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
     /* PARM-02: propagate the honored var-param flags (NULL = none). */
     lir_func->param_is_var = lir_param_is_var;
     lir_func->is_user_func = hir_func->is_user_func;
+    lir_func->is_fusible_hint   = hir_func->is_fusible_hint;
+    lir_func->fusible_hint_span = hir_func->fusible_hint_span;
+    lir_func->fusible_hint_name = hir_func->fusible_hint_name;
 
     /* Phase 80 MUT-07: propagate mut-receiver flag HIR→LIR so emit_c.c can
      * emit pointer-receiver signature + `->` field access for the body. */

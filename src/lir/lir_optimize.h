@@ -68,6 +68,9 @@ typedef struct {
     IronLIR_InlineEligEntry *inline_eligible;  /* per-function: ValueId -> inlineable */
     IronLIR_FuncPurityEntry *func_purity;      /* per-module: func_name -> pure */
     IronLIR_ValueBlockEntry *value_block;      /* per-function: ValueId -> defining BlockId */
+    /* The optimizing passes ran (not --no-optimize, not --debug). Loop
+     * fusion is one of them in spirit: the emitter fuses only then. */
+    bool                     optimizing;
 } IronLIR_OptimizeInfo;
 
 /* Run all optimization passes on the module in place.

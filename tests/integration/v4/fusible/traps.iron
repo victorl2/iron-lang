@@ -1,0 +1,66 @@
+// Which arithmetic can panic. Integer division and modulo by a constant
+// that is not zero, shifts by a constant count, float division and every
+// conversion between numbers cannot; the same operations with a divisor or
+// a count that is a variable can, and keep their stage.
+
+func half(x: Int) -> Int {
+    return x / 2
+}
+
+func rem3(x: Int) -> Int {
+    return x % 3
+}
+
+func shl2(x: Int) -> Int {
+    return (x << 2) >> 1
+}
+
+func fdiv(x: Float) -> Float {
+    return 10.0 / x
+}
+
+func to_float(x: Int) -> Float {
+    return Float(x)
+}
+
+func to_int(x: Float) -> Int {
+    return Int(x)
+}
+
+func narrow(x: Int) -> Int {
+    return Int(UInt8(x)) + Int(Int8(x))
+}
+
+func div_by(x: Int) -> Int {
+    return 100 / x
+}
+
+func mod_by(x: Int) -> Int {
+    return 100 % x
+}
+
+func shl_by(x: Int) -> Int {
+    return 1 << x
+}
+
+func pos(x: Int) -> Bool {
+    return x > 0
+}
+
+func main() {
+    val xs = [1, 2, 3, 4, 300]
+    println("{xs.map(half).filter(pos).sum()}")  // @fused: map filter sum
+    println("{xs.map(rem3).filter(pos).sum()}")  // @fused: map filter sum
+    println("{xs.map(shl2).filter(pos).sum()}")  // @fused: map filter sum
+    println("{xs.map(narrow).filter(pos).sum()}")  // @fused: map filter sum
+    println("{xs.map(to_float).map(fdiv).map(to_int).sum()}")  // @fused: map map map sum
+
+    // The divisor is an element: the filter and the sum still fuse.
+    println("{xs.map(div_by).filter(pos).sum()}")  // @fused: filter sum
+    println("{xs.map(mod_by).filter(pos).sum()}")  // @fused: filter sum
+    println("{xs.filter(func(x: Int) -> Bool { return x < 9 }).map(shl_by).filter(pos).sum()}")  // @fused: filter sum
+
+    // Float division by zero is a value, not a panic.
+    val zs = [0.0, 2.0].map(fdiv).filter(func(x: Float) -> Bool { return x < 100.0 })  // @fused: map filter
+    println("{zs.len()}")
+}

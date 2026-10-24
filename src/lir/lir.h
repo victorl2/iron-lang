@@ -670,6 +670,11 @@ struct IronLIR_Func {
     uint8_t            hints;
     /* From IronHIR_Func.is_user_func (#524). */
     bool               is_user_func;
+    /* The declaration carries `//iron:fusible` (or `@fusible`): the hint's
+     * location and the source name, for W0618 (fusion_safety.c). */
+    bool               is_fusible_hint;
+    Iron_Span          fusible_hint_span;
+    const char        *fusible_hint_name;
 
     /* PARM-02: see the block comment above web_frame_captures. */
     bool              *param_is_var;

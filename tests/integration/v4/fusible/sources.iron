@@ -1,0 +1,66 @@
+// What a fused loop may read: any list that is not an interface list. A
+// temporary source lives until the loop is done.
+
+object Point {
+    val x: Int
+    val y: Int
+}
+
+val numbers = [4, 5, 6]
+
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+func even(x: Int) -> Bool {
+    return x % 2 == 0
+}
+
+func make() -> [Int] {
+    return [7, 8, 9]
+}
+
+func of_param(xs: [Int]) -> Int {
+    return xs.map(inc).filter(even).sum()  // @fused: map filter sum
+}
+
+func x_of(p: Point) -> Int {
+    return p.x
+}
+
+func right(p: Point) -> Bool {
+    return p.x > 0
+}
+
+func main() {
+    println("{[1, 2, 3].map(inc).filter(even).sum()}")  // @fused: map filter sum
+    println("{make().map(inc).filter(even).sum()}")  // @fused: map filter sum
+    println("{numbers.map(inc).filter(even).sum()}")  // @fused: map filter sum
+    println("{of_param([1, 2, 3, 4])}")
+
+    val fixed: [Int; 3] = [1, 2, 3]
+    println("{fixed.map(inc).filter(even).sum()}")  // @fused: map filter sum
+    var bounded: [Int; <=8] = [1, 2, 3]
+    bounded.push(9)
+    println("{bounded.map(inc).filter(even).sum()}")  // @fused: map filter sum
+
+    val shared: rc [Int] = rc [1, 2, 3]
+    println("{shared.map(inc).filter(even).sum()}")  // @fused: map filter sum
+
+    val xs = [1, 2, 3, 4, 5, 6]
+    println("{xs[1..4].map(inc).filter(even).sum()}")  // @fused: map filter sum
+    println("{xs.copy().map(inc).filter(even).sum()}")  // @fused: map filter sum
+
+    // A non-fusible method between two stages is a boundary.
+    println("{xs.map(inc).copy().filter(even).sum()}")  // @fused: filter sum
+
+    // soa lists: the loop gathers each element, the result keeps the layout.
+    val points: [Point, layout: soa] = [Point(-1, 2), Point(3, 4), Point(5, 6)]
+    println("{points.map(x_of).filter(even).sum()}")  // @fused: map filter sum
+    val kept: [Point, layout: soa] = points.filter(right).filter(func(p: Point) -> Bool { return p.y < 6 })  // @fused: filter filter
+    println("{kept.len()} {kept[0].x} {kept[0].y}")
+
+    // The result of one pipeline is the source of the next.
+    val firsts = xs.map(inc).filter(even)  // @fused: map filter
+    println("{firsts.len()} {firsts.map(inc).sum()}")  // @fused: map sum
+}

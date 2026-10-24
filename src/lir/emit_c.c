@@ -590,6 +590,12 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
     iron_strbuf_appendf(sb, " = ");
     emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
     iron_strbuf_appendf(sb, ";\n");
+    if (at->kind == IRON_TYPE_STRING) {
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "iron_string_retain(&");
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, ");\n");
+    }
     emit_indent(sb, ind);
     iron_strbuf_appendf(sb, "{\n");
     emit_indent(sb, ind + 1);
@@ -601,21 +607,37 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
     emit_indent(sb, ind + 1);
     iron_strbuf_appendf(sb, "for (int64_t _i = 0; _i < ");
     emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-    iron_strbuf_appendf(sb, ".%s; _i++) ", f_count);
-    emit_val(sb, instr->id);
-    iron_strbuf_appendf(sb, " = _hof_fn%u(", id);
+    iron_strbuf_appendf(sb, ".%s; _i++) {\n", f_count);
+    /* A String accumulator: the result is an owned String, so it starts as
+     * a reference of its own to the initial value, and each step releases
+     * the accumulator it replaces. Without this every intermediate String
+     * leaked (#862). */
+    bool acc_string = (at->kind == IRON_TYPE_STRING);
+    emit_indent(sb, ind + 2);
+    iron_strbuf_appendf(sb, "%s _acc%u = _hof_fn%u(", at_c, id, id);
     emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
     iron_strbuf_appendf(sb, ".env, ");
     emit_val(sb, instr->id);
     iron_strbuf_appendf(sb, ", ");
     if (emit_list_has_columns(ctx, lt)) {
-            iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
-            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-            iron_strbuf_appendf(sb, ", _i));\n ");
-        } else {
-            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-            iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
-        }
+        iron_strbuf_appendf(sb, "%s_read(", emit_type_to_c(lt, ctx));
+        emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ", _i));\n");
+    } else {
+        emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
+    }
+    if (acc_string) {
+        emit_indent(sb, ind + 2);
+        iron_strbuf_appendf(sb, "iron_string_release(&");
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, ");\n");
+    }
+    emit_indent(sb, ind + 2);
+    emit_val(sb, instr->id);
+    iron_strbuf_appendf(sb, " = _acc%u;\n", id);
+    emit_indent(sb, ind + 1);
+    iron_strbuf_appendf(sb, "}\n");
     emit_indent(sb, ind);
     iron_strbuf_appendf(sb, "}\n");
     return true;
@@ -11004,6 +11026,224 @@ static void emit_func_body_named(EmitCtx *ctx, IronLIR_Func *fn) {
     iron_strbuf_free(&body);
 }
 
+/* ── Loop fusion: which calls may become stages of one loop ─────────────────
+ *
+ * A fused loop runs every stage on one element before it reads the next
+ * element, where the list methods finish one stage before starting the next.
+ * Fusion is therefore only done when no program can tell the two apart:
+ *
+ *   1. every callback is a closure made in this function, captures nothing
+ *      it can write, and its body and everything it calls is proven free of
+ *      effects and panics (fusion_safety.c);
+ *   2. every value that flows from one stage to the next is trivial (no
+ *      copy, drop or reference count to keep in step), and so is the
+ *      accumulator of a reduce;
+ *   3. nothing but argument setup sits between two linked stages, so
+ *      running the earlier stage at the position of the last one reads the
+ *      same source list, globals and captures;
+ *   4. the intermediate list has no other reader.
+ *
+ * Anything else keeps the ordinary calls. Interface lists are never fused:
+ * their per-type storage would be visited type by type, not in list order. */
+
+static IronLIR_FusionSafety *fusion_safety(EmitCtx *ctx) {
+    if (!ctx->fusion_safety) ctx->fusion_safety = iron_lir_fusion_safety_new(ctx->module);
+    return ctx->fusion_safety;
+}
+
+static IronLIR_Instr *fusion_def(IronLIR_Func *fn, IronLIR_ValueId v) {
+    if (v == IRON_LIR_VALUE_INVALID || v >= (IronLIR_ValueId)arrlen(fn->value_table))
+        return NULL;
+    return fn->value_table[v];
+}
+
+/* Rule 1. NULL when the callback may run in a fused loop, else why not
+ * (a phrase that completes "its callback ..."). */
+static const char *fusion_callback_unsafe(EmitCtx *ctx, IronLIR_Func *owner,
+                                          IronLIR_ValueId value) {
+    IronLIR_Instr *closure = fusion_def(owner, value);
+    if (!closure || closure->kind != IRON_LIR_MAKE_CLOSURE ||
+        !closure->make_closure.lifted_func_name)
+        return "is not a function or lambda the compiler can see at the call";
+    for (int i = 0; i < closure->make_closure.capture_count; i++) {
+        if (!closure->make_closure.capture_metadata ||
+            closure->make_closure.capture_metadata[i].is_mutable)
+            return "captures a `var`, which it shares with the enclosing function";
+    }
+    IronLIR_FusionSafety *fs = fusion_safety(ctx);
+    IronLIR_Func *lifted = iron_lir_fusion_find_func(fs, closure->make_closure.lifted_func_name);
+    if (!lifted) return "is not a function of this program";
+    return iron_lir_fusion_unsafe_reason(fs, lifted);
+}
+
+/* Rule 2: numbers, Bool, and objects and tuples made only of those. */
+static bool fusion_type_is_trivial(EmitCtx *ctx, const Iron_Type *type, int depth) {
+    if (!type || depth > 8) return false;
+    if (iron_type_is_numeric(type) || type->kind == IRON_TYPE_BOOL) return true;
+    if (type->kind == IRON_TYPE_TUPLE) {
+        for (int i = 0; i < type->tuple.elem_count; i++)
+            if (!fusion_type_is_trivial(ctx, type->tuple.elem_types[i], depth + 1))
+                return false;
+        return true;
+    }
+    if (type->kind == IRON_TYPE_OBJECT && type->object.decl)
+        return !type->object.decl->is_nocopy &&
+               !type->object.decl->generic_param_count &&
+               !od_needs_drop(ctx, type->object.decl) &&
+               !od_needs_copy_fixup(ctx, type->object.decl);
+    return false;
+}
+
+static bool fusion_is_drop_glue(IronLIR_Func *fn, IronLIR_Instr *in) {
+    if (!in || in->kind != IRON_LIR_CALL || in->call.func_decl || in->call.arg_count != 1)
+        return false;
+    IronLIR_Instr *ref = fusion_def(fn, in->call.func_ptr);
+    return ref && ref->kind == IRON_LIR_FUNC_REF && ref->func_ref.func_name &&
+           strcmp(ref->func_ref.func_name, "$drop") == 0;
+}
+
+/* A plain local slot: not a global, not shared with a closure. */
+static bool fusion_is_local_slot(IronLIR_Func *fn, IronLIR_ValueId v) {
+    IronLIR_Instr *slot = fusion_def(fn, v);
+    return slot && slot->kind == IRON_LIR_ALLOCA && !slot->alloca.global_name &&
+           !slot->alloca.is_boxed;
+}
+
+/* The one value stored into a slot, or INVALID when it has none or several. */
+static IronLIR_ValueId fusion_slot_single_store(IronLIR_Func *fn, IronLIR_ValueId slot) {
+    IronLIR_ValueId found = IRON_LIR_VALUE_INVALID;
+    int stores = 0;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *block = fn->blocks[bi];
+        for (int ii = 0; ii < block->instr_count; ii++) {
+            IronLIR_Instr *in = block->instrs[ii];
+            if (in->kind == IRON_LIR_STORE && in->store.ptr == slot) {
+                found = in->store.value;
+                stores++;
+            }
+        }
+    }
+    return stores == 1 ? found : IRON_LIR_VALUE_INVALID;
+}
+
+/* Rules 3 and 4 for the link pred -> next: both calls are in `block`, at
+ * instruction indexes pa < na. On success the slots that hold the
+ * intermediate and the load that reads it (if any) are appended to
+ * `holders`. */
+static bool fusion_link_is_sound(IronLIR_UseCountEntry *use_counts, IronLIR_Func *fn,
+                                 IronLIR_Block *block, int pa, int na,
+                                 IronLIR_ValueId **holders, const char **why) {
+    IronLIR_Instr *pred = block->instrs[pa];
+    IronLIR_Instr *next = block->instrs[na];
+    IronLIR_ValueId P = pred->id;
+    IronLIR_ValueId self = next->call.args[0];
+    IronLIR_ValueId *slots = NULL;   /* slots that hold P */
+    IronLIR_ValueId via_load = IRON_LIR_VALUE_INVALID;
+    bool ok = true;
+    int direct_uses = 0, stores_of_p = 0;
+    *why = "the intermediate list has another reader";
+
+    /* Every use of P: the consumer's receiver, or a store into a local slot. */
+    for (int bi = 0; bi < fn->block_count && ok; bi++) {
+        IronLIR_Block *b2 = fn->blocks[bi];
+        for (int ii = 0; ii < b2->instr_count && ok; ii++) {
+            IronLIR_Instr *in = b2->instrs[ii];
+            if (in->kind == IRON_LIR_STORE && in->store.value == P) {
+                if (!fusion_is_local_slot(fn, in->store.ptr) ||
+                    fusion_slot_single_store(fn, in->store.ptr) != P)
+                    ok = false;
+                else
+                    arrput(slots, in->store.ptr);
+                stores_of_p++;
+            }
+        }
+    }
+    if (ok && self == P) direct_uses = 1;
+    if (ok && self != P) {
+        IronLIR_Instr *ld = fusion_def(fn, self);
+        bool held = false;
+        if (ld && ld->kind == IRON_LIR_LOAD)
+            for (int i = 0; i < (int)arrlen(slots); i++)
+                if (slots[i] == ld->load.ptr) held = true;
+        if (!held) ok = false;
+        else via_load = self;
+    }
+    if (ok) {
+        ptrdiff_t ui = hmgeti(use_counts, P);
+        int uses = ui >= 0 ? use_counts[ui].value : 0;
+        if (uses != direct_uses + stores_of_p) ok = false;
+    }
+    if (ok && via_load != IRON_LIR_VALUE_INVALID) {
+        ptrdiff_t ui = hmgeti(use_counts, via_load);
+        if (ui < 0 || use_counts[ui].value != 1) ok = false;
+    }
+    /* Every use of a holding slot: its store, its $drop glue, and the one
+     * load the consumer reads. */
+    for (int si = 0; ok && si < (int)arrlen(slots); si++) {
+        int expected = 1, drops = 0, loads = 0;
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *b2 = fn->blocks[bi];
+            for (int ii = 0; ii < b2->instr_count; ii++) {
+                IronLIR_Instr *in = b2->instrs[ii];
+                if (fusion_is_drop_glue(fn, in) && in->call.args[0] == slots[si]) drops++;
+                if (in->kind == IRON_LIR_LOAD && in->load.ptr == slots[si]) {
+                    ptrdiff_t lu = hmgeti(use_counts, in->id);
+                    bool dead = lu < 0 || use_counts[lu].value == 0;
+                    if (in->id == via_load) loads++;
+                    else if (!dead) ok = false;
+                    expected++;
+                }
+            }
+        }
+        ptrdiff_t ui = hmgeti(use_counts, slots[si]);
+        int uses = ui >= 0 ? use_counts[ui].value : 0;
+        if (uses != expected + drops) ok = false;
+        (void)loads;
+    }
+    /* Rule 3: only argument setup between the two calls. */
+    if (ok) *why = "something between them may change what the earlier stage reads";
+    for (int ii = pa + 1; ok && ii < na; ii++) {
+        IronLIR_Instr *in = block->instrs[ii];
+        if (iron_lir_fusion_instr_is_value_only(fn, in)) continue;
+        if (in->kind == IRON_LIR_ALLOCA || in->kind == IRON_LIR_MAKE_CLOSURE ||
+            in->kind == IRON_LIR_CONSTRUCT)
+            continue;
+        if (in->kind == IRON_LIR_LOAD) {
+            IronLIR_Instr *slot = fusion_def(fn, in->load.ptr);
+            if (slot && slot->kind == IRON_LIR_ALLOCA) continue;
+            ok = false;
+        } else if (in->kind == IRON_LIR_STORE) {
+            if (!fusion_is_local_slot(fn, in->store.ptr)) { ok = false; break; }
+            if (in->store.value == P) continue;
+            Iron_Type *vt = emit_get_value_type(fn, in->store.value);
+            if (!vt || vt->kind == IRON_TYPE_ARRAY) ok = false;
+        } else if (fusion_is_drop_glue(fn, in)) {
+            IronLIR_ValueId slot = in->call.args[0];
+            bool mine = false;
+            for (int si = 0; si < (int)arrlen(slots); si++)
+                if (slots[si] == slot) mine = true;
+            if (mine) continue;
+            IronLIR_ValueId held = fusion_is_local_slot(fn, slot)
+                ? fusion_slot_single_store(fn, slot) : IRON_LIR_VALUE_INVALID;
+            IronLIR_Instr *hd = fusion_def(fn, held);
+            /* The closure of an earlier stage, or the temporary list the
+             * first stage reads: both are released after the fused loop. */
+            if (held != IRON_LIR_VALUE_INVALID &&
+                ((hd && hd->kind == IRON_LIR_MAKE_CLOSURE) || held == pred->call.args[0]))
+                continue;
+            ok = false;
+        } else {
+            ok = false;
+        }
+    }
+    if (ok) {
+        for (int si = 0; si < (int)arrlen(slots); si++) arrput(*holders, slots[si]);
+        if (via_load != IRON_LIR_VALUE_INVALID) arrput(*holders, via_load);
+    }
+    arrfree(slots);
+    return ok;
+}
+
 static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb) {
     emit_build_def_instrs(fn);
 
@@ -11480,7 +11720,11 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
      * method's self argument.  Build fusion_chains array and membership map.
      */
     {
-        /* Step A: Collect all fusible CALL instructions */
+        /* Step A: Collect the calls that may be a stage: one of the five
+         * list methods on a list that is not an interface list, with a
+         * callback that passes rule 1 and a result that passes rule 2.
+         * Only an optimizing build fuses (it has the use counts rule 4
+         * needs, and --no-optimize keeps every stage as written). */
         typedef struct {
             IronLIR_ValueId call_vid;
             const char *method;
@@ -11488,10 +11732,15 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
             IronLIR_ValueId *lambda_args;
             int lambda_arg_count;
             IronLIR_ValueId init_arg;
+            int block_index;
+            int instr_index;
         } FusibleCallInfo;
         FusibleCallInfo *fusible_calls = NULL;
+        bool fusing = ctx->opt_info && ctx->opt_info->optimizing;
+        IronLIR_OptimizeInfo fusion_uses;
+        memset(&fusion_uses, 0, sizeof(fusion_uses));
 
-        for (int bi = 0; bi < fn->block_count; bi++) {
+        for (int bi = 0; fusing && bi < fn->block_count; bi++) {
             IronLIR_Block *block = fn->blocks[bi];
             for (int ii = 0; ii < block->instr_count; ii++) {
                 IronLIR_Instr *instr = block->instrs[ii];
@@ -11517,6 +11766,34 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                 else if (strcmp(suffix, "_sum") == 0) method = "sum";
                 if (!method) continue;
 
+                /* --warn-fusion-break: say why a call is not a stage. */
+#define FUSION_NOT_A_STAGE(...) do { \
+                    if (ctx->warn_fusion_break) { \
+                        fprintf(stderr, "note: --warn-fusion-break: %s:%u: .%s() is not fused: ", \
+                                instr->span.filename ? instr->span.filename : "?", \
+                                (unsigned)instr->span.line, method); \
+                        fprintf(stderr, __VA_ARGS__); \
+                        fprintf(stderr, "\n"); \
+                    } } while (0)
+                Iron_Type *self_t = emit_get_value_type(fn, instr->call.args[0]);
+                if (!self_t || self_t->kind != IRON_TYPE_ARRAY || !self_t->array.elem) continue;
+                if (self_t->array.elem->kind == IRON_TYPE_INTERFACE ||
+                    hmgeti(ctx->split_collection_ids, instr->call.args[0]) >= 0) {
+                    FUSION_NOT_A_STAGE("it reads a list of an interface type");
+                    continue;
+                }
+                if (strcmp(method, "map") == 0 &&
+                    !(instr->type && instr->type->kind == IRON_TYPE_ARRAY &&
+                      fusion_type_is_trivial(ctx, instr->type->array.elem, 0))) {
+                    FUSION_NOT_A_STAGE("its results own memory or have a copy or drop hook");
+                    continue;
+                }
+                if ((strcmp(method, "reduce") == 0 || strcmp(method, "sum") == 0) &&
+                    !fusion_type_is_trivial(ctx, instr->type, 0)) {
+                    FUSION_NOT_A_STAGE("its result owns memory or has a copy or drop hook");
+                    continue;
+                }
+
                 FusibleCallInfo fci;
                 fci.call_vid = instr->id;
                 fci.method = method;
@@ -11524,16 +11801,38 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                 fci.lambda_args = NULL;
                 fci.lambda_arg_count = 0;
                 fci.init_arg = IRON_LIR_VALUE_INVALID;
+                fci.block_index = bi;
+                fci.instr_index = ii;
 
-                if (strcmp(method, "reduce") == 0 && instr->call.arg_count >= 3) {
-                    fci.init_arg = instr->call.args[1];
-                    for (int ai = 2; ai < instr->call.arg_count; ai++)
-                        arrput(fci.lambda_args, instr->call.args[ai]);
-                    fci.lambda_arg_count = instr->call.arg_count - 2;
-                } else if (strcmp(method, "sum") != 0 && instr->call.arg_count >= 2) {
-                    for (int ai = 1; ai < instr->call.arg_count; ai++)
-                        arrput(fci.lambda_args, instr->call.args[ai]);
-                    fci.lambda_arg_count = instr->call.arg_count - 1;
+                bool shape_ok = true;
+                if (strcmp(method, "reduce") == 0) {
+                    if (instr->call.arg_count == 3) {
+                        fci.init_arg = instr->call.args[1];
+                        arrput(fci.lambda_args, instr->call.args[2]);
+                        fci.lambda_arg_count = 1;
+                    } else {
+                        shape_ok = false;
+                    }
+                } else if (strcmp(method, "sum") == 0) {
+                    shape_ok = instr->call.arg_count == 1;
+                } else if (instr->call.arg_count == 2) {
+                    arrput(fci.lambda_args, instr->call.args[1]);
+                    fci.lambda_arg_count = 1;
+                } else {
+                    shape_ok = false;
+                }
+
+                for (int ai = 0; shape_ok && ai < fci.lambda_arg_count; ai++) {
+                    const char *unsafe = fusion_callback_unsafe(ctx, fn, fci.lambda_args[ai]);
+                    if (unsafe) {
+                        FUSION_NOT_A_STAGE("its callback %s", unsafe);
+                        shape_ok = false;
+                    }
+                }
+#undef FUSION_NOT_A_STAGE
+                if (!shape_ok) {
+                    arrfree(fci.lambda_args);
+                    continue;
                 }
 
                 arrput(fusible_calls, fci);
@@ -11547,27 +11846,11 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                 hmput(result_to_call, fusible_calls[i].call_vid, i);
             }
 
-            /* Step C: Propagate through STORE/LOAD chains */
+            /* Steps C and D: link each stage to the stage that produced its
+             * receiver, when that link passes rules 2 to 4. val_origin maps
+             * a linked intermediate, the slots that hold it and the load
+             * that reads it back to the call that made it. */
             struct { IronLIR_ValueId key; IronLIR_ValueId value; } *val_origin = NULL;
-            for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
-                hmput(val_origin, fusible_calls[i].call_vid, fusible_calls[i].call_vid);
-            }
-            for (int bi = 0; bi < fn->block_count; bi++) {
-                IronLIR_Block *block = fn->blocks[bi];
-                for (int ii = 0; ii < block->instr_count; ii++) {
-                    IronLIR_Instr *instr = block->instrs[ii];
-                    if (instr->kind == IRON_LIR_STORE) {
-                        ptrdiff_t vi = hmgeti(val_origin, instr->store.value);
-                        if (vi >= 0) hmput(val_origin, instr->store.ptr, val_origin[vi].value);
-                    } else if (instr->kind == IRON_LIR_LOAD) {
-                        ptrdiff_t vi = hmgeti(val_origin, instr->load.ptr);
-                        if (vi >= 0) hmput(val_origin, instr->id, val_origin[vi].value);
-                    }
-                }
-            }
-
-            /* Step D: Build chains by linking calls */
-            /* next[i] = index of the fusible call that consumes call i's result, or -1 */
             int *next = (int *)calloc((size_t)arrlen(fusible_calls), sizeof(int));
             int *prev = (int *)calloc((size_t)arrlen(fusible_calls), sizeof(int));
             for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
@@ -11576,118 +11859,58 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
             }
             for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
                 IronLIR_ValueId sa = fusible_calls[i].self_arg;
-                ptrdiff_t oi = hmgeti(val_origin, sa);
-                /* Without use counts (--no-optimize) the escape check below
-                 * cannot see other uses of a result that went through a
-                 * binding's slot (a list binding also frees it at scope
-                 * exit), so only direct call-to-call links fuse. */
-                bool have_uses = ctx->opt_info && ctx->opt_info->use_counts;
-                if (oi >= 0 && (have_uses || val_origin[oi].value == sa)) {
-                    IronLIR_ValueId origin_vid = val_origin[oi].value;
-                    ptrdiff_t ri = hmgeti(result_to_call, origin_vid);
-                    if (ri >= 0) {
-                        int pred_idx = result_to_call[ri].value;
-                        if (pred_idx != i) {
-                            next[pred_idx] = i;
-                            prev[i] = pred_idx;
-                        }
+                IronLIR_ValueId origin_vid = sa;
+                IronLIR_Instr *sd = fusion_def(fn, sa);
+                if (sd && sd->kind == IRON_LIR_LOAD && fusion_is_local_slot(fn, sd->load.ptr))
+                    origin_vid = fusion_slot_single_store(fn, sd->load.ptr);
+                ptrdiff_t ri = hmgeti(result_to_call, origin_vid);
+                if (ri < 0) continue;
+                int pred_idx = result_to_call[ri].value;
+                if (pred_idx == i) continue;
+                /* Only map and filter produce a list. */
+                IronLIR_Instr *pred = fn->value_table[origin_vid];
+                IronLIR_Instr *self_call = fn->value_table[fusible_calls[i].call_vid];
+                const char *why = NULL;
+                IronLIR_ValueId *holders = NULL;
+                if (!pred || !pred->type || pred->type->kind != IRON_TYPE_ARRAY) continue;
+                if (next[pred_idx] >= 0) {
+                    why = "the intermediate list has another reader";
+                } else if (fusible_calls[pred_idx].block_index != fusible_calls[i].block_index ||
+                           fusible_calls[pred_idx].instr_index >= fusible_calls[i].instr_index) {
+                    why = "a branch or a loop is between them";
+                } else if (!fusion_type_is_trivial(ctx, pred->type->array.elem, 0)) {
+                    why = "the values between them own memory or have a copy or drop hook";
+                } else {
+                    if (!fusion_uses.use_counts) iron_lir_compute_use_counts(fn, &fusion_uses);
+                    if (fusion_link_is_sound(fusion_uses.use_counts, fn,
+                                             fn->blocks[fusible_calls[i].block_index],
+                                             fusible_calls[pred_idx].instr_index,
+                                             fusible_calls[i].instr_index, &holders, &why)) {
+                        why = NULL;
+                        next[pred_idx] = i;
+                        prev[i] = pred_idx;
+                        hmput(val_origin, origin_vid, origin_vid);
+                        for (int hi = 0; hi < (int)arrlen(holders); hi++)
+                            hmput(val_origin, holders[hi], origin_vid);
                     }
                 }
+                if (why && ctx->warn_fusion_break && self_call)
+                    fprintf(stderr, "note: --warn-fusion-break: %s:%u: .%s() is not fused with "
+                                    "the .%s() before it: %s\n",
+                            self_call->span.filename ? self_call->span.filename : "?",
+                            (unsigned)self_call->span.line, fusible_calls[i].method,
+                            fusible_calls[pred_idx].method, why);
+                arrfree(holders);
             }
 
-            /* A binding's scope-exit $drop is not a real use of an
-             * intermediate: when the chain fuses, the list never exists and
-             * the drop is removed with it (fusion_dead below). */
-            struct { IronLIR_ValueId key; int value; } *drop_uses = NULL;
+            /* The $drop glue calls of the function: a fused intermediate's
+             * are removed with it, a moved temporary's run after the loop. */
             IronLIR_Instr **glue_drops = NULL;
             for (int bi = 0; bi < fn->block_count; bi++) {
                 IronLIR_Block *block = fn->blocks[bi];
-                for (int ii = 0; ii < block->instr_count; ii++) {
-                    IronLIR_Instr *in = block->instrs[ii];
-                    if (in->kind != IRON_LIR_CALL || in->call.func_decl ||
-                        in->call.arg_count != 1) continue;
-                    IronLIR_ValueId gp = in->call.func_ptr;
-                    if (gp == IRON_LIR_VALUE_INVALID ||
-                        gp >= (IronLIR_ValueId)arrlen(fn->value_table) ||
-                        !fn->value_table[gp] ||
-                        fn->value_table[gp]->kind != IRON_LIR_FUNC_REF ||
-                        !fn->value_table[gp]->func_ref.func_name ||
-                        strcmp(fn->value_table[gp]->func_ref.func_name, "$drop") != 0)
-                        continue;
-                    ptrdiff_t di = hmgeti(drop_uses, in->call.args[0]);
-                    hmput(drop_uses, in->call.args[0], di >= 0 ? drop_uses[di].value + 1 : 1);
-                    arrput(glue_drops, in);
-                }
-            }
-
-            /* Step E: Use-count escape check — break chains at intermediate nodes with use_count > 1 */
-            if (ctx->opt_info && ctx->opt_info->use_counts) {
-                for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
-                    if (next[i] < 0) continue; /* terminal or isolated — skip */
-                    IronLIR_ValueId cvid = fusible_calls[i].call_vid;
-                    ptrdiff_t uc_idx = hmgeti(ctx->opt_info->use_counts, cvid);
-                    int uc = (uc_idx >= 0) ? ctx->opt_info->use_counts[uc_idx].value : 0;
-                    ptrdiff_t cdu = hmgeti(drop_uses, cvid);
-                    if (cdu >= 0) uc -= drop_uses[cdu].value;
-                    /* A store of the result into a binding slot that nothing
-                     * else reads (only stores, its $drop, and loads that
-                     * forwarding left dead) is not a use either. */
-                    for (int bi = 0; bi < fn->block_count; bi++) {
-                        IronLIR_Block *block = fn->blocks[bi];
-                        for (int ii = 0; ii < block->instr_count; ii++) {
-                            IronLIR_Instr *st = block->instrs[ii];
-                            if (st->kind != IRON_LIR_STORE || st->store.value != cvid) continue;
-                            IronLIR_ValueId slot = st->store.ptr;
-                            ptrdiff_t su = hmgeti(ctx->opt_info->use_counts, slot);
-                            int left = su >= 0 ? ctx->opt_info->use_counts[su].value : 0;
-                            ptrdiff_t sd = hmgeti(drop_uses, slot);
-                            if (sd >= 0) left -= drop_uses[sd].value;
-                            for (int bj = 0; bj < fn->block_count && left > 0; bj++) {
-                                IronLIR_Block *b2 = fn->blocks[bj];
-                                for (int ij = 0; ij < b2->instr_count; ij++) {
-                                    IronLIR_Instr *u = b2->instrs[ij];
-                                    if (u->kind == IRON_LIR_STORE && u->store.ptr == slot) {
-                                        left--;
-                                    } else if (u->kind == IRON_LIR_LOAD && u->load.ptr == slot) {
-                                        ptrdiff_t lu = hmgeti(ctx->opt_info->use_counts, u->id);
-                                        if (lu < 0 || ctx->opt_info->use_counts[lu].value == 0) left--;
-                                    }
-                                }
-                            }
-                            if (left <= 0) uc--;
-                        }
-                    }
-                    if (uc > 1) {
-                        /* Intermediate result escapes — break chain */
-                        int ni = next[i];
-                        prev[ni] = -1;
-                        next[i] = -1;
-                    }
-                    /* Also check STORE'd values: if a STORE writes this call result
-                     * to an alloca that has multiple LOADs, the value escapes. */
-                    for (ptrdiff_t vo = 0; vo < hmlen(val_origin); vo++) {
-                        if (val_origin[vo].value == cvid && val_origin[vo].key != cvid) {
-                            ptrdiff_t st_uc = hmgeti(ctx->opt_info->use_counts, val_origin[vo].key);
-                            ptrdiff_t sdu = hmgeti(drop_uses, val_origin[vo].key);
-                            int st_n = st_uc >= 0 ? ctx->opt_info->use_counts[st_uc].value : 0;
-                            if (sdu >= 0) st_n -= drop_uses[sdu].value;
-                            /* (A store's own pointer operand is not a read.) */
-                            for (int bj = 0; bj < fn->block_count; bj++) {
-                                IronLIR_Block *b2 = fn->blocks[bj];
-                                for (int ij = 0; ij < b2->instr_count; ij++)
-                                    if (b2->instrs[ij]->kind == IRON_LIR_STORE &&
-                                        b2->instrs[ij]->store.ptr == val_origin[vo].key)
-                                        st_n--;
-                            }
-                            if (st_uc >= 0 && st_n > 1) {
-                                int ni = next[i];
-                                if (ni >= 0) prev[ni] = -1;
-                                next[i] = -1;
-                                break;
-                            }
-                        }
-                    }
-                }
+                for (int ii = 0; ii < block->instr_count; ii++)
+                    if (fusion_is_drop_glue(fn, block->instrs[ii]))
+                        arrput(glue_drops, block->instrs[ii]);
             }
 
             /* Walk chains: start from nodes with no predecessor */
@@ -11720,23 +11943,6 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                 if (chain.node_count < 2) {
                     arrfree(chain.nodes);
                     continue;
-                }
-
-                /* Check if source is a split collection */
-                ptrdiff_t sp_idx = hmgeti(ctx->split_collection_ids, chain.source);
-                if (sp_idx >= 0) {
-                    chain.is_split = true;
-                    chain.sp_iface = ctx->split_collection_ids[sp_idx].value;
-                } else {
-                    /* Also check through val_origin in case source was stored/loaded */
-                    ptrdiff_t src_oi = hmgeti(val_origin, chain.source);
-                    if (src_oi >= 0) {
-                        sp_idx = hmgeti(ctx->split_collection_ids, val_origin[src_oi].value);
-                        if (sp_idx >= 0) {
-                            chain.is_split = true;
-                            chain.sp_iface = ctx->split_collection_ids[sp_idx].value;
-                        }
-                    }
                 }
 
                 int chain_idx = (int)arrlen(ctx->fusion_chains);
@@ -11849,48 +12055,11 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                 }
             }
 
-            /* Step F2: Emit --warn-fusion-break diagnostics */
-            if (ctx->warn_fusion_break) {
-                for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
-                    IronLIR_ValueId cvid = fusible_calls[i].call_vid;
-                    /* Check if this call's result goes to a non-fusible consumer */
-                    if (next[i] < 0 && hmgeti(ctx->fusion_chain_member, cvid) < 0) {
-                        /* This fusible call is not in any chain — check if its result
-                         * feeds into another call at all (non-fusible break) */
-                        bool feeds_fusible = false;
-                        for (int j = 0; j < (int)arrlen(fusible_calls); j++) {
-                            if (j == i) continue;
-                            ptrdiff_t oi = hmgeti(val_origin, fusible_calls[j].self_arg);
-                            if (oi >= 0 && val_origin[oi].value == cvid) {
-                                feeds_fusible = true;
-                                break;
-                            }
-                        }
-                        if (!feeds_fusible && next[i] < 0 && prev[i] >= 0) {
-                            /* Was in a chain but got broken — escape */
-                            fprintf(stderr, "note: --warn-fusion-break: fusion chain broken: "
-                                    "intermediate result of .%s() used elsewhere in function %s\n",
-                                    fusible_calls[i].method, fn->name);
-                        }
-                    }
-                    /* Check for use_count > 1 breaks */
-                    if (ctx->opt_info && ctx->opt_info->use_counts) {
-                        ptrdiff_t uc_idx = hmgeti(ctx->opt_info->use_counts, cvid);
-                        int uc = (uc_idx >= 0) ? ctx->opt_info->use_counts[uc_idx].value : 0;
-                        if (uc > 1 && hmgeti(ctx->fusion_chain_member, cvid) < 0) {
-                            fprintf(stderr, "note: --warn-fusion-break: fusion chain broken: "
-                                    "intermediate result of .%s() used elsewhere in function %s\n",
-                                    fusible_calls[i].method, fn->name);
-                        }
-                    }
-                }
-            }
-
             hmfree(result_to_call);
             hmfree(val_origin);
+            hmfree(fusion_uses.use_counts);
             free(next);
             free(prev);
-            hmfree(drop_uses);
             arrfree(glue_drops);
         }
 

@@ -1,0 +1,109 @@
+// What a callback may be. Fusion needs a closure written at the call, a
+// named function or a lambda, whose body and everything it calls is proven
+// free of effects and panics. The hint is not needed and does not decide.
+
+object Calc {
+    val bias: Int
+
+    readonly func apply(x: Int) -> Int {
+        return x + self.bias
+    }
+
+    readonly func keep(x: Int) -> Bool {
+        return x > self.bias
+    }
+
+    // A pipeline inside a method reads its fields like any other value.
+    readonly func total(xs: [Int]) -> Int {
+        val bias = self.bias
+        return xs.map(func(x: Int) -> Int { return x + bias }).sum()  // @fused: map sum
+    }
+}
+
+object Pair {
+    val a: Int
+    val b: Int
+}
+
+//iron:fusible
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+func helper(x: Int) -> Int {
+    return inc(inc(x)) * 2
+}
+
+func deep(x: Int) -> Int {
+    if x > 3 {
+        return helper(x)
+    }
+    var t = x
+    while t < 10 {
+        t = t + helper(1)
+    }
+    return t
+}
+
+func identity[T](x: T) -> T {
+    return x
+}
+
+func pair(x: Int) -> Pair {
+    return Pair(x, x * x)
+}
+
+func pair_sum(p: Pair) -> Int {
+    return p.a + p.b
+}
+
+func countdown(x: Int) -> Int {
+    if x <= 0 {
+        return 0
+    }
+    return countdown(x - 1) + 1
+}
+
+func apply_all(xs: [Int], f: func(Int) -> Int) -> Int {
+    // f is a parameter: what it does is unknown here.
+    return xs.map(f).sum()
+}
+
+func main() {
+    val xs = [1, 2, 3, 4, 5]
+
+    // Named functions and lambdas, with and without the hint.
+    println("{xs.map(inc).sum()}")  // @fused: map sum
+    println("{xs.map(helper).sum()}")  // @fused: map sum
+    println("{xs.map(deep).sum()}")  // @fused: map sum
+    println("{xs.map(func(x: Int) -> Int { return x * 3 }).sum()}")  // @fused: map sum
+
+    // A lambda that captures a val copies it.
+    val bias = 10
+    println("{xs.map(func(x: Int) -> Int { return x + bias }).sum()}")  // @fused: map sum
+
+    // A captured var is shared with the enclosing function: not fused.
+    var scale = 2
+    println("{xs.map(func(x: Int) -> Int { return x * scale }).sum()}")
+    scale = 3
+    println("{xs.map(func(x: Int) -> Int { return x * scale }).sum()}")
+
+    // Generic instances and methods called from a lambda.
+    println("{xs.map(func(x: Int) -> Int { return identity(x) }).sum()}")  // @fused: map sum
+    val calc = Calc(2)
+    println("{xs.map(func(x: Int) -> Int { return calc.apply(x) }).sum()}")  // @fused: map sum
+    println("{xs.filter(func(x: Int) -> Bool { return calc.keep(x) }).sum()}")  // @fused: filter sum
+    println("{calc.total(xs)}")
+
+    // Objects made only of numbers flow through a fused loop.
+    println("{xs.map(pair).map(pair_sum).sum()}")  // @fused: map map sum
+    println("{xs.map(pair).filter(func(p: Pair) -> Bool { return p.b > 4 }).map(pair_sum).sum()}")  // @fused: map filter map sum
+
+    // A val bound to a function is that function; a parameter is unknown.
+    val f = inc
+    println("{xs.map(f).sum()}")  // @fused: map sum
+    println("{apply_all(xs, inc)}")
+
+    // Recursion is not proven to end: not fused.
+    println("{xs.map(countdown).sum()}")
+}

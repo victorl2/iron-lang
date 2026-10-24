@@ -1,0 +1,37 @@
+// The initial value of reduce is an argument of the last stage. When
+// computing it has an effect, the stages before it have already run.
+
+var base = 1
+
+func add_base(x: Int) -> Int {
+    return x + base
+}
+
+func bump() -> Int {
+    base = base + 100
+    return base
+}
+
+func loud() -> Int {
+    println("init")
+    return 5
+}
+
+func add(acc: Int, x: Int) -> Int {
+    return acc + x
+}
+
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+func main() {
+    val xs = [1, 2, 3]
+    // map reads base before bump() changes it.
+    println("{xs.map(add_base).reduce(bump(), add)}")
+    println("{xs.map(inc).reduce(loud(), add)}")
+    // A plain expression is argument setup.
+    val k = 4
+    println("{xs.map(inc).reduce(k * 2 + 1, add)}")  // @fused: map reduce
+    println("{xs.map(inc).reduce(base, add)}")  // @fused: map reduce
+}

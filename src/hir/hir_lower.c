@@ -253,6 +253,19 @@ static void hir_block_insert_stmt_at(IronHIR_Block *block, int pos,
 }
 
 /* The HIR name of a free function (see func_renames). */
+/* Where a declaration's `//iron:fusible` hint is written: the directive's
+ * line, or the declaration itself for the older `@fusible`. */
+static Iron_Span fusible_hint_span(Iron_Span decl, const Iron_Directive *dirs, int count) {
+    for (int i = 0; i < count; i++) {
+        if (dirs[i].key && dirs[i].value && strcmp(dirs[i].key, "iron") == 0 &&
+            strncmp(dirs[i].value, "fusible", 7) == 0 && !dirs[i].trailing) {
+            Iron_Span sp = iron_span_make(decl.filename, dirs[i].line, 1, dirs[i].line, 1);
+            return sp;
+        }
+    }
+    return decl;
+}
+
 static const char *func_hir_name(IronHIR_LowerCtx *ctx, Iron_FuncDecl *fd) {
     ptrdiff_t i = hmgeti(ctx->func_renames, (Iron_Node *)fd);
     return i >= 0 ? ctx->func_renames[i].value : fd->name;
@@ -3061,6 +3074,12 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             f->hints = fd->hints;
             f->is_user_func = !fd->is_extern &&
                 iron_stdlib_origin_classify(fd->span.filename) == 0;
+            if (fd->is_fusible && f->is_user_func) {
+                f->is_fusible_hint   = true;
+                f->fusible_hint_span = fusible_hint_span(fd->span, fd->directives,
+                                                         fd->directive_count);
+                f->fusible_hint_name = fd->name;
+            }
             /* Phase 22 READ-08: propagate is_readonly from AST FuncDecl.
              * Top-level free functions use is_readonly directly (no is_pure
              * on free functions per Iron design). */
@@ -3337,6 +3356,13 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             IronHIR_Func *f = iron_hir_func_create(mod, mname, params,
                                                      total_params, ret_ty);
             f->is_runtime_stub = is_stub;
+            if (md->is_fusible && !is_stub &&
+                iron_stdlib_origin_classify(md->span.filename) == 0) {
+                f->is_fusible_hint   = true;
+                f->fusible_hint_span = fusible_hint_span(md->span, md->directives,
+                                                         md->directive_count);
+                f->fusible_hint_name = md->method_name;
+            }
             if (md->body && md->body->kind == IRON_NODE_BLOCK) {
                 f->end_span = md->body->span;
                 f->end_span.line = md->body->span.end_line;

@@ -1,0 +1,109 @@
+// `//iron:fusible` (and the older `@fusible`) is a checked claim: the
+// function can run inside a fused loop. It does not decide fusion, which is
+// the same with the hint removed, and it never changes what the program
+// does. A function that cannot keep the claim gets warning W0618 and is
+// called stage by stage.
+
+var counter = 0
+
+val table = [1, 2, 3]
+
+object Calc {
+    val bias: Int
+
+    //iron:fusible
+    readonly func apply(x: Int) -> Int {
+        return x + self.bias
+    }
+
+    //iron:fusible
+    func noisy(x: Int) -> Int {  // @w0618: calls 'println'
+        println("noisy {x}")
+        return x
+    }
+}
+
+//iron:fusible
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+@fusible
+func even(x: Int) -> Bool {
+    return x % 2 == 0
+}
+
+//iron:fusible
+func identity[T](x: T) -> T {
+    return x
+}
+
+//iron:fusible
+func prints(x: Int) -> Int {  // @w0618: calls 'println'
+    println("prints {x}")
+    return x
+}
+
+//iron:fusible
+func counts(x: Int) -> Int {  // @w0618: writes the global 'counter'
+    counter += 1
+    return x
+}
+
+//iron:fusible
+func divides(x: Int) -> Int {  // @w0618: divides by a value that may be zero
+    return 12 / x
+}
+
+//iron:fusible
+func shifts(x: Int) -> Int {  // @w0618: shifts by a count that may be negative
+    return 1 << x
+}
+
+//iron:fusible
+func indexes(x: Int) -> Int {  // @w0618: indexes a list or array
+    return table[x]
+}
+
+//iron:fusible
+func countdown(x: Int) -> Int {  // @w0618: is recursive
+    if x <= 0 {
+        return 0
+    }
+    return countdown(x - 1) + 1
+}
+
+//iron:fusible
+func through(x: Int) -> Int {  // @w0618: calls 'prints', which calls 'println'
+    return prints(x) + 1
+}
+
+//iron:fusible
+func label(x: Int) -> String {  // @w0618: builds a String
+    return "v{x}"
+}
+
+//iron:fusible
+func grow(var xs: [Int], x: Int) -> Int {  // @w0618: writes through a `var` parameter
+    xs.push(x)
+    return x
+}
+
+func main() {
+    val xs = [1, 2]
+    println("{xs.map(inc).filter(even).sum()}")  // @fused: map filter sum
+    println("{xs.map(func(x: Int) -> Int { return identity(x) }).sum()}")  // @fused: map sum
+    var calc = Calc(3)
+    println("{xs.map(func(x: Int) -> Int { return calc.apply(x) }).sum()}")
+    println("{calc.noisy(1)}")
+    println("{xs.map(prints).filter(even).sum()}")  // @fused: filter sum
+    println("{xs.map(counts).map(inc).sum()} {counter}")  // @fused: map sum
+    println("{xs.map(divides).map(inc).sum()}")  // @fused: map sum
+    println("{xs.map(shifts).map(inc).sum()}")  // @fused: map sum
+    println("{xs.map(indexes).map(inc).sum()}")  // @fused: map sum
+    println("{xs.map(countdown).map(inc).sum()}")  // @fused: map sum
+    println("{xs.map(through).map(inc).sum()}")  // @fused: map sum
+    println("{xs.map(label).len()}")
+    var out: [Int] = []
+    println("{grow(out, 4)} {out.len()}")
+}
