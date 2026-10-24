@@ -894,6 +894,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     if (opts.debug_info && !opts.release) {
         argv_buf[ai++] = "/Od";
         argv_buf[ai++] = "/Z7";
+        argv_buf[ai++] = "/clang:-fno-eliminate-unused-debug-types";
     }
 #else
     argv_buf[ai++] = clang_path;
@@ -931,6 +932,9 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     if (opts.debug_info && !opts.release) {
         argv_buf[ai++] = "-O0";
         argv_buf[ai++] = "-g";
+        /* Keep the types only sizeof names (a heap value's object), which
+         * the formatters look up to show what a pointer points at. */
+        argv_buf[ai++] = "-fno-eliminate-unused-debug-types";
         argv_buf[ai++] = "-fno-omit-frame-pointer";
     }
     /* IRON_CC_FLAGS: extra C compiler flags, after the ones above (so an
@@ -2300,6 +2304,9 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 6b. Lower HIR to LIR */
     Iron_Arena ir_arena = iron_arena_create(1024 * 1024);
+    /* --debug: set before lowering too, which names more bindings then. */
+    iron_lir_emit_set_line_directives(opts.target != IRON_TARGET_WEB && opts.debug_info &&
+                                      !opts.release);
     IronLIR_Module *ir_module = iron_hir_to_lir(hir_module, (Iron_Program *)ast,
                                                analysis.global_scope,
                                                &ir_arena, &diags);
@@ -2343,6 +2350,8 @@ int iron_build(const char *source_path, const char *output_path,
     iron_lir_optimize(ir_module, &optimize_info, &arena,
                      opts.dump_ir_passes, no_optimize,
                      /*elision_enabled=*/ !no_optimize && !opts.debug_build);
+    if (opts.report_bounds_checks)
+        iron_lir_report_bounds_checks(ir_module, stderr, false);
 
     /* 7b. Phase 5: LIR main-loop split pass (WEB-EMIT-01..04).
      *

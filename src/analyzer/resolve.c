@@ -8,6 +8,7 @@
  * full control over scope push/pop ordering.
  */
 
+#include "analyzer/intrinsics.h"
 #include "hir/stdlib_origin.h"
 #include "comptime/comptime.h"
 #include "analyzer/generics.h"
@@ -1120,6 +1121,39 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+            /* `Enum.lowercase_variant(args)` is deliberately parsed as a
+             * method call so syntax-only tooling keeps static calls in their
+             * natural shape. Once the receiver resolves to an enum, rewrite
+             * the same-size node into the enum construction expected by the
+             * type checker and lowering pipeline. */
+            if (mc->object && mc->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *obj_id = (Iron_Ident *)mc->object;
+                Iron_Symbol *obj_sym = iron_scope_lookup(ctx->current_scope, obj_id->name);
+                if (obj_sym && obj_sym->sym_kind == IRON_SYM_ENUM) {
+                    _Static_assert(sizeof(Iron_EnumConstruct) <= sizeof(Iron_MethodCallExpr),
+                                   "method-call-to-enum-construct rewrite requires size fit");
+                    Iron_Span span = mc->span;
+                    const char *enum_name = obj_id->name;
+                    const char *variant_name = mc->method;
+                    Iron_Node **args = mc->args;
+                    int arg_count = mc->arg_count;
+                    bool is_generated = mc->is_generated;
+                    Iron_EnumConstruct *ec = (Iron_EnumConstruct *)mc;
+                    ec->span = span;
+                    ec->kind = IRON_NODE_ENUM_CONSTRUCT;
+                    ec->resolved_type = NULL;
+                    ec->enum_name = enum_name;
+                    ec->variant_name = variant_name;
+                    ec->args = args;
+                    ec->arg_count = arg_count;
+                    ec->reserved_flags[0] = true;
+                    ec->reserved_flags[1] = is_generated;
+                    ec->reserved_generic_args = NULL;
+                    ec->reserved_generic_arg_count = 0;
+                    resolve_expr(ctx, (Iron_Node *)ec);
+                    break;
+                }
+            }
             /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset / Ptr.diff are
              * compiler builtins accessed through the synthetic "Ptr" namespace.
              * "Ptr" is NOT a user-defined identifier — skip the normal
@@ -1139,7 +1173,25 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 ((Iron_Ident *)mc->object)->name &&
                 strcmp(((Iron_Ident *)mc->object)->name, "RawPtr") == 0 &&
                 strcmp(mc->method, "of") == 0;
-            if (!is_ptr_builtin_call && !is_rawptr_builtin_call) {
+            /* `Hint.likely(c)`, `Float.from_bits(u)`, `String.from_utf8(b)`,
+             * `StringBuilder.new()`: compiler intrinsics on a type name
+             * (analyzer/intrinsics.h) that need no import. */
+            bool is_static_intrinsic = false;
+            if (mc->object && mc->object->kind == IRON_NODE_IDENT && mc->method &&
+                ((Iron_Ident *)mc->object)->name) {
+                const char *tn = ((Iron_Ident *)mc->object)->name;
+                bool hint = strcmp(tn, "Hint") == 0;
+                bool num = strcmp(tn, "Float") == 0 || strcmp(tn, "Float32") == 0 ||
+                           strcmp(tn, "Float64") == 0 || strcmp(tn, "Int") == 0 ||
+                           strcmp(tn, "Int8") == 0 || strcmp(tn, "Int16") == 0 ||
+                           strcmp(tn, "Int32") == 0 || strcmp(tn, "Int64") == 0;
+                unsigned recv = hint ? IRON_INTR_RECV_HINT
+                              : num ? (IRON_INTR_RECV_FLOAT | IRON_INTR_RECV_SIGNED)
+                              : strcmp(tn, "String") == 0 ? IRON_INTR_RECV_STRING : 0;
+                is_static_intrinsic = recv && iron_intrinsic_find(mc->method, recv, true) &&
+                                      !iron_scope_lookup(ctx->current_scope, tn);
+            }
+            if (!is_ptr_builtin_call && !is_rawptr_builtin_call && !is_static_intrinsic) {
                 resolve_expr(ctx, mc->object);
             }
             resolve_node_list(ctx, mc->args, mc->arg_count);
@@ -1148,6 +1200,31 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FIELD_ACCESS: {
             Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
+            if (fa->is_enum_candidate && fa->object &&
+                fa->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *obj_id = (Iron_Ident *)fa->object;
+                Iron_Symbol *obj_sym = iron_scope_lookup(ctx->current_scope, obj_id->name);
+                if (obj_sym && obj_sym->sym_kind == IRON_SYM_ENUM) {
+                    Iron_Span span = fa->span;
+                    const char *enum_name = obj_id->name;
+                    const char *variant_name = fa->field;
+                    bool is_generated = fa->is_generated;
+                    Iron_EnumConstruct *ec = (Iron_EnumConstruct *)fa;
+                    ec->span = span;
+                    ec->kind = IRON_NODE_ENUM_CONSTRUCT;
+                    ec->resolved_type = NULL;
+                    ec->enum_name = enum_name;
+                    ec->variant_name = variant_name;
+                    ec->args = NULL;
+                    ec->arg_count = 0;
+                    ec->reserved_flags[0] = false;
+                    ec->reserved_flags[1] = is_generated;
+                    ec->reserved_generic_args = NULL;
+                    ec->reserved_generic_arg_count = 0;
+                    resolve_expr(ctx, (Iron_Node *)ec);
+                    break;
+                }
+            }
             /* Phase 20 OQ-D + Phase 33 STDLIB-10: skip resolve when the
              * field access is on the synthetic "Ptr" namespace (Ptr.cast /
              * Ptr.offset / Ptr.diff compiler builtins). The typechecker's
@@ -1356,6 +1433,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 ident_node->resolved_type = NULL;
                 ident_node->resolved_sym = esym;
                 const char *member = ec->variant_name;
+                bool had_call_parentheses = ec->reserved_flags[0];
+                bool is_generated = ec->reserved_flags[1];
                 /* PROT-04 rewrite (ranks 7 and 8, AUDIT-01): allocate a fresh
                  * Iron_MethodCallExpr or Iron_FieldAccess node instead of
                  * reinterpreting Iron_EnumConstruct in place. The old pattern
@@ -1378,7 +1457,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                  * (span, args, arg_count) are captured before the cast-
                  * assignment to avoid aliasing issues when the target
                  * struct's layout overlaps the source fields. */
-                if (ec->arg_count > 0) {
+                if (had_call_parentheses) {
                     _Static_assert(sizeof(Iron_MethodCallExpr) <= sizeof(Iron_EnumConstruct),
                                    "enum-construct-to-method-call rewrite requires size fit");
                     Iron_Span    ec_span   = ec->span;
@@ -1394,8 +1473,14 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     mc_slot->arg_count     = ec_argc;
                     mc_slot->is_auto_deref        = false;
                     mc_slot->is_builtin_to_string = false;
+                    mc_slot->is_builtin_copy      = false;
+                    mc_slot->is_ctor_desugar      = false;
+                    mc_slot->intrinsic             = 0;
+                    mc_slot->is_generated          = false;
+                    mc_slot->is_memberwise         = false;
                     mc_slot->generic_args         = NULL;
                     mc_slot->generic_arg_count    = 0;
+                    mc_slot->is_generated         = is_generated;
                     resolve_expr(ctx, (Iron_Node *)ec);
                 } else {
                     _Static_assert(sizeof(Iron_FieldAccess) <= sizeof(Iron_EnumConstruct),

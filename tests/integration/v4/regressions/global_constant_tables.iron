@@ -1,0 +1,40 @@
+-- Global vals of constant data (scalars, strings, and lists, fixed arrays
+-- and bounded vectors of them) are static const data, not statics filled in
+-- at startup. Their values, string handling and copies are unchanged, and a
+-- constant table holds its value even for an initializer that runs before
+-- its own declaration would have been reached.
+val FIRST = sum_pow(4)
+val POW: [UInt64; 4] = [1, 10, 100, 1000]
+val MAXU: UInt64 = 18446744073709551615
+val NEG: [Int8; 3] = [-1, -128, 127]
+val SMALL: [UInt16; <=4] = [65535, 2]
+val FRAC: [Float] = [0.1, -2.5]
+val F32: Float32 = 0.1
+val FLAGS: [Bool] = [true, false]
+val NONE: [UInt64] = []
+val NAMES = ["short", "a string longer than twenty three bytes", "tab\there \"quoted\" é"]
+val GREETING = "hello"
+
+func sum_pow(n: Int) -> UInt64 {
+    var t: UInt64 = 0
+    for i in range(n) {
+        t += POW[i]
+    }
+    return t
+}
+
+func class_of(c: Int) -> Int {
+    val classes: [Int] = [0, 1, 1, 2]
+    return classes[c % 4]
+}
+
+func main() {
+    println("{FIRST} {sum_pow(3)} {MAXU} {NEG[1]} {SMALL.len()} {SMALL[0]}")
+    println("{FRAC[0]} {FRAC[1]} {F32} {FLAGS[1]} {NONE.len()} {class_of(6)}")
+    for n in NAMES {
+        println("{n} {n.len()} {n.byte_len()}")
+    }
+    val dup = NAMES.copy()
+    val joined = dup[0] + GREETING
+    println("{joined} {dup.len()} {NAMES[1] == "a string longer than twenty three bytes"}")
+}

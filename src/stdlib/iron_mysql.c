@@ -3933,6 +3933,106 @@ int64_t Iron_mysqlnative_pool_info(int64_t h, int64_t what) {
     return v;
 }
 
+/* ── Debugger summaries ─────────────────────────────────────────────────────
+ * What the debugger formatters (src/debug) show for a MysqlResult, a
+ * MysqlConn and a MysqlPool, whose Iron objects hold only a handle: called
+ * by the debugger while the program is stopped. The text lives in a
+ * per-thread buffer until the next call. kind: 0 result, 1 connection,
+ * 2 pool. */
+static void dbg_put(char *out, size_t cap, size_t *n, const char *s, size_t len) {
+    if (*n >= cap - 1) return;
+    size_t room = cap - 1 - *n;
+    if (len > room) len = room;
+    memcpy(out + *n, s, len);
+    *n += len;
+    out[*n] = 0;
+}
+
+__attribute__((used)) const char *iron_mysql_debug_text(int64_t h, int64_t kind) {
+    static _Thread_local char out[1024];
+    size_t n = 0;
+    char tmp[256];
+    out[0] = 0;
+    if (!h) return "null";
+    if (kind == 0) {
+        MyResult *r = AS_RES(h);
+        MySet *s = cur_set(r);
+        if (r->err.code != 0) {
+            snprintf(tmp, sizeof(tmp), "error %lld: %s", (long long)r->err.code, r->err.message);
+            dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+            return out;
+        }
+        if (!s) return "no result set";
+        snprintf(tmp, sizeof(tmp), "%llu rows x %u columns",
+                 (unsigned long long)s->nrows, (unsigned)s->ncols);
+        dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+        if (s->ncols) {
+            const uint8_t *strs = set_strings(s);
+            dbg_put(out, sizeof(out), &n, " (", 2);
+            for (uint32_t c = 0; c < s->ncols && strs; c++) {
+                if (c) dbg_put(out, sizeof(out), &n, ", ", 2);
+                dbg_put(out, sizeof(out), &n, (const char *)strs + s->cols[c].name,
+                        s->cols[c].name_len);
+            }
+            dbg_put(out, sizeof(out), &n, ")", 1);
+        }
+        if (!s->ncols && s->affected) {
+            snprintf(tmp, sizeof(tmp), ", %llu affected", (unsigned long long)s->affected);
+            dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+        }
+        /* The first rows. */
+        for (uint64_t row = 0; row < s->nrows && row < 3; row++) {
+            dbg_put(out, sizeof(out), &n, row ? ", [" : ": [", 3);
+            for (uint32_t c = 0; c < s->ncols; c++) {
+                if (c) dbg_put(out, sizeof(out), &n, ", ", 2);
+                Cell cell;
+                if (get_cell(r, (int64_t)row, (int64_t)c, &cell) != 0) {
+                    dbg_put(out, sizeof(out), &n, "null", 4);
+                    continue;
+                }
+                Iron_String t = cell_text(&cell);
+                size_t len = iron_string_byte_len(&t);
+                const char *p = iron_string_cstr(&t);
+                dbg_put(out, sizeof(out), &n, "\"", 1);
+                dbg_put(out, sizeof(out), &n, p, len > 40 ? 40 : len);
+                if (len > 40) dbg_put(out, sizeof(out), &n, "...", 3);
+                dbg_put(out, sizeof(out), &n, "\"", 1);
+                iron_string_release(&t);
+            }
+            dbg_put(out, sizeof(out), &n, "]", 1);
+        }
+        if (s->nrows > 3) dbg_put(out, sizeof(out), &n, ", ...", 5);
+        return out;
+    }
+    if (kind == 1) {
+        MyConn *c = AS_CONN(h);
+        snprintf(tmp, sizeof(tmp), "%s%s",
+                 c->open && !c->broken ? "open" : c->broken ? "broken" : "closed",
+                 c->tls ? " (TLS)" : "");
+        dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+        /* A connection that never reached a server has neither. */
+        if (c->version[0]) {
+            snprintf(tmp, sizeof(tmp), ", server %s, thread %u", c->version,
+                     (unsigned)c->thread_id);
+            dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+        }
+        if (c->err.code != 0) {
+            snprintf(tmp, sizeof(tmp), ", last error %lld: %s", (long long)c->err.code,
+                     c->err.message);
+            dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+        }
+        return out;
+    }
+    if (kind == 2) {
+        MyPool *p = AS_POOL(h);
+        snprintf(tmp, sizeof(tmp), "%d connections (%d idle, %d in use), min %lld, max %lld",
+                 p->total, p->nidle, p->in_use, (long long)p->min, (long long)p->max);
+        dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+        return out;
+    }
+    return "";
+}
+
 /* ── In-process protocol transport ─────────────────────────────────────── */
 
 static void test_transport_init(MyConn *c, const uint8_t *wire, size_t wire_len,

@@ -308,6 +308,7 @@ add_library(iron_compiler STATIC
     src/analyzer/init_check.c
     src/analyzer/global_order.c
     src/analyzer/list_ownership.c
+    src/analyzer/view_check.c
     src/analyzer/unused_var.c
     src/analyzer/effects.c
     src/analyzer/iface_collect.c
@@ -412,6 +413,46 @@ option(IRON_BUILD_LSP "Build ironls (Iron language server)" ON)
 # ── Tests ──────────────────────────────────────────────────────────────────
 enable_testing()
 
+# Keep the committed TIMEOUT values useful as hang detectors on a quiet
+# machine, while allowing a contended CI host to scale every row uniformly.
+# Defining a wrapper at the command boundary avoids scattering arithmetic
+# through hundreds of test declarations. CMake exposes the shadowed built-in
+# command with an underscore prefix.
+set(IRON_TEST_TIMEOUT_SCALE "$ENV{IRON_TEST_TIMEOUT_SCALE}" CACHE STRING
+    "Positive integer multiplier applied to every CTest TIMEOUT")
+if(IRON_TEST_TIMEOUT_SCALE STREQUAL "")
+    set(IRON_TEST_TIMEOUT_SCALE 1 CACHE STRING
+        "Positive integer multiplier applied to every CTest TIMEOUT" FORCE)
+endif()
+
+set(IRON_TEST_JOBS "4" CACHE STRING
+    "Worker budget reserved by internally parallel CTest rows")
+if(NOT IRON_TEST_JOBS MATCHES "^[1-9][0-9]*$")
+    message(FATAL_ERROR "IRON_TEST_JOBS must be a positive integer")
+endif()
+if(NOT IRON_TEST_TIMEOUT_SCALE MATCHES "^[1-9][0-9]*$")
+    message(FATAL_ERROR
+        "IRON_TEST_TIMEOUT_SCALE must be a positive integer; got '${IRON_TEST_TIMEOUT_SCALE}'")
+endif()
+
+function(set_tests_properties)
+    set(_iron_call "_set_tests_properties(")
+    set(_iron_next_is_timeout FALSE)
+    math(EXPR _iron_last_arg "${ARGC} - 1")
+    foreach(_iron_index RANGE ${_iron_last_arg})
+        set(_iron_arg "${ARGV${_iron_index}}")
+        if(_iron_next_is_timeout)
+            math(EXPR _iron_arg "${_iron_arg} * ${IRON_TEST_TIMEOUT_SCALE}")
+            set(_iron_next_is_timeout FALSE)
+        elseif(_iron_arg STREQUAL "TIMEOUT")
+            set(_iron_next_is_timeout TRUE)
+        endif()
+        string(APPEND _iron_call " [==[${_iron_arg}]==]")
+    endforeach()
+    string(APPEND _iron_call ")")
+    cmake_language(EVAL CODE "${_iron_call}")
+endfunction()
+
 # ── /tmp interpreter-hijack canary (2026-07 remediation) ────────────────────
 # ROOT CAUSE (reproduced + proven): ctest resolves a bare `add_test` COMMAND
 # name against the test's WORKING_DIRECTORY *before* falling back to PATH
@@ -509,6 +550,8 @@ add_subdirectory(tests/algorithms)
 add_subdirectory(tests/composite)
 add_subdirectory(tests/manual)
 add_subdirectory(tests/json)
+add_subdirectory(tests/http)
+add_subdirectory(bench/http)
 
 # ── ironc compiler executable ────────────────────────────────────────────────
 add_executable(ironc
@@ -1018,6 +1061,15 @@ add_test(NAME diag_c_logical_operators
         -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/c_logical_operators.expected_help
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/c_logical_operators.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+# Instances of generic methods: named as declared, no readonly hint for a
+# return type a readonly method cannot have.
+add_test(NAME diag_generic_method_help
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/generic_method_help.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/generic_method_help.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/generic_method_help.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 # `//iron:<hint>` compiler hints: unknown or misplaced ones warn (W0617).
 add_test(NAME diag_iron_hints
     COMMAND ${CMAKE_COMMAND}
@@ -1278,6 +1330,10 @@ if(NOT WIN32)
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_values_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
   set_tests_properties(debug_values_smoke PROPERTIES PROCESSORS 2 TIMEOUT 120)
+  add_test(NAME debug_c_reserved_names
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_c_reserved_names.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_c_reserved_names PROPERTIES TIMEOUT 120)
   # The list formatters gather the elements of a layout: soa list from its
   # columns.
   add_test(NAME debug_soa_smoke
@@ -1607,6 +1663,27 @@ if(NOT WIN32)
     )
 endif()
 
+if(NOT WIN32)
+    add_test(
+        NAME test_run_tests_worker_failure_summary
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/run_tests_worker_failure_smoke.sh
+    )
+    set_tests_properties(test_run_tests_worker_failure_summary PROPERTIES
+        PASS_REGULAR_EXPRESSION "run_tests worker failure summary OK"
+        LABELS "unit;hijack-canary"
+        TIMEOUT 30
+    )
+    add_test(
+        NAME test_run_tests_expect_panic_directives
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/run_tests_expect_panic_smoke.sh
+    )
+    set_tests_properties(test_run_tests_expect_panic_directives PROPERTIES
+        PASS_REGULAR_EXPRESSION "run_tests expect-panic directives OK"
+        LABELS "unit"
+        TIMEOUT 30
+    )
+endif()
+
 # ── Benchmark rows (2026-07 realism split) ─────────────────────────────────
 # The old benchmark_smoke ran the FULL 139-problem corpus (~22 min serial,
 # measured 21m45s; serially re-confirmed on a quiet container 2026-07-18)
@@ -1639,12 +1716,48 @@ else()
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 endif()
 if(UNIX)
+    add_test(NAME test_local_ci_contract
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_local_ci_contract.py
+            ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_local_ci_contract PROPERTIES
+        LABELS "unit;ci" TIMEOUT 30)
+
+    add_test(NAME test_v4_sharding
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_v4_sharding.py
+            ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_v4_sharding PROPERTIES
+        LABELS "unit;ci" TIMEOUT 60)
+
+    add_test(NAME test_ctest_with_retry
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_ctest_with_retry.py
+            ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_ctest_with_retry PROPERTIES
+        LABELS "unit;ci" TIMEOUT 60)
+
+    add_test(NAME test_timeout_policy
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_timeout_policy.py
+            ${CMAKE_BINARY_DIR}
+            ${IRON_TEST_TIMEOUT_SCALE})
+    set_tests_properties(test_timeout_policy PROPERTIES
+        LABELS "unit;ci" TIMEOUT 30)
+
     add_test(NAME test_aggregate_scheduling
         COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/ci/test_aggregate_scheduling.py
             ${CMAKE_BINARY_DIR}
             ${CMAKE_SOURCE_DIR}/.github/workflows/v4-acceptance.yml)
     set_tests_properties(test_aggregate_scheduling PROPERTIES
+        LABELS "unit;oracle" TIMEOUT 30)
+
+    add_test(NAME test_opt_parity_scheduling
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_opt_parity_scheduling.py
+            ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_opt_parity_scheduling PROPERTIES
         LABELS "unit;oracle" TIMEOUT 30)
 
     add_test(NAME benchmark_process_regressions
@@ -1658,6 +1771,10 @@ endif()
 # baseline covers is no longer covered. Raise the baseline with
 # `scripts/spec_coverage.py --update tests/spec_coverage_baseline.json`.
 if(Python3_EXECUTABLE)
+    add_test(NAME diagnostic_docs
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check_diagnostic_docs.py)
+    set_tests_properties(diagnostic_docs PROPERTIES LABELS "spec" TIMEOUT 30)
+
     add_test(NAME spec_coverage
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/spec_coverage.py
             --check ${CMAKE_SOURCE_DIR}/tests/spec_coverage_baseline.json)
@@ -1674,6 +1791,12 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/expr_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/expr_fuzz)
     set_tests_properties(expr_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
+    # Scalar bit and overflow intrinsics, borrowed views and StringBuilder
+    # against deterministic Python integer and sequence models.
+    add_test(NAME scalar_views_fuzz
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/scalar_views_fuzz.py
+            $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/scalar_views_fuzz)
+    set_tests_properties(scalar_views_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
     # Random whole programs (control flow, collections, objects and
     # ownership, closures) compared with a Python model of the manual
     # (tests/fuzz/prog_fuzz.py). Fixed seeds.
@@ -3354,6 +3477,12 @@ install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib COMPONENT iron FILES_MATCHI
 find_package(Python3 COMPONENTS Interpreter QUIET)
 # Also on Windows, with LLVM's lldb-dap (#388).
 if(Python3_Interpreter_FOUND)
+  # A source line longer than a diagnostic's snippet is not cut inside a
+  # UTF-8 sequence (#721).
+  add_test(NAME diag_long_utf8_line
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_utf8.py
+                   $<TARGET_FILE:ironc>
+                   ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/long_utf8_line.iron W0601)
   add_test(NAME debug_dap_smoke
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/dap_client.py
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/stepping.iron
@@ -3376,6 +3505,24 @@ if(Python3_Interpreter_FOUND)
                    $<TARGET_FILE:iron> dap)
   set_tests_properties(debug_dap_temporaries PROPERTIES
       PROCESSORS 2 TIMEOUT 300 SKIP_RETURN_CODE 77)
+  # Regressions the debugger fuzzer found: values, the evaluator, stepping,
+  # spawned tasks, malformed requests.
+  add_test(NAME debug_dap_regress
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/dap_regress_client.py
+                   ${CMAKE_SOURCE_DIR}/tests/integration/debug/regress.iron
+                   $<TARGET_FILE:iron> dap)
+  set_tests_properties(debug_dap_regress PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+  # The debugger fuzzer (tests/fuzz/dbg_fuzz.py) on fixed seeds (POSIX
+  # hosts: it runs process groups and fork programs).
+  if(NOT WIN32)
+  foreach(_dbg_area values eval step panic proto)
+    add_test(NAME dbg_fuzz_${_dbg_area}
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/dbg_fuzz.py
+                     --suite $<TARGET_FILE:iron> ${CMAKE_BINARY_DIR}/dbg_fuzz_${_dbg_area} ${_dbg_area})
+    set_tests_properties(dbg_fuzz_${_dbg_area} PROPERTIES TIMEOUT 600 SKIP_RETURN_CODE 77
+                         LABELS "debugger")
+  endforeach()
+  endif()
 endif()
 if(NOT WIN32 AND Python3_Interpreter_FOUND)
   # What iron dap, iron debug and iron debug --check say when Python,
@@ -3406,12 +3553,29 @@ if(NOT WIN32)
   set_tests_properties(debug_tuple_names PROPERTIES TIMEOUT 120
     ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:detect_stack_use_after_return=1")
 endif()
+# A generic instance's statements keep their own lines in a --debug build
+# (#722).
+if(NOT WIN32)
+  add_test(NAME debug_generic_lines
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_generic_lines.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_generic_lines PROPERTIES TIMEOUT 120)
+endif()
 # #312: a panic stops the debugger on the Iron line (iron debug, iron dap).
 if(NOT WIN32)
   add_test(NAME debug_panic_smoke
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_panic_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
-  set_tests_properties(debug_panic_smoke PROPERTIES PROCESSORS 2 TIMEOUT 300)
+  set_tests_properties(debug_panic_smoke PROPERTIES PROCESSORS 2 TIMEOUT 600)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME test_debug_panic_smoke_timeout
+             COMMAND ${Python3_EXECUTABLE}
+                     ${CMAKE_SOURCE_DIR}/tests/integration/v4/check_aggregate_timeout.py
+                     ${CMAKE_CTEST_COMMAND} ${CMAKE_BINARY_DIR}
+                     debug_panic_smoke 600)
+    set_tests_properties(test_debug_panic_smoke_timeout PROPERTIES
+                         LABELS "integration;unit")
+  endif()
 endif()
 # #312: gdb, LLDB and Visual Studio (natvis) views of Iron values in
 # `--debug` programs.

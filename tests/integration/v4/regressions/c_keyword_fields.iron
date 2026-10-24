@@ -1,0 +1,90 @@
+-- Every C23 keyword spelling that is legal in Iron remains usable as an object field.
+object CKeywordFields {
+    val _Alignas: Int
+    val _Alignof: Int
+    val _Atomic: Int
+    val _BitInt: Int
+    val _Bool: Int
+    val _Complex: Int
+    val _Decimal128: Int
+    val _Decimal32: Int
+    val _Decimal64: Int
+    val _Generic: Int
+    val _Imaginary: Int
+    val _Noreturn: Int
+    val _Static_assert: Int
+    val _Thread_local: Int
+    val alignas: Int
+    val alignof: Int
+    val and_eq: Int
+    val asm: Int
+    val auto: Int
+    val bitand: Int
+    val bitor: Int
+    val bool: Int
+    val case: Int
+    val char: Int
+    val compl: Int
+    val const: Int
+    val constexpr: Int
+    val default: Int
+    val do: Int
+    val double: Int
+    val float: Int
+    val goto: Int
+    val inline: Int
+    val int: Int
+    val long: Int
+    val not_eq: Int
+    val nullptr: Int
+    val or_eq: Int
+    val register: Int
+    val restrict: Int
+    val short: Int
+    val signed: Int
+    val sizeof: Int
+    val static_assert: Int
+    val struct: Int
+    val switch: Int
+    val thread_local: Int
+    val typedef: Int
+    val typeof: Int
+    val typeof_unqual: Int
+    val union: Int
+    val unsigned: Int
+    val void: Int
+    val volatile: Int
+    val xor: Int
+    val xor_eq: Int
+    val _Pragma: Int
+}
+
+func total(xs: [CKeywordFields]) -> Int {
+    val part0 = xs[0]._Alignas + xs[0]._Alignof + xs[0]._Atomic + xs[0]._BitInt + xs[0]._Bool + xs[0]._Complex + xs[0]._Decimal128
+    val part1 = xs[0]._Decimal32 + xs[0]._Decimal64 + xs[0]._Generic + xs[0]._Imaginary + xs[0]._Noreturn + xs[0]._Static_assert + xs[0]._Thread_local
+    val part2 = xs[0].alignas + xs[0].alignof + xs[0].and_eq + xs[0].asm + xs[0].auto + xs[0].bitand + xs[0].bitor
+    val part3 = xs[0].bool + xs[0].case + xs[0].char + xs[0].compl + xs[0].const + xs[0].constexpr + xs[0].default
+    val part4 = xs[0].do + xs[0].double + xs[0].float + xs[0].goto + xs[0].inline + xs[0].int + xs[0].long
+    val part5 = xs[0].not_eq + xs[0].nullptr + xs[0].or_eq + xs[0].register + xs[0].restrict + xs[0].short + xs[0].signed
+    val part6 = xs[0].sizeof + xs[0].static_assert + xs[0].struct + xs[0].switch + xs[0].thread_local + xs[0].typedef + xs[0].typeof
+    val part7 = xs[0].typeof_unqual + xs[0].union + xs[0].unsigned + xs[0].void + xs[0].volatile + xs[0].xor + xs[0].xor_eq
+    return part0 + part1 + part2 + part3 + part4 + part5 + part6 + part7 + xs[0]._Pragma
+}
+
+func total_soa(xs: [CKeywordFields, layout: soa]) -> Int {
+    val part0 = xs[0]._Alignas + xs[0]._Alignof + xs[0]._Atomic + xs[0]._BitInt + xs[0]._Bool + xs[0]._Complex + xs[0]._Decimal128
+    val part1 = xs[0]._Decimal32 + xs[0]._Decimal64 + xs[0]._Generic + xs[0]._Imaginary + xs[0]._Noreturn + xs[0]._Static_assert + xs[0]._Thread_local
+    val part2 = xs[0].alignas + xs[0].alignof + xs[0].and_eq + xs[0].asm + xs[0].auto + xs[0].bitand + xs[0].bitor
+    val part3 = xs[0].bool + xs[0].case + xs[0].char + xs[0].compl + xs[0].const + xs[0].constexpr + xs[0].default
+    val part4 = xs[0].do + xs[0].double + xs[0].float + xs[0].goto + xs[0].inline + xs[0].int + xs[0].long
+    val part5 = xs[0].not_eq + xs[0].nullptr + xs[0].or_eq + xs[0].register + xs[0].restrict + xs[0].short + xs[0].signed
+    val part6 = xs[0].sizeof + xs[0].static_assert + xs[0].struct + xs[0].switch + xs[0].thread_local + xs[0].typedef + xs[0].typeof
+    val part7 = xs[0].typeof_unqual + xs[0].union + xs[0].unsigned + xs[0].void + xs[0].volatile + xs[0].xor + xs[0].xor_eq
+    return part0 + part1 + part2 + part3 + part4 + part5 + part6 + part7 + xs[0]._Pragma
+}
+
+func main() {
+    val rows: [CKeywordFields] = [CKeywordFields(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57)]
+    val columns: [CKeywordFields, layout: soa] = [CKeywordFields(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57)]
+    println("{total(rows)} {total_soa(columns)}")
+}

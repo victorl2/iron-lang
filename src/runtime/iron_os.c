@@ -38,6 +38,10 @@
 #endif
 #ifdef __linux__
   #include <sched.h>
+  #include <sys/mman.h>
+#endif
+#ifdef __GLIBC__
+  #include <malloc.h>
 #endif
 #include <stdarg.h>
 
@@ -58,6 +62,21 @@ size_t iron_cstr_len(const char *s)                       { return strlen(s); }
 int    iron_cstr_cmp(const char *a, const char *b)        { return strcmp(a, b); }
 void   iron_sort(void *base, size_t count, size_t size,
                  int (*cmp)(const void *, const void *))  { qsort(base, count, size, cmp); }
+
+void iron_allocator_init(void) {
+#ifdef __GLIBC__
+    static bool configured = false;
+    if (configured) return;
+    configured = true;
+    const char *arena_env = getenv("MALLOC_ARENA_MAX");
+    const char *tunables = getenv("GLIBC_TUNABLES");
+    if ((arena_env && *arena_env) ||
+        (tunables && strstr(tunables, "glibc.malloc.arena_max=") != NULL)) return;
+    int cpus = (int)Iron_os_cpu_count();
+    int arenas = cpus < 2 ? 2 : cpus > 4 ? 4 : cpus;
+    (void)mallopt(M_ARENA_MAX, arenas);
+#endif
+}
 
 /* ── Standard streams and process exit ──────────────────────────────────── */
 
@@ -187,6 +206,22 @@ static DWORD WINAPI iron_thread_proc(void *p) {
     fn(arg);
     return 0;
 }
+uint64_t iron_thread_os_id(void) { return (uint64_t)GetCurrentThreadId(); }
+
+void iron_thread_set_name(const char *name) {
+    /* SetThreadDescription is Windows 10 1607 and later: looked up, so
+     * older systems still run the program. */
+    typedef HRESULT (WINAPI *set_desc_fn)(HANDLE, PCWSTR);
+    HMODULE k = GetModuleHandleW(L"kernel32.dll");
+    set_desc_fn set_desc = k ? (set_desc_fn)(void (*)(void))GetProcAddress(k, "SetThreadDescription")
+                             : NULL;
+    if (!set_desc || !name) return;
+    wchar_t wide[128];
+    if (MultiByteToWideChar(CP_UTF8, 0, name, -1, wide, 128) <= 0) return;
+    wide[127] = 0;
+    set_desc(GetCurrentThread(), wide);
+}
+
 int iron_thread_create(iron_thread_t *t, void *(*fn)(void *), void *arg) {
     iron_thread_start *start = (iron_thread_start *)malloc(sizeof(*start));
     if (!start) return -1;
@@ -243,14 +278,80 @@ _Static_assert(sizeof(pthread_t) <= sizeof(uintptr_t), "iron_thread_t storage");
 #define COND(c)   ((pthread_cond_t *)(c)->opaque)
 #define RWLOCK(l) ((pthread_rwlock_t *)(l)->opaque)
 
-int iron_thread_create(iron_thread_t *t, void *(*fn)(void *), void *arg) {
+#if defined(__linux__)
+int pthread_setname_np(pthread_t thread, const char *name);
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
+
+uint64_t iron_thread_os_id(void) {
+#if defined(__APPLE__)
+    uint64_t id = 0;
+    pthread_threadid_np(NULL, &id);
+    return id;
+#elif defined(__linux__)
+    return (uint64_t)syscall(SYS_gettid);
+#else
+    return (uint64_t)(uintptr_t)pthread_self();
+#endif
+}
+
+void iron_thread_set_name(const char *name) {
+    if (!name) return;
+#if defined(__APPLE__)
+    pthread_setname_np(name);
+#elif defined(__linux__)
+    char buf[16];   /* the kernel keeps 15 bytes and the terminator */
+    size_t n = strlen(name);
+    if (n > 15) n = 15;
+    memcpy(buf, name, n);
+    buf[n] = 0;
+    pthread_setname_np(pthread_self(), buf);
+#endif
+}
+
+typedef struct { void *(*fn)(void *); void *arg; } iron_thread_start;
+
+#ifdef __linux__
+static void iron_thread_disable_stack_huge_pages(void) {
     pthread_attr_t attr;
-    if (pthread_attr_init(&attr) != 0) return -1;
+    void *stack = NULL;
+    size_t size = 0;
+    if (pthread_getattr_np(pthread_self(), &attr) != 0) return;
+    if (pthread_attr_getstack(&attr, &stack, &size) == 0)
+        (void)madvise(stack, size, MADV_NOHUGEPAGE);
+    pthread_attr_destroy(&attr);
+}
+#endif
+
+static void *iron_thread_proc(void *p) {
+    iron_thread_start *start = (iron_thread_start *)p;
+    void *(*fn)(void *) = start->fn;
+    void *arg = start->arg;
+    free(start);
+#ifdef __linux__
+    /* A deep request occasionally made Linux back an 8 MB worker stack with
+     * a 2 MB transparent huge page. The resulting RSS steps looked like a
+     * leak and multiplied with the worker count. Stacks grow a page at a
+     * time and gain nothing from THP, so keep their physical footprint
+     * proportional to the pages actually touched. */
+    iron_thread_disable_stack_huge_pages();
+#endif
+    return fn(arg);
+}
+
+int iron_thread_create(iron_thread_t *t, void *(*fn)(void *), void *arg) {
+    iron_thread_start *start = (iron_thread_start *)malloc(sizeof(*start));
+    if (!start) return -1;
+    start->fn = fn;
+    start->arg = arg;
+    pthread_attr_t attr;
+    if (pthread_attr_init(&attr) != 0) { free(start); return -1; }
     pthread_attr_setstacksize(&attr, IRON_THREAD_STACK_SIZE);
     pthread_t th;
-    int rc = pthread_create(&th, &attr, fn, arg);
+    int rc = pthread_create(&th, &attr, iron_thread_proc, start);
     pthread_attr_destroy(&attr);
-    if (rc != 0) return rc;
+    if (rc != 0) { free(start); return rc; }
     memcpy(&t->handle, &th, sizeof(th));
     return 0;
 }
@@ -414,6 +515,38 @@ Iron_String Iron_os_env_or(Iron_String name, Iron_String fallback) {
     Iron_String s = iron_string_from_cstr(v, (size_t)len);
     free(v);
     return s;
+}
+
+/* Over-aligned blocks for list storage of `//iron:align=N` objects
+ * (iron_intrinsics.h). Freed only with iron_mem_free_aligned: on the
+ * Windows UCRT _aligned_malloc blocks need _aligned_free. */
+void *iron_mem_alloc_aligned(size_t size, size_t align) {
+    if (align < sizeof(void *)) align = sizeof(void *);
+    if (size == 0) size = align;
+#ifdef _WIN32
+    return _aligned_malloc(size, align);
+#else
+    void *p = NULL;
+    return posix_memalign(&p, align, size) == 0 ? p : NULL;
+#endif
+}
+
+void iron_mem_free_aligned(void *p) {
+#ifdef _WIN32
+    _aligned_free(p);
+#else
+    free(p);
+#endif
+}
+
+void *iron_mem_realloc_aligned(void *p, size_t old_size, size_t new_size, size_t align) {
+    void *n = iron_mem_alloc_aligned(new_size, align);
+    if (!n) return NULL;
+    if (p) {
+        memcpy(n, p, old_size < new_size ? old_size : new_size);
+        iron_mem_free_aligned(p);
+    }
+    return n;
 }
 
 /* os.iron: OS.trap_shutdown_signals() and OS.shutdown_signal().

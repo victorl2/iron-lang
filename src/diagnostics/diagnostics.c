@@ -343,7 +343,8 @@ static int physical_line_is_marker(const char *source_text, uint32_t lineno) {
 }
 
 /* Extract the Nth line (1-indexed) from source_text.
- * Writes up to buf_size-1 chars into buf and null-terminates.
+ * Writes up to buf_size-1 bytes into buf (whole UTF-8 sequences) and
+ * null-terminates.
  * Returns 0 if line not found.
  */
 static int get_source_line(const char *source_text, uint32_t lineno,
@@ -366,6 +367,12 @@ static int get_source_line(const char *source_text, uint32_t lineno,
     size_t i = 0;
     while (*p != '\0' && *p != '\n' && i < buf_size - 1) {
         buf[i++] = *p++;
+    }
+    /* A line longer than the buffer is cut: not inside a UTF-8 sequence
+     * (the output would not be valid UTF-8). */
+    if (((unsigned char)*p & 0xC0) == 0x80) {
+        while (i > 0 && ((unsigned char)buf[i - 1] & 0xC0) == 0x80) i--;
+        if (i > 0) i--;   /* the sequence's lead byte */
     }
     buf[i] = '\0';
     return 1;

@@ -1,0 +1,23 @@
+-- Module-level fixed arrays, bounded vectors and lists initialized with
+-- literals: the initializer was checked without its annotation, so a
+-- fixed array global was assigned a list (invalid C) and an annotated
+-- empty list failed E0229 (#675, #676).
+val POW: [UInt64; 4] = [1, 10, 100, 1000]
+val SMALL: [UInt8; <=4] = [7, 8]
+val BIG: [UInt64] = [18446744073709551615, 2]
+val EMPTY: [Int] = []
+var COUNTS: [Int; 3] = [0, 0, 0]
+
+func main() {
+    var k = 0
+    while k < POW.len() {
+        if k > 0 {
+            print(" ")
+        }
+        print("{POW[k]}")
+        k += 1
+    }
+    println("")
+    COUNTS[1] = 5
+    println("{SMALL.len()} {SMALL[1]} {BIG[0]} {BIG.len()} {EMPTY.len()} {COUNTS[1]}")
+}

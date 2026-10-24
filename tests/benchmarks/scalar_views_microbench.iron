@@ -1,0 +1,73 @@
+import time
+
+-- Standalone scalar-intrinsic and borrowed-view microbenchmark.
+-- Build with --release --debug-build, then inspect Iron_scalar_kernel,
+-- Iron_list_sum and Iron_view_sum with objdump or the platform disassembler.
+
+//iron:noinline
+func scalar_kernel(x: UInt64) -> UInt64 {
+    val rotated = x.rotate_left(17)
+    val (sum, overflowed) = rotated.add_overflow(UInt64(0x5a5a5a5a))
+    val mixed = sum.clear_lowest_bit() ^ sum.mul_high(UInt64(0x45d9f3b))
+    if overflowed {
+        return mixed ^ UInt64(sum.count_ones())
+    }
+    return mixed + UInt64(sum.count_ones())
+}
+
+//iron:noinline
+func list_sum(values: [UInt64], salt: Int) -> UInt64 {
+    var total = UInt64(salt)
+    var i = 0
+    while i < values.len() {
+        total = total + values[i]
+        i = i + 1
+    }
+    return total
+}
+
+//iron:noinline
+func view_sum(values: View[UInt64], salt: Int) -> UInt64 {
+    var total = UInt64(salt)
+    var i = 0
+    while i < values.len() {
+        total = total + values[i]
+        i = i + 1
+    }
+    return total
+}
+
+func main() {
+    var values: [UInt64] = []
+    for i in range(4096) {
+        values.push(UInt64(i * 17 + 3))
+    }
+
+    var scalar = UInt64(1)
+    val scalar_start = Time.now_ns()
+    for i in range(20000000) {
+        scalar = scalar_kernel(scalar + UInt64(i))
+    }
+    val scalar_ns = Time.now_ns() - scalar_start
+
+    var direct = UInt64(0)
+    val list_start = Time.now_ns()
+    for i in range(20001) {
+        direct = direct + list_sum(values, i)
+    }
+    val list_ns = Time.now_ns() - list_start
+
+    var borrowed = UInt64(0)
+    val view = values.view()
+    val view_start = Time.now_ns()
+    for i in range(20001) {
+        borrowed = borrowed + view_sum(view, i)
+    }
+    val view_ns = Time.now_ns() - view_start
+
+    println("scalar result: {scalar}")
+    println("list/view result: {direct}/{borrowed}")
+    println("scalar kernel: {scalar_ns} ns")
+    println("list sum: {list_ns} ns")
+    println("view sum: {view_ns} ns")
+}

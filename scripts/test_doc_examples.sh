@@ -119,7 +119,7 @@ awk -v workdir="${WORK}/blocks" '
                 next
             }
             only_blank_since_iron = 0
-            if (match(trimmed, /^<!--[[:space:]]*doctest-skip:[[:space:]]*.*-->[[:space:]]*$/)) {
+            if (match(trimmed, /^<!--[[:space:]]*doctest-skip:[[:space:]]*.+-->[[:space:]]*$/)) {
                 reason = trimmed
                 sub(/^<!--[[:space:]]*doctest-skip:[[:space:]]*/, "", reason)
                 sub(/[[:space:]]*-->[[:space:]]*$/, "", reason)

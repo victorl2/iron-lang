@@ -1,4 +1,5 @@
 <!-- doctest-imports: mysql -->
+<!-- doctest-build-only: examples require a running MySQL or MariaDB server -->
 # MySQL
 
 `import mysql` is a client for MySQL 5.7 and 8.x and MariaDB 10.x and 11.x.

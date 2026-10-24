@@ -1,0 +1,5 @@
+-- A function type can be written as a type argument (#506), but a Set or
+-- a Map key still needs a Hashable type.
+func main() {
+    val s = Set[func(Int) -> Int]()
+}

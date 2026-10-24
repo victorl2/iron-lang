@@ -6,9 +6,11 @@
 # Starts the service like bench/run.sh (same environment; the database must
 # have been seeded, e.g. BENCH_KEEP=1 bench/run.sh first), runs the mixed
 # workload (bench/lua/mixed.lua) for the given minutes (default 10) and
-# samples the service's RSS and thread count every 10 s. Prints the samples
-# and a summary, and fails when RSS in the last third exceeds the first
-# third's maximum by more than SOAK_GROWTH_MB (default 8).
+# samples RSS, threads, requests, pool and cache sizes every 10 s. On glibc,
+# SOAK_MALLOC_STATS=FILE also records live heap, retained free heap and arena
+# count through malloc_probe.c. Prints the samples and a summary, and fails
+# when RSS in the last third exceeds the first third's maximum by more than
+# SOAK_GROWTH_MB (default 8).
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 app=$(cd "$here/.." && pwd)
@@ -30,10 +32,19 @@ if [ "${SOAK_SANITIZE:-0}" = 1 ]; then
     for s in llvm-symbolizer llvm-symbolizer-18; do command -v $s >/dev/null && export ASAN_SYMBOLIZER_PATH=$(command -v $s) && break; done
 fi
 (cd "$work/stub" && "$IRON" build --release >/dev/null 2>&1) || exit 1
+malloc_env=()
+if [ -n "${SOAK_MALLOC_STATS:-}" ]; then
+    [ "$(uname -s)" = Linux ] || { echo "SOAK_MALLOC_STATS requires Linux glibc" >&2; exit 2; }
+    command -v "${CC:-cc}" >/dev/null || { echo "SOAK_MALLOC_STATS requires a C compiler" >&2; exit 2; }
+    stats_dir=$(cd "$(dirname "$SOAK_MALLOC_STATS")" && pwd) || exit 2
+    stats_file="$stats_dir/$(basename "$SOAK_MALLOC_STATS")"
+    "${CC:-cc}" -shared -fPIC -O2 -pthread "$here/malloc_probe.c" -o "$work/malloc_probe.so" || exit 1
+    malloc_env=(LD_PRELOAD="$work/malloc_probe.so" IRON_MALLOC_STATS_FILE="$stats_file")
+fi
 db_url=$(python3 -c 'import sys,urllib.parse as u; p=u.urlsplit(sys.argv[1]); print(u.urlunsplit((p.scheme,p.netloc,"/inventory_bench","tls=disabled","")))' "$IRON_MYSQL_URL")
 "$work/stub/target/fxstub" 18090 >/dev/null 2>&1 &
 stub_pid=$!
-INVENTORY_PORT=18080 INVENTORY_HOST=127.0.0.1 INVENTORY_MYSQL_URL=$db_url \
+env "${malloc_env[@]}" INVENTORY_PORT=18080 INVENTORY_HOST=127.0.0.1 INVENTORY_MYSQL_URL=$db_url \
 INVENTORY_RATES_URL=http://127.0.0.1:18090 INVENTORY_LOG_LEVEL=warn INVENTORY_RATES_TTL_MS=5000 \
     taskset -c "${SERVICE_CPUS:-0-3}" "$work/target/inventory" >"$work/svc.log" 2>&1 &
 svc_pid=$!
@@ -42,7 +53,7 @@ secs=$((minutes * 60))
 taskset -c "${WRK_CPUS:-4-7}" wrk -t4 -c"$c" -d"${secs}s" --latency -s "$here/lua/mixed.lua" \
     http://127.0.0.1:18080/ >"$work/wrk.out" 2>&1 &
 wrk_pid=$!
-echo "seconds,rss_mb,threads,requests_total"
+echo "seconds,rss_mb,threads,requests_total,pool_idle,pool_in_use,rates,report_cache_rows,parked"
 samples=()
 # Sample while the load runs, by the clock: a sample takes a moment of its
 # own, and counting samples instead ran past the end of the load.
@@ -53,8 +64,15 @@ while kill -0 "$wrk_pid" 2>/dev/null; do
     t=$(( $(date +%s) - started ))
     rss=$(awk '/^VmRSS/{printf "%.1f", $2/1024}' "/proc/$svc_pid/status")
     thr=$(awk '/^Threads/{print $2}' "/proc/$svc_pid/status")
-    total=$(curl -s -m 8 http://127.0.0.1:18080/metrics | awk '/^inventory_http_requests_total/{s+=$2} END{print s+0}')
-    echo "$t,$rss,$thr,$total"
+    metrics=$(curl -s -m 8 http://127.0.0.1:18080/metrics)
+    metric() { awk -v pattern="$1" '$0 ~ pattern {s += $NF} END {print s + 0}' <<<"$metrics"; }
+    total=$(metric '^inventory_http_requests_total')
+    idle=$(metric '^inventory_db_pool_connections[{]state="idle"[}]')
+    in_use=$(metric '^inventory_db_pool_connections[{]state="in_use"[}]')
+    rates=$(metric '^inventory_rates_currencies ')
+    reports=$(metric '^inventory_report_cache_rows ')
+    parked=$(metric '^inventory_http_connections_parked ')
+    echo "$t,$rss,$thr,$total,$idle,$in_use,$rates,$reports,$parked"
     samples+=("$rss")
 done
 wait $wrk_pid

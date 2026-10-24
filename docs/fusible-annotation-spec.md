@@ -1,7 +1,7 @@
 # @fusible Annotation Specification
 
 > **Status.** This is the original design note of loop fusion. The rules the
-> compiler applies today are in the language manual, section 9.3.1, and
+> compiler applies today are in the language manual, section 9.3.2, and
 > differ from the text below in these points: a chain is fused only when
 > every callback is proven free of effects and panics
 > (`src/lir/fusion_safety.c`), only trivial values may flow between stages,
@@ -22,7 +22,7 @@ The standard library annotations document the closed whitelist. The current
 code generator does not inspect the AST flag: it recognizes the five built-in
 list operation names below and uses hardcoded knowledge of their per-element
 semantics. A user annotation is retained as declaration metadata but does not
-define another fusion operation. The language manual section 9.3.1 is the
+define another fusion operation. The language manual section 9.3.2 is the
 normative description of the rules.
 
 ---
@@ -125,7 +125,7 @@ Where `env` is the closure environment pointer (or NULL for non-capturing lambda
 body. It uses hardcoded semantics for the five built-in list methods. It does,
 however, analyze every callback and refuses fusion unless its lowered call
 graph is pure and non-trapping and every eliminated element stream has a
-trivial lifetime. See manual section 9.3.1.
+trivial lifetime. See manual section 9.3.2.
 
 ### Example: Fused Loop for `arr.map(f).filter(g).sum()`
 
@@ -226,7 +226,7 @@ The `--warn-fusion-break` flag enables diagnostic output at each point where a p
 
 ### Usage
 
-```
+```sh
 ironc build --warn-fusion-break myfile.iron -o myfile
 ```
 
@@ -234,7 +234,7 @@ ironc build --warn-fusion-break myfile.iron -o myfile
 
 The flag emits notes to stderr at each chain break point:
 
-```
+```text
 note: --warn-fusion-break: fusion chain broken: non-fusible call after .map() in function main
 note: --warn-fusion-break: fusion chain broken: intermediate result of .map() used elsewhere in function main
 ```
@@ -279,6 +279,7 @@ for (int64_t _i = 0; _i < arr_count; _i++) {
 
 ### Example 2: Split Collection with Reduce
 
+<!-- doctest-skip: fragment relies on the Shape, Circle and Square declarations discussed above -->
 ```iron
 val shapes: [Shape] = [Circle(5.0), Square(3.0), Circle(2.0)]
 val total = shapes.map(func(s: Shape) -> Float { s.area() })
@@ -303,6 +304,7 @@ double total = _acc;
 
 ### Example 3: Broken Chain with Sub-Chains
 
+<!-- doctest-skip: illustrative fragment intentionally uses a placeholder non-fusible transform -->
 ```iron
 val arr = [1, 2, 3, 4, 5]
 val mapped = arr.map(func(x: Int) -> Int { x * 2 })

@@ -366,37 +366,36 @@ static void set_spans(Iron_Node *root, Iron_Span sp) {
     arrfree(c.nodes);
 }
 
-/* The template's own type parameters (`T` of `func f[T]`): the instance,
- * printed with the arguments in place, has no node for them. */
-static void drop_generic_params(SpanCollect *c, Iron_Node *tmpl) {
-    Iron_Node **gp = NULL;
-    int n = 0;
-    if (tmpl->kind == IRON_NODE_FUNC_DECL) {
-        gp = ((Iron_FuncDecl *)tmpl)->generic_params;
-        n = ((Iron_FuncDecl *)tmpl)->generic_param_count;
-    } else if (tmpl->kind == IRON_NODE_METHOD_DECL) {
-        gp = ((Iron_MethodDecl *)tmpl)->generic_params;
-        n = ((Iron_MethodDecl *)tmpl)->generic_param_count;
-    } else if (tmpl->kind == IRON_NODE_OBJECT_DECL) {
-        gp = ((Iron_ObjectDecl *)tmpl)->generic_params;
-        n = ((Iron_ObjectDecl *)tmpl)->generic_param_count;
+/* Takes a declaration's own generic parameters out of its collected nodes:
+ * the instance of `func id[T](v: T)` is printed without `[T]`. */
+static void drop_generic_params(SpanCollect *c, Iron_Node *decl) {
+    Iron_Node **params = NULL;
+    int count = 0;
+    if (decl->kind == IRON_NODE_FUNC_DECL) {
+        params = ((Iron_FuncDecl *)decl)->generic_params;
+        count = ((Iron_FuncDecl *)decl)->generic_param_count;
+    } else if (decl->kind == IRON_NODE_METHOD_DECL) {
+        params = ((Iron_MethodDecl *)decl)->generic_params;
+        count = ((Iron_MethodDecl *)decl)->generic_param_count;
+    } else if (decl->kind == IRON_NODE_OBJECT_DECL) {
+        params = ((Iron_ObjectDecl *)decl)->generic_params;
+        count = ((Iron_ObjectDecl *)decl)->generic_param_count;
     }
-    if (!gp || n <= 0) return;
-    ptrdiff_t kept = 0;
-    for (ptrdiff_t i = 0; i < arrlen(c->nodes); i++) {
-        bool is_param = false;
-        for (int g = 0; g < n; g++)
-            if (c->nodes[i] == gp[g]) is_param = true;
-        if (!is_param) c->nodes[kept++] = c->nodes[i];
+    for (int i = 0; i < count; i++) {
+        for (ptrdiff_t k = 0; k < arrlen(c->nodes); k++) {
+            if (c->nodes[k] == params[i]) { arrdel(c->nodes, k); break; }
+        }
     }
-    arrsetlen(c->nodes, kept);
 }
 
 static void copy_spans(Iron_Node *inst, Iron_Node *tmpl) {
     SpanCollect a = { NULL }, b = { NULL };
     collect_nodes(inst, &a);
     collect_nodes(tmpl, &b);
-    drop_generic_params(&b, tmpl);
+    /* The template's `[T]` has no node in the instance: without this every
+     * statement of a generic function's instance took the declaration's
+     * line, and a debugger stepped through it on one line (#722). */
+    if (arrlen(a.nodes) != arrlen(b.nodes)) drop_generic_params(&b, tmpl);
     bool same = arrlen(a.nodes) == arrlen(b.nodes);
     for (ptrdiff_t i = 0; same && i < arrlen(a.nodes); i++)
         same = a.nodes[i]->kind == b.nodes[i]->kind;
@@ -427,8 +426,9 @@ static Iron_Node *template_of(Iron_Program *program, GenInst *gi, Iron_Node *d) 
     }
     if (d->kind != IRON_NODE_METHOD_DECL) return NULL;
     Iron_MethodDecl *md = (Iron_MethodDecl *)d;
-    if (gi->decl->kind == IRON_NODE_METHOD_DECL)
-        return same_member(md, (Iron_MethodDecl *)gi->decl) ? gi->decl : NULL;
+    /* A generic method is printed alone (in its `patch object`), and its
+     * instance is named after its type arguments: the one method there. */
+    if (gi->decl->kind == IRON_NODE_METHOD_DECL) return gi->decl;
     if (gi->decl->kind != IRON_NODE_OBJECT_DECL) return NULL;
     const char *oname = ((Iron_ObjectDecl *)gi->decl)->name;
     for (int i = 0; i < program->decl_count; i++) {

@@ -1,0 +1,13 @@
+-- @expected-error: E0271
+object Item { val value: Int }
+
+func main() {
+    var pointer: ?*Item = null
+    {
+        val inner = Item(5)
+        pointer = &inner
+    }
+    if pointer != null {
+        println("{pointer.value}")
+    }
+}
