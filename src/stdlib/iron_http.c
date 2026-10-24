@@ -10,6 +10,7 @@
  */
 
 #include "iron_http.h"
+#include "iron_http_bench.h"
 #include "iron_net.h"
 #include "iron_tls.h"
 #include "runtime/iron_errors.h"
@@ -182,52 +183,81 @@ static void http_response_error(Iron_HttpResponse *r, int64_t code) {
 }
 
 void Iron_httpserverresult_release(Iron_HttpServerResult result) {
-    /* Strings are released by the value's own drop glue (#182); kept
-     * for source compatibility. */
+    /* Iron's automatic drop glue releases owned strings after this
+     * compatibility helper returns. Direct C callers use _dispose. */
     (void)result;
+}
+
+void Iron_httpserverresult_dispose(Iron_HttpServerResult result) {
+    iron_string_release(&result.error_message);
 }
 
 void Iron_httpconnectionresult_release(Iron_HttpConnectionResult result) {
-    /* Strings are released by the value's own drop glue (#182); kept
-     * for source compatibility. */
     (void)result;
+}
+
+void Iron_httpconnectionresult_dispose(Iron_HttpConnectionResult result) {
+    iron_string_release(&result.error_message);
 }
 
 void Iron_httpsserverresult_release(Iron_HttpsServerResult result) {
-    /* Strings are released by the value's own drop glue (#182); kept
-     * for source compatibility. */
     (void)result;
 }
 
+void Iron_httpsserverresult_dispose(Iron_HttpsServerResult result) {
+    iron_string_release(&result.error_message);
+}
+
 void Iron_httpsconnectionresult_release(Iron_HttpsConnectionResult result) {
-    /* Strings are released by the value's own drop glue (#182); kept
-     * for source compatibility. */
     (void)result;
+}
+
+void Iron_httpsconnectionresult_dispose(Iron_HttpsConnectionResult result) {
+    iron_string_release(&result.error_message);
 }
 
 void Iron_httpspendingconnectionresult_release(
     Iron_HttpsPendingConnectionResult result) {
-    /* Strings are released by the value's own drop glue (#182); kept
-     * for source compatibility. */
     (void)result;
+}
+
+void Iron_httpspendingconnectionresult_dispose(
+    Iron_HttpsPendingConnectionResult result) {
+    iron_string_release(&result.error_message);
 }
 
 void Iron_httpclientresult_release(Iron_HttpClientResult result) {
-    /* Strings are released by the value's own drop glue (#182); kept
-     * for source compatibility. */
     (void)result;
 }
 
+void Iron_httpclientresult_dispose(Iron_HttpClientResult result) {
+    iron_string_release(&result.error_message);
+}
+
 void Iron_httprequest_release(Iron_HttpRequest request) {
-    /* Strings are released by the value's own drop glue (#182); kept
-     * for source compatibility. */
     (void)request;
 }
 
+void Iron_httprequest_dispose(Iron_HttpRequest request) {
+    iron_string_release(&request.method);
+    iron_string_release(&request.target);
+    iron_string_release(&request.path);
+    iron_string_release(&request.query);
+    iron_string_release(&request.version);
+    iron_string_release(&request.headers);
+    iron_string_release(&request.body);
+    iron_string_release(&request.error_message);
+}
+
 void Iron_httpresponse_release(Iron_HttpResponse response) {
-    /* Strings are released by the value's own drop glue (#182); kept
-     * for source compatibility. */
     (void)response;
+}
+
+void Iron_httpresponse_dispose(Iron_HttpResponse response) {
+    iron_string_release(&response.reason);
+    iron_string_release(&response.headers);
+    iron_string_release(&response.body);
+    iron_string_release(&response.error_message);
 }
 
 static int ascii_ieq_n(const char *a, size_t an, const char *b, size_t bn) {
@@ -236,6 +266,18 @@ static int ascii_ieq_n(const char *a, size_t an, const char *b, size_t bn) {
         if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i])) return 0;
     }
     return 1;
+}
+
+static int http_is_tchar(unsigned char c) {
+    return isalnum(c) || c == '!' || c == '#' || c == '$' || c == '%' ||
+           c == '&' || c == '\'' || c == '*' || c == '+' || c == '-' ||
+           c == '.' || c == '^' || c == '_' || c == '`' || c == '|' ||
+           c == '~';
+}
+
+static int http_is_hex(unsigned char c) {
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+           (c >= 'A' && c <= 'F');
 }
 
 static size_t find_header_end(const uint8_t *buf, size_t len) {
@@ -277,54 +319,82 @@ static int header_value_span(const char *headers, size_t len, const char *name,
     return 0;
 }
 
-static int header_is_exact_token(const char *headers, size_t len, const char *name,
-                                 const char *token) {
-    const char *v = NULL;
-    size_t vn = 0;
-    if (!header_value_span(headers, len, name, &v, &vn)) return 0;
-    return ascii_ieq_n(v, vn, token, strlen(token));
-}
-
 static int header_has_token(const char *headers, size_t len, const char *name,
                             const char *wanted) {
-    const char *value = NULL;
-    size_t value_len = 0;
-    if (!header_value_span(headers, len, name, &value, &value_len)) return 0;
+    size_t name_len = strlen(name);
     size_t wanted_len = strlen(wanted);
     size_t pos = 0;
-    while (pos < value_len) {
-        while (pos < value_len &&
-               (value[pos] == ' ' || value[pos] == '\t' || value[pos] == ','))
-            pos++;
-        size_t end = pos;
-        while (end < value_len && value[end] != ',') end++;
-        size_t finish = end;
-        while (finish > pos &&
-               (value[finish - 1] == ' ' || value[finish - 1] == '\t'))
-            finish--;
-        if (ascii_ieq_n(value + pos, finish - pos, wanted, wanted_len)) return 1;
-        pos = end + (end < value_len);
+    while (pos < len) {
+        size_t line_end = find_crlf(headers, pos, len);
+        if (line_end == SIZE_MAX) line_end = len;
+        size_t colon = pos;
+        while (colon < line_end && headers[colon] != ':') colon++;
+        if (colon < line_end &&
+            ascii_ieq_n(headers + pos, colon - pos, name, name_len)) {
+            size_t item = colon + 1;
+            while (item <= line_end) {
+                while (item < line_end &&
+                       (headers[item] == ' ' || headers[item] == '\t')) item++;
+                size_t end = item;
+                while (end < line_end && headers[end] != ',') end++;
+                size_t finish = end;
+                while (finish > item &&
+                       (headers[finish - 1] == ' ' || headers[finish - 1] == '\t'))
+                    finish--;
+                if (ascii_ieq_n(headers + item, finish - item,
+                                wanted, wanted_len)) return 1;
+                if (end == line_end) break;
+                item = end + 1;
+            }
+        }
+        pos = line_end == len ? len : line_end + 2;
     }
     return 0;
 }
 
 static int parse_content_length(const char *headers, size_t len,
                                 size_t *out, int *present) {
-    const char *v = NULL;
-    size_t vn = 0;
     *out = 0;
     *present = 0;
-    if (!header_value_span(headers, len, "Content-Length", &v, &vn)) return 1;
-    *present = 1;
-    if (vn == 0) return 0;
-    size_t n = 0;
-    for (size_t i = 0; i < vn; i++) {
-        if (v[i] < '0' || v[i] > '9') return 0;
-        unsigned digit = (unsigned)(v[i] - '0');
-        if (n > (SIZE_MAX - digit) / 10) return 0;
-        n = n * 10 + digit;
+    size_t pos = 0;
+    while (pos < len) {
+        size_t line_end = find_crlf(headers, pos, len);
+        if (line_end == SIZE_MAX) line_end = len;
+        size_t colon = pos;
+        while (colon < line_end && headers[colon] != ':') colon++;
+        if (colon < line_end &&
+            ascii_ieq_n(headers + pos, colon - pos,
+                        "Content-Length", strlen("Content-Length"))) {
+            size_t item = colon + 1;
+            int saw_item = 0;
+            while (item <= line_end) {
+                while (item < line_end &&
+                       (headers[item] == ' ' || headers[item] == '\t')) item++;
+                size_t end = item;
+                while (end < line_end && headers[end] != ',') end++;
+                size_t finish = end;
+                while (finish > item &&
+                       (headers[finish - 1] == ' ' || headers[finish - 1] == '\t'))
+                    finish--;
+                if (finish == item) return 0;
+                size_t n = 0;
+                for (size_t i = item; i < finish; i++) {
+                    if (headers[i] < '0' || headers[i] > '9') return 0;
+                    unsigned digit = (unsigned)(headers[i] - '0');
+                    if (n > (SIZE_MAX - digit) / 10) return 0;
+                    n = n * 10 + digit;
+                }
+                if (*present && n != *out) return 0;
+                *out = n;
+                *present = 1;
+                saw_item = 1;
+                if (end == line_end) break;
+                item = end + 1;
+            }
+            if (!saw_item) return 0;
+        }
+        pos = line_end == len ? len : line_end + 2;
     }
-    *out = n;
     return 1;
 }
 
@@ -358,9 +428,7 @@ static int raw_headers_valid(const char *headers, size_t len) {
         if (colon == pos || colon == end) return 0;
         for (size_t i = pos; i < colon; i++) {
             unsigned char c = (unsigned char)headers[i];
-            if (!(isalnum(c) || c == '!' || c == '#' || c == '$' || c == '%' ||
-                  c == '&' || c == '\'' || c == '*' || c == '+' || c == '-' ||
-                  c == '.' || c == '^' || c == '_' || c == '`' || c == '|' || c == '~')) return 0;
+            if (!http_is_tchar(c)) return 0;
         }
         pos = end == len ? len : end + 2;
     }
@@ -382,15 +450,14 @@ static int header_count(const char *headers, size_t len, const char *name) {
     return count;
 }
 
-/* ── One-pass request header scan ──────────────────────────────────────
- * Validates the header block exactly as raw_headers_valid does and finds
- * the framing headers (Host, Connection, Content-Length, Transfer-Encoding)
- * with their counts, in one walk instead of one per question. */
+/* Validate a request header block and find Host in one pass. Framing fields
+ * are scanned separately because RFC 9110 permits repeated, comma-combined
+ * Content-Length and Connection fields. */
 typedef struct HttpHeaderScan {
     int valid;
-    int host_count, connection_count, length_count, te_count;
-    const char *host, *connection, *length, *te;
-    size_t host_len, connection_len, length_len, te_len;
+    int host_count;
+    const char *host;
+    size_t host_len;
 } HttpHeaderScan;
 
 static unsigned char ascii_fold(unsigned char c) {
@@ -404,13 +471,6 @@ static int name_is(const char *name, size_t n, const char *lower, size_t ln) {
     return 1;
 }
 
-static int is_tchar(unsigned char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-           c == '!' || c == '#' || c == '$' || c == '%' || c == '&' || c == '\'' ||
-           c == '*' || c == '+' || c == '-' || c == '.' || c == '^' || c == '_' ||
-           c == '`' || c == '|' || c == '~';
-}
-
 static void http_scan_headers(const char *h, size_t len, HttpHeaderScan *sc) {
     memset(sc, 0, sizeof(*sc));
     size_t pos = 0;
@@ -418,7 +478,7 @@ static void http_scan_headers(const char *h, size_t len, HttpHeaderScan *sc) {
         /* One line: name ":" value, ended by CRLF or the end of the block. */
         if (h[pos] == ' ' || h[pos] == '\t' || h[pos] == '\r' || h[pos] == '\n') return;
         size_t colon = pos;
-        while (colon < len && is_tchar((unsigned char)h[colon])) colon++;
+        while (colon < len && http_is_tchar((unsigned char)h[colon])) colon++;
         if (colon == pos || colon >= len || h[colon] != ':') return;
         size_t end = colon + 1;
         while (end < len) {
@@ -440,46 +500,50 @@ static void http_scan_headers(const char *h, size_t len, HttpHeaderScan *sc) {
         const char *name = h + pos;
         if (nl == 4 && name_is(name, nl, "host", 4)) {
             if (sc->host_count++ == 0) { sc->host = h + vstart; sc->host_len = vend - vstart; }
-        } else if (nl == 10 && name_is(name, nl, "connection", 10)) {
-            if (sc->connection_count++ == 0) { sc->connection = h + vstart; sc->connection_len = vend - vstart; }
-        } else if (nl == 14 && name_is(name, nl, "content-length", 14)) {
-            if (sc->length_count++ == 0) { sc->length = h + vstart; sc->length_len = vend - vstart; }
-        } else if (nl == 17 && name_is(name, nl, "transfer-encoding", 17)) {
-            if (sc->te_count++ == 0) { sc->te = h + vstart; sc->te_len = vend - vstart; }
         }
         pos = next;
     }
     sc->valid = 1;
 }
 
-/* Whether a comma-separated header value holds `wanted` (case-insensitive). */
-static int value_has_token(const char *value, size_t value_len, const char *wanted) {
-    size_t wanted_len = strlen(wanted);
+/* The implementation decodes chunked transfer coding only. Accept it when it
+ * is the sole coding across all repeated field lines. */
+static int parse_transfer_encoding(const char *headers, size_t len,
+                                   int *present, int *chunked_only) {
     size_t pos = 0;
-    while (pos < value_len) {
-        while (pos < value_len && (value[pos] == ' ' || value[pos] == '\t' || value[pos] == ','))
-            pos++;
-        size_t end = pos;
-        while (end < value_len && value[end] != ',') end++;
-        size_t finish = end;
-        while (finish > pos && (value[finish - 1] == ' ' || value[finish - 1] == '\t')) finish--;
-        if (ascii_ieq_n(value + pos, finish - pos, wanted, wanted_len)) return 1;
-        pos = end + (end < value_len);
+    int codings = 0;
+    *present = 0;
+    *chunked_only = 0;
+    while (pos < len) {
+        size_t line_end = find_crlf(headers, pos, len);
+        if (line_end == SIZE_MAX) line_end = len;
+        size_t colon = pos;
+        while (colon < line_end && headers[colon] != ':') colon++;
+        if (colon < line_end &&
+            ascii_ieq_n(headers + pos, colon - pos,
+                        "Transfer-Encoding", strlen("Transfer-Encoding"))) {
+            *present = 1;
+            size_t item = colon + 1;
+            while (item <= line_end) {
+                while (item < line_end &&
+                       (headers[item] == ' ' || headers[item] == '\t')) item++;
+                size_t end = item;
+                while (end < line_end && headers[end] != ',') end++;
+                size_t finish = end;
+                while (finish > item &&
+                       (headers[finish - 1] == ' ' || headers[finish - 1] == '\t'))
+                    finish--;
+                if (finish == item) return 0;
+                codings++;
+                if (!ascii_ieq_n(headers + item, finish - item,
+                                 "chunked", strlen("chunked"))) return 1;
+                if (end == line_end) break;
+                item = end + 1;
+            }
+        }
+        pos = line_end == len ? len : line_end + 2;
     }
-    return 0;
-}
-
-/* Content-Length digits; 0 when malformed or out of range. */
-static int parse_length_value(const char *v, size_t vn, size_t *out) {
-    if (vn == 0) return 0;
-    size_t n = 0;
-    for (size_t i = 0; i < vn; i++) {
-        if (v[i] < '0' || v[i] > '9') return 0;
-        unsigned digit = (unsigned)(v[i] - '0');
-        if (n > (SIZE_MAX - digit) / 10) return 0;
-        n = n * 10 + digit;
-    }
-    *out = n;
+    *chunked_only = codings == 1;
     return 1;
 }
 
@@ -490,10 +554,87 @@ typedef struct HttpHead {
     int64_t error;
 } HttpHead;
 
+typedef struct HttpMemoryTransport {
+    const uint8_t *input;
+    size_t input_len;
+    size_t input_pos;
+    uint8_t *output;
+    size_t output_cap;
+    size_t output_len;
+    size_t write_calls;
+} HttpMemoryTransport;
+
 typedef struct HttpTransport {
     Iron_TcpSocket socket;
     Iron_TlsStream *tls;
+    HttpMemoryTransport *memory;
 } HttpTransport;
+
+typedef struct HttpPendingInput {
+    int64_t fd;
+    uint8_t *data;
+    size_t len;
+    struct HttpPendingInput *next;
+} HttpPendingInput;
+
+static HttpPendingInput *http_pending_inputs;
+#ifdef _WIN32
+static SRWLOCK http_pending_lock = SRWLOCK_INIT;
+static void http_pending_lock_acquire(void) {
+    AcquireSRWLockExclusive(&http_pending_lock);
+}
+static void http_pending_lock_release(void) {
+    ReleaseSRWLockExclusive(&http_pending_lock);
+}
+#else
+static pthread_mutex_t http_pending_lock = PTHREAD_MUTEX_INITIALIZER;
+static void http_pending_lock_acquire(void) {
+    (void)pthread_mutex_lock(&http_pending_lock);
+}
+static void http_pending_lock_release(void) {
+    (void)pthread_mutex_unlock(&http_pending_lock);
+}
+#endif
+
+static void http_pending_store(int64_t fd, uint8_t *data, size_t len) {
+    if (len == 0) { free(data); return; }
+    HttpPendingInput *entry = (HttpPendingInput *)malloc(sizeof(*entry));
+    if (!entry) { free(data); return; }
+    entry->fd = fd;
+    entry->data = data;
+    entry->len = len;
+    http_pending_lock_acquire();
+    entry->next = http_pending_inputs;
+    http_pending_inputs = entry;
+    http_pending_lock_release();
+}
+
+static uint8_t *http_pending_take(int64_t fd, size_t *len) {
+    uint8_t *data = NULL;
+    *len = 0;
+    http_pending_lock_acquire();
+    HttpPendingInput **link = &http_pending_inputs;
+    while (*link) {
+        if ((*link)->fd == fd) {
+            HttpPendingInput *entry = *link;
+            *link = entry->next;
+            data = entry->data;
+            *len = entry->len;
+            free(entry);
+            break;
+        }
+        link = &(*link)->next;
+    }
+    http_pending_lock_release();
+    return data;
+}
+
+static void http_pending_clear(int64_t fd) {
+    size_t len = 0;
+    uint8_t *data = http_pending_take(fd, &len);
+    (void)len;
+    free(data);
+}
 
 /* Plain sockets are non-blocking: try the call first and only consult the
  * clock (for the remaining budget) when it would block, which on a busy
@@ -501,6 +642,20 @@ typedef struct HttpTransport {
 static Iron_Result_Int_Error transport_read(HttpTransport transport,
                                              uint8_t *buffer, int64_t capacity,
                                              Iron_Deadline deadline) {
+    if (transport.memory) {
+        Iron_Result_Int_Error out;
+        memset(&out, 0, sizeof(out));
+        size_t remaining = transport.memory->input_len -
+                           transport.memory->input_pos;
+        size_t take = remaining < (size_t)capacity ? remaining :
+                      (size_t)capacity;
+        if (take)
+            memcpy(buffer, transport.memory->input +
+                   transport.memory->input_pos, take);
+        transport.memory->input_pos += take;
+        out.v0 = (int64_t)take;
+        return out;
+    }
     if (transport.tls) {
         return iron_tls_read(transport.tls, buffer, capacity, deadline);
     }
@@ -523,6 +678,21 @@ static Iron_Result_Int_Error transport_write(HttpTransport transport,
                                               const uint8_t *buffer,
                                               int64_t length,
                                               Iron_Deadline deadline) {
+    if (transport.memory) {
+        Iron_Result_Int_Error out;
+        memset(&out, 0, sizeof(out));
+        if (length < 0 || (size_t)length > transport.memory->output_cap -
+                                         transport.memory->output_len) {
+            out.v1.code = IRON_ERR_HTTP_BODY_TOO_LARGE;
+            return out;
+        }
+        memcpy(transport.memory->output + transport.memory->output_len,
+               buffer, (size_t)length);
+        transport.memory->output_len += (size_t)length;
+        transport.memory->write_calls++;
+        out.v0 = length;
+        return out;
+    }
     if (transport.tls) {
         return iron_tls_write(transport.tls, buffer, length, deadline);
     }
@@ -542,6 +712,8 @@ static Iron_Result_Int_Error transport_write(HttpTransport transport,
 }
 
 static void transport_close(HttpTransport transport) {
+    if (transport.memory) return;
+    http_pending_clear(transport.socket.fd);
     if (transport.tls) iron_tls_stream_close(transport.tls);
     Iron_tcpsocket_close(transport.socket);
 }
@@ -555,14 +727,21 @@ static HttpHead receive_head(HttpTransport transport, size_t max_header,
         h.error = IRON_ERR_HTTP_INVALID_ARGUMENT;
         return h;
     }
+    h.data = http_pending_take(transport.socket.fd, &h.len);
     /* Most heads fit in one small read: start with a buffer for that and
-     * grow toward max_header only for the ones that do not. */
+     * grow toward max_header only for the ones that do not. Pending bytes
+     * from a pipelined read may already include the whole next message. */
     size_t cap = max_header < HTTP_IO_CHUNK ? max_header : HTTP_IO_CHUNK;
-    h.data = (uint8_t *)malloc(cap + 1);
-    if (!h.data) {
+    if (cap < h.len) cap = h.len;
+    uint8_t *grown = (uint8_t *)realloc(h.data, cap + 1);
+    if (!grown) {
+        free(h.data);
+        h.data = NULL;
         h.error = IRON_ERR_NET_NO_MEMORY;
         return h;
     }
+    h.data = grown;
+    h.data[h.len] = 0;
     size_t scanned = 0;
     for (;;) {
         /* Resume the search for CRLFCRLF where the last one stopped. */
@@ -570,10 +749,12 @@ static HttpHead receive_head(HttpTransport transport, size_t max_header,
         size_t found = find_header_end(h.data + from, h.len - from);
         if (found != SIZE_MAX) {
             h.marker = from + found;
+            if (h.marker + 4 > max_header)
+                h.error = IRON_ERR_HTTP_HEADERS_TOO_LARGE;
             return h;
         }
         scanned = h.len;
-        if (h.len == max_header) {
+        if (h.len >= max_header) {
             h.error = IRON_ERR_HTTP_HEADERS_TOO_LARGE;
             return h;
         }
@@ -679,6 +860,22 @@ static size_t reader_copy(HttpReader *r, uint8_t *out, size_t want) {
     return got;
 }
 
+static void reader_save_pending(HttpReader *r) {
+    size_t prefix_left = r->prefix_len - r->prefix_pos;
+    size_t buffer_left = r->len - r->pos;
+    size_t total = prefix_left + buffer_left;
+    if (total == 0) return;
+    uint8_t *data = (uint8_t *)malloc(total);
+    if (!data) return;
+    if (prefix_left)
+        memcpy(data, r->prefix + r->prefix_pos, prefix_left);
+    if (buffer_left)
+        memcpy(data + prefix_left, r->buf + r->pos, buffer_left);
+    http_pending_store(r->transport.socket.fd, data, total);
+    r->prefix_pos = r->prefix_len;
+    r->pos = r->len;
+}
+
 static int reader_line(HttpReader *r, char *line, size_t cap, size_t *len_out) {
     size_t n = 0;
     int saw_cr = 0;
@@ -714,6 +911,39 @@ static int parse_hex_size(const char *line, size_t len, size_t *out) {
         else return 0;
         if (n > (SIZE_MAX - digit) / 16) return 0;
         n = n * 16 + digit;
+    }
+    size_t pos = end;
+    while (pos < len && (line[pos] == ' ' || line[pos] == '\t')) pos++;
+    while (pos < len) {
+        if (line[pos++] != ';') return 0;
+        while (pos < len && (line[pos] == ' ' || line[pos] == '\t')) pos++;
+        size_t name = pos;
+        while (pos < len && http_is_tchar((unsigned char)line[pos])) pos++;
+        if (pos == name) return 0;
+        while (pos < len && (line[pos] == ' ' || line[pos] == '\t')) pos++;
+        if (pos < len && line[pos] == '=') {
+            pos++;
+            while (pos < len && (line[pos] == ' ' || line[pos] == '\t')) pos++;
+            if (pos < len && line[pos] == '"') {
+                pos++;
+                int closed = 0;
+                while (pos < len) {
+                    unsigned char c = (unsigned char)line[pos++];
+                    if (c == '"') { closed = 1; break; }
+                    if (c == '\\') {
+                        if (pos == len) return 0;
+                        c = (unsigned char)line[pos++];
+                    }
+                    if ((c < 32 && c != '\t') || c == 127) return 0;
+                }
+                if (!closed) return 0;
+            } else {
+                size_t value = pos;
+                while (pos < len && http_is_tchar((unsigned char)line[pos])) pos++;
+                if (pos == value) return 0;
+            }
+            while (pos < len && (line[pos] == ' ' || line[pos] == '\t')) pos++;
+        }
     }
     *out = n;
     return 1;
@@ -832,23 +1062,136 @@ static int read_close_body(HttpReader *reader, size_t max_body,
 }
 
 static int valid_method(const char *method, size_t len) {
-    if (len == 0 || len > 32) return 0;
+    if (len == 0) return 0;
     for (size_t i = 0; i < len; i++) {
         unsigned char c = (unsigned char)method[i];
-        if (!(isalnum(c) || c == '!' || c == '#' || c == '$' || c == '%' ||
-              c == '&' || c == '\'' || c == '*' || c == '+' || c == '-' ||
-              c == '.' || c == '^' || c == '_' || c == '`' || c == '|' || c == '~')) return 0;
+        if (!http_is_tchar(c)) return 0;
     }
     return 1;
 }
 
-static int valid_request_target(const char *target, size_t len) {
-    if (len == 0 || target[0] != '/') return 0;
+static int valid_target_octets(const char *target, size_t len) {
     for (size_t i = 0; i < len; i++) {
         unsigned char c = (unsigned char)target[i];
-        if (c <= 32 || c == 127) return 0;
+        if (c <= 32 || c >= 127 || c == '#') return 0;
+        if (c == '%' &&
+            (i + 2 >= len || !http_is_hex((unsigned char)target[i + 1]) ||
+             !http_is_hex((unsigned char)target[i + 2]))) return 0;
+        if (c == '%') i += 2;
     }
     return 1;
+}
+
+static int uri_reg_name_char(unsigned char c) {
+    return isalnum(c) || c == '-' || c == '.' || c == '_' || c == '~' ||
+           c == '!' || c == '$' || c == '&' || c == '\'' || c == '(' ||
+           c == ')' || c == '*' || c == '+' || c == ',' || c == ';' ||
+           c == '=';
+}
+
+static int valid_authority_target(const char *target, size_t len) {
+    size_t port_at = 0;
+    if (target[0] == '[') {
+        size_t close = 1;
+        while (close < len && target[close] != ']') close++;
+        if (close == 1 || close + 2 >= len || target[close + 1] != ':')
+            return 0;
+        size_t literal_len = close - 1;
+        if ((target[1] == 'v' || target[1] == 'V') && literal_len >= 4) {
+            size_t pos = 2;
+            size_t hex_start = pos;
+            while (pos < close && http_is_hex((unsigned char)target[pos])) pos++;
+            if (pos == hex_start || pos >= close || target[pos++] != '.' ||
+                pos == close) return 0;
+            for (; pos < close; pos++) {
+                unsigned char c = (unsigned char)target[pos];
+                if (!(uri_reg_name_char(c) || c == ':')) return 0;
+            }
+        } else {
+            if (literal_len >= 64) return 0;
+            char literal[64];
+            memcpy(literal, target + 1, literal_len);
+            literal[literal_len] = 0;
+            struct in6_addr address;
+#ifdef _WIN32
+            if (InetPtonA(AF_INET6, literal, &address) != 1) return 0;
+#else
+            if (inet_pton(AF_INET6, literal, &address) != 1) return 0;
+#endif
+        }
+        port_at = close + 2;
+    } else {
+        size_t colon = 0;
+        while (colon < len && target[colon] != ':') {
+            unsigned char c = (unsigned char)target[colon];
+            if (c == '%') colon += 3;
+            else {
+                if (!uri_reg_name_char(c)) return 0;
+                colon++;
+            }
+        }
+        if (colon == 0 || colon >= len) return 0;
+        port_at = colon + 1;
+    }
+    if (port_at >= len) return 0;
+    for (size_t i = port_at; i < len; i++)
+        if (target[i] < '0' || target[i] > '9') return 0;
+    return 1;
+}
+
+static int valid_request_target(const char *method, size_t method_len,
+                                const char *target, size_t len) {
+    if (len == 0 || !valid_target_octets(target, len)) return 0;
+    if (len == 1 && target[0] == '*')
+        return ascii_ieq_n(method, method_len, "OPTIONS", strlen("OPTIONS"));
+    if (ascii_ieq_n(method, method_len, "CONNECT", strlen("CONNECT"))) {
+        return valid_authority_target(target, len);
+    }
+    if (target[0] == '/') return 1;
+    size_t scheme_end = 0;
+    if (!isalpha((unsigned char)target[0])) return 0;
+    while (scheme_end < len && target[scheme_end] != ':') {
+        unsigned char c = (unsigned char)target[scheme_end];
+        if (!(isalnum(c) || c == '+' || c == '-' || c == '.')) return 0;
+        scheme_end++;
+    }
+    return scheme_end + 3 < len && target[scheme_end] == ':' &&
+           target[scheme_end + 1] == '/' && target[scheme_end + 2] == '/' &&
+           target[scheme_end + 3] != '/' && target[scheme_end + 3] != '?';
+}
+
+static void request_target_path_query(const char *method, size_t method_len,
+                                      const char *target, size_t target_len,
+                                      size_t *path_at, size_t *path_len,
+                                      size_t *query_at, size_t *query_len) {
+    size_t start = 0;
+    if (target_len == 1 && target[0] == '*') {
+        *path_at = 0; *path_len = 1; *query_at = 1; *query_len = 0;
+        return;
+    }
+    if (ascii_ieq_n(method, method_len, "CONNECT", strlen("CONNECT"))) {
+        *path_at = 0; *path_len = target_len;
+        *query_at = target_len; *query_len = 0;
+        return;
+    }
+    if (target[0] != '/') {
+        size_t authority = 0;
+        while (authority + 2 < target_len &&
+               !(target[authority] == ':' && target[authority + 1] == '/' &&
+                 target[authority + 2] == '/')) authority++;
+        start = authority + 3;
+        while (start < target_len && target[start] != '/' &&
+               target[start] != '?') start++;
+        if (start == target_len || target[start] == '?') {
+            *path_at = target_len; *path_len = 0;
+        }
+    }
+    size_t q = start;
+    while (q < target_len && target[q] != '?') q++;
+    *path_at = start;
+    *path_len = q - start;
+    *query_at = q < target_len ? q + 1 : target_len;
+    *query_len = q < target_len ? target_len - q - 1 : 0;
 }
 
 typedef struct ParsedUrl {
@@ -1022,6 +1365,7 @@ void Iron_httpconnection_close(Iron_HttpConnection connection) {
     /* A handler often closes right after answering a request it rejected
      * (too large, malformed) with part of it still unread: a plain close
      * would reset the connection and the client could lose the answer. */
+    http_pending_clear(connection.fd);
     iron_net_lingering_close(connection.fd);
 }
 
@@ -1115,6 +1459,7 @@ Iron_HttpsConnectionResult Iron_httpspendingconnection_handshake(
 }
 
 void Iron_httpspendingconnection_close(Iron_HttpsPendingConnection connection) {
+    http_pending_clear(connection.fd);
     Iron_TcpSocket socket = { connection.fd };
     if (socket.fd >= 0) Iron_tcpsocket_close(socket);
     iron_tls_server_context_free(
@@ -1157,6 +1502,7 @@ void Iron_httpsserver_close(Iron_HttpsServer server) {
 }
 
 void Iron_httpsconnection_close(Iron_HttpsConnection connection) {
+    http_pending_clear(connection.fd);
     iron_tls_stream_close((Iron_TlsStream *)(intptr_t)connection.tls);
     Iron_TcpSocket socket = { connection.fd };
     Iron_tcpsocket_close(socket);
@@ -1201,10 +1547,10 @@ static Iron_HttpRequest read_request_transport(HttpTransport transport,
     while (sp1 < line_end && data[sp1] != ' ') sp1++;
     size_t sp2 = sp1 + 1;
     while (sp2 < line_end && data[sp2] != ' ') sp2++;
-    int version_11 = sp2 < line_end &&
-        ascii_ieq_n(data + sp2 + 1, line_end - sp2 - 1, "HTTP/1.1", 8);
-    int version_10 = sp2 < line_end &&
-        ascii_ieq_n(data + sp2 + 1, line_end - sp2 - 1, "HTTP/1.0", 8);
+    int version_11 = sp2 < line_end && line_end - sp2 - 1 == 8 &&
+        memcmp(data + sp2 + 1, "HTTP/1.1", 8) == 0;
+    int version_10 = sp2 < line_end && line_end - sp2 - 1 == 8 &&
+        memcmp(data + sp2 + 1, "HTTP/1.0", 8) == 0;
     if (sp1 == 0 || sp1 >= line_end || sp2 <= sp1 + 1 || sp2 >= line_end ||
         !valid_method(data, sp1) || (!version_11 && !version_10)) {
         http_request_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
@@ -1213,7 +1559,7 @@ static Iron_HttpRequest read_request_transport(HttpTransport transport,
     }
     size_t target_len = sp2 - sp1 - 1;
     const char *target = data + sp1 + 1;
-    if (!valid_request_target(target, target_len)) {
+    if (!valid_request_target(data, sp1, target, target_len)) {
         http_request_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
         free(h.data);
         return out;
@@ -1221,12 +1567,11 @@ static Iron_HttpRequest read_request_transport(HttpTransport transport,
     out.method = http_slice(data, sp1);
     out.target = http_slice(target, target_len);
     out.version = http_slice(data + sp2 + 1, line_end - sp2 - 1);
-    size_t query_at = 0;
-    while (query_at < target_len && target[query_at] != '?') query_at++;
-    out.path = http_slice(target, query_at);
-    out.query = query_at < target_len
-        ? http_slice(target + query_at + 1, target_len - query_at - 1)
-        : http_str("");
+    size_t path_at = 0, path_len = 0, query_at = 0, query_len = 0;
+    request_target_path_query(data, sp1, target, target_len,
+                              &path_at, &path_len, &query_at, &query_len);
+    out.path = http_slice(target + path_at, path_len);
+    out.query = http_slice(target + query_at, query_len);
 
     size_t headers_start = line_end + 2;
     size_t headers_len = h.marker >= headers_start ? h.marker - headers_start : 0;
@@ -1234,28 +1579,34 @@ static Iron_HttpRequest read_request_transport(HttpTransport transport,
     http_scan_headers(data + headers_start, headers_len, &sc);
     if (!sc.valid ||
         (version_11 ? sc.host_count != 1 : sc.host_count > 1) ||
-        sc.connection_count > 1 || sc.length_count > 1 || sc.te_count > 1 ||
         (sc.host_count > 0 && sc.host_len == 0)) {
         http_request_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
         free(h.data);
         return out;
     }
     out.headers = http_slice(data + headers_start, headers_len);
-    int requests_close = sc.connection_count &&
-        value_has_token(sc.connection, sc.connection_len, "close");
-    int requests_keep_alive = sc.connection_count &&
-        value_has_token(sc.connection, sc.connection_len, "keep-alive");
+    int requests_close = header_has_token(
+        data + headers_start, headers_len, "Connection", "close");
+    int requests_keep_alive = header_has_token(
+        data + headers_start, headers_len, "Connection", "keep-alive");
     out.keep_alive = version_11 ? !requests_close
                                 : requests_keep_alive && !requests_close;
     size_t content_len = 0;
-    int content_present = sc.length_count > 0;
-    if (content_present && !parse_length_value(sc.length, sc.length_len, &content_len)) {
+    int content_present = 0;
+    if (!parse_content_length(data + headers_start, headers_len,
+                              &content_len, &content_present)) {
         http_request_error(&out, IRON_ERR_HTTP_BAD_CONTENT_LENGTH);
         free(h.data);
         return out;
     }
-    int has_te = sc.te_count > 0;
-    int chunked = has_te && ascii_ieq_n(sc.te, sc.te_len, "chunked", 7);
+    int has_te = 0;
+    int chunked = 0;
+    if (!parse_transfer_encoding(data + headers_start, headers_len,
+                                 &has_te, &chunked)) {
+        http_request_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
+        free(h.data);
+        return out;
+    }
     if (has_te && content_present) {
         http_request_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
         free(h.data);
@@ -1270,6 +1621,29 @@ static Iron_HttpRequest read_request_transport(HttpTransport transport,
         http_request_error(&out, IRON_ERR_HTTP_BODY_TOO_LARGE);
         free(h.data);
         return out;
+    }
+    const char *expect_value = NULL;
+    size_t expect_len = 0;
+    int expect_count = header_count(data + headers_start, headers_len, "Expect");
+    int expect_continue = expect_count == 1 &&
+        header_value_span(data + headers_start, headers_len, "Expect",
+                          &expect_value, &expect_len) &&
+        ascii_ieq_n(expect_value, expect_len,
+                    "100-continue", strlen("100-continue"));
+    if (expect_count > 0 && !expect_continue) {
+        http_request_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
+        free(h.data);
+        return out;
+    }
+    if (expect_continue && (chunked || (content_present && content_len > 0))) {
+        int64_t send_error = send_all(
+            transport, (const uint8_t *)"HTTP/1.1 100 Continue\r\n\r\n",
+            strlen("HTTP/1.1 100 Continue\r\n\r\n"), deadline);
+        if (send_error != 0) {
+            http_request_error(&out, send_error);
+            free(h.data);
+            return out;
+        }
     }
     HttpReader reader;
     memset(&reader, 0, sizeof(reader));
@@ -1286,6 +1660,7 @@ static Iron_HttpRequest read_request_transport(HttpTransport transport,
                !read_fixed_body(&reader, content_len, &out.body, &read_error)) {
         http_request_error(&out, read_error);
     }
+    if (out.error == 0) reader_save_pending(&reader);
     free(h.data);
     return out;
 }
@@ -1294,7 +1669,7 @@ Iron_HttpRequest Iron_httpconnection_read_request(Iron_HttpConnection connection
                                                    int64_t max_header_bytes,
                                                    int64_t max_body_bytes,
                                                    int64_t timeout) {
-    HttpTransport transport = { { connection.fd }, NULL };
+    HttpTransport transport = { { connection.fd }, NULL, NULL };
     return read_request_transport(transport, max_header_bytes, max_body_bytes,
                                   timeout);
 }
@@ -1304,7 +1679,7 @@ Iron_HttpRequest Iron_httpsconnection_read_request(Iron_HttpsConnection connecti
                                                     int64_t max_body_bytes,
                                                     int64_t timeout) {
     HttpTransport transport = {
-        { connection.fd }, (Iron_TlsStream *)(intptr_t)connection.tls
+        { connection.fd }, (Iron_TlsStream *)(intptr_t)connection.tls, NULL
     };
     return read_request_transport(transport, max_header_bytes, max_body_bytes,
                                   timeout);
@@ -1439,19 +1814,21 @@ Iron_HttpResponse Iron_http_file_response(int64_t status, Iron_String path,
     return http_response_owned(status, header_s, body_s);
 }
 
-/* "HTTP/1.1 <status> <reason>\r\nContent-Length: <n>\r\nConnection: ...\r\n"
- * into out (without snprintf, which showed in profiles); -1 if it does
- * not fit. */
+/* Format the generated response fields without snprintf, which showed in
+ * profiles. Informational and 204 responses omit Content-Length. */
 static int http_status_head(char *out, size_t cap, int64_t status,
                             const char *reason, size_t reason_len,
                             size_t body_len, bool keep_alive) {
+    int include_length = !((status >= 100 && status < 200) || status == 204);
     char num[24];
     int nl = 0;
     size_t v = body_len;
     do { num[nl++] = (char)('0' + v % 10); v /= 10; } while (v && nl < 22);
     const char *conn = keep_alive ? "keep-alive" : "close";
     size_t conn_len = keep_alive ? 10 : 5;
-    size_t need = 9 + 3 + 1 + reason_len + 2 + 16 + (size_t)nl + 2 + 12 + conn_len + 2;
+    size_t need = 9 + 3 + 1 + reason_len +
+                  (include_length ? 18 + (size_t)nl : 0) +
+                  14 + conn_len + 2;
     if (need >= cap || status < 100 || status > 999) return -1;
     char *p = out;
     memcpy(p, "HTTP/1.1 ", 9); p += 9;
@@ -1460,8 +1837,10 @@ static int http_status_head(char *out, size_t cap, int64_t status,
     *p++ = (char)('0' + status % 10);
     *p++ = ' ';
     memcpy(p, reason, reason_len); p += reason_len;
-    memcpy(p, "\r\nContent-Length: ", 18); p += 18;
-    while (nl) *p++ = num[--nl];
+    if (include_length) {
+        memcpy(p, "\r\nContent-Length: ", 18); p += 18;
+        while (nl) *p++ = num[--nl];
+    }
     memcpy(p, "\r\nConnection: ", 14); p += 14;
     memcpy(p, conn, conn_len); p += conn_len;
     *p++ = '\r';
@@ -1489,6 +1868,8 @@ static int64_t send_response_transport(HttpTransport transport,
     }
     const char *body = iron_string_cstr(&response.body);
     size_t body_len = iron_string_byte_len(&response.body);
+    int forbids_body = (response.status >= 100 && response.status < 200) ||
+                       response.status == 204 || response.status == 304;
     Iron_Deadline deadline = Iron_deadline_from_timeout_ms(timeout);
     char fixed[256];
     int fixed_len = http_status_head(fixed, sizeof(fixed), response.status,
@@ -1499,9 +1880,18 @@ static int64_t send_response_transport(HttpTransport transport,
      * ACK on a keep-alive connection and stall each response by ~40 ms. */
     int headers_need_crlf = headers_len &&
         (headers_len < 2 || headers[headers_len - 2] != '\r' || headers[headers_len - 1] != '\n');
-    size_t total = (size_t)fixed_len + headers_len + (headers_need_crlf ? 2 : 0) + 2;
-    if (body_len > SIZE_MAX - total) return IRON_ERR_HTTP_INVALID_ARGUMENT;
-    total += body_len;
+    size_t sent_body_len = forbids_body ? 0 : body_len;
+    size_t total = (size_t)fixed_len;
+    if (headers_len > SIZE_MAX - total) return IRON_ERR_HTTP_INVALID_ARGUMENT;
+    total += headers_len;
+    if (headers_need_crlf) {
+        if (total > SIZE_MAX - 2) return IRON_ERR_HTTP_INVALID_ARGUMENT;
+        total += 2;
+    }
+    if (total > SIZE_MAX - 2) return IRON_ERR_HTTP_INVALID_ARGUMENT;
+    total += 2;
+    if (sent_body_len > SIZE_MAX - total) return IRON_ERR_HTTP_INVALID_ARGUMENT;
+    total += sent_body_len;
     uint8_t stack_buf[16384];
     uint8_t *msg = total <= sizeof(stack_buf) ? stack_buf : (uint8_t *)malloc(total);
     if (!msg) return IRON_ERR_NET_NO_MEMORY;
@@ -1518,7 +1908,7 @@ static int64_t send_response_transport(HttpTransport transport,
     }
     memcpy(msg + at, "\r\n", 2);
     at += 2;
-    if (body_len) memcpy(msg + at, body, body_len);
+    if (sent_body_len) memcpy(msg + at, body, sent_body_len);
     int64_t err = send_all(transport, msg, total, deadline);
     if (msg != stack_buf) free(msg);
     return err;
@@ -1527,14 +1917,14 @@ static int64_t send_response_transport(HttpTransport transport,
 int64_t Iron_httpconnection_send_response(Iron_HttpConnection connection,
                                            Iron_HttpResponse response,
                                            int64_t timeout) {
-    HttpTransport transport = { { connection.fd }, NULL };
+    HttpTransport transport = { { connection.fd }, NULL, NULL };
     return send_response_transport(transport, response, false, timeout);
 }
 
 int64_t Iron_httpconnection_send_response_keep_alive(
     Iron_HttpConnection connection, Iron_HttpResponse response,
     bool keep_alive, int64_t timeout) {
-    HttpTransport transport = { { connection.fd }, NULL };
+    HttpTransport transport = { { connection.fd }, NULL, NULL };
     return send_response_transport(transport, response, keep_alive, timeout);
 }
 
@@ -1542,7 +1932,7 @@ int64_t Iron_httpsconnection_send_response(Iron_HttpsConnection connection,
                                             Iron_HttpResponse response,
                                             int64_t timeout) {
     HttpTransport transport = {
-        { connection.fd }, (Iron_TlsStream *)(intptr_t)connection.tls
+        { connection.fd }, (Iron_TlsStream *)(intptr_t)connection.tls, NULL
     };
     return send_response_transport(transport, response, false, timeout);
 }
@@ -1551,15 +1941,15 @@ int64_t Iron_httpsconnection_send_response_keep_alive(
     Iron_HttpsConnection connection, Iron_HttpResponse response,
     bool keep_alive, int64_t timeout) {
     HttpTransport transport = {
-        { connection.fd }, (Iron_TlsStream *)(intptr_t)connection.tls
+        { connection.fd }, (Iron_TlsStream *)(intptr_t)connection.tls, NULL
     };
     return send_response_transport(transport, response, keep_alive, timeout);
 }
 
-static Iron_HttpResponse read_client_response(HttpTransport transport,
-                                               size_t max_body,
-                                               Iron_Deadline deadline,
-                                               int suppress_body) {
+static Iron_HttpResponse read_one_client_response(HttpTransport transport,
+                                                   size_t max_body,
+                                                   Iron_Deadline deadline,
+                                                   int suppress_body) {
     Iron_HttpResponse out = http_response_empty();
     HttpHead h = receive_head(transport, HTTP_DEFAULT_MAX_HEADER, deadline);
     if (h.error) {
@@ -1572,11 +1962,12 @@ static Iron_HttpResponse read_client_response(HttpTransport transport,
      * marker itself when the message has no header lines. */
     size_t line_end = find_crlf(data, 0, h.marker + 2);
     int response_version_11 = line_end != SIZE_MAX && line_end >= 8 &&
-        ascii_ieq_n(data, 8, "HTTP/1.1", 8);
+        memcmp(data, "HTTP/1.1", 8) == 0;
     int response_version_10 = line_end != SIZE_MAX && line_end >= 8 &&
-        ascii_ieq_n(data, 8, "HTTP/1.0", 8);
+        memcmp(data, "HTTP/1.0", 8) == 0;
     int supported_version = response_version_11 || response_version_10;
-    if (line_end == SIZE_MAX || line_end < 12 || !supported_version || data[8] != ' ') {
+    if (line_end == SIZE_MAX || line_end < 13 || !supported_version ||
+        data[8] != ' ' || data[12] != ' ') {
         http_response_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
         free(h.data);
         return out;
@@ -1590,15 +1981,25 @@ static Iron_HttpResponse read_client_response(HttpTransport transport,
         return out;
     }
     out.status = (data[9] - '0') * 100 + (data[10] - '0') * 10 + (data[11] - '0');
+    if (out.status < 100 || out.status > 599) {
+        http_response_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
+        free(h.data);
+        return out;
+    }
     out.reason = status_end < line_end
         ? http_slice(data + status_end + 1, line_end - status_end - 1)
         : http_str("");
+    for (size_t i = status_end + 1; i < line_end; i++) {
+        unsigned char c = (unsigned char)data[i];
+        if ((c < 32 && c != '\t') || c == 127) {
+            http_response_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
+            free(h.data);
+            return out;
+        }
+    }
     size_t headers_start = line_end + 2;
     size_t headers_len = h.marker >= headers_start ? h.marker - headers_start : 0;
-    if (!raw_headers_valid(data + headers_start, headers_len) ||
-        header_count(data + headers_start, headers_len, "Connection") > 1 ||
-        header_count(data + headers_start, headers_len, "Content-Length") > 1 ||
-        header_count(data + headers_start, headers_len, "Transfer-Encoding") > 1) {
+    if (!raw_headers_valid(data + headers_start, headers_len)) {
         http_response_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
         free(h.data);
         return out;
@@ -1613,18 +2014,26 @@ static Iron_HttpResponse read_client_response(HttpTransport transport,
         free(h.data);
         return out;
     }
-    int chunked = header_is_exact_token(data + headers_start, headers_len,
-                                        "Transfer-Encoding", "chunked");
-    const char *te = NULL;
-    size_t te_len = 0;
-    int has_te = header_value_span(data + headers_start, headers_len,
-                                   "Transfer-Encoding", &te, &te_len);
+    int has_te = 0;
+    int chunked = 0;
+    if (!parse_transfer_encoding(data + headers_start, headers_len,
+                                 &has_te, &chunked)) {
+        http_response_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
+        free(h.data);
+        return out;
+    }
     if (has_te && !chunked) {
         http_response_error(&out, IRON_ERR_HTTP_UNSUPPORTED_TRANSFER);
         free(h.data);
         return out;
     }
     if (chunked && content_present) {
+        http_response_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
+        free(h.data);
+        return out;
+    }
+    if (((out.status >= 100 && out.status < 200) || out.status == 204) &&
+        (content_present || has_te)) {
         http_response_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
         free(h.data);
         return out;
@@ -1651,16 +2060,35 @@ static Iron_HttpResponse read_client_response(HttpTransport transport,
         out.status == 304;
     int64_t read_error = 0;
     int ok;
-    if (suppress_body) ok = 1;
+    if (suppress_body || (out.status >= 100 && out.status < 200) ||
+        out.status == 204 || out.status == 304) ok = 1;
     else if (chunked) ok = read_chunked_body(&reader, max_body,
                                         HTTP_DEFAULT_MAX_HEADER,
                                         &out.body, &read_error);
     else if (content_present) ok = read_fixed_body(&reader, content_len, &out.body, &read_error);
-    else if ((out.status >= 100 && out.status < 200) || out.status == 204 || out.status == 304) ok = 1;
     else ok = read_close_body(&reader, max_body, &out.body, &read_error);
     if (!ok) http_response_error(&out, read_error);
-    else out.keep_alive = persistent && framed_for_reuse;
+    else {
+        out.keep_alive = persistent && framed_for_reuse;
+        reader_save_pending(&reader);
+    }
     free(h.data);
+    return out;
+}
+
+static Iron_HttpResponse read_client_response(HttpTransport transport,
+                                               size_t max_body,
+                                               Iron_Deadline deadline,
+                                               int suppress_body) {
+    for (int informational = 0; informational < 16; informational++) {
+        Iron_HttpResponse out = read_one_client_response(
+            transport, max_body, deadline, suppress_body);
+        if (out.error != 0 || out.status < 100 || out.status >= 200 ||
+            out.status == 101) return out;
+        Iron_httpresponse_dispose(out);
+    }
+    Iron_HttpResponse out = http_response_empty();
+    http_response_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
     return out;
 }
 
@@ -1697,7 +2125,7 @@ static Iron_HttpResponse http_request_tls_options(
         return out;
     }
     http_set_nodelay(dr.v0.fd);
-    HttpTransport transport = { dr.v0, NULL };
+    HttpTransport transport = { dr.v0, NULL, NULL };
     if (parsed.secure) {
         Iron_TlsStreamResult tls = iron_tls_client_connect(
             dr.v0, host, ca_file, insecure, deadline);
@@ -2067,7 +2495,7 @@ Iron_HttpResponse Iron_httpclient_request(
     if (!client || timeout < 0 || max_body_bytes < 0 ||
         (uint64_t)max_body_bytes > (uint64_t)(SIZE_MAX - 1) ||
         !valid_method(method, method_length) ||
-        !valid_request_target(target, target_length) ||
+        !valid_request_target(method, method_length, target, target_length) ||
         !raw_headers_valid(headers, headers_length) ||
         headers_have_forbidden_framing(headers, headers_length)) {
         http_response_error(&out, IRON_ERR_HTTP_INVALID_ARGUMENT);
@@ -2125,6 +2553,95 @@ Iron_HttpResponse Iron_httpclient_request(
     http_response_error(&out, IRON_ERR_NET_CLOSED);
     http_client_release(client, slot, 0);
     return out;
+}
+
+uint64_t iron_http_bench_parse_requests(
+    const uint8_t *data, size_t len, size_t message_count,
+    size_t repetitions, int64_t *error_out) {
+    const int64_t memory_fd = INT64_MIN + 9112;
+    uint64_t checksum = 0;
+    *error_out = 0;
+    http_pending_clear(memory_fd);
+    for (size_t repetition = 0; repetition < repetitions; repetition++) {
+        HttpMemoryTransport memory;
+        memset(&memory, 0, sizeof(memory));
+        memory.input = data;
+        memory.input_len = len;
+        HttpTransport transport = {{memory_fd}, NULL, &memory};
+        for (size_t message = 0; message < message_count; message++) {
+            Iron_HttpRequest request = read_request_transport(
+                transport, HTTP_DEFAULT_MAX_HEADER, HTTP_DEFAULT_MAX_BODY,
+                1000);
+            if (request.error != 0) {
+                *error_out = request.error;
+                Iron_httprequest_dispose(request);
+                http_pending_clear(memory_fd);
+                return checksum;
+            }
+            checksum += iron_string_byte_len(&request.method) * 3u +
+                        iron_string_byte_len(&request.target) * 5u +
+                        iron_string_byte_len(&request.headers) * 7u +
+                        iron_string_byte_len(&request.body) * 11u +
+                        (uint64_t)request.keep_alive;
+            Iron_httprequest_dispose(request);
+        }
+        http_pending_clear(memory_fd);
+    }
+    return checksum;
+}
+
+uint64_t iron_http_bench_serialize_response(
+    int64_t status, const char *headers, size_t headers_len,
+    const uint8_t *body, size_t body_len, size_t repetitions,
+    uint64_t *bytes_out, int64_t *error_out) {
+    *bytes_out = 0;
+    *error_out = 0;
+    if (body_len > SIZE_MAX - headers_len - 512) {
+        *error_out = IRON_ERR_HTTP_INVALID_ARGUMENT;
+        return 0;
+    }
+    size_t capacity = body_len + headers_len + 512;
+    uint8_t *output = (uint8_t *)malloc(capacity);
+    if (!output) {
+        *error_out = IRON_ERR_NET_NO_MEMORY;
+        return 0;
+    }
+    Iron_String header_string = http_slice(headers, headers_len);
+    Iron_String body_string = http_slice((const char *)body, body_len);
+    Iron_HttpResponse response = Iron_http_response(
+        status, header_string, body_string);
+    iron_string_release(&header_string);
+    iron_string_release(&body_string);
+    if (response.error != 0) {
+        *error_out = response.error;
+        Iron_httpresponse_dispose(response);
+        free(output);
+        return 0;
+    }
+    uint64_t checksum = 0;
+    for (size_t repetition = 0; repetition < repetitions; repetition++) {
+        HttpMemoryTransport memory;
+        memset(&memory, 0, sizeof(memory));
+        memory.output = output;
+        memory.output_cap = capacity;
+        HttpTransport transport = {{INT64_MIN + 9110}, NULL, &memory};
+        int64_t error = send_response_transport(
+            transport, response, true, 1000);
+        if (error != 0) {
+            *error_out = error;
+            break;
+        }
+        if (memory.write_calls != 1) {
+            *error_out = IRON_ERR_HTTP_MALFORMED_MESSAGE;
+            break;
+        }
+        *bytes_out += memory.output_len;
+        checksum += memory.output_len ? output[memory.output_len - 1] : 0;
+        checksum += memory.output_len;
+    }
+    Iron_httpresponse_dispose(response);
+    free(output);
+    return checksum;
 }
 
 /* What the debugger formatters (src/debug) show for an HttpClient, whose

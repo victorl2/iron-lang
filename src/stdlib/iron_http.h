@@ -75,9 +75,9 @@ typedef struct Iron_HttpResponse {
     Iron_String error_message;
 } Iron_HttpResponse;
 
-/* The string fields returned in HTTP results and models are owned by the
- * returned value. These functions consume that ownership. Copies made before
- * release must not be used afterwards. Resource handles are not closed. */
+/* Iron-visible compatibility hooks. Generated Iron code applies automatic
+ * drop glue after these return, so direct C callers must use the _dispose
+ * functions below instead. Resource handles are not closed by either form. */
 void Iron_httpserverresult_release(Iron_HttpServerResult result);
 void Iron_httpconnectionresult_release(Iron_HttpConnectionResult result);
 void Iron_httpsserverresult_release(Iron_HttpsServerResult result);
@@ -87,6 +87,18 @@ void Iron_httpspendingconnectionresult_release(
 void Iron_httpclientresult_release(Iron_HttpClientResult result);
 void Iron_httprequest_release(Iron_HttpRequest request);
 void Iron_httpresponse_release(Iron_HttpResponse response);
+
+/* Direct C callers do not run Iron's automatic drop glue. Use these
+ * disposal functions to release the owned strings in returned values. */
+void Iron_httpserverresult_dispose(Iron_HttpServerResult result);
+void Iron_httpconnectionresult_dispose(Iron_HttpConnectionResult result);
+void Iron_httpsserverresult_dispose(Iron_HttpsServerResult result);
+void Iron_httpsconnectionresult_dispose(Iron_HttpsConnectionResult result);
+void Iron_httpspendingconnectionresult_dispose(
+    Iron_HttpsPendingConnectionResult result);
+void Iron_httpclientresult_dispose(Iron_HttpClientResult result);
+void Iron_httprequest_dispose(Iron_HttpRequest request);
+void Iron_httpresponse_dispose(Iron_HttpResponse response);
 
 Iron_HttpServerResult Iron_http_listen(Iron_String host, int64_t port);
 Iron_HttpConnectionResult Iron_httpserver_accept(Iron_HttpServer server,
