@@ -6,8 +6,11 @@ many threads while others read; Map and Set shared between threads as
 outlive the guard; channels of capacity 0 to 4 with items left queued when
 the channel goes away; spawned results of every element kind; deadlock free
 patterns (a ring of threads passing a token through channels, two locks
-always taken in the same order); and panics inside spawned tasks (awaited,
-in a parallel for body, fire and forget while main blocks).
+always taken in the same order); channels and maps of closures (closures
+sent between tasks and run by the receiver, a Map[String, func(Int) -> Int]
+filled from threads behind a Mutex, higher-order closures, #506); and
+panics inside spawned tasks (awaited, in a parallel for body, fire and
+forget while main blocks).
 
 Every update is commutative (a sum, an append whose length is counted,
 an index added modulo 3), so the result does not depend on the schedule.
@@ -22,7 +25,15 @@ left queued.
 """
 from pf_seg import Seg, SegProgram, iron_lit, ind
 
-HELPERS = '''object P {
+HELPERS = '''nocopy object NoC {
+    val id: Int
+    val s: String
+    drop {
+        println("drop noc {self.id}")
+    }
+}
+
+object P {
     val a: Int
     val s: String
 }
@@ -326,8 +337,9 @@ class SyncGen(SegProgram):
     def add_segment(self):
         r = self.r
         pick = r.choices(
-            ['mutex', 'rwlock', 'shared', 'chan', 'results', 'ring', 'order', 'store', 'panic', 'rpc'],
-            [5, 3, 2, 4, 2, 1, 1, 1, 0.6, 1])[0]
+            ['mutex', 'rwlock', 'shared', 'chan', 'results', 'ring', 'order', 'store', 'panic', 'rpc',
+             'fnchan', 'fnmap', 'nocopy'],
+            [5, 3, 2, 4, 2, 1, 1, 1, 0.6, 1, 1.5, 1.5, 1.5])[0]
         self.segs.append(getattr(self, 'seg_' + pick)())
 
     # ---------------------------------------------------------- workers
@@ -534,7 +546,8 @@ class SyncGen(SegProgram):
     # ---------------------------------------------------------- channels
     def seg_chan(self):
         r = self.r
-        kd = Kind(r, r.choice(['Int', 'String', 'String', 'P', 'Color', 'Tok', 'List', 'Map', 'Rc']))
+        kd = Kind(r, r.choice(['Int', 'String', 'String', 'P', 'Color', 'Tok', 'List', 'Map', 'Rc',
+                               'Fn']))
         cap = r.choice([0, 0, 1, 2, 4])
         eff = max(cap, 1)
         ch = self.fresh('ch')
@@ -583,6 +596,121 @@ class SyncGen(SegProgram):
             lines += [f'val {c2} = Channel[{kd.t}](1)',
                       'spawn("idle") {', f'    val {self.fresh("v")}: {kd.t} = {c2}.recv()',
                       '    return 0', '}']
+        return Seg(lines, out)
+
+    # ------------------------------------------------ closures (#506)
+    def seg_fnchan(self):
+        """Producers send closures that capture their index (and a String)
+        over a Channel[func(Int) -> Int]; the receiver runs each one. A
+        Channel of higher-order closures applies them to a fixed function.
+        Sums are order independent."""
+        r = self.r
+        cap = r.choice([0, 1, 2, 4])
+        ch = self.fresh('ch')
+        base = r.randint(0, 50)
+        tag = self.fresh('tag')
+        lines = [f'val {ch} = Channel[func(Int) -> Int]({cap})',
+                 f'val {tag} = {iron_lit(r.choice(["t", LONG]))}']
+        nprod = r.choice([1, 2, 3])
+        counts = [r.randint(0, 5) for _ in range(nprod)]
+        hs = []
+        expect = 0
+        arg = r.randint(0, 9)
+        for p, k in enumerate(counts):
+            h, j, kk = self.fresh('h'), self.fresh('j'), self.fresh('k')
+            how = r.choice(['lambda', 'adder', 'bound'])
+            if how == 'lambda':
+                send = [f'        val {kk} = {j} + {p * 10} + {base}',
+                        f'        {ch}.send(func(x: Int) -> Int {{ return x + {kk} + {tag}.len() * 0 }})']
+            elif how == 'adder':
+                send = [f'        {ch}.send(adder({j} + {p * 10} + {base}))']
+            else:
+                f = self.fresh('f')
+                send = [f'        val {f}: func(Int) -> Int = adder({j} + {p * 10} + {base})',
+                        f'        {ch}.send({f})']
+            lines += [f'val {h} = spawn("fprod{p}") {{', f'    for {j} in range({k}) {{'] + send + \
+                     ['    }', f'    return {k}', '}']
+            hs.append(h)
+            expect += sum(arg + j + p * 10 + base for j in range(k))
+        total = sum(counts)
+        acc, j, f = self.fresh('acc'), self.fresh('j'), self.fresh('f')
+        lines += [f'var {acc} = 0', f'for {j} in range({total}) {{',
+                  f'    val {f}: func(Int) -> Int = {ch}.recv()', f'    {acc} += {f}({arg})', '}']
+        r.shuffle(hs)
+        for h in hs:
+            lines.append(f'val {self.fresh("z")} = await {h}')
+        lines.append(f'println("fnchan {{{acc}}}")')
+        out = [f'fnchan {expect}']
+        if r.random() < 0.5:
+            hi, hh, g, y = self.fresh('hi'), self.fresh('h'), self.fresh('g'), self.fresh('y')
+            m = r.randint(1, 9)
+            lines += [f'val {hi} = Channel[func(func(Int) -> Int) -> Int](1)',
+                      f'val {hh} = spawn("hi") {{',
+                      f'    {hi}.send(func(g: func(Int) -> Int) -> Int {{ return g({m}) }})',
+                      '    return 0', '}',
+                      f'val {g}: func(func(Int) -> Int) -> Int = {hi}.recv()',
+                      f'val {self.fresh("z")} = await {hh}',
+                      f'println("hi {{{g}(adder({base}))}}")']
+            out.append(f'hi {m + base}')
+        if r.random() < 0.3:
+            # closures left queued when the channel goes away
+            lc = self.fresh('lc')
+            n = r.randint(1, 3)
+            lines += [f'val {lc} = Channel[func(Int) -> Int]({n})']
+            lines += [f'{lc}.send(adder({q}))' for q in range(n)]
+        return Seg(lines, out)
+
+    def seg_fnmap(self):
+        """A Map[String, func(Int) -> Int] shared as rc behind a Mutex and
+        filled from threads (the value stored under a key depends only on
+        the key, so the result does not depend on the schedule), then a
+        local map of closures put from bindings and from temporaries, and a
+        map of lists of closures."""
+        r = self.r
+        mp, lk = self.fresh('mp'), self.fresh('lk')
+        K = r.randint(1, 5)
+        lines = [f'val {mp} = rc Map[String, func(Int) -> Int]()', f'val {lk} = Mutex(0)']
+
+        def body(i):
+            g, key, f = self.fresh('g'), self.fresh('key'), self.fresh('f')
+            return [f'val {g} = {lk}.lock()', f'val {key} = "k{{{i} % {K}}}"',
+                    f'val {f} = adder({i} % {K})', f'{mp}.put({key}, {f})',
+                    f'{g}.set({g}.get() + 1)']
+        n = r.choice([0, 1, 4, 12])
+        wl, idx = self.workers(body, n)
+        lines += wl
+        keys = sorted({f'k{i % K}' for i in idx})
+        ks, k, x = self.fresh('ks'), self.fresh('k'), self.fresh('x')
+        arg = r.randint(0, 9)
+        lines += [f'var {ks} = {mp}.keys()', f'{ks}.sort()',
+                  f'for {k} in {ks} {{', f'    println("{{{k}}} {{{mp}.get({k})({arg})}}")', '}']
+        out = [f'{key} {arg + int(key[1:])}' for key in keys]
+        loc = self.fresh('loc')
+        lines.append(f'var {loc} = Map[String, func(Int) -> Int]()')
+        tot = 0
+        for q in range(r.randint(1, 4)):
+            v = r.randint(0, 20)
+            how = r.choice(['bind', 'temp', 'lambda'])
+            if how == 'bind':
+                f = self.fresh('f')
+                lines += [f'val {f} = adder({v})', f'{loc}.put("q{q}", {f})']
+            elif how == 'temp':
+                lines.append(f'{loc}.put("q{q}", adder({v}))')
+            else:
+                lines.append(f'{loc}.put("q{q}", func(x: Int) -> Int {{ return x + {v} }})')
+            tot += arg + v
+        s = self.fresh('s')
+        lines += [f'var {s} = 0', f'for ({k}, {x}) in {loc} {{', f'    {s} += {x}({arg})', '}',
+                  f'println("fnmap {{{s}}} {{{loc}.len()}}")']
+        nloc = len([ln for ln in lines if f'{loc}.put(' in ln])
+        out.append(f'fnmap {tot} {nloc}')
+        if r.random() < 0.5:
+            gm = self.fresh('gm')
+            c = r.randint(1, 3)
+            lines += [f'var {gm} = Map[String, [func(Int) -> Int]]()',
+                      f'{gm}.put("g", [' + ', '.join(f'adder({q})' for q in range(c)) + '])',
+                      f'println("groups {{{gm}.get("g").len()}}")']
+            out.append(f'groups {c}')
         return Seg(lines, out)
 
     # ----------------------------------------------------- spawn results
@@ -642,6 +770,53 @@ class SyncGen(SegProgram):
         add = sum(j + 1 for j in range(k))
         return Seg(lines, [f'ring {q * 10 + add}' for q in range(R)])
 
+    def seg_nocopy(self):
+        """Tasks borrow nocopy values (#512): each task is awaited later in
+        the block that starts it, reads the values without copying them, and
+        a Mutex(rc NoC) is shared by tasks and main; each value is dropped
+        once, by main, at the end of the segment."""
+        r = self.r
+        n = r.randint(1, 3)
+        vals = []
+        lines = []
+        for _ in range(n):
+            x = self.fresh('nc')
+            ident = r.randint(1, 999)
+            vals.append((x, ident))
+            lines.append(f'val {x} = NoC({ident}, {iron_lit(r.choice(["n", LONG]))})')
+        shared = r.random() < 0.5
+        sid = r.randint(1000, 1999)
+        m = self.fresh('m')
+        if shared:
+            lines.append(f'val {m} = Mutex(rc NoC({sid}, "shared"))')
+        k = r.randint(1, 4)
+        hs, total = [], 0
+        for t in range(k):
+            h, j = self.fresh('h'), self.fresh('j')
+            mul = r.randint(1, 5)
+            body = [f'var {j} = 0']
+            for x, ident in vals:
+                body.append(f'{j} += {x}.id * {mul} + {x}.s.len() * 0')
+                total += ident * mul
+            if shared:
+                g, v = self.fresh('g'), self.fresh('v')
+                body += [f'val {g} = {m}.lock()', f'val {v}: rc NoC = {g}.get()', f'{j} += {v}.id']
+                total += sid
+            body.append(f'return {j}')
+            lines += [f'val {h} = spawn("nc{t}") {{'] + ind(body) + ['}']
+            hs.append(h)
+        r.shuffle(hs)
+        acc = self.fresh('acc')
+        lines.append(f'var {acc} = 0')
+        for h in hs:
+            lines.append(f'{acc} += await {h}')
+        lines.append(f'println("nocopy {{{acc}}}")')
+        out = [f'nocopy {total}']
+        if shared:
+            out.append(f'drop noc {sid}')
+        out += [f'drop noc {ident}' for _, ident in reversed(vals)]
+        return Seg(lines, out)
+
     def seg_order(self):
         """Two locks always taken in the same order by every thread."""
         r = self.r
@@ -667,7 +842,7 @@ class SyncGen(SegProgram):
         the replies come back in order. Each reply also updates a Mutex and
         an RWLock, always in that order."""
         r = self.r
-        kd = Kind(r, r.choice(['Int', 'String', 'P', 'Tok']))
+        kd = Kind(r, r.choice(['Int', 'String', 'P', 'Tok', 'Fn']))
         nw = r.randint(1, 3)
         rounds = r.randint(1, 5)
         m, rw = self.fresh('m'), self.fresh('rw')

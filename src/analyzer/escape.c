@@ -45,6 +45,12 @@ typedef struct {
     /* Names that have been freed (via free stmt) */
     const char   **freed_names;    /* stb_ds dynamic array */
 
+    /* Names whose current allocation was released by an immediate free/leak.
+     * A fresh heap assignment consumes this state. Deferred releases do not
+     * count: replacing the binding before scope exit would leak the old value. */
+    const char   **released_names; /* stb_ds dynamic array */
+    int            defer_depth;
+
     /* Names that have been leaked (via leak stmt) */
     const char   **leaked_names;   /* stb_ds dynamic array */
 
@@ -70,6 +76,16 @@ static bool name_in_list(const char **list, const char *name) {
         if (strcmp(list[i], name) == 0) return true;
     }
     return false;
+}
+
+static void remove_name(const char ***list, const char *name) {
+    int n = arrlen(*list);
+    for (int i = n - 1; i >= 0; i--) {
+        if (strcmp((*list)[i], name) == 0) {
+            arrdel(*list, i);
+            return;
+        }
+    }
 }
 
 /* Find the HeapExpr binding for a given name, or NULL. */
@@ -175,6 +191,8 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
             const char *name = expr_ident_name(fs->expr);
             if (name) {
                 arrpush(ctx->freed_names, name);
+                if (ctx->defer_depth == 0 && !name_in_list(ctx->released_names, name))
+                    arrpush(ctx->released_names, name);
             }
             break;
         }
@@ -183,6 +201,8 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
             const char *name = expr_ident_name(ls->expr);
             if (name) {
                 arrpush(ctx->leaked_names, name);
+                if (ctx->defer_depth == 0 && !name_in_list(ctx->released_names, name))
+                    arrpush(ctx->released_names, name);
             }
             break;
         }
@@ -198,6 +218,24 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
             /* If we assign a heap value to something in the outer scope,
              * the RHS name escapes. */
             Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+            if (as->target && as->target->kind == IRON_NODE_IDENT &&
+                as->value && as->value->kind == IRON_NODE_HEAP) {
+                const char *lhs = ((Iron_Ident *)as->target)->name;
+                Iron_HeapExpr *bound = lhs ? find_heap_for_name(ctx, lhs) : NULL;
+                Iron_HeapExpr *replacement = (Iron_HeapExpr *)as->value;
+                if (bound && !bound->arena_expr && !replacement->arena_expr) {
+                    if (!name_in_list(ctx->released_names, lhs)) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "heap binding '%s' must be freed or leaked "
+                                 "before reassignment; the old allocation would leak",
+                                 lhs);
+                        emit_err(ctx, IRON_ERR_ESCAPE_NO_FREE, as->span, msg);
+                    } else {
+                        remove_name(&ctx->released_names, lhs);
+                    }
+                }
+            }
             const char *rhs = escaping_ident_name(as->value);
             if (rhs) {
                 /* Conservative: if the rhs is a heap-bound name, mark it escaped.
@@ -271,7 +309,9 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_DEFER: {
             Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
+            ctx->defer_depth++;
             if (ds->expr) collect_stmt(ctx, ds->expr);
+            ctx->defer_depth--;
             break;
         }
         case IRON_NODE_SPAWN: {
@@ -418,6 +458,15 @@ static void validate_node(EscapeCtx *ctx, Iron_Node *node) {
             }
             break;
         }
+        case IRON_NODE_ASSIGN: {
+            Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+            if (as->target && as->target->kind == IRON_NODE_IDENT &&
+                as->value && as->value->kind == IRON_NODE_HEAP) {
+                const char *name = ((Iron_Ident *)as->target)->name;
+                if (name) remove_name(&ctx->seen_freed_names, name);
+            }
+            break;
+        }
         case IRON_NODE_BLOCK: {
             Iron_Block *blk = (Iron_Block *)node;
             validate_free_leak(ctx, blk->stmts, blk->stmt_count);
@@ -492,9 +541,11 @@ static void analyze_function_body(EscapeCtx *ctx, Iron_Node *body_node) {
     /* Reset per-function state */
     arrsetlen(ctx->heap_bindings, 0);
     arrsetlen(ctx->freed_names,   0);
+    arrsetlen(ctx->released_names, 0);
     arrsetlen(ctx->leaked_names,  0);
     arrsetlen(ctx->escaped_names, 0);
     arrsetlen(ctx->seen_freed_names, 0);  /* Phase 31 DBG-06 */
+    ctx->defer_depth = 0;
 
     /* Collect heap bindings, free/leak targets, and escape sources */
     collect_stmts(ctx, body->stmts, body->stmt_count);
@@ -578,9 +629,11 @@ void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
     ctx.diags         = diags;
     ctx.heap_bindings = NULL;
     ctx.freed_names   = NULL;
+    ctx.released_names = NULL;
     ctx.leaked_names  = NULL;
     ctx.escaped_names = NULL;
     ctx.seen_freed_names = NULL;  /* Phase 31 DBG-06 */
+    ctx.defer_depth   = 0;
     ctx.cancel_flag   = cancel_flag;
 
     for (int i = 0; i < program->decl_count; i++) {
@@ -613,6 +666,7 @@ void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
 
     arrfree(ctx.heap_bindings);
     arrfree(ctx.freed_names);
+    arrfree(ctx.released_names);
     arrfree(ctx.leaked_names);
     arrfree(ctx.escaped_names);
     arrfree(ctx.seen_freed_names);  /* Phase 31 DBG-06 */

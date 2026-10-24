@@ -1,0 +1,37 @@
+-- Box and RawPtr.of over closures, rc and weak rc handles, lists and
+-- strings (#605): the helpers are named for any element type, Box(v) owns
+-- its value (a String or rc handle from a binding is retained), and
+-- Box[weak rc T] is not freed as Box[rc T].
+object Foo {
+    val x: Int
+    drop {
+        println("drop {self.x}")
+    }
+}
+
+func twice(x: Int) -> Int {
+    return x * 2
+}
+
+func main() {
+    val n = 4
+    val s = "boxed string {n} long enough to be on the heap"
+    val bs = Box(s)
+    println("{s} {bs.is_null()}")
+    val r = rc Foo(1)
+    val br = Box(r)
+    val k = 10
+    val bf = Box[func(Int) -> Int](func(x: Int) -> Int { return x + k })
+    val bt = Box[func(Int) -> Int](twice)
+    bt.free()
+    println("{bt.is_null()} {bf.is_null()}")
+    val bw = Box[weak rc Foo](r.downgrade())
+    val bl = Box([1, 2, 3])
+    val e: Box[func(Int) -> Int] = Box.null()
+    println("{e.is_null()} {r.x}")
+    val f: func(Int) -> Int = twice
+    val raw = RawPtr.of(f)
+    val xs = [1, 2]
+    val raw2 = RawPtr.of(xs)
+    println("end")
+}

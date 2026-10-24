@@ -42,6 +42,7 @@ typedef struct {
     bool           in_spawn;
     const char   **spawn_writes;  /* stb_ds: names written inside spawn body */
     const char   **spawn_reads;   /* stb_ds: names read inside spawn body   */
+    const char   **spawn_mutable_reads; /* mutable outer bindings read by task */
 
     /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
     const _Atomic bool *cancel_flag;
@@ -83,6 +84,12 @@ static bool name_is_local(ConcurrencyCtx *ctx, const char *name) {
         if (ctx->local_names[i] && strcmp(ctx->local_names[i], name) == 0)
             return true;
     }
+    return false;
+}
+
+static bool name_in_range(const char **names, int first, const char *name) {
+    for (int i = first; i < arrlen(names); i++)
+        if (names[i] && name && strcmp(names[i], name) == 0) return true;
     return false;
 }
 
@@ -135,12 +142,15 @@ static void collect_local_names(ConcurrencyCtx *ctx,
 
 #define MAX_SPAWN_CAPTURES 64
 
+static bool method_call_mutates(ConcurrencyCtx *ctx, Iron_MethodCallExpr *mc);
+
 /* Recursively walk a spawn body, recording outer-variable writes and reads. */
 static void collect_spawn_refs(ConcurrencyCtx *ctx, Iron_Node *node) {
     if (!node) return;
 
     /* Bound check: stop collecting if we hit the limit */
-    if (arrlen(ctx->spawn_writes) + arrlen(ctx->spawn_reads) >= MAX_SPAWN_CAPTURES)
+    if (arrlen(ctx->spawn_writes) + arrlen(ctx->spawn_reads) +
+        arrlen(ctx->spawn_mutable_reads) >= MAX_SPAWN_CAPTURES)
         return;
 
     switch ((int)(node->kind)) {
@@ -180,6 +190,10 @@ static void collect_spawn_refs(ConcurrencyCtx *ctx, Iron_Node *node) {
             const char *name = ((Iron_Ident *)node)->name;
             if (name && !name_is_local(ctx, name)) {
                 arrpush(ctx->spawn_reads, name);
+                Iron_Symbol *sym = ((Iron_Ident *)node)->resolved_sym;
+                if (sym && sym->is_mutable &&
+                    !name_in_range(ctx->spawn_mutable_reads, 0, name))
+                    arrpush(ctx->spawn_mutable_reads, name);
             }
             break;
         }
@@ -208,6 +222,10 @@ static void collect_spawn_refs(ConcurrencyCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
+            /* The iterable is evaluated/read by the task too. Omitting it
+             * let `for x in shared_list` borrow a mutable outer list while
+             * the parent resized that list concurrently. */
+            collect_spawn_refs(ctx, fs->iterable);
             if (fs->var_name) arrpush(ctx->local_names, fs->var_name);
             collect_spawn_refs(ctx, fs->body);
             break;
@@ -226,6 +244,13 @@ static void collect_spawn_refs(ConcurrencyCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+            const char *root = expr_ident_name(mc->object);
+            bool on_type = mc->object && mc->object->kind == IRON_NODE_IDENT &&
+                           ((Iron_Ident *)mc->object)->resolved_sym &&
+                           ((Iron_Ident *)mc->object)->resolved_sym->sym_kind == IRON_SYM_TYPE;
+            if (root && !on_type && !name_is_local(ctx, root) &&
+                method_call_mutates(ctx, mc))
+                arrpush(ctx->spawn_writes, root);
             collect_spawn_refs(ctx, mc->object);
             for (int i = 0; i < mc->arg_count; i++) {
                 collect_spawn_refs(ctx, mc->args[i]);
@@ -293,7 +318,8 @@ static bool is_own_element(ConcurrencyCtx *ctx, Iron_Node *n) {
 
 static bool list_method_mutates(const char *m) {
     static const char *const k[] = { "push", "pop", "set", "insert", "remove",
-                                     "clear", "reverse", "sort", NULL };
+                                     "clear", "reverse", "sort", "take",
+                                     "set_unchecked", NULL };
     for (int i = 0; k[i]; i++) if (m && strcmp(m, k[i]) == 0) return true;
     return false;
 }
@@ -303,7 +329,7 @@ static bool method_call_mutates(ConcurrencyCtx *ctx, Iron_MethodCallExpr *mc) {
     Iron_Type *t = mc->object ? ((Iron_ExprNode *)mc->object)->resolved_type : NULL;
     if (!t || !mc->method) return false;
     if (t->kind == IRON_TYPE_ARRAY) return list_method_mutates(mc->method);
-    if (t->kind != IRON_TYPE_OBJECT || !t->object.decl || !ctx->program) return false;
+    if (t->kind != IRON_TYPE_OBJECT || !t->object.decl) return false;
     const char *tn = t->object.decl->name;
     /* Mutex / Channel / RWLock operations synchronize: they are the way to
      * share state across iterations. */
@@ -311,6 +337,13 @@ static bool method_call_mutates(ConcurrencyCtx *ctx, Iron_MethodCallExpr *mc) {
                strcmp(tn, "Channel") == 0 || strcmp(tn, "RWLock") == 0 ||
                strcmp(tn, "RWReadGuard") == 0 || strcmp(tn, "RWWriteGuard") == 0))
         return false;
+    if (tn && strcmp(tn, "Map") == 0)
+        return strcmp(mc->method, "put") == 0 || strcmp(mc->method, "remove") == 0 ||
+               strcmp(mc->method, "clear") == 0;
+    if (tn && strcmp(tn, "Set") == 0)
+        return strcmp(mc->method, "add") == 0 || strcmp(mc->method, "remove") == 0 ||
+               strcmp(mc->method, "clear") == 0;
+    if (!ctx->program) return false;
     for (int i = 0; i < ctx->program->decl_count; i++) {
         Iron_Node *d = ctx->program->decls[i];
         if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
@@ -712,6 +745,7 @@ static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
             int saved_local_count  = arrlen(ctx->local_names);
             int saved_write_count  = arrlen(ctx->spawn_writes);
             int saved_read_count   = arrlen(ctx->spawn_reads);
+            int saved_mutable_read_count = arrlen(ctx->spawn_mutable_reads);
 
             ctx->in_spawn = true;
 
@@ -736,10 +770,28 @@ static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
                 emit_warn(ctx, IRON_WARN_SPAWN_DATA_RACE, ss->span, msg);
             }
 
+            /* A task that only reads a mutable outer binding can still race:
+             * the parent continues immediately after spawn and may resize or
+             * overwrite it before await. Warn at capture time, just as for a
+             * write capture. Skip names already reported as task writes. */
+            for (int r = saved_mutable_read_count;
+                 r < arrlen(ctx->spawn_mutable_reads); r++) {
+                const char *name = ctx->spawn_mutable_reads[r];
+                if (name_in_range(ctx->spawn_writes, saved_write_count, name))
+                    continue;
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "spawn block '%s' reads mutable outer variable '%s'; "
+                         "the parent may mutate it concurrently",
+                         ss->name ? ss->name : "<anonymous>", name);
+                emit_warn(ctx, IRON_WARN_SPAWN_DATA_RACE, ss->span, msg);
+            }
+
             /* Restore state */
             arrsetlen(ctx->local_names,  saved_local_count);
             arrsetlen(ctx->spawn_writes, saved_write_count);
             arrsetlen(ctx->spawn_reads,  saved_read_count);
+            arrsetlen(ctx->spawn_mutable_reads, saved_mutable_read_count);
             ctx->in_spawn = prev_in_spawn;
             break;
         }
@@ -1071,6 +1123,7 @@ void iron_concurrency_check(Iron_Program *program, Iron_Scope *global_scope,
     ctx.in_spawn     = false;
     ctx.spawn_writes = NULL;
     ctx.spawn_reads  = NULL;
+    ctx.spawn_mutable_reads = NULL;
     ctx.cancel_flag  = cancel_flag;
     ctx.par_loop_var = NULL;
     ctx.program      = program;
@@ -1101,4 +1154,5 @@ void iron_concurrency_check(Iron_Program *program, Iron_Scope *global_scope,
     arrfree(ctx.local_names);
     arrfree(ctx.spawn_writes);
     arrfree(ctx.spawn_reads);
+    arrfree(ctx.spawn_mutable_reads);
 }

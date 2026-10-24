@@ -22,6 +22,7 @@ if(NOT WIN32)
     )
     set_tests_properties(test_v4_migrated_from_v3 PROPERTIES
         LABELS "v4-acceptance;phase35-invariant"
+        PROCESSORS 2
         ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}"
     )
 endif()

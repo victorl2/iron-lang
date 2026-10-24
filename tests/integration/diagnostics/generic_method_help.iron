@@ -1,0 +1,29 @@
+-- Diagnostics on instances of generic methods name the method as declared
+-- and do not suggest `readonly` for a return type a readonly method
+-- cannot have.
+object Holder {
+    val n: Int
+    func pick[T](a: T, b: T) -> T {
+        return b
+    }
+}
+
+object Picker {
+    val n: Int
+    readonly func choose[T](a: T, b: T) -> T {
+        return b
+    }
+}
+
+func twice(x: Int) -> Int {
+    return x * 2
+}
+
+func main() {
+    val h = Holder(1)
+    val p = h.pick[Int](1, 2)
+    val h2 = Holder(2)
+    val f = h2.pick[func(Int) -> Int](twice, twice)
+    val c = Picker(3)
+    val g = c.choose[func(Int) -> Int](twice, twice)
+}

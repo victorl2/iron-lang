@@ -40,6 +40,12 @@ typedef struct Iron_JsonTape {
     int64_t offset;
 } Iron_JsonTape;
 
+/* The deepest nesting any parse accepts, whatever limit is asked for.
+ * Dropping a Json tree recurses once per level (about 80 bytes of stack
+ * each); 4096 levels stay far inside the smallest stack an Iron program
+ * runs on (the 1 MiB main thread on Windows). */
+#define IRON_JSON_MAX_DEPTH 4096
+
 /* Parse `text` (strict RFC 8259). On failure `error` is an IRON_ERR_JSON_*
  * code, the lists are empty and line/column (1-based, column in characters)
  * and offset (0-based byte) locate the problem. */

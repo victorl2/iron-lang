@@ -140,6 +140,7 @@ static void pool_queue_grow(Iron_Pool *pool) {
 /* Worker thread entry point (fixed-size pools) */
 static void *pool_worker(void *arg) {
     Iron_Pool *pool = (Iron_Pool *)arg;
+    iron_thread_set_name("iron pool");
 
     for (;;) {
         IRON_MUTEX_LOCK(pool->lock);
@@ -161,8 +162,9 @@ static void *pool_worker(void *arg) {
 
         IRON_MUTEX_UNLOCK(pool->lock);
 
-        /* Execute the work item */
+        /* Execute the work item (a named task renames the thread) */
         item.fn(item.arg);
+        iron_thread_set_name("iron pool");
         if (item.wait) {
             /* Treat ordinary submit on fixed pool as "worker finished the
              * work item" from the wait's perspective. NULL result since
@@ -505,6 +507,7 @@ static void pool_spawn_elastic_worker_locked(Iron_Pool *pool) {
  * and self-retires on IRON_TIMEDWAIT_EXPIRED with an empty queue. */
 static void *pool_worker_elastic(void *arg) {
     Iron_Pool *pool = (Iron_Pool *)arg;
+    iron_thread_set_name("iron pool");
 
     for (;;) {
         IRON_MUTEX_LOCK(pool->lock);
@@ -576,8 +579,9 @@ static void *pool_worker_elastic(void *arg) {
 
         IRON_MUTEX_UNLOCK(pool->lock);
 
-        /* Execute the work item */
+        /* Execute the work item (a named task renames the thread) */
         item.fn(item.arg);
+        iron_thread_set_name("iron pool");
         if (item.wait) {
             Iron_poolwait_worker_finish(item.wait, NULL, NULL);
         }
@@ -1014,6 +1018,7 @@ Iron_Mutex *Iron_mutex_create(void *initial_value, size_t size) {
     }
     IRON_MUTEX_INIT(m->lock);
     IRON_ATOMIC_U64_INIT(m->refs, 1);
+    m->holder = 0;
     return m;
 }
 
@@ -1034,11 +1039,13 @@ bool iron_shared_release(iron_atomic_u64 *refs) {
 void *Iron_mutex_lock(Iron_Mutex *m) {
     if (!m) return NULL;
     IRON_MUTEX_LOCK(m->lock);
+    m->holder = iron_thread_os_id();
     return m->value;
 }
 
 void Iron_mutex_unlock(Iron_Mutex *m) {
     if (!m) return;
+    m->holder = 0;
     IRON_MUTEX_UNLOCK(m->lock);
 }
 

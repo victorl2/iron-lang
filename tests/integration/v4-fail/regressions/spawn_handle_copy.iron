@@ -1,0 +1,6 @@
+-- @expected-error: E0286
+func main() {
+    val handle = spawn("worker") { return 1 }
+    val copied = handle
+    println("{await copied} {await handle}")
+}

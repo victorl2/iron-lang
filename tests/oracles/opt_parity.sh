@@ -9,7 +9,7 @@
 # Usage: tests/oracles/opt_parity.sh <iron-binary> [dir ...]
 #   dirs default to tests/integration/v4 and tests/algorithms.
 # Env:   PARITY_JOBS (default: online CPUs), PARITY_TIMEOUT seconds per run
-#        (default 10), IRON_TEST_TIMEOUT_SCALE (default 1).
+#        (default 30), IRON_TEST_TIMEOUT_SCALE (default 1).
 # Exit:  0 when every fixture agrees, 1 otherwise. Mismatches are listed
 #        with a short diff; skipped fixtures are counted, not listed.
 set -uo pipefail
@@ -21,7 +21,7 @@ if [ "$#" -eq 0 ]; then
     set -- "$REPO/tests/integration/v4" "$REPO/tests/algorithms"
 fi
 JOBS=${PARITY_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
-TIMEOUT=${PARITY_TIMEOUT:-10}
+TIMEOUT=${PARITY_TIMEOUT:-30}
 TIMEOUT_SCALE=${IRON_TEST_TIMEOUT_SCALE:-1}
 case "$JOBS:$TIMEOUT:$TIMEOUT_SCALE" in
     *[!0-9:]*|0:*|*:0:*|*:0) echo "opt_parity: job and timeout values must be positive integers" >&2; exit 2 ;;

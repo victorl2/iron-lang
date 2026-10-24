@@ -87,7 +87,7 @@ static Iron_Span mk_span(uint32_t line, uint32_t col,
 }
 
 static Iron_Diagnostic mk_diag(int code, Iron_Span span, const char *msg) {
-    Iron_Diagnostic d;
+    Iron_Diagnostic d = {0};
     d.level         = IRON_DIAG_ERROR;
     d.code          = code;
     d.span          = span;

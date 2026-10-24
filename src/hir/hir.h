@@ -224,6 +224,11 @@ typedef struct {
     bool        is_mutable;  /* var vs val */
     bool        has_init;    /* false for a bare `var g: T` declaration */
     Iron_Span   span;        /* declaration site */
+    /* A `val` whose initializer is constant data (a scalar literal, or a
+     * list / fixed array / bounded vector literal of them): the literal,
+     * emitted as the static's `const` initializer instead of an assignment
+     * in __iron_module_init. NULL otherwise. */
+    struct IronHIR_Expr *const_init;
 } IronHIR_Global;
 
 /* Match arm: pattern + guard + body block */
@@ -573,6 +578,12 @@ struct IronHIR_Expr {
 
 struct IronHIR_Func {
     const char        *name;
+    /* A spawned task's body: the `spawn("name")` name, given to its thread. */
+    const char        *task_name;
+    /* ...and where it was spawned: the spawn statement and the function
+     * around it (the debugger shows them under the task's stack). */
+    Iron_Span          spawn_span;
+    const char        *spawn_parent;
     Iron_Type         *return_type;
     IronHIR_Param     *params;         /* stb_ds array */
     int                param_count;

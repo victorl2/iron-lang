@@ -1,0 +1,6 @@
+-- @expected-error: E0202
+func main() {
+    if [1] {
+        println("unreachable")
+    }
+}

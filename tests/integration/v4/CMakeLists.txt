@@ -3,6 +3,8 @@
 # arena scenario. Phase 15 baseline = 0% PASS (every fixture XFAIL because
 # no v4 implementation exists yet). Each subsequent phase increases the pass
 # count by >= N (N set per phase based on the corpus subset that phase enables).
+find_package(Python3 COMPONENTS Interpreter QUIET)
+
 if(NOT WIN32)
     # Independent serial shards let CTest show corpus progress and name the
     # failing slice. CTest supplies the parallelism, so each shard runs one
@@ -62,6 +64,19 @@ if(NOT WIN32)
     endif()
 endif()
 
+# Generated C of byte scanning loops and constant tables (#658): inline
+# len() and String byte accessors, unsigned bounds checks, static const
+# tables.
+if(NOT WIN32)
+    add_test(
+        NAME test_codegen_byte_loops_smoke
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/codegen_byte_loops_smoke.sh
+                ${CMAKE_BINARY_DIR}/ironc
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(test_codegen_byte_loops_smoke PROPERTIES LABELS "integration")
+endif()
+
 # Phase 35 MIG-09: migrated-from-v3/ subdir hosts the hand-migrated v3 corpus.
 add_subdirectory(migrated-from-v3)
 
@@ -95,13 +110,24 @@ if(NOT WIN32)
                 TIMEOUT 7200)
         endif()
     endforeach()
+
+    if(Python3_EXECUTABLE)
+        add_test(
+            NAME test_oracle_ctest_scheduling
+            COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/test_oracle_ctest_scheduling.py
+                    ${CMAKE_BINARY_DIR}
+        )
+        set_tests_properties(test_oracle_ctest_scheduling PROPERTIES
+            LABELS "oracle;invariant"
+            TIMEOUT 180)
+    endif()
 endif()
 
 # Crypto cross-check: the crypto and encoding modules against Python's
 # hashlib, hmac, base64 and (when installed) cryptography on a few thousand
 # random inputs with a fresh seed each run (printed on failure).
 if(NOT WIN32)
-    find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_FOUND)
         add_test(
             NAME test_crypto_crosscheck
