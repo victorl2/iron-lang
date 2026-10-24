@@ -266,6 +266,7 @@ pub object Gauges {
     pub val connections_expired: Int
     pub val rates_age_ms: Int
     pub val rates_count: Int
+    pub val report_cache_rows: Int
     pub val breaker_open: Bool
 }
 
@@ -343,6 +344,8 @@ pub func render_metrics(set: rc MetricsSet, gauges: Gauges, now_ms: Int) -> Stri
     out.push("inventory_rates_age_seconds {gauges.rates_age_ms / 1000}")
     out.push("# TYPE inventory_rates_currencies gauge")
     out.push("inventory_rates_currencies {gauges.rates_count}")
+    out.push("# TYPE inventory_report_cache_rows gauge")
+    out.push("inventory_report_cache_rows {gauges.report_cache_rows}")
     out.push("# TYPE inventory_upstream_breaker_open gauge")
     out.push("inventory_upstream_breaker_open {bool_num(gauges.breaker_open)}")
     out.push("")

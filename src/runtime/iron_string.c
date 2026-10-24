@@ -484,6 +484,9 @@ Iron_List_Iron_String iron_runtime_args(void) {
 void iron_runtime_init(int argc, char **argv) {
     s_iron_argc = argc;
     s_iron_argv = argv;
+    /* glibc otherwise creates up to eight arenas per CPU. Configure its
+     * bounded default before the runtime creates any worker threads. */
+    iron_allocator_init();
     iron__ensure_intern_lock();
     IRON_MUTEX_LOCK(s_intern_lock);
     if (s_intern_table == NULL) {
