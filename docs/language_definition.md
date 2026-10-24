@@ -2739,20 +2739,25 @@ func main() {
 `comptime expr` evaluates `expr` while compiling and replaces it with the
 resulting constant. The evaluator handles integer, float and boolean
 literals and arithmetic (`+ - * / %`, comparisons, `==` and `!=`, unary
-`-` and `not`), string literals, list literals and indexing, object
+`-` and `not`), the bitwise operators and shifts (`& | ^ ~ << >>`), the
+numeric conversions (`UInt64(x)`, `Int8(x)`, `Float(n)`, ...), string
+literals, list literals and indexing, object
 construction, the built-ins `len`, `range`, `fill` and `read_file(path)`
 (which reads a file relative to the source file and yields its contents),
 and calls to top-level functions whose bodies use only `val`, `var`,
 assignment, `if`, `while`, `for` and `return` over those values. The
-evaluation computes what the same call computes at run time: Int
-arithmetic wraps, and `fill` makes independent copies. An object is
+evaluation computes what the same call computes at run time: integer
+arithmetic wraps at the width of its type, unsigned values compare and
+divide as unsigned, a shift by the width or more gives 0 (or the sign for
+`>>` of a signed value), a float converted to an integer saturates, and
+`fill` makes independent copies. An object is
 built at compile time only when it has no `init` (positional
 construction). Method calls, field access, string concatenation,
-interpolation, bitwise operators and shifts, conversions such as
-`Float(n)`, reading a global, `break` and `continue`, lambdas, `match`,
+interpolation, reading a global, `break` and `continue`, lambdas, `match`,
 enum values, and `heap` or `rc` allocation are not available at compile
 time (`E0231`); an error while evaluating, such as an integer division by
-zero or an index out of range, is `E0232` (a float divided by zero is an
+zero, a shift by a negative count or an index out of range, is `E0232`
+(a float divided by zero is an
 infinity or NaN, as at run time). Evaluation is limited to one million
 steps and to calls nested 256 deep (`E0230`). The result is typically
 bound to a global `val`.

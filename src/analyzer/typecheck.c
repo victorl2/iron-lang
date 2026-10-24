@@ -1048,6 +1048,9 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t);
 static bool fold_constant_u64(const Iron_Node *node, unsigned long long *out, int depth);
 static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *init_t,
                                      const Iron_Node *init_node);
+static bool try_get_constant_int(Iron_Node *node, long long *out);
+static bool is_integer_kind(const Iron_Type *t);
+static bool array_lit_elems_fit(TypeCtx *ctx, Iron_Type *elem, Iron_ArrayLit *al);
 
 /* `[T; <=N]` initialized with a list literal: the literal becomes the
  * bounded vector (it used to stay a dynamic list, so `= []` emitted a list
@@ -1074,6 +1077,33 @@ static Iron_Type *type_bounded_vector_literal(TypeCtx *ctx, Iron_Type *decl_type
             if (!et || !types_assignable(decl_type->array.elem, et)) return init_type;
         }
         ial->resolved_type = decl_type;
+        return decl_type;
+    }
+    /* `val xs: [UInt8] = [1, 2]`: integer (and float) literal elements take
+     * the list's element type, as they do for `[T; N]`, `[T; <=N]` and
+     * `xs.push(1)` (#676). */
+    if (decl_type->kind == IRON_TYPE_ARRAY && !decl_type->array.is_bounded &&
+        decl_type->array.size < 0 && decl_type->array.elem &&
+        init_type->kind == IRON_TYPE_ARRAY && init_type->array.elem &&
+        init_type->array.size < 0 && !init_type->array.is_bounded &&
+        !types_assignable(decl_type, init_type)) {
+        Iron_ArrayLit *dal = (Iron_ArrayLit *)init;
+        Iron_Type *delem = decl_type->array.elem;
+        bool narrowed = false;
+        for (int i = 0; i < dal->element_count; i++) {
+            Iron_Node *e = dal->elements[i];
+            Iron_Type *et = e ? ((Iron_ExprNode *)e)->resolved_type : NULL;
+            long long cv;
+            if (!et || et->kind == IRON_TYPE_ERROR) return init_type;
+            if (is_int_literal_narrowing(delem, et, e)) narrowed = true;
+            else if (et->kind == IRON_TYPE_INT && is_integer_kind(delem) &&
+                     try_get_constant_int(e, &cv)) narrowed = true;  /* out of range */
+            else if (!types_assignable(delem, et)) return init_type;
+        }
+        if (!narrowed) return init_type;
+        if (!array_lit_elems_fit(ctx, delem, dal))
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+        dal->resolved_type = decl_type;
         return decl_type;
     }
     if (decl_type->kind != IRON_TYPE_ARRAY || !decl_type->array.is_bounded)
@@ -1843,6 +1873,28 @@ static bool literal_range_error(TypeCtx *ctx, const Iron_Type *decl_t,
     emit_error(ctx, IRON_ERR_TYPE_MISMATCH_LITERAL, init_node->span, msg,
                "use a value within the type's range or a wider type");
     return true;
+}
+
+/* The elements of a literal that initializes an array of `elem`: a literal
+ * element takes `elem` (int literal narrowing), one out of its range is
+ * E0292 and any other element that is not an `elem` is E0202, each at the
+ * element. Returns false when it reported an error (#677). */
+static bool array_lit_elems_fit(TypeCtx *ctx, Iron_Type *elem, Iron_ArrayLit *al) {
+    bool ok = true;
+    for (int i = 0; elem && i < al->element_count; i++) {
+        Iron_Node *e = al->elements[i];
+        Iron_Type *et = e ? ((Iron_ExprNode *)e)->resolved_type : NULL;
+        if (!et || et->kind == IRON_TYPE_ERROR || elem->kind == IRON_TYPE_ERROR) continue;
+        if (is_int_literal_narrowing(elem, et, e)) {
+            ((Iron_ExprNode *)e)->resolved_type = elem;
+            continue;
+        }
+        if (types_assignable(elem, et)) continue;
+        if (!literal_range_error(ctx, elem, et, e))
+            emit_type_mismatch_maybe_literal(ctx, e->span, elem, et, e);
+        ok = false;
+    }
+    return ok;
 }
 
 /* The value of an integer constant expression: a literal, or literals
@@ -7864,6 +7916,16 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                          * line 1407 above, so this just fetches the resolved type. */
                         Iron_Type *arg_type = check_expr_with_expected(
                             ctx, mc->args[0], arr_type->array.elem);
+                        /* `xs.push(1)` on a [UInt8]: the literal takes the
+                         * element type, as an argument does (#676). */
+                        if (arg_type && is_int_literal_narrowing(
+                                arr_type->array.elem, arg_type, mc->args[0])) {
+                            ((Iron_ExprNode *)mc->args[0])->resolved_type = arr_type->array.elem;
+                            arg_type = arr_type->array.elem;
+                        } else if (arg_type && literal_range_error(
+                                       ctx, arr_type->array.elem, arg_type, mc->args[0])) {
+                            arg_type = arr_type->array.elem;   /* reported */
+                        }
                         if (arg_type &&
                             !push_type_compatible(arr_type->array.elem, arg_type)) {
                             /* iron_type_to_string returns "<object>" / "<interface>"
@@ -8474,6 +8536,11 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 if (ext_result == NULL && strcmp(mc->method, "push") == 0 &&
                     mc->arg_count == 1 && obj_type_mc->array.elem) {
                     Iron_Type *arg_type = check_expr(ctx, mc->args[0]);
+                    if (arg_type && is_int_literal_narrowing(
+                            obj_type_mc->array.elem, arg_type, mc->args[0])) {
+                        ((Iron_ExprNode *)mc->args[0])->resolved_type = obj_type_mc->array.elem;
+                        arg_type = obj_type_mc->array.elem;
+                    }
                     if (arg_type &&
                         !push_type_compatible(obj_type_mc->array.elem, arg_type)) {
                         const char *expected_s = type_display_name(
@@ -10375,8 +10442,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                              * declared type. Left as dynamic [T], the binding
                              * and the literal disagreed downstream (returning
                              * it was an internal return-type error, assigning
-                             * it across an if an internal PHI error). */
-                            al->resolved_type = decl_type;
+                             * it across an if an internal PHI error). Its
+                             * elements must be T's (#677). */
+                            if (array_lit_elems_fit(ctx, decl_type->array.elem, al))
+                                al->resolved_type = decl_type;
                         }
                         /* If count matches, suppress the generic E0202: the literal is valid. */
                     } else {
@@ -13418,7 +13487,24 @@ static void check_top_level_binding_init(TypeCtx *ctx, Iron_Type *decl_type,
     if (decl_type->kind == IRON_TYPE_ARRAY && decl_type->array.size >= 0 &&
         !decl_type->array.is_bounded && init->kind == IRON_NODE_ARRAY_LIT) {
         Iron_ArrayLit *al = (Iron_ArrayLit *)init;
-        if (al->element_count == decl_type->array.size) return;
+        if (al->element_count == decl_type->array.size) {
+            /* The literal is this [T; N] value (as for a local binding):
+             * left as a dynamic [T], the global's initializer assigned a
+             * list to the array (#675). */
+            if (array_lit_elems_fit(ctx, decl_type->array.elem, al))
+                al->resolved_type = decl_type;
+            return;
+        }
+        char msg[256];
+        snprintf(msg, sizeof(msg),
+                 "array literal has %d element(s) but '[%s; %d]' requires exactly %d",
+                 al->element_count,
+                 decl_type->array.elem
+                     ? iron_type_to_string(decl_type->array.elem, ctx->arena) : "?",
+                 decl_type->array.size, decl_type->array.size);
+        emit_error(ctx, IRON_ERR_VEC_STRICT_LENGTH_MISMATCH, init->span, msg,
+                   "give exactly N elements, or use a bounded vector [T; <=N] to hold fewer");
+        return;
     }
     emit_type_mismatch_maybe_literal(ctx, init->span, decl_type, init_type,
                                      init);
@@ -13719,12 +13805,15 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         if (decl->kind == IRON_NODE_VAL_DECL) {
             Iron_ValDecl *vd = (Iron_ValDecl *)decl;
             /* The annotation is the initializer's expected type, as for a
-             * local binding: `var g: [T] = []` had no element type to
-             * infer (E0229) and a literal ignored the annotated layout. */
+             * local binding: an empty list takes its element type, and a
+             * fixed-array or bounded-vector literal keeps that layout
+             * instead of becoming a list (#675). */
             Iron_Type *ann_type = vd->type_ann
                 ? resolve_type_annotation(&ctx, vd->type_ann) : NULL;
             Iron_Type *init_type = NULL;
             if (vd->init) init_type = check_expr_with_expected(&ctx, vd->init, ann_type);
+            if (ann_type && init_type && vd->init)
+                init_type = type_bounded_vector_literal(&ctx, ann_type, init_type, vd->init);
             Iron_Type *decl_type = vd->type_ann ? ann_type : init_type;
             vd->declared_type = decl_type;
             /* B9 soundness fix: check the initializer against an explicit
@@ -13739,12 +13828,15 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         } else if (decl->kind == IRON_NODE_VAR_DECL) {
             Iron_VarDecl *vd = (Iron_VarDecl *)decl;
             /* The annotation is the initializer's expected type, as for a
-             * local binding: `var g: [T] = []` had no element type to
-             * infer (E0229) and a literal ignored the annotated layout. */
+             * local binding: an empty list takes its element type, and a
+             * fixed-array or bounded-vector literal keeps that layout
+             * instead of becoming a list (#675). */
             Iron_Type *ann_type = vd->type_ann
                 ? resolve_type_annotation(&ctx, vd->type_ann) : NULL;
             Iron_Type *init_type = NULL;
             if (vd->init) init_type = check_expr_with_expected(&ctx, vd->init, ann_type);
+            if (ann_type && init_type && vd->init)
+                init_type = type_bounded_vector_literal(&ctx, ann_type, init_type, vd->init);
             Iron_Type *decl_type = vd->type_ann ? ann_type : init_type;
             vd->declared_type = decl_type;
             /* B9 soundness fix: same annotation-vs-initializer check. */

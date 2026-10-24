@@ -6731,12 +6731,66 @@ static bool var_is_capture(HIR_to_LIR_Ctx *ctx, IronHIR_VarId vid) {
  * silent for balanced programs. Reuses the standard scope-exit drop pump:
  * entries are pushed in DECLARATION order and emit_drop_entries_at_depth
  * walks them LIFO. */
+/* One scalar of a constant global initializer (see IronHIR_Global.const_init). */
+static IronLIR_GConst gconst_from_hir(const IronHIR_Expr *e) {
+    IronLIR_GConst c;
+    memset(&c, 0, sizeof c);
+    bool neg = false;
+    if (e->kind == IRON_HIR_EXPR_UNOP && e->unop.op == IRON_HIR_UNOP_NEG) {
+        neg = true;
+        e = e->unop.operand;
+    }
+    switch ((int)e->kind) {
+    case IRON_HIR_EXPR_INT_LIT:
+        c.kind = IRON_LIR_GCONST_INT;
+        c.i = neg ? (int64_t)(0u - (uint64_t)e->int_lit.value) : e->int_lit.value;
+        c.f = (double)c.i;
+        break;
+    case IRON_HIR_EXPR_FLOAT_LIT:
+        c.kind = IRON_LIR_GCONST_FLOAT;
+        c.f = neg ? -e->float_lit.value : e->float_lit.value;
+        break;
+    case IRON_HIR_EXPR_BOOL_LIT:
+        c.kind = IRON_LIR_GCONST_BOOL;
+        c.i = e->bool_lit.value ? 1 : 0;
+        break;
+    default:
+        c.kind = IRON_LIR_GCONST_STRING;
+        c.s = e->string_lit.value ? e->string_lit.value : "";
+        break;
+    }
+    return c;
+}
+
+static void global_const_to_lir(HIR_to_LIR_Ctx *ctx, const IronHIR_Global *hg,
+                                IronLIR_Global *lg) {
+    lg->is_const = false;
+    lg->const_vals = NULL;
+    lg->const_count = 0;
+    const IronHIR_Expr *e = hg->const_init;
+    if (!e) return;
+    bool agg = e->kind == IRON_HIR_EXPR_ARRAY_LIT;
+    int n = agg ? e->array_lit.element_count : 1;
+    IronLIR_GConst *v = NULL;
+    if (n > 0) {
+        v = (IronLIR_GConst *)iron_arena_alloc(ctx->lir_arena,
+                (size_t)n * sizeof(IronLIR_GConst), _Alignof(IronLIR_GConst));
+        if (!v) iron_oom_abort("hir_to_lir.c:global_const_to_lir");
+        for (int i = 0; i < n; i++)
+            v[i] = gconst_from_hir(agg ? e->array_lit.elements[i] : e);
+    }
+    lg->is_const = true;
+    lg->const_vals = v;
+    lg->const_count = n;
+}
+
 static void synthesize_module_deinit(HIR_to_LIR_Ctx *ctx) {
     IronHIR_Module *hir = ctx->hir;
     if (!hir->globals || hir->global_count == 0) return;
     bool need = false;
     for (int i = 0; i < hir->global_count; i++) {
-        if (global_needs_cleanup(ctx, hir->globals[i].type)) { need = true; break; }
+        if (!hir->globals[i].const_init &&
+            global_needs_cleanup(ctx, hir->globals[i].type)) { need = true; break; }
     }
     if (!need) return;
 
@@ -6758,7 +6812,8 @@ static void synthesize_module_deinit(HIR_to_LIR_Ctx *ctx) {
     Iron_Span span0 = {0};
     for (int i = 0; i < hir->global_count; i++) {
         IronHIR_Global *g = &hir->globals[i];
-        if (!global_needs_cleanup(ctx, g->type)) continue;
+        /* Constant data is static: nothing was allocated, nothing to drop. */
+        if (g->const_init || !global_needs_cleanup(ctx, g->type)) continue;
         IronLIR_ValueId slot = get_global_slot(ctx, g);
         IronLIR_DropEntry de = { slot, g->type, false, false, NULL, false };
         arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
@@ -6817,6 +6872,7 @@ IronLIR_Module *iron_hir_to_lir(IronHIR_Module *hir, Iron_Program *program,
             lg[gi].name       = hir->globals[gi].name;
             lg[gi].type       = hir->globals[gi].type;
             lg[gi].is_mutable = hir->globals[gi].is_mutable;
+            global_const_to_lir(&ctx, &hir->globals[gi], &lg[gi]);
         }
         lir_module->globals      = lg;
         lir_module->global_count = hir->global_count;

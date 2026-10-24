@@ -19,6 +19,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include <errno.h>
 
 #include "util/pthread_compat.h"
 /* WR-10: <sys/stat.h> and <errno.h> were only needed by the
@@ -217,65 +218,123 @@ static void eval_stmt(Iron_ComptimeCtx *ctx, Iron_Node *node);
 
 /* ── Expression evaluator ────────────────────────────────────────────────── */
 
+/* ── Integer widths ──────────────────────────────────────────────────────
+ * Comptime integers are carried in an int64_t; the expression's resolved
+ * type gives the width and signedness, so every operation wraps, compares,
+ * divides and shifts as the same operation does at run time (manual 2.7):
+ * a value of a narrower type is kept sign- or zero-extended from its width,
+ * a UInt64 keeps its bit pattern. */
+
+static Iron_Type *ct_type(Iron_Node *n) {
+    return n ? ((Iron_ExprNode *)n)->resolved_type : NULL;
+}
+
+/* Bits of integer type `t` (64 for anything that is not a narrower
+ * integer type) and whether it is unsigned. */
+static int ct_int_width(const Iron_Type *t, bool *uns) {
+    *uns = false;
+    if (!t) return 64;
+    switch ((int)t->kind) {
+    case IRON_TYPE_INT8:   return 8;
+    case IRON_TYPE_INT16:  return 16;
+    case IRON_TYPE_INT32:  return 32;
+    case IRON_TYPE_UINT8:  *uns = true; return 8;
+    case IRON_TYPE_UINT16: *uns = true; return 16;
+    case IRON_TYPE_UINT32: *uns = true; return 32;
+    case IRON_TYPE_UINT:
+    case IRON_TYPE_UINT64: *uns = true; return 64;
+    default:               return 64;
+    }
+}
+
+static bool ct_is_int_type(const Iron_Type *t) {
+    return t && iron_type_is_integer(t);
+}
+
+/* `v` reduced to the width of `t`: what a C cast to that type gives. */
+static int64_t ct_wrap(int64_t v, const Iron_Type *t) {
+    bool uns;
+    int w = ct_int_width(t, &uns);
+    if (w >= 64) return v;
+    uint64_t m = (UINT64_C(1) << w) - 1;
+    uint64_t x = (uint64_t)v & m;
+    if (!uns && (x >> (w - 1))) x |= ~m;
+    return (int64_t)x;
+}
+
 /* Apply a non-short-circuit binary operator to two evaluated operands.
- * Shared by binary expressions and compound assignment (`x op= v`). */
+ * Shared by binary expressions and compound assignment (`x op= v`).
+ * `res_t` is the result type (a shift's left operand type), `opnd_t` the
+ * operands' type (for comparisons, division and shifts). */
 static Iron_ComptimeVal *eval_binary_vals(Iron_ComptimeCtx *ctx, Iron_OpKind op,
                                           Iron_ComptimeVal *lv, Iron_ComptimeVal *rv,
-                                          Iron_Node *node) {
+                                          Iron_Node *node, Iron_Type *res_t,
+                                          Iron_Type *opnd_t) {
     /* Integer arithmetic */
     if (lv->kind == IRON_CVAL_INT && rv->kind == IRON_CVAL_INT) {
+        bool uns;
+        (void)ct_int_width(ct_is_int_type(opnd_t) ? opnd_t : res_t, &uns);
+        Iron_Type *rt = ct_is_int_type(res_t) ? res_t : NULL;
+        uint64_t a = (uint64_t)lv->as_int, b = (uint64_t)rv->as_int;
         switch (op) {
-            case IRON_TOK_PLUS: {
-                /* FIX-01 rank 14: signed int64_t addition overflow is UB
-                 * under C11 6.5p5. Use __builtin_add_overflow so an
-                 * overflowing comptime expression becomes a diagnostic
-                 * instead of optimizer-dependent behavior. */
-                int64_t result;
-                (void)__builtin_add_overflow(lv->as_int, rv->as_int, &result);  /* wraps */
-                return cval_int(ctx, result);
-            }
-            case IRON_TOK_MINUS: {
-                /* FIX-01 rank 14: signed int64_t subtraction overflow is UB. */
-                int64_t result;
-                (void)__builtin_sub_overflow(lv->as_int, rv->as_int, &result);  /* wraps */
-                return cval_int(ctx, result);
-            }
-            case IRON_TOK_STAR: {
-                /* FIX-01 rank 14: signed int64_t multiplication overflow is UB. */
-                int64_t result;
-                (void)__builtin_mul_overflow(lv->as_int, rv->as_int, &result);  /* wraps */
-                return cval_int(ctx, result);
-            }
+            /* + - * wrap at the type's width, as at run time. */
+            case IRON_TOK_PLUS:  return cval_int(ctx, ct_wrap((int64_t)(a + b), rt));
+            case IRON_TOK_MINUS: return cval_int(ctx, ct_wrap((int64_t)(a - b), rt));
+            case IRON_TOK_STAR:  return cval_int(ctx, ct_wrap((int64_t)(a * b), rt));
             case IRON_TOK_SLASH:
+            case IRON_TOK_PERCENT: {
+                bool div = op == IRON_TOK_SLASH;
                 if (rv->as_int == 0) {
                     emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                               "comptime: division by zero");
+                               div ? "comptime: division by zero"
+                                   : "comptime: modulo by zero");
                     return cval_null(ctx);
                 }
-                /* FIX-01 rank 14: INT64_MIN / -1 is also UB (C11 6.5.5p6). */
+                if (uns) return cval_int(ctx, ct_wrap((int64_t)(div ? a / b : a % b), rt));
+                /* INT64_MIN / -1 wraps (and % gives 0), as at run time. */
                 if (lv->as_int == INT64_MIN && rv->as_int == -1)
-                    return cval_int(ctx, INT64_MIN);   /* wraps, as at run time */
-                return cval_int(ctx, lv->as_int / rv->as_int);
-            case IRON_TOK_PERCENT:
-                if (rv->as_int == 0) {
+                    return cval_int(ctx, div ? INT64_MIN : 0);
+                return cval_int(ctx, ct_wrap(div ? lv->as_int / rv->as_int
+                                                 : lv->as_int % rv->as_int, rt));
+            }
+            case IRON_TOK_EQUALS:     return cval_bool(ctx, a == b);
+            case IRON_TOK_NOT_EQUALS: return cval_bool(ctx, a != b);
+            case IRON_TOK_LESS:       return cval_bool(ctx, uns ? a <  b : lv->as_int <  rv->as_int);
+            case IRON_TOK_GREATER:    return cval_bool(ctx, uns ? a >  b : lv->as_int >  rv->as_int);
+            case IRON_TOK_LESS_EQ:    return cval_bool(ctx, uns ? a <= b : lv->as_int <= rv->as_int);
+            case IRON_TOK_GREATER_EQ: return cval_bool(ctx, uns ? a >= b : lv->as_int >= rv->as_int);
+            case IRON_TOK_AMP:   return cval_int(ctx, ct_wrap((int64_t)(a & b), rt));
+            case IRON_TOK_PIPE:  return cval_int(ctx, ct_wrap((int64_t)(a | b), rt));
+            case IRON_TOK_CARET: return cval_int(ctx, ct_wrap((int64_t)(a ^ b), rt));
+            case IRON_TOK_SHL:
+            case IRON_TOK_SHR: {
+                /* A shift has the type of its left operand. A count of its
+                 * width or more gives 0 for << and the sign (0 or -1) for
+                 * >>; a negative count is a panic at run time (manual 2.7). */
+                bool luns;
+                int w = ct_int_width(rt, &luns);
+                bool cuns;
+                Iron_Type *ct = (node && node->kind == IRON_NODE_BINARY)
+                    ? ct_type(((Iron_BinaryExpr *)node)->right) : NULL;
+                (void)ct_int_width(ct, &cuns);
+                if (!cuns && rv->as_int < 0) {
                     emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                               "comptime: modulo by zero");
+                               "comptime: shift by a negative count");
                     return cval_null(ctx);
                 }
-                /* FIX-01 rank 14: INT64_MIN % -1 is also UB. */
-                if (lv->as_int == INT64_MIN && rv->as_int == -1)
-                    return cval_int(ctx, 0);
-                return cval_int(ctx, lv->as_int % rv->as_int);
-            case IRON_TOK_EQUALS:     return cval_bool(ctx, lv->as_int == rv->as_int);
-            case IRON_TOK_NOT_EQUALS: return cval_bool(ctx, lv->as_int != rv->as_int);
-            case IRON_TOK_LESS:       return cval_bool(ctx, lv->as_int < rv->as_int);
-            case IRON_TOK_GREATER:    return cval_bool(ctx, lv->as_int > rv->as_int);
-            case IRON_TOK_LESS_EQ:    return cval_bool(ctx, lv->as_int <= rv->as_int);
-            case IRON_TOK_GREATER_EQ: return cval_bool(ctx, lv->as_int >= rv->as_int);
-            /* -Wswitch-enum opt-out: int-binop handler only supports
-             * arithmetic + comparison ops; unsupported ops fall
-             * through to the generic "unsupported binary operation"
-             * diagnostic below. */
+                uint64_t m = w >= 64 ? UINT64_MAX : (UINT64_C(1) << w) - 1;
+                if (b >= (uint64_t)w) {
+                    if (op == IRON_TOK_SHL || luns) return cval_int(ctx, 0);
+                    return cval_int(ctx, lv->as_int < 0 ? -1 : 0);
+                }
+                if (op == IRON_TOK_SHL) return cval_int(ctx, ct_wrap((int64_t)(a << b), rt));
+                if (luns) return cval_int(ctx, (int64_t)((a & m) >> b));
+                /* arithmetic: the value is sign-extended from its width */
+                return cval_int(ctx, lv->as_int < 0 ? ~(int64_t)(~a >> b)
+                                                    : (int64_t)(a >> b));
+            }
+            /* -Wswitch-enum opt-out: other operators fall through to the
+             * generic "unsupported binary operation" diagnostic below. */
             default: break;
         }
     }
@@ -322,15 +381,15 @@ static Iron_ComptimeVal *eval_binary_vals(Iron_ComptimeCtx *ctx, Iron_OpKind op,
     }
 
     {
-        /* Bitwise operators, shifts and string concatenation or comparison
-         * are not available at compile time (manual 8): E0231. */
+        /* String concatenation or comparison and operators on mixed
+         * operands are not available at compile time (manual 8): E0231. */
         bool on_strings = lv->kind == IRON_CVAL_STRING || rv->kind == IRON_CVAL_STRING;
         emit_error_help(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
                         on_strings
                             ? "comptime: string operators are not available at compile time"
                             : "comptime: this operator is not available at compile time",
-                        "compile-time evaluation covers + - * / %, comparisons, and, or "
-                        "and not on numbers and booleans");
+                        "compile-time evaluation covers + - * / %, comparisons, "
+                        "& | ^ ~ << >>, and, or and not on numbers and booleans");
     }
     return cval_null(ctx);
 }
@@ -523,7 +582,11 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
             Iron_IntLit *lit = (Iron_IntLit *)node;
             int64_t v = 0;
             if (lit->value) {
+                errno = 0;
                 v = (int64_t)strtoll(lit->value, NULL, 10);
+                /* A UInt64 literal above the largest Int: its bit pattern. */
+                if (errno == ERANGE && lit->value[0] != '-')
+                    v = (int64_t)strtoull(lit->value, NULL, 10);
             }
             return cval_int(ctx, v);
         }
@@ -601,7 +664,8 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
             if (ctx->had_error) return cval_null(ctx);
             Iron_ComptimeVal *rv = iron_comptime_eval_expr(ctx, bin->right);
             if (ctx->had_error) return cval_null(ctx);
-            return eval_binary_vals(ctx, bin->op, lv, rv, node);
+            return eval_binary_vals(ctx, bin->op, lv, rv, node, bin->resolved_type,
+                                    ct_type(bin->left));
         }
 
         /* ── Unary expression ───────────────────────────────────────────── */
@@ -611,7 +675,19 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
             Iron_ComptimeVal *operand = iron_comptime_eval_expr(ctx, un->operand);
             if (ctx->had_error) return cval_null(ctx);
 
+            if (un->op == IRON_TOK_TILDE && operand->kind == IRON_CVAL_INT) {
+                Iron_Type *ut = ct_is_int_type(un->resolved_type) ? un->resolved_type
+                                                                  : ct_type(un->operand);
+                return cval_int(ctx, ct_wrap(~operand->as_int, ut));
+            }
             if (un->op == IRON_TOK_MINUS) {
+                bool neg_uns;
+                if (operand->kind == IRON_CVAL_INT &&
+                    ct_is_int_type(un->resolved_type) &&
+                    ct_int_width(un->resolved_type, &neg_uns) < 64) {
+                    return cval_int(ctx, ct_wrap((int64_t)(0u - (uint64_t)operand->as_int),
+                                                 un->resolved_type));
+                }
                 if (operand->kind == IRON_CVAL_INT) {
                     /* FIX-01 rank 15: negation of INT64_MIN is undefined
                      * behavior (C11 6.5.3.3p3) because INT64_MAX cannot
@@ -729,12 +805,50 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                 return comptime_read_file(ctx, node, path_val->as_string.data);
             }
 
-            /* Int(x), Float(x) and the other conversions are not in the
-             * compile-time subset (manual 8). */
+            /* Numeric conversions compute what they compute at run time:
+             * integer to integer keeps the low bits of the target width (a C
+             * cast), integer to float rounds, float to integer saturates (NaN
+             * gives 0, manual 2.9), Float32 rounds to single precision. */
             if (call->is_primitive_cast) {
+                Iron_Type *to = call->resolved_type;
+                Iron_ComptimeVal *v = call->arg_count == 1
+                    ? iron_comptime_eval_expr(ctx, call->args[0]) : NULL;
+                if (ctx->had_error) return cval_null(ctx);
+                Iron_Type *from = call->arg_count == 1 ? ct_type(call->args[0]) : NULL;
+                bool from_uns;
+                (void)ct_int_width(from, &from_uns);
+                if (v && to && ct_is_int_type(to) && v->kind == IRON_CVAL_INT)
+                    return cval_int(ctx, ct_wrap(v->as_int, to));
+                if (v && to && ct_is_int_type(to) && v->kind == IRON_CVAL_FLOAT) {
+                    bool tuns;
+                    int w = ct_int_width(to, &tuns);
+                    double f = v->as_float;
+                    if (f != f) return cval_int(ctx, 0);
+                    if (tuns) {
+                        double hi = w >= 64 ? 18446744073709551615.0
+                                            : (double)((UINT64_C(1) << w) - 1);
+                        if (f <= 0.0) return cval_int(ctx, 0);
+                        if (f >= hi) return cval_int(ctx, w >= 64 ? (int64_t)UINT64_MAX
+                                                                  : (int64_t)((UINT64_C(1) << w) - 1));
+                        return cval_int(ctx, (int64_t)(uint64_t)f);
+                    }
+                    double lo = w >= 64 ? -9223372036854775808.0 : -(double)(INT64_C(1) << (w - 1));
+                    double hi = w >= 64 ? 9223372036854775807.0 : (double)((INT64_C(1) << (w - 1)) - 1);
+                    if (f <= lo) return cval_int(ctx, w >= 64 ? INT64_MIN : -(INT64_C(1) << (w - 1)));
+                    if (f >= hi) return cval_int(ctx, w >= 64 ? INT64_MAX : (INT64_C(1) << (w - 1)) - 1);
+                    return cval_int(ctx, (int64_t)f);
+                }
+                if (v && to && (to->kind == IRON_TYPE_FLOAT || to->kind == IRON_TYPE_FLOAT64 ||
+                                to->kind == IRON_TYPE_FLOAT32) &&
+                    (v->kind == IRON_CVAL_INT || v->kind == IRON_CVAL_FLOAT)) {
+                    double f = v->kind == IRON_CVAL_FLOAT ? v->as_float
+                             : from_uns ? (double)(uint64_t)v->as_int : (double)v->as_int;
+                    if (to->kind == IRON_TYPE_FLOAT32) f = (double)(float)f;
+                    return cval_float(ctx, f);
+                }
                 emit_error_help(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
-                                "comptime: conversions are not available at compile time",
-                                "compute with one numeric type");
+                                "comptime: this conversion is not available at compile time",
+                                "compile-time conversions cover the integer and float types");
                 return cval_null(ctx);
             }
 
@@ -1041,7 +1155,8 @@ static void eval_stmt(Iron_ComptimeCtx *ctx, Iron_Node *node) {
                 if (ctx->had_error) break;
                 if (as->op != IRON_TOK_ASSIGN) {
                     val = eval_binary_vals(ctx, comptime_compound_base_op(as->op),
-                                           arr->as_array.elems[idx->as_int], val, node);
+                                           arr->as_array.elems[idx->as_int], val, node,
+                                           ct_type(as->target), ct_type(as->target));
                     if (ctx->had_error) break;
                 }
                 arr->as_array.elems[idx->as_int] = val;
@@ -1064,7 +1179,8 @@ static void eval_stmt(Iron_ComptimeCtx *ctx, Iron_Node *node) {
                 Iron_ComptimeVal *cur = iron_comptime_eval_expr(ctx, as->target);
                 if (ctx->had_error) break;
                 val = eval_binary_vals(ctx, comptime_compound_base_op(as->op),
-                                       cur, val, node);
+                                       cur, val, node,
+                                       ct_type(as->target), ct_type(as->target));
                 if (ctx->had_error) break;
             }
             if (as->target->kind == IRON_NODE_IDENT) {

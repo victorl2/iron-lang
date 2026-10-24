@@ -729,10 +729,31 @@ struct IronLIR_Func {
  * emits one file-scope `static <ctype> Iron_g_<name>;` per entry (zero-
  * initialized; real initializers run in `__iron_module_init`, called from
  * the main() wrapper before Iron_main()). Arena-owned plain array. */
+/* One element of a constant global initializer (see IronLIR_Global). */
+typedef enum {
+    IRON_LIR_GCONST_INT,
+    IRON_LIR_GCONST_FLOAT,
+    IRON_LIR_GCONST_BOOL,
+    IRON_LIR_GCONST_STRING
+} IronLIR_GConstKind;
+
+typedef struct {
+    IronLIR_GConstKind kind;
+    int64_t            i;   /* INT (bit pattern for UInt64), BOOL */
+    double             f;   /* FLOAT */
+    const char        *s;   /* STRING, NUL-terminated UTF-8 */
+} IronLIR_GConst;
+
 typedef struct {
     const char *name;
     Iron_Type  *type;
     bool        is_mutable;
+    /* A `val` of constant data: emitted `static const` with its initializer
+     * (const_vals: one scalar, or the elements of a list / fixed array /
+     * bounded vector) and no code in __iron_module_init or the deinit. */
+    bool            is_const;
+    IronLIR_GConst *const_vals;
+    int             const_count;
 } IronLIR_Global;
 
 /* ── Module ───────────────────────────────────────────────────────────────── */

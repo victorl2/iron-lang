@@ -3854,6 +3854,59 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
+
+/* ── Constant global initializers ────────────────────────────────────────── */
+
+static bool const_scalar_type(const Iron_Type *t) {
+    if (!t) return false;
+    if (iron_type_is_integer(t)) return true;
+    switch ((int)t->kind) {
+    case IRON_TYPE_FLOAT: case IRON_TYPE_FLOAT32: case IRON_TYPE_FLOAT64:
+    case IRON_TYPE_BOOL: case IRON_TYPE_STRING:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool const_scalar_expr(const IronHIR_Expr *e, const Iron_Type *t) {
+    if (!e || !t) return false;
+    if (e->kind == IRON_HIR_EXPR_UNOP && e->unop.op == IRON_HIR_UNOP_NEG && e->unop.operand)
+        e = e->unop.operand;
+    switch ((int)e->kind) {
+    case IRON_HIR_EXPR_INT_LIT:
+        return iron_type_is_integer(t) || t->kind == IRON_TYPE_FLOAT ||
+               t->kind == IRON_TYPE_FLOAT32 || t->kind == IRON_TYPE_FLOAT64;
+    case IRON_HIR_EXPR_FLOAT_LIT: {
+        /* A NaN or an infinity (a comptime result) keeps the run-time
+         * initializer, which spells them the way the rest of the C does. */
+        double f = e->float_lit.value;
+        if (f != f || f > 1.7976931348623157e308 || f < -1.7976931348623157e308)
+            return false;
+        return t->kind == IRON_TYPE_FLOAT || t->kind == IRON_TYPE_FLOAT32 ||
+               t->kind == IRON_TYPE_FLOAT64;
+    }
+    case IRON_HIR_EXPR_BOOL_LIT:   return t->kind == IRON_TYPE_BOOL;
+    case IRON_HIR_EXPR_STRING_LIT: return t->kind == IRON_TYPE_STRING && e->string_lit.value;
+    default: return false;
+    }
+}
+
+/* Whether a global `val` of type `t` initialized with `e` is constant data:
+ * a scalar literal, or a literal list / fixed array / bounded vector of
+ * scalar literals. Such a global becomes `static const` initialized data. */
+static bool global_init_is_const(const IronHIR_Expr *e, const Iron_Type *t) {
+    if (!e || !t) return false;
+    if (const_scalar_type(t)) return const_scalar_expr(e, t);
+    if (t->kind != IRON_TYPE_ARRAY || !const_scalar_type(t->array.elem)) return false;
+    if (e->kind != IRON_HIR_EXPR_ARRAY_LIT) return false;
+    if (t->array.size >= 0 && e->array_lit.element_count > t->array.size) return false;
+    if (t->array.size < 0 && t->array.is_bounded) return false;
+    for (int i = 0; i < e->array_lit.element_count; i++)
+        if (!const_scalar_expr(e->array_lit.elements[i], t->array.elem)) return false;
+    return true;
+}
+
 /* ── Pass 2.5: synthesize __iron_module_init + publish module globals ────── */
 
 /* Builds the module initializer function for every ACTIVE (referenced)
@@ -3905,6 +3958,8 @@ static void synthesize_module_init_hir(IronHIR_LowerCtx *ctx) {
 
     /* name -> 1 once its assignment (or lack thereof) has been synthesized */
     struct { char *key; int value; } *emitted = NULL;
+    /* name -> constant initializer of a constant-data `val` */
+    struct { char *key; IronHIR_Expr *value; } *const_inits = NULL;
     /* decl-order indices of init-bearing assignments already in the body,
      * ascending — parallel to the body's statement order */
     int *emitted_decl_idx = NULL;
@@ -3930,6 +3985,12 @@ static void synthesize_module_init_hir(IronHIR_LowerCtx *ctx) {
             /* May activate more globals (fixed point) and queue lambda
              * lifts (processed by pass 3, which runs after this). */
             IronHIR_Expr *init_e = lower_expr_hir(ctx, init_ast);
+            /* Constant data: initialized statically, no assignment (so it
+             * also holds its value before __iron_module_init runs). */
+            if (decl->kind == IRON_NODE_VAL_DECL && global_init_is_const(init_e, gtype)) {
+                shput(const_inits, (char *)nm, init_e);
+                continue;
+            }
             IronHIR_Expr *target = make_global_ident(ctx, nm, gtype, gspan);
             IronHIR_Stmt *as     = iron_hir_stmt_assign(mod, target, init_e,
                                                         gspan);
@@ -3965,7 +4026,7 @@ static void synthesize_module_init_hir(IronHIR_LowerCtx *ctx) {
         if (shgeti(ctx->global_active_set, ctx->global_decl_order[di]) >= 0)
             count++;
     }
-    if (count == 0) return;
+    if (count == 0) { shfree(const_inits); return; }
     IronHIR_Global *globals = (IronHIR_Global *)iron_arena_alloc(
         mod->arena, (size_t)count * sizeof(IronHIR_Global),
         _Alignof(IronHIR_Global));
@@ -3983,8 +4044,13 @@ static void synthesize_module_init_hir(IronHIR_LowerCtx *ctx) {
         globals[gi].is_mutable = (decl->kind == IRON_NODE_VAR_DECL);
         globals[gi].has_init   = (vd->init != NULL);
         globals[gi].span       = vd->span;
+        {
+            ptrdiff_t ci = shgeti(const_inits, nm);
+            globals[gi].const_init = ci >= 0 ? const_inits[ci].value : NULL;
+        }
         gi++;
     }
+    shfree(const_inits);
     mod->globals      = globals;
     mod->global_count = gi;
 }

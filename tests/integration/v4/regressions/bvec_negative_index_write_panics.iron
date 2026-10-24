@@ -1,0 +1,12 @@
+-- @expect-panic: index: -1 is negative, bound: 1
+-- A write through a negative index into a bounded vector must panic: the
+-- signed check let it through and the store overwrote the vector's length
+-- (#674).
+func main() {
+    var b: [Int; <=4] = []
+    b.push(5)
+    var k = 0
+    k -= 1
+    b[k] = 7
+    println("not reached {b.len()}")
+}

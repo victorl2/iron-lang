@@ -1137,6 +1137,117 @@ static const char *emit_global_static_name(EmitCtx *ctx, const char *name) {
     return s;
 }
 
+/* A C string literal of `s` (Iron decodes escapes, so `s` holds raw bytes). */
+static void emit_c_string_literal(Iron_StrBuf *sb, const char *s, size_t n) {
+    iron_strbuf_appendf(sb, "\"");
+    for (size_t i = 0; i < n; i++) {
+        unsigned char ch = (unsigned char)s[i];
+        switch (ch) {
+            case '\n': iron_strbuf_appendf(sb, "\\n");  break;
+            case '\r': iron_strbuf_appendf(sb, "\\r");  break;
+            case '\t': iron_strbuf_appendf(sb, "\\t");  break;
+            case '\\': iron_strbuf_appendf(sb, "\\\\"); break;
+            case '"':  iron_strbuf_appendf(sb, "\\\""); break;
+            case '?':  iron_strbuf_appendf(sb, "\\?");  break;  /* no trigraphs */
+            default:
+                if (ch < 0x20 || ch == 0x7f) iron_strbuf_appendf(sb, "\\%03o", ch);
+                else iron_strbuf_appendf(sb, "%c", (int)ch);
+                break;
+        }
+    }
+    iron_strbuf_appendf(sb, "\"");
+}
+
+/* The C constant for one element of a constant global of Iron type `t`. */
+static void emit_gconst_value(Iron_StrBuf *sb, EmitCtx *ctx, const Iron_Type *t,
+                              const IronLIR_GConst *c) {
+    switch (c->kind) {
+    case IRON_LIR_GCONST_BOOL:
+        iron_strbuf_appendf(sb, "%s", c->i ? "true" : "false");
+        return;
+    case IRON_LIR_GCONST_STRING: {
+        /* An Iron_String constant: inline (SSO) up to 23 bytes, otherwise a
+         * heap string marked interned (never counted, never freed) that
+         * points at static bytes. */
+        size_t n = strlen(c->s);
+        if (n <= 23) {
+            iron_strbuf_appendf(sb, "{ .sso = { .data = ");
+            emit_c_string_literal(sb, c->s, n);
+            iron_strbuf_appendf(sb, ", .len = %zu } }", n);
+        } else {
+            uint32_t cp = 0;
+            for (size_t i = 0; i < n; i++)
+                if (((unsigned char)c->s[i] & 0xC0) != 0x80) cp++;
+            iron_strbuf_appendf(sb, "{ .heap = { .data = (char *)");
+            emit_c_string_literal(sb, c->s, n);
+            iron_strbuf_appendf(sb, ", .byte_length = %zuu, .codepoint_count = %uu, "
+                                    ".flags = 0x03 } }", n, cp);
+        }
+        return;
+    }
+    case IRON_LIR_GCONST_FLOAT:
+    case IRON_LIR_GCONST_INT:
+        break;
+    }
+    const char *ct = emit_type_to_c(t, ctx);
+    if (t->kind == IRON_TYPE_FLOAT || t->kind == IRON_TYPE_FLOAT32 ||
+        t->kind == IRON_TYPE_FLOAT64) {
+        double f = c->kind == IRON_LIR_GCONST_FLOAT ? c->f : (double)c->i;
+        iron_strbuf_appendf(sb, "(%s)%a", ct, f);   /* hex float: exact */
+        return;
+    }
+    iron_strbuf_appendf(sb, "(%s)UINT64_C(%llu)", ct, (unsigned long long)(uint64_t)c->i);
+}
+
+void emit_module_global_decl(Iron_StrBuf *sb, EmitCtx *ctx, const IronLIR_Global *g) {
+    const char *ct = emit_type_to_c(g->type, ctx);
+    const char *nm = emit_global_static_name(ctx, g->name);
+    if (!g->is_const) {
+        iron_strbuf_appendf(sb, "static %s %s; /* module global '%s' (%s) */\n",
+                            ct, nm, g->name, g->is_mutable ? "var" : "val");
+        return;
+    }
+    const Iron_Type *t = g->type;
+    if (t->kind != IRON_TYPE_ARRAY) {
+        iron_strbuf_appendf(sb, "static const %s %s = ", ct, nm);
+        emit_gconst_value(sb, ctx, t, &g->const_vals[0]);
+        iron_strbuf_appendf(sb, "; /* module global '%s' (val, constant) */\n", g->name);
+        return;
+    }
+    const Iron_Type *et = t->array.elem;
+    const char *ect = emit_type_to_c(et, ctx);
+    if (t->array.is_bounded && t->array.size >= 0) {
+        /* Fixed array / bounded vector in its inline form (emit_type_to_c's
+         * test): Iron_BVec { len, data[N] }. */
+        iron_strbuf_appendf(sb, "static const %s %s = { .len = %d, .data = {", ct, nm,
+                            g->const_count);
+        for (int i = 0; i < g->const_count; i++) {
+            iron_strbuf_appendf(sb, i ? ", " : " ");
+            emit_gconst_value(sb, ctx, et, &g->const_vals[i]);
+        }
+        iron_strbuf_appendf(sb, " } }; /* module global '%s' (val, constant) */\n", g->name);
+        return;
+    }
+    /* List: the elements in a static const array, the list header pointing
+     * at them (a `val` list is never grown, shrunk, written or freed). */
+    if (g->const_count > 0) {
+        iron_strbuf_appendf(sb, "static const %s %s__items[%d] = {", ect, nm, g->const_count);
+        for (int i = 0; i < g->const_count; i++) {
+            iron_strbuf_appendf(sb, i ? ", " : " ");
+            emit_gconst_value(sb, ctx, et, &g->const_vals[i]);
+        }
+        iron_strbuf_appendf(sb, " };\n");
+        iron_strbuf_appendf(sb, "static const %s %s = { .items = (%s *)%s__items, "
+                                ".count = %d, .capacity = %d }; "
+                                "/* module global '%s' (val, constant) */\n",
+                            ct, nm, ect, nm, g->const_count, g->const_count, g->name);
+    } else {
+        iron_strbuf_appendf(sb, "static const %s %s = { .items = NULL, .count = 0, "
+                                ".capacity = 0 }; /* module global '%s' (val, constant) */\n",
+                            ct, nm, g->name);
+    }
+}
+
 /* ── Pointer-receiver argument emission ────────────────────────────────────── */
 
 void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
@@ -1822,6 +1933,87 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
     emit_indent(sb, ind);
     iron_strbuf_appendf(sb, "}\n");
+    return true;
+}
+
+/* `s.byte_at(i)`, `s.byte_len()` and `s.len()` on a named string: the
+ * by-address inline accessors of iron_runtime.h, so a scanning loop reads
+ * the string where it lives. The by-value Iron_string_* forms are inline
+ * too, but clang re-materializes the by-value copy on every iteration. A
+ * string operand that is emitted as an expression (inline eligible) is
+ * not an lvalue and keeps the by-value call. */
+static bool emit_inline_string_accessor(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                                        IronLIR_Func *fn, EmitCtx *ctx,
+                                        int ind, bool is_hoisted) {
+    if (instr->call.func_decl || instr->call.arg_count < 1 ||
+        instr->call.self_by_addr) return false;
+    if (!instr->type || instr->type->kind == IRON_TYPE_VOID) return false;
+    IronLIR_ValueId fp = instr->call.func_ptr;
+    if (fp == IRON_LIR_VALUE_INVALID || fp >= (IronLIR_ValueId)arrlen(fn->value_table) ||
+        !fn->value_table[fp] || fn->value_table[fp]->kind != IRON_LIR_FUNC_REF)
+        return false;
+    const char *name = fn->value_table[fp]->func_ref.func_name;
+    if (!name) return false;
+    name = emit_resolve_func_c_name(ctx, name);
+    if (!name) return false;
+    const char *pform = NULL;
+    if (strcmp(name, "Iron_string_byte_at") == 0 && instr->call.arg_count == 2)
+        pform = "iron_string_byte_at_p";
+    else if (strcmp(name, "Iron_string_byte_len") == 0 && instr->call.arg_count == 1)
+        pform = "iron_string_byte_len_p";
+    else if (strcmp(name, "Iron_string_len") == 0 && instr->call.arg_count == 1)
+        pform = "iron_string_len_p";
+    if (!pform) return false;
+    IronLIR_ValueId a0 = instr->call.args[0];
+    Iron_Type *st = emit_get_value_type(fn, a0);
+    if (!st || st->kind != IRON_TYPE_STRING) return false;
+    if (a0 == ctx->force_inline_vid ||
+        (ctx->inline_eligible && hmgeti(ctx->inline_eligible, a0) >= 0) ||
+        iron_vr_get_local_narrowed_type(&ctx->value_range, fn, a0))
+        return false;
+    emit_indent(sb, ind);
+    if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+    emit_val(sb, instr->id);
+    iron_strbuf_appendf(sb, " = %s(&", pform);
+    emit_val(sb, a0);
+    if (instr->call.arg_count == 2) {
+        iron_strbuf_appendf(sb, ", ");
+        emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+    }
+    iron_strbuf_appendf(sb, ");\n");
+    return true;
+}
+
+/* `xs.len()` on a dynamic list: `(int64_t)(<receiver address>)->count`, the
+ * receiver addressed exactly as the out-of-line Iron_List_<T>_len call would
+ * receive it (self_by_addr). Returns false for any other call. */
+static bool emit_inline_list_len(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                                 IronLIR_Func *fn, EmitCtx *ctx,
+                                 int ind, bool is_hoisted) {
+    if (instr->call.arg_count != 1 || !instr->call.self_by_addr ||
+        instr->call.func_decl) return false;
+    if (!instr->type || instr->type->kind == IRON_TYPE_VOID) return false;
+    IronLIR_ValueId fp = instr->call.func_ptr;
+    if (fp == IRON_LIR_VALUE_INVALID || fp >= (IronLIR_ValueId)arrlen(fn->value_table) ||
+        !fn->value_table[fp] || fn->value_table[fp]->kind != IRON_LIR_FUNC_REF)
+        return false;
+    const char *name = fn->value_table[fp]->func_ref.func_name;
+    if (!name || strncmp(name, "Iron_List_", 10) != 0) return false;
+    size_t nl = strlen(name);
+    if (nl < 14 || strcmp(name + nl - 4, "_len") != 0) return false;
+    Iron_Type *rt = emit_get_value_type(fn, instr->call.args[0]);
+    if (!rt || rt->kind != IRON_TYPE_ARRAY || rt->array.is_bounded ||
+        rt->array.size >= 0) return false;
+    /* The C name must be the list type of this receiver, so an object
+     * method that happens to be called Iron_List_..._len never matches. */
+    const char *lt = emit_type_to_c(rt, ctx);
+    if (!lt || strncmp(name, lt, strlen(lt)) != 0 || strlen(lt) + 4 != nl) return false;
+    emit_indent(sb, ind);
+    if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+    emit_val(sb, instr->id);
+    iron_strbuf_appendf(sb, " = (int64_t)(");
+    emit_receiver_addr(sb, fn, ctx, instr->call.args[0], ctx->current_block_id);
+    iron_strbuf_appendf(sb, ")->count;\n");
     return true;
 }
 
@@ -4141,7 +4333,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_indent(sb, ind);
             iron_strbuf_appendf(sb, "%s *", c_type);
             emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = &%s;\n",
+            /* The cast drops the const of a constant-data global (only
+             * read through the alias: a `val` is never assigned). */
+            iron_strbuf_appendf(sb, " = (%s *)&%s;\n", c_type,
                 emit_global_static_name(ctx, instr->alloca.global_name));
             break;
         }
@@ -4976,10 +5170,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                  * the author declared the site unchecked — UNCHK-IDX routes
                  * the latter through IRON_UNCHECKED_IDX below instead). */
                 if (!instr->index.bounds_elide && !instr->index.bounds_unchecked) {
+                /* Unsigned compare: a negative index is out of range too
+                 * (#674), and it is the form clang proves in counted loops. */
                 emit_indent(sb, ind);
-                iron_strbuf_appendf(sb, "if (");
+                iron_strbuf_appendf(sb, "if ((uint64_t)(");
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
-                iron_strbuf_appendf(sb, " >= (int64_t)");
+                iron_strbuf_appendf(sb, ") >= (uint64_t)");
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb,
                     ".len) iron_panic_bvec_oob(IRON_SITE, ");
@@ -5176,9 +5372,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 iron_strbuf_appendf(sb, ";\n");
                 if (!instr->index.bounds_elide && !instr->index.bounds_unchecked) {
                     emit_indent(sb, ind + 1);
-                    iron_strbuf_appendf(sb, "if (");
+                    iron_strbuf_appendf(sb, "if ((uint64_t)(");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, " >= (int64_t)_bv->len) iron_panic_bvec_oob(IRON_SITE, ");
+                    iron_strbuf_appendf(sb, ") >= (uint64_t)_bv->len) iron_panic_bvec_oob(IRON_SITE, ");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ", (int64_t)_bv->len);\n");
                 }
@@ -6503,6 +6699,15 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
             }
         }
+
+        /* `xs.len()` on a dynamic list reads the count field in place
+         * instead of calling the out-of-line Iron_List_<T>_len: an opaque
+         * call in a loop condition makes clang reload and recheck the count
+         * on every iteration and blocks vectorization of
+         * `while i < xs.len() { ... xs[i] ... }`. The receiver expression
+         * is exactly the one the call would have been handed. */
+        if (emit_inline_list_len(sb, instr, fn, ctx, ind, is_hoisted)) break;
+        if (emit_inline_string_accessor(sb, instr, fn, ctx, ind, is_hoisted)) break;
 
         bool is_void = (instr->type == NULL ||
                         instr->type->kind == IRON_TYPE_VOID);
@@ -11730,8 +11935,8 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                     hmput(ctx->phi_hoisted, in->id, true);
                     emit_indent(sb, 1);
                     if (in->alloca.global_name) {
-                        iron_strbuf_appendf(sb, "%s *%s = &%s;\n", c_type,
-                            emit_vname(in->id),
+                        iron_strbuf_appendf(sb, "%s *%s = (%s *)&%s;\n", c_type,
+                            emit_vname(in->id), c_type,
                             emit_global_static_name(ctx, in->alloca.global_name));
                     } else {
                         iron_strbuf_appendf(sb, "%s %s;\n", c_type, emit_vname(in->id));
@@ -11860,8 +12065,8 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                      * must carry the full pointer-alias initializer; the
                      * ALLOCA arm then no-ops on is_hoisted. */
                     if (in->alloca.global_name) {
-                        iron_strbuf_appendf(sb, "%s *%s = &%s;\n", c_type,
-                            emit_vname(in->id),
+                        iron_strbuf_appendf(sb, "%s *%s = (%s *)&%s;\n", c_type,
+                            emit_vname(in->id), c_type,
                             emit_global_static_name(ctx, in->alloca.global_name));
                     } else {
                         iron_strbuf_appendf(sb, "%s %s;\n", c_type, emit_vname(in->id));
@@ -13610,13 +13815,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     for (int gi = 0; gi < module->global_count; gi++) {
         const IronLIR_Global *g = &module->globals[gi];
         if (!g->name) continue;
-        const char *gc_type = emit_type_to_c(g->type, &ctx);
-        iron_strbuf_appendf(&ctx.global_consts,
-                            "static %s %s; /* module global '%s' (%s) */\n",
-                            gc_type,
-                            emit_global_static_name(&ctx, g->name),
-                            g->name,
-                            g->is_mutable ? "var" : "val");
+        emit_module_global_decl(&ctx.global_consts, &ctx, g);
     }
     if (module->global_count > 0) {
         iron_strbuf_appendf(&ctx.global_consts, "\n");
