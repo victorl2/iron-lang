@@ -199,7 +199,10 @@ typedef enum IronLIR_GenSource {
      * to iron_check_arena_pointer_gen (the third isomorphic deref-check
      * sibling). Pitfall 1: an untagged arena ptr would be checked by the heap
      * helper and read garbage. */
-    IRON_LIR_GEN_ARENA
+    IRON_LIR_GEN_ARENA,
+    /* Provenance was erased by storage in a field, closure environment or
+     * parameter.  Runtime dispatch uses the generation tag/range. */
+    IRON_LIR_GEN_DYNAMIC
 } IronLIR_GenSource;
 
 /* ── Instruction (tagged union) ───────────────────────────────────────────── */

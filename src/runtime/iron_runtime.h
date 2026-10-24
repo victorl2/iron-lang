@@ -918,6 +918,23 @@ IRON_CHECK_FN void iron_check_arena_pointer_gen(Iron_FatPtr fp,
     }
 }
 
+/* Checked pointers retain their generation but not a separate provenance
+ * word when stored in fields, closure environments or passed through an
+ * otherwise opaque value.  The generation namespaces are disjoint: stack
+ * generations carry bit 63, heap generations start in the 0x7... range,
+ * and arena generations count upward from 1. */
+IRON_CHECK_FN void iron_check_dynamic_pointer_gen(Iron_FatPtr fp,
+                                                  const char *deref_file,
+                                                  int deref_line) {
+    if (fp.gen & IRON_STACK_TAG) {
+        iron_check_stack_pointer_gen(fp, deref_file, deref_line);
+    } else if (fp.gen >= 0x7000000000000000ULL) {
+        iron_check_pointer_gen(fp, deref_file, deref_line);
+    } else {
+        iron_check_arena_pointer_gen(fp, deref_file, deref_line);
+    }
+}
+
 /* ── Threads, mutexes, condition variables, read-write locks (iron_os.c) ──
  * The handles are opaque storage large enough for the platform primitive
  * (pthread or Win32); iron_os.c checks the sizes with static assertions.

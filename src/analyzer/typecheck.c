@@ -187,6 +187,7 @@ typedef struct {
     const char       **narrow_kills;
     Iron_Program      *program;              /* for method return type lookup */
     SpawnResultEntry  *spawn_result_types;   /* stb_ds map: handle_name -> body return type */
+    int                spawn_body_depth;     /* value returns infer a task result only here */
     MonoRegistryEntry *mono_registry;        /* stb_ds map: mangled_name -> mono Iron_Type* (cycle detection + caching) */
     /* Phase 87-02 SELF-01/02/03: name of the enclosing ObjectDecl when
      * checking a method body or resolving a method's return type. Set at
@@ -481,6 +482,28 @@ static Iron_Symbol *tc_define(TypeCtx *ctx, const char *name, Iron_SymbolKind ki
 /* Look up a symbol in the type-checker's scope chain. */
 static Iron_Symbol *tc_lookup(TypeCtx *ctx, const char *name) {
     return iron_scope_lookup(ctx->current_scope, name);
+}
+
+/* Number of lexical scopes between the current point and the binding named
+ * `name` (0 means the current block). Used to reject storing a pointer to an
+ * inner stack binding in an outer holder. */
+static int tc_scope_distance(TypeCtx *ctx, const char *name) {
+    int distance = 0;
+    if (!name) return -1;
+    for (Iron_Scope *s = ctx->current_scope; s; s = s->parent, distance++) {
+        if (iron_scope_lookup_local(s, name)) return distance;
+    }
+    return -1;
+}
+
+static bool sym_is_heap_binding(const Iron_Symbol *sym) {
+    if (!sym || !sym->decl_node) return false;
+    Iron_Node *init = NULL;
+    if (sym->decl_node->kind == IRON_NODE_VAL_DECL)
+        init = ((Iron_ValDecl *)sym->decl_node)->init;
+    else if (sym->decl_node->kind == IRON_NODE_VAR_DECL)
+        init = ((Iron_VarDecl *)sym->decl_node)->init;
+    return init && init->kind == IRON_NODE_HEAP;
 }
 
 /* A type name where a value goes (`a * Int`, `val t = Int`, `"{String}"`):
@@ -5361,6 +5384,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                "Use explicit cast: Float(x)");
                     result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 } else if (is_comparison) {
+                    bool is_ordered = op == IRON_TOK_LESS || op == IRON_TOK_GREATER ||
+                                      op == IRON_TOK_LESS_EQ || op == IRON_TOK_GREATER_EQ;
                     /* Comparison: operands must be compatible. Allowed:
                      *   - identical types
                      *   - null literal on either side (nullable checks)
@@ -5385,7 +5410,17 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                         lt->kind == IRON_TYPE_NULLABLE ? lt
                         : rt->kind == IRON_TYPE_NULLABLE ? rt : NULL;
                     const Iron_Type *opt_inner = opt_side ? opt_side->nullable.inner : NULL;
-                    if (comparable && opt_side && lt->kind != IRON_TYPE_NULL &&
+                    bool ordered_operands =
+                        (iron_type_is_numeric(lt) && iron_type_is_numeric(rt)) ||
+                        (lt->kind == IRON_TYPE_STRING && rt->kind == IRON_TYPE_STRING);
+                    if (is_ordered && !ordered_operands) {
+                        char msg[512];
+                        snprintf(msg, sizeof(msg),
+                                 "ordered comparison requires numeric operands or two Strings, got '%s' and '%s'",
+                                 iron_type_to_string(lt, ctx->arena),
+                                 iron_type_to_string(rt, ctx->arena));
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, be->span, msg, NULL);
+                    } else if (comparable && opt_side && lt->kind != IRON_TYPE_NULL &&
                         rt->kind != IRON_TYPE_NULL && opt_inner &&
                         opt_inner->kind != IRON_TYPE_PTR && opt_inner->kind != IRON_TYPE_RC &&
                         opt_inner->kind != IRON_TYPE_WEAK_RC) {
@@ -10043,6 +10078,18 @@ static bool type_has_destructor(TypeCtx *ctx, Iron_Type *t, int depth) {
     return false;
 }
 
+static bool is_spawn_handle_expr(TypeCtx *ctx, Iron_Node *node) {
+    if (!node || node->kind != IRON_NODE_IDENT) return false;
+    Iron_Symbol *sym = tc_lookup(ctx, ((Iron_Ident *)node)->name);
+    Iron_Node *decl = sym ? sym->decl_node : NULL;
+    Iron_Node *init = NULL;
+    if (decl && decl->kind == IRON_NODE_VAL_DECL)
+        init = ((Iron_ValDecl *)decl)->init;
+    else if (decl && decl->kind == IRON_NODE_VAR_DECL)
+        init = ((Iron_VarDecl *)decl)->init;
+    return init && init->kind == IRON_NODE_SPAWN;
+}
+
 static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return;
     /* HARD-05: cancel poll at recursive statement walker entry. */
@@ -10139,6 +10186,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     reject_type_as_value(ctx, vd->init);
                     init_type = check_expr_with_expected(ctx, vd->init, decl_type);
                 }
+            }
+
+            if (is_spawn_handle_expr(ctx, vd->init)) {
+                emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, vd->init->span,
+                           "cannot copy a spawn handle",
+                           "a spawn handle owns one join operation; await the original handle once");
             }
 
             if (!decl_type && init_type) {
@@ -10345,6 +10398,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     reject_type_as_value(ctx, vd->init);
                     init_type = check_expr_with_expected(ctx, vd->init, decl_type);
                 }
+            }
+
+            if (is_spawn_handle_expr(ctx, vd->init)) {
+                emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, vd->init->span,
+                           "cannot copy a spawn handle",
+                           "a spawn handle owns one join operation; await the original handle once");
             }
 
             if (!decl_type && init_type) {
@@ -10641,6 +10700,35 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             /* The value is read before the assignment: still narrowed. */
             if (narrowed_to) narrowing_set(ctx, narrowed_name, narrowed_to);
             Iron_Type *value_type  = check_expr_with_expected(ctx, as->value, target_type);
+
+            /* `outer = &inner` must not let a pointer outlive the inner
+             * block. The return-site E0271 check only covered frame escape;
+             * a pointer stored in an outer local survived block exit and read
+             * destroyed stack objects. Heap-rooted addresses are exempt: the
+             * allocation lifetime is checked by its generation metadata. */
+            if (as->value && as->value->kind == IRON_NODE_UNARY && as->target) {
+                Iron_UnaryExpr *ue = (Iron_UnaryExpr *)as->value;
+                if (ue->op == (Iron_OpKind)IRON_TOK_AMP) {
+                    Iron_Symbol *source_sym = iron_walk_to_root_binding(ue->operand);
+                    Iron_Symbol *holder_sym = iron_walk_to_root_binding(as->target);
+                    int source_distance = source_sym
+                        ? tc_scope_distance(ctx, source_sym->name) : -1;
+                    int holder_distance = holder_sym
+                        ? tc_scope_distance(ctx, holder_sym->name) : -1;
+                    if (source_sym && holder_sym && sym_is_stack_local(source_sym) &&
+                        !sym_is_heap_binding(source_sym) && source_distance >= 0 &&
+                        holder_distance > source_distance) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot store reference to stack-local variable '%s' "
+                                 "in an outer scope; the binding does not outlive the pointer",
+                                 source_sym->name ? source_sym->name : "?");
+                        emit_error(ctx, IRON_ERR_PTR_ESCAPE_STACK_REF,
+                                   ue->span, msg,
+                                   "copy the value into the outer scope or allocate it on the heap");
+                    }
+                }
+            }
             if (narrowed_to) {
                 if (value_type && value_type->kind != IRON_TYPE_NULLABLE &&
                     value_type->kind != IRON_TYPE_NULL && value_type->kind != IRON_TYPE_ERROR &&
@@ -11162,6 +11250,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 ret_type = iron_type_make_primitive(IRON_TYPE_VOID);
             }
 
+            if (rs->value && !ctx->current_return_type && ctx->spawn_body_depth == 0 &&
+                !ctx->in_init_method && !ctx->in_drop_method) {
+                emit_error(ctx, IRON_ERR_RETURN_TYPE, rs->span,
+                           "function with no return type cannot return a value",
+                           "declare a return type with `-> T`, or use bare `return`");
+            }
+
             /* Phase 24 (Plan 24-02, CONTEXT Area 5): drop body must not return
              * early — E0288. Check fires BEFORE init checks so a return in a
              * drop body emits one diagnostic, not two. */
@@ -11307,7 +11402,14 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             NarrowEntry *chain_saved = narrowing_copy(ctx);
             int if_kill_mark = narrowing_mark(ctx);
             for (int i = 0; i < n_conds; i++) {
-                check_expr(ctx, conds[i]);
+                Iron_Type *cond_type = check_expr(ctx, conds[i]);
+                if (cond_type && cond_type->kind != IRON_TYPE_BOOL &&
+                    cond_type->kind != IRON_TYPE_ERROR) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, conds[i]->span,
+                               i == 0 ? "if condition must be Bool"
+                                      : "elif condition must be Bool",
+                               NULL);
+                }
                 if (track_init) {
                     shfree(ctx->unassigned_fields);
                     init_unassigned_clone(&ctx->unassigned_fields, pre);
@@ -12176,7 +12278,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 ctx->loop_depth = 0;
                 ctx->defer_depth = 0;
                 ctx->current_return_type = NULL;
+                ctx->spawn_body_depth++;
                 if (ss->body) check_stmt(ctx, ss->body);
+                ctx->spawn_body_depth--;
                 ctx->loop_depth = saved_depth;
                 ctx->defer_depth = saved_defer;
                 ctx->current_return_type = saved_ret;

@@ -4269,7 +4269,11 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (cap->is_heap_handle) {
                     /* heap binding: read the value through the handle */
                     const char *vt = emit_type_to_c(instr->type ? instr->type : cap->type, ctx);
-                    iron_strbuf_appendf(sb, "*((%s *)(%s_e->%s).addr);\n", vt,
+                    iron_strbuf_appendf(sb,
+                        "(iron_check_dynamic_pointer_gen(%s_e->%s, \"<captured heap binding>\", %u), ",
+                        cap->is_mutable ? "*" : "", cap_c_name(cap->name),
+                        (unsigned)instr->span.line);
+                    iron_strbuf_appendf(sb, "*((%s *)(%s_e->%s).addr));\n", vt,
                                         cap->is_mutable ? "*" : "", cap_c_name(cap->name));
                 } else if (cap->is_mutable || cap->is_borrowed) {
                     /* var capture or nocopy borrow: dereference pointer field */
@@ -9610,6 +9614,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 ? "iron_check_stack_pointer_gen"
             : (instr->gencheck.gen_source == IRON_LIR_GEN_ARENA)
                 ? "iron_check_arena_pointer_gen"
+            : (instr->gencheck.gen_source == IRON_LIR_GEN_DYNAMIC)
+                ? "iron_check_dynamic_pointer_gen"
                 : "iron_check_pointer_gen";
         const char *df = instr->span.filename ? instr->span.filename : "<unknown>";
         emit_indent(sb, ind);
