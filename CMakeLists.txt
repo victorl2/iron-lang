@@ -411,6 +411,46 @@ option(IRON_BUILD_LSP "Build ironls (Iron language server)" ON)
 # ── Tests ──────────────────────────────────────────────────────────────────
 enable_testing()
 
+# Keep the committed TIMEOUT values useful as hang detectors on a quiet
+# machine, while allowing a contended CI host to scale every row uniformly.
+# Defining a wrapper at the command boundary avoids scattering arithmetic
+# through hundreds of test declarations. CMake exposes the shadowed built-in
+# command with an underscore prefix.
+set(IRON_TEST_TIMEOUT_SCALE "$ENV{IRON_TEST_TIMEOUT_SCALE}" CACHE STRING
+    "Positive integer multiplier applied to every CTest TIMEOUT")
+if(IRON_TEST_TIMEOUT_SCALE STREQUAL "")
+    set(IRON_TEST_TIMEOUT_SCALE 1 CACHE STRING
+        "Positive integer multiplier applied to every CTest TIMEOUT" FORCE)
+endif()
+
+set(IRON_TEST_JOBS "4" CACHE STRING
+    "Worker budget reserved by internally parallel CTest rows")
+if(NOT IRON_TEST_JOBS MATCHES "^[1-9][0-9]*$")
+    message(FATAL_ERROR "IRON_TEST_JOBS must be a positive integer")
+endif()
+if(NOT IRON_TEST_TIMEOUT_SCALE MATCHES "^[1-9][0-9]*$")
+    message(FATAL_ERROR
+        "IRON_TEST_TIMEOUT_SCALE must be a positive integer; got '${IRON_TEST_TIMEOUT_SCALE}'")
+endif()
+
+function(set_tests_properties)
+    set(_iron_call "_set_tests_properties(")
+    set(_iron_next_is_timeout FALSE)
+    math(EXPR _iron_last_arg "${ARGC} - 1")
+    foreach(_iron_index RANGE ${_iron_last_arg})
+        set(_iron_arg "${ARGV${_iron_index}}")
+        if(_iron_next_is_timeout)
+            math(EXPR _iron_arg "${_iron_arg} * ${IRON_TEST_TIMEOUT_SCALE}")
+            set(_iron_next_is_timeout FALSE)
+        elseif(_iron_arg STREQUAL "TIMEOUT")
+            set(_iron_next_is_timeout TRUE)
+        endif()
+        string(APPEND _iron_call " [==[${_iron_arg}]==]")
+    endforeach()
+    string(APPEND _iron_call ")")
+    cmake_language(EVAL CODE "${_iron_call}")
+endfunction()
+
 # ── /tmp interpreter-hijack canary (2026-07 remediation) ────────────────────
 # ROOT CAUSE (reproduced + proven): ctest resolves a bare `add_test` COMMAND
 # name against the test's WORKING_DIRECTORY *before* falling back to PATH
@@ -1647,12 +1687,48 @@ else()
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 endif()
 if(UNIX)
+    add_test(NAME test_local_ci_contract
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_local_ci_contract.py
+            ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_local_ci_contract PROPERTIES
+        LABELS "unit;ci" TIMEOUT 30)
+
+    add_test(NAME test_v4_sharding
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_v4_sharding.py
+            ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_v4_sharding PROPERTIES
+        LABELS "unit;ci" TIMEOUT 60)
+
+    add_test(NAME test_ctest_with_retry
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_ctest_with_retry.py
+            ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_ctest_with_retry PROPERTIES
+        LABELS "unit;ci" TIMEOUT 60)
+
+    add_test(NAME test_timeout_policy
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_timeout_policy.py
+            ${CMAKE_BINARY_DIR}
+            ${IRON_TEST_TIMEOUT_SCALE})
+    set_tests_properties(test_timeout_policy PROPERTIES
+        LABELS "unit;ci" TIMEOUT 30)
+
     add_test(NAME test_aggregate_scheduling
         COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/ci/test_aggregate_scheduling.py
             ${CMAKE_BINARY_DIR}
             ${CMAKE_SOURCE_DIR}/.github/workflows/v4-acceptance.yml)
     set_tests_properties(test_aggregate_scheduling PROPERTIES
+        LABELS "unit;oracle" TIMEOUT 30)
+
+    add_test(NAME test_opt_parity_scheduling
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ci/test_opt_parity_scheduling.py
+            ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_opt_parity_scheduling PROPERTIES
         LABELS "unit;oracle" TIMEOUT 30)
 
     add_test(NAME benchmark_process_regressions
