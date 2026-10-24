@@ -708,6 +708,40 @@ static void emit_copy_fixup_at(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *src,
         emit_lifecycle_glue_call(ctx, "$copy", slot, span);
 }
 
+/* Heap and arena bindings have a value surface type in HIR but are represented
+ * by Iron_FatPtr in LIR/C.  When such a binding is copied into an ordinary
+ * owner, materialize the pointee through PTR_LOAD so generation validation is
+ * not bypassed and the destination receives T rather than Iron_FatPtr. */
+static bool fat_handle_value_source(HIR_to_LIR_Ctx *ctx, IronLIR_ValueId v,
+                                    IronLIR_GenSource *source) {
+    if (!ctx || !ctx->current_func ||
+        v == IRON_LIR_VALUE_INVALID ||
+        v >= (IronLIR_ValueId)arrlen(ctx->current_func->value_table))
+        return false;
+    IronLIR_Instr *in = ctx->current_func->value_table[v];
+    if (!in) return false;
+    if (in->kind == IRON_LIR_HEAP_ALLOC) {
+        *source = IRON_LIR_GEN_HEAP;
+        return true;
+    }
+    if (in->kind == IRON_LIR_ARENA_ALLOC) {
+        *source = IRON_LIR_GEN_ARENA;
+        return true;
+    }
+    if (in->kind == IRON_LIR_LOAD &&
+        in->load.ptr != IRON_LIR_VALUE_INVALID &&
+        in->load.ptr < (IronLIR_ValueId)arrlen(ctx->current_func->value_table)) {
+        IronLIR_Instr *slot = ctx->current_func->value_table[in->load.ptr];
+        Iron_Type *st = slot && slot->kind == IRON_LIR_ALLOCA
+                        ? slot->alloca.alloc_type : NULL;
+        if (st && st->kind == IRON_TYPE_PTR && !st->ptr.is_unchecked) {
+            *source = IRON_LIR_GEN_DYNAMIC;
+            return true;
+        }
+    }
+    return false;
+}
+
 /* A value about to be owned by a new holder (field, element, return
  * value) that has no slot of its own yet: when it was copied out of a
  * place, spill it, fix the copy up, and hand back the fixed-up value. */
@@ -718,6 +752,13 @@ static IronLIR_ValueId copy_for_new_owner(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *src
      * into an interface (or optional) slot is fixed up as itself and
      * wrapped afterwards. */
     if (src && src->type && src->type->kind == IRON_TYPE_OBJECT) t = src->type;
+    IronLIR_GenSource gen_source = IRON_LIR_GEN_HEAP;
+    if (ctx->current_block && !block_is_terminated(ctx->current_block) &&
+        t && t->kind == IRON_TYPE_OBJECT &&
+        fat_handle_value_source(ctx, v, &gen_source)) {
+        v = iron_lir_ptr_load(ctx->current_func, ctx->current_block,
+                              v, gen_source, t, span)->id;
+    }
     if (!hir_expr_is_place(src) || !type_needs_copy_fixup(t, ctx->program))
         return v;
     if (!ctx->current_block || block_is_terminated(ctx->current_block)) return v;
@@ -2252,22 +2293,26 @@ static const char *emit_type_to_c_name_for_box(HIR_to_LIR_Ctx *ctx,
  * small snapshot integer — so it panics on EVERY arena-pointer deref,
  * valid or stale (the fixture "passed" for the wrong reason; a valid
  * pre-reset deref aborts too). Bounded walk depth guards degenerate chains. */
-static bool lir_value_roots_at_arena(IronLIR_Func *fn, IronLIR_ValueId vid) {
-    for (int depth = 0; depth < 64; depth++) {
+static bool lir_value_roots_at_alloc(IronLIR_Func *fn, IronLIR_ValueId vid,
+                                     IronLIR_InstrKind alloc_kind, int depth) {
+    for (; depth < 64; depth++) {
         if (vid == IRON_LIR_VALUE_INVALID ||
             vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
         IronLIR_Instr *def = fn->value_table[vid];
         if (!def) return false;
         switch ((int)(def->kind)) {
-        case IRON_LIR_ARENA_ALLOC: return true;
+        case IRON_LIR_ARENA_ALLOC:
+        case IRON_LIR_HEAP_ALLOC:
+            return def->kind == alloc_kind;
         case IRON_LIR_ADDR_OF:     vid = def->addr_of.target;  break;
         case IRON_LIR_GET_FIELD:   vid = def->field.object;    break;
         case IRON_LIR_GET_INDEX:   vid = def->index.array;     break;
         case IRON_LIR_PTR_OFFSET:  vid = def->ptr_offset.ptr;  break;
+        case IRON_LIR_PTR_LOAD:    vid = def->ptr_load.fp;     break;
         case IRON_LIR_LOAD: {
-            /* A `var` binding: arena-rooted when every store into its slot
-             * is an arena allocation (`&p` of a `var p = heap(in: a) T()`
-             * was checked as a heap pointer and failed on every deref). */
+            /* A `var` binding has the requested root only when every store
+             * into its slot has that root. This handles both arena and heap
+             * handles, including a fresh allocation stored by reassignment. */
             IronLIR_ValueId slot = def->load.ptr;
             IronLIR_Instr *a = (slot != IRON_LIR_VALUE_INVALID &&
                                 slot < (IronLIR_ValueId)arrlen(fn->value_table))
@@ -2279,11 +2324,9 @@ static bool lir_value_roots_at_arena(IronLIR_Func *fn, IronLIR_ValueId vid) {
                 for (int ii = 0; ii < blk->instr_count; ii++) {
                     IronLIR_Instr *st = blk->instrs[ii];
                     if (!st || st->kind != IRON_LIR_STORE || st->store.ptr != slot) continue;
-                    IronLIR_ValueId sv = st->store.value;
-                    IronLIR_Instr *sd = (sv != IRON_LIR_VALUE_INVALID &&
-                                         sv < (IronLIR_ValueId)arrlen(fn->value_table))
-                                        ? fn->value_table[sv] : NULL;
-                    if (!sd || sd->kind != IRON_LIR_ARENA_ALLOC) return false;
+                    if (!lir_value_roots_at_alloc(fn, st->store.value,
+                                                  alloc_kind, depth + 1))
+                        return false;
                     any = true;
                 }
             }
@@ -2293,6 +2336,14 @@ static bool lir_value_roots_at_arena(IronLIR_Func *fn, IronLIR_ValueId vid) {
         }
     }
     return false;
+}
+
+static bool lir_value_roots_at_arena(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    return lir_value_roots_at_alloc(fn, vid, IRON_LIR_ARENA_ALLOC, 0);
+}
+
+static bool lir_value_roots_at_heap(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    return lir_value_roots_at_alloc(fn, vid, IRON_LIR_HEAP_ALLOC, 0);
 }
 
 /* A T value flowing into a T? slot (binding, assignment, return, argument)
@@ -4316,6 +4367,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * (see lir_value_roots_at_arena above). */
         if (lir_value_roots_at_arena(ctx->current_func, target)) {
             gs = IRON_LIR_GEN_ARENA;
+        } else if (lir_value_roots_at_heap(ctx->current_func, target)) {
+            gs = IRON_LIR_GEN_HEAP;
         }
         return iron_lir_addr_of(ctx->current_func, ctx->current_block,
                                 target, gs, type, span)->id;
@@ -4826,6 +4879,26 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 IronLIR_ValueId slot = (ai >= 0) ? ctx->var_alloca_map[ai].value
                                                  : gslot;
                 Iron_Type *tgt_type = target->type ? target->type : rhs_type;
+                IronLIR_Instr *slot_def =
+                    (slot != IRON_LIR_VALUE_INVALID &&
+                     slot < (IronLIR_ValueId)arrlen(ctx->current_func->value_table))
+                    ? ctx->current_func->value_table[slot] : NULL;
+                IronLIR_Instr *val_def =
+                    (val != IRON_LIR_VALUE_INVALID &&
+                     val < (IronLIR_ValueId)arrlen(ctx->current_func->value_table))
+                    ? ctx->current_func->value_table[val] : NULL;
+                /* A heap/arena binding has value type T in HIR but its slot
+                 * stores the checked Iron_FatPtr handle. Reassignment with a
+                 * fresh allocation must replace that handle directly; copying
+                 * the pointee here produced `Iron_FatPtr = Iron_T` invalid C
+                 * and would discard the generation metadata. */
+                bool replacing_fat_handle =
+                    slot_def && slot_def->kind == IRON_LIR_ALLOCA &&
+                    slot_def->alloca.alloc_type &&
+                    slot_def->alloca.alloc_type->kind == IRON_TYPE_PTR &&
+                    !slot_def->alloca.alloc_type->ptr.is_unchecked &&
+                    val_def && (val_def->kind == IRON_LIR_HEAP_ALLOC ||
+                                val_def->kind == IRON_LIR_ARENA_ALLOC);
                 bool tgt_rc = type_is_rc_like(tgt_type);
                 IronLIR_ValueId old_val = IRON_LIR_VALUE_INVALID;
                 /* A droppable object slot: fix up a copied value for its new
@@ -4833,7 +4906,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                  * fixup runs first, so `x = x` stays balanced). A module
                  * global's first write (from __iron_module_init) replaces a
                  * zeroed static, which is never dropped. */
-                if (!tgt_rc && type_needs_drop(tgt_type, ctx->program)) {
+                if (replacing_fat_handle) {
+                    /* Escape analysis requires the previous allocation to be
+                     * explicitly freed or leaked before reaching this store. */
+                } else if (!tgt_rc && type_needs_drop(tgt_type, ctx->program)) {
                     val = copy_for_new_owner(ctx, stmt->assign.value, val,
                                              tgt_type, span);
                     bool module_init = ctx->current_func && ctx->current_func->name &&
@@ -4845,7 +4921,8 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
                 /* `c = Channel[Int](2)`: the channel, lock or file it
                  * replaces is destroyed (it leaked). */
-                if (!tgt_rc && !(ctx->current_func && ctx->current_func->name &&
+                if (!replacing_fat_handle && !tgt_rc &&
+                    !(ctx->current_func && ctx->current_func->name &&
                                  strcmp(ctx->current_func->name, "__iron_module_init") == 0))
                     emit_resource_destroy(ctx, slot, tgt_type, span);
                 if (tgt_rc) {

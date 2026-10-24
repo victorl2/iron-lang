@@ -1340,7 +1340,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
         Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
         early_nested_list_decls(ctx, f->resolved_type, 0);
         if (ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || ta->is_pointer ||
-            ta->is_tuple || !ta->name ||
+            ta->is_tuple || ta->is_array || !ta->name ||
             (ta->is_array && (ta->bounded || ta->array_size || ta->array_elem_ann ||
                               ta->is_nullable)))
             (void)emit_type_to_c(f->resolved_type, ctx);
@@ -1384,6 +1384,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                 /* (A tuple field has no name: its resolved type spells
                  * Iron_Tuple_..., the annotation path dereferenced NULL.) */
                 if ((ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || iface_list ||
+                     ta->is_array ||
                      ta->is_pointer || ta->is_tuple || !ta->name ||
                      (ta->is_array && ta->is_nullable) ||
                      (ta->is_array && (ta->bounded || ta->array_size || ta->array_elem_ann))) &&

@@ -4566,7 +4566,7 @@ static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
             obj_instr->type && obj_instr->type->kind == IRON_TYPE_PTR &&
             !obj_instr->type->ptr.is_unchecked) {
             *out_ptr = obj;
-            *out_gen = IRON_LIR_GEN_STACK;
+            *out_gen = IRON_LIR_GEN_DYNAMIC;
             return true;
         }
         /* Any other checked pointer whose producer does not say where it
@@ -4581,7 +4581,7 @@ static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
                               ? fn->params[obj - 1].type : NULL;
             if (ot && ot->kind == IRON_TYPE_PTR && !ot->ptr.is_unchecked) {
                 *out_ptr = obj;
-                *out_gen = IRON_LIR_GEN_STACK;
+                *out_gen = IRON_LIR_GEN_DYNAMIC;
                 return true;
             }
         }

@@ -689,17 +689,24 @@ bool iron_type_is_shared_handle(const Iron_Type *t) {
 /* The nocopy object type `t` is or holds by value (through fields, fixed
  * arrays, optionals, tuples and enum payloads), or NULL. A dynamic list is
  * left to the list rule (E0328); rc, weak rc and pointers share. */
-static const Iron_Type *nocopy_part(const Iron_Type *t, int depth) {
-    if (!t || depth > 16) return NULL;
+static const Iron_Type *nocopy_part(const Iron_Type *t,
+                                    const Iron_Type **path, int depth) {
+    if (!t || depth >= 64) return NULL;
+    /* Recursive aggregate types are graphs, not trees.  The old depth limit
+     * expanded every payload branch before reaching depth 16, making enums
+     * such as A(T,T) / B(T,T) exponential. */
+    for (int i = 0; i < depth; i++)
+        if (path[i] == t) return NULL;
+    path[depth] = t;
     switch ((int)t->kind) {
         case IRON_TYPE_NULLABLE:
-            return nocopy_part(t->nullable.inner, depth + 1);
+            return nocopy_part(t->nullable.inner, path, depth + 1);
         case IRON_TYPE_ARRAY:
             if (t->array.size < 0 && !t->array.is_bounded) return NULL;
-            return nocopy_part(t->array.elem, depth + 1);
+            return nocopy_part(t->array.elem, path, depth + 1);
         case IRON_TYPE_TUPLE:
             for (int i = 0; i < t->tuple.elem_count; i++) {
-                const Iron_Type *r = nocopy_part(t->tuple.elem_types[i], depth + 1);
+                const Iron_Type *r = nocopy_part(t->tuple.elem_types[i], path, depth + 1);
                 if (r) return r;
             }
             return NULL;
@@ -710,7 +717,7 @@ static const Iron_Type *nocopy_part(const Iron_Type *t, int depth) {
                 if (!ev || !t->enu.variant_payload_types[v]) continue;
                 for (int k = 0; k < ev->payload_count; k++) {
                     const Iron_Type *r =
-                        nocopy_part(t->enu.variant_payload_types[v][k], depth + 1);
+                        nocopy_part(t->enu.variant_payload_types[v][k], path, depth + 1);
                     if (r) return r;
                 }
             }
@@ -721,7 +728,7 @@ static const Iron_Type *nocopy_part(const Iron_Type *t, int depth) {
             if (od->is_nocopy) return t;
             for (int i = 0; i < od->field_count; i++) {
                 Iron_Field *f = (Iron_Field *)od->fields[i];
-                const Iron_Type *r = f ? nocopy_part(f->resolved_type, depth + 1) : NULL;
+                const Iron_Type *r = f ? nocopy_part(f->resolved_type, path, depth + 1) : NULL;
                 if (r) return r;
             }
             return NULL;
@@ -732,7 +739,8 @@ static const Iron_Type *nocopy_part(const Iron_Type *t, int depth) {
 }
 
 const Iron_Type *iron_type_nocopy_part(const Iron_Type *t) {
-    return nocopy_part(t, 0);
+    const Iron_Type *path[64];
+    return nocopy_part(t, path, 0);
 }
 
 bool iron_type_is_numeric(const Iron_Type *t) {

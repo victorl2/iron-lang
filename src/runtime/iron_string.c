@@ -1026,6 +1026,8 @@ Iron_String Iron_string_repeat(Iron_String self, int64_t n) {
     const char *s   = iron_string_cstr(&self);
     size_t      len = iron_string_byte_len(&self);
     if (n <= 0 || len == 0) return iron_string_from_cstr("", 0);
+    if ((uint64_t)n > (uint64_t)((SIZE_MAX - 1) / len))
+        iron_oom_abort("iron_string.c:Iron_string_repeat");
     size_t total = len * (size_t)n;
     /* FIX-02: replace silent empty-string fallback with iron_oom_abort. */
     char *buf = (char *)malloc(total + 1);
@@ -1052,6 +1054,8 @@ Iron_String Iron_string_pad_left(Iron_String self, int64_t width, Iron_String ch
     /* The result is owned by the caller: hand out a reference of its own. */
     if (chars >= width) { iron_string_retain(&self); return self; }
     size_t pad_count = (size_t)(width - chars);
+    if (pad_count > (SIZE_MAX - 1 - slen) / pn)
+        iron_oom_abort("iron_string.c:Iron_string_pad_left");
     size_t total     = slen + pad_count * pn;
     char *buf = (char *)malloc(total + 1);
     if (!buf) iron_oom_abort("iron_string.c:Iron_string_pad_left");
@@ -1078,6 +1082,8 @@ Iron_String Iron_string_pad_right(Iron_String self, int64_t width, Iron_String c
     /* The result is owned by the caller: hand out a reference of its own. */
     if (chars >= width) { iron_string_retain(&self); return self; }
     size_t pad_count = (size_t)(width - chars);
+    if (pad_count > (SIZE_MAX - 1 - slen) / pn)
+        iron_oom_abort("iron_string.c:Iron_string_pad_right");
     size_t total     = slen + pad_count * pn;
     char *buf = (char *)malloc(total + 1);
     if (!buf) iron_oom_abort("iron_string.c:Iron_string_pad_right");
