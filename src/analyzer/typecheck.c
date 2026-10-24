@@ -4021,6 +4021,20 @@ static const char *params_signature(TypeCtx *ctx, const char *name, Iron_Node **
     return r;
 }
 
+/* A `var` parameter of a method or init takes its argument by reference
+ * (#433), as a free function's does: the argument must be a mutable place
+ * (E0267), which the call mutates. */
+static void check_var_param_arg(TypeCtx *ctx, Iron_Param *pp, Iron_Node *arg) {
+    if (!pp || pp->kind != IRON_NODE_PARAM || !pp->is_var || !arg) return;
+    mark_requires_mutable(ctx, arg);
+    if (arg_source_is_mutable(ctx, arg)) return;
+    char msg[256];
+    snprintf(msg, sizeof(msg), "cannot pass read-only argument to 'var' parameter '%s'",
+             pp->name ? pp->name : "<unnamed>");
+    emit_error(ctx, IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT, arg->span, msg,
+               "make the argument source mutable (declare as 'var')");
+}
+
 /* Check a method call's arguments against the declared parameters
  * params[first..count). Method calls used to skip this entirely:
  * `c.add("x")`, `c.add(1, 2)` and `Math.sqrt("hello")` all type-checked
@@ -4048,6 +4062,10 @@ static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
          * the caller's. */
         const char *saved_enc = ctx->enclosing_type_name;
         if (owner && iron_type_ann_mentions_self(mp->type_ann)) ctx->enclosing_type_name = owner;
+        /* A `var` parameter of a method or init takes its argument by
+         * reference (#433), as a free function's does: the argument must
+         * be a mutable place (E0267), which the call mutates. */
+        check_var_param_arg(ctx, mp, mc->args[i]);
         Iron_Type *pt = resolve_type_annotation(ctx, mp->type_ann);
         ctx->enclosing_type_name = saved_enc;
         Iron_Type *arg_resolved = ((Iron_ExprNode *)mc->args[i])->resolved_type;
@@ -6805,6 +6823,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                 /* The parameter type shapes a literal argument
                                  * (`Grid([1, 2])` for a `[Int; <=4]` field). */
                                 Iron_Type *arg_t = check_expr_with_expected(ctx, ce->args[i], param_t);
+                                check_var_param_arg(ctx, pp, ce->args[i]);
                                 if (arg_t && param_t &&
                                     arg_t->kind   != IRON_TYPE_ERROR &&
                                     param_t->kind != IRON_TYPE_ERROR &&
@@ -8325,6 +8344,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                     ? resolve_type_annotation(ctx, pp->type_ann)
                                     : NULL;
                                 Iron_Type *at = check_expr_with_expected(ctx, mc->args[i], pt);
+                                check_var_param_arg(ctx, pp, mc->args[i]);
                                 if (at && pt &&
                                     at->kind != IRON_TYPE_ERROR &&
                                     pt->kind != IRON_TYPE_ERROR &&
