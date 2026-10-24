@@ -1,0 +1,6 @@
+-- A diagnostic on a line longer than the snippet buffer, whose cut would
+-- fall inside a UTF-8 sequence: the output stays valid UTF-8.
+func main() {
+    val n = Int8(-1) -- 日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日日
+    println("{n}")
+}

@@ -3530,10 +3530,17 @@ static void lower_method_body_hir(IronHIR_LowerCtx *ctx, Iron_MethodDecl *md) {
     if (md->is_init) fn->is_init = true;
     if (md->is_init && fn->param_count > 0 &&
         fn->params[0].name && strcmp(fn->params[0].name, "self") == 0) {
+        /* On the closing `}` (a debugger steps there after the last
+         * statement, not back to the `init` line). */
+        Iron_Span ret_span = md->span;
+        if (md->body && md->body->span.end_line > 0) {
+            ret_span.line = md->body->span.end_line;
+            ret_span.col = md->body->span.end_col;
+        }
         IronHIR_Expr *self_expr = iron_hir_expr_ident(
             ctx->module, fn->params[0].var_id,
-            fn->params[0].name, fn->params[0].type, md->span);
-        IronHIR_Stmt *ret_s = iron_hir_stmt_return(ctx->module, self_expr, md->span);
+            fn->params[0].name, fn->params[0].type, ret_span);
+        IronHIR_Stmt *ret_s = iron_hir_stmt_return(ctx->module, self_expr, ret_span);
         iron_hir_block_add_stmt(fn->body, ret_s);
     }
 
@@ -3718,6 +3725,11 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
                                                           final_params, total_params,
                                                           spawn_ret_ty);
             lifted->body = iron_hir_block_create(mod);
+            if (lp->ast_node && lp->ast_node->kind == IRON_NODE_SPAWN) {
+                lifted->task_name = ((Iron_SpawnStmt *)lp->ast_node)->name;
+                lifted->spawn_span = lp->ast_node->span;
+                lifted->spawn_parent = lp->enclosing_func;
+            }
 
             /* Store capture metadata on the lifted function (same as for lambdas) */
             lifted->captures      = cap_meta;
