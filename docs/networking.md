@@ -1,4 +1,5 @@
 <!-- doctest-imports: http websocket net io -->
+<!-- doctest-build-only: examples require a network peer or listen on a port -->
 # Networking
 
 Iron ships synchronous, deadline-bounded networking layers:

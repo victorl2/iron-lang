@@ -1748,6 +1748,10 @@ endif()
 # baseline covers is no longer covered. Raise the baseline with
 # `scripts/spec_coverage.py --update tests/spec_coverage_baseline.json`.
 if(Python3_EXECUTABLE)
+    add_test(NAME diagnostic_docs
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check_diagnostic_docs.py)
+    set_tests_properties(diagnostic_docs PROPERTIES LABELS "spec" TIMEOUT 30)
+
     add_test(NAME spec_coverage
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/spec_coverage.py
             --check ${CMAKE_SOURCE_DIR}/tests/spec_coverage_baseline.json)

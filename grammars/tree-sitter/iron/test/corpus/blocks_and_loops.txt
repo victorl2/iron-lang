@@ -55,3 +55,28 @@ func main() {
             consequence: (block
               (break_statement)))
           (continue_statement))))))
+
+==========
+parallel loop with an explicit pool expression
+==========
+
+func main() {
+    for x in xs parallel(workers) { println(x) }
+}
+
+---
+
+(source_file
+  (func_declaration
+    (identifier)
+    (parameter_list)
+    (block
+      (for_statement
+        (identifier)
+        (identifier)
+        (identifier)
+        (block
+          (expression_statement
+            (call_expression
+              (identifier)
+              (identifier))))))))
