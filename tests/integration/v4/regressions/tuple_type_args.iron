@@ -1,0 +1,23 @@
+-- A tuple type written as a type argument (#615), also holding a function type.
+func twice(x: Int) -> Int {
+    return x * 2
+}
+func id[T](v: T) -> T {
+    return v
+}
+func main() {
+    val ch = Channel[(Int, String)](2)
+    ch.send((1, "one"))
+    val (a, b) = ch.recv()
+    println("{a} {b}")
+    var m = Map[String, (Int, func(Int) -> Int)]()
+    m.put("t", (3, twice))
+    val (n, f) = m.get("t")
+    println("{f(n)}")
+    val t = id[(Int, Int)]((4, 5))
+    val (x, y) = t
+    println("{x + y}")
+    val g = (1, 2)
+    val (p, q) = g
+    println("{p} {q}")
+}

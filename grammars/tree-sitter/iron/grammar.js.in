@@ -79,6 +79,7 @@ module.exports = grammar({
   // rather than hidden here.
   conflicts: $ => [
     [$._expression, $.generic_expression],
+    [$._handle_type_arguments, $._type],
   ],
 
   // Tokens that look like keywords (`self`, `super`, `true`, `false`, `null`)
@@ -611,14 +612,27 @@ module.exports = grammar({
       ']',
     )),
 
-    // Type arguments on a name: `Map[String, Int]()`, `List[Int?]()`.
+    // Type arguments on a name or a method: `Map[String, Int]()`,
+    // `List[Int?]()`, `Channel[func(Int) -> Int](4)`, `x.m[*T](p)`.
     // `xs[i]` parses both ways; the index reading wins (dynamic precedence),
     // so this node appears only when the brackets hold something an index
-    // cannot (a comma, `?`, an array type).
-    generic_expression: $ => prec.dynamic(-1, seq(
-      field('name', $.identifier),
-      field('type_arguments', $.type_arguments),
-    )),
+    // cannot (a comma, `?`, an array type, a function type without a body,
+    // a pointer type), matching manual section 13.
+    generic_expression: $ => choice(
+      prec.dynamic(-1, seq(
+        field('name', choice($.identifier, $.member_expression)),
+        field('type_arguments', $.type_arguments),
+      )),
+      // Nothing is indexed by an rc or weak rc handle, so brackets that
+      // start with one hold a type (`Box[rc T](v)`), not an rc expression.
+      prec.dynamic(1, seq(
+        field('name', choice($.identifier, $.member_expression)),
+        field('type_arguments', alias($._handle_type_arguments, $.type_arguments)),
+      )),
+    ),
+    _handle_type_arguments: $ => seq(
+      '[', choice($.rc_type, $.weak_rc_type), repeat(seq(',', $._type)), ']',
+    ),
     type_arguments: $ => seq('[', commaSep1($._type), ']'),
 
     slice_expression: $ => prec.left(14, seq(

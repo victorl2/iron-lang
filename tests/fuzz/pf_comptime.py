@@ -6,9 +6,10 @@ global `val` or a local) and called again at run time; both results are
 printed and must be what the model computes. Some programs instead call,
 at compile time, a function that uses a construct section 8 leaves out (a
 method call, field access, string concatenation or interpolation, a
-bitwise operator, a lambda, match, an enum value, a conversion, heap or
-rc, a global, break) and must fail with E0231; others run past the step
-limit (E0230) or divide by zero at compile time (E0232).
+lambda, match, an enum value, heap or rc, a global, break) and must fail
+with E0231; others run past the step limit (E0230), divide by zero or shift
+by a negative count at compile time (E0232). Bitwise operators, shifts and
+conversions are evaluated at compile time (#658).
 
 The model is pf_lang's: Int arithmetic wraps (manual 2.1; compile-time
 evaluation is the same function, so it wraps too), division truncates."""
@@ -420,22 +421,19 @@ class CtGen(Scoped):
         """Replace the program with one whose compile-time call reaches a
         construct section 8 rules out."""
         r = self.r
-        k = r.choice(['method', 'field', 'concat', 'interp', 'bitwise', 'match', 'lambda',
-                      'enum', 'conv', 'heap', 'rc', 'global', 'break', 'steps', 'div0',
-                      'shift', 'not_int'])
+        k = r.choice(['method', 'field', 'concat', 'interp', 'match', 'lambda',
+                      'enum', 'heap', 'rc', 'global', 'break', 'steps', 'div0',
+                      'negshift'])
         body = {
             'method': ['var xs = fill(2, 0)', 'xs.push(n)', 'return len(xs)'],
             'field': ['val p = Pt(n, 2)', 'return p.x'],
             'concat': ['val s = "a" + "b"', 'return len(s) + n'],
             'interp': ['val s = "n={n}"', 'return len(s)'],
-            'bitwise': ['return n & 3'],
-            'shift': ['return n << 2'],
-            'not_int': ['return ~n'],
+            'negshift': ['return 1 << (n - 9)'],
             'match': ['match n {', '    1 -> return 5', '    else -> return 6', '}', 'return 0'],
             'lambda': ['val f = func(x: Int) -> Int { return x + 1 }', 'return f(n)'],
             'enum': ['val c = Shade.Dark', 'if c == Shade.Dark {', '    return 1', '}',
                      'return n'],
-            'conv': ['val f = Float(n)', 'return Int(f)'],
             'heap': ['val h = heap Pt(n, 1)', 'defer free h', 'return n'],
             'rc': ['val h = rc Pt(n, 1)', 'return n'],
             'global': ['return n + BASE'],
@@ -444,7 +442,7 @@ class CtGen(Scoped):
             'steps': ['var i = 0', 'while i < 2000000 {', '    i += 1', '}', 'return i + n'],
             'div0': ['val z = n - n', 'return 10 / z'],
         }[k]
-        codes = {'steps': {'E0230'}, 'div0': {'E0232'}}.get(k, {'E0231'})
+        codes = {'steps': {'E0230'}, 'div0': {'E0232'}, 'negshift': {'E0232'}}.get(k, {'E0231'})
         self.extra = ['enum Shade {', '    Light,', '    Dark,', '}', '', 'val BASE = 7', '']
         lines = ['func bad(n: Int) -> Int {'] + ['    ' + l for l in body] + ['}', '']
         via = r.random() < 0.4

@@ -59,6 +59,19 @@ if(NOT WIN32)
     endif()
 endif()
 
+# Generated C of byte scanning loops and constant tables (#658): inline
+# len() and String byte accessors, unsigned bounds checks, static const
+# tables.
+if(NOT WIN32)
+    add_test(
+        NAME test_codegen_byte_loops_smoke
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/codegen_byte_loops_smoke.sh
+                ${CMAKE_BINARY_DIR}/ironc
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(test_codegen_byte_loops_smoke PROPERTIES LABELS "integration")
+endif()
+
 # Phase 35 MIG-09: migrated-from-v3/ subdir hosts the hand-migrated v3 corpus.
 add_subdirectory(migrated-from-v3)
 

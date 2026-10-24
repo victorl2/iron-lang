@@ -1017,6 +1017,15 @@ add_test(NAME diag_c_logical_operators
         -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/c_logical_operators.expected_help
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/c_logical_operators.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+# Instances of generic methods: named as declared, no readonly hint for a
+# return type a readonly method cannot have.
+add_test(NAME diag_generic_method_help
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/generic_method_help.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/generic_method_help.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/generic_method_help.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 # `//iron:<hint>` compiler hints: unknown or misplaced ones warn (W0617).
 add_test(NAME diag_iron_hints
     COMMAND ${CMAKE_COMMAND}

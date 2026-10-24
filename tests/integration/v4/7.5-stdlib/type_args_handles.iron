@@ -1,0 +1,82 @@
+-- rc, weak rc, pointer and nullable pointer types written as type
+-- arguments (#506): channels, maps, boxes and generic calls.
+object Pt impl Hashable {
+    val x: Int
+    val y: Int
+    pure func hash() -> Int {
+        return self.x * 31 + self.y
+    }
+    pure func equals(other: Hashable) -> Bool {
+        if other is Pt {
+            return self.x == other.x and self.y == other.y
+        }
+        return false
+    }
+}
+
+object Node {
+    val id: Int
+    drop {
+        println("drop node {self.id}")
+    }
+}
+
+object Bag {
+    val n: Int
+    readonly func first[T](a: T, b: T) -> T {
+        return a
+    }
+}
+
+func id[T](v: T) -> T {
+    return v
+}
+
+func main() {
+    val a = rc Node(1)
+    val chs = Channel[rc Node](2)
+    chs.send(a)
+    chs.send(rc Node(2))
+    val got: rc Node = chs.recv()
+    println("rc {got.id}")
+
+    val weaks_ch = Channel[weak rc Node](1)
+    weaks_ch.send(a.downgrade())
+    val w: weak rc Node = weaks_ch.recv()
+    val up = w.upgrade()
+    if up != null {
+        println("weak {up.id}")
+    }
+    val maybe = Channel[rc Node?](1)
+    maybe.send(w.upgrade())
+    val m: rc Node? = maybe.recv()
+    println("nullable {m != null}")
+
+    var byName = Map[String, rc Node]()
+    byName.put("a", a)
+    byName.put("b", rc Node(3))
+    var weaks = Map[String, weak rc Node]()
+    weaks.put("a", a.downgrade())
+    println("maps {byName.get("b").id} {byName.len()} {weaks.len()}")
+
+    var pts = Set[Pt]()
+    val ptc = Channel[Set[Pt]](1)
+    println("set {pts.add(Pt(1, 2))} {pts.len()}")
+
+    var p = Pt(4, 5)
+    val ptrs = Channel[*Pt](1)
+    ptrs.send(&p)
+    val pp: *Pt = ptrs.recv()
+    val q = id[*Pt](&p)
+    val nul = Channel[?*Pt](1)
+    nul.send(null)
+    val np: ?*Pt = nul.recv()
+    println("pointers {pp.x} {q.y} {np == null}")
+
+    val r = id[rc Node](a)
+    val bag = Bag(0)
+    val f = bag.first[rc Node](a, got)
+    val bw = Box[weak rc Node](a.downgrade())
+    val br = Box[rc Node](rc Node(4))
+    println("generic {r.id} {f.id} {bw.is_null()} {br.is_null()}")
+}
