@@ -18,6 +18,23 @@ The `locals` command lists the selected frame's Iron bindings without the
 compiler's temporaries (see iron_variables).
 """
 import lldb
+import re
+
+
+_ENCODED_IRON_NAME = re.compile(r"Iron__id_([0-9a-f]+)")
+
+
+def _iron_name(name):
+    """Decode a target-reserved C identifier back to its Iron spelling."""
+    def decode(match):
+        digits = match.group(1)
+        if len(digits) % 2:
+            return match.group(0)
+        try:
+            return bytes.fromhex(digits).decode("ascii")
+        except (ValueError, UnicodeDecodeError):
+            return match.group(0)
+    return _ENCODED_IRON_NAME.sub(decode, name or "")
 
 
 def _string(valobj):
@@ -371,7 +388,7 @@ def _short(name):
     """An Iron type's C name as Iron writes it: Iron_Point is Point, and a
     generic instance Iron_Box__Int is Box[Int] (arguments that are plain
     type names; others keep the compiler's spelling)."""
-    name = name[5:] if name.startswith("Iron_") else name
+    name = _iron_name(name[5:] if name.startswith("Iron_") else name)
     parts = name.split("__")
     if len(parts) > 1 and all(p and p[0].isalpha() and p.isalnum() for p in parts):
         return "%s[%s]" % (parts[0], ", ".join(parts[1:]))
@@ -400,9 +417,9 @@ def _variant(valobj):
     v = valobj.GetNonSyntheticValue()
     name = v.GetChildMemberWithName("tag").GetValue() or ""
     i = name.find("_TAG_")
-    variant = name[i + 5:] if i >= 0 else name
-    payload = v.GetChildMemberWithName("data").GetChildMemberWithName(variant)
-    return variant, (payload if variant and payload.IsValid() else None)
+    raw_variant = name[i + 5:] if i >= 0 else name
+    payload = v.GetChildMemberWithName("data").GetChildMemberWithName(raw_variant)
+    return _iron_name(raw_variant), (payload if raw_variant and payload.IsValid() else None)
 
 
 def is_tagged(sbtype, _dict):
@@ -628,8 +645,9 @@ class ClosureProvider:
         if t.IsPointerType() and "_cell_" in (t.GetPointeeType().GetName() or ""):
             addr = c.GetValueAsUnsigned(0)
             if addr:
-                return self.valobj.CreateValueFromAddress(c.GetName(), addr, t.GetPointeeType())
-        return c
+                return self.valobj.CreateValueFromAddress(_iron_name(c.GetName()), addr,
+                                                          t.GetPointeeType())
+        return _renamed_child(self.env, c, _iron_name(c.GetName()))
 
 
 # ── Checked pointers and heap values (*T, heap T) ──────────────────────────
@@ -848,9 +866,43 @@ def object_summary(valobj, _dict):
         if text is not None:
             return "%s %s" % (name, text)
     n = v.GetNumChildren()
-    parts = ["%s = %s" % (c.GetName(), _text(c))
+    parts = ["%s = %s" % (_iron_name(c.GetName()), _text(c))
              for c in (v.GetChildAtIndex(i) for i in range(min(n, 8)))]
     return "%s {%s%s}" % (name, ", ".join(parts), ", ..." if n > 8 else "")
+
+
+def _renamed_child(parent, child, name):
+    """Copy an SBValue with a display name while retaining its value."""
+    if not child.IsValid() or name == child.GetName():
+        return child
+    addr = child.GetLoadAddress()
+    if addr != lldb.LLDB_INVALID_ADDRESS:
+        return parent.CreateValueFromAddress(name, addr, child.GetType())
+    return parent.CreateValueFromData(name, child.GetData(), child.GetType())
+
+
+class ObjectProvider:
+    """Object children with C-only spellings decoded to Iron names."""
+
+    def __init__(self, valobj, _dict):
+        self.valobj = valobj
+
+    def update(self):
+        self.value = self.valobj.GetNonSyntheticValue()
+        return False
+
+    def num_children(self):
+        return self.value.GetNumChildren()
+
+    def get_child_index(self, name):
+        for i in range(self.num_children()):
+            if _iron_name(self.value.GetChildAtIndex(i).GetName()) == name:
+                return i
+        return -1
+
+    def get_child_at_index(self, i):
+        child = self.value.GetChildAtIndex(i)
+        return _renamed_child(self.value, child, _iron_name(child.GetName()))
 
 
 def optional_summary(valobj, _dict):
@@ -879,7 +931,7 @@ def iron_variables(frame):
             if addr and t.IsValid():
                 out.append((name[5:], v.CreateValueFromAddress(name[5:], addr, t)))
         elif name and not name.startswith("_"):
-            out.append((name, v))
+            out.append((_iron_name(name), v))
     return out
 
 
@@ -890,8 +942,8 @@ def locals_command(debugger, command, result, _dict):
     if not frame.IsValid():
         result.SetError("no frame selected")
         return
-    for _name, v in iron_variables(frame):
-        result.AppendMessage(str(v))
+    for name, v in iron_variables(frame):
+        result.AppendMessage("%s = %s" % (name, _text(v)))
 
 
 def _command(debugger, cmd):

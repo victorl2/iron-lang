@@ -98,6 +98,26 @@ for (c_name, test), want in FRAMES:
     if got != want:
         failed += 1
         print("FAIL: iron_function_name(%r, %r) = %r, want %r" % (c_name, test, got, want))
+
+
+class FakeGdbProxy:
+    kind = "gdb"
+
+    def request(self, command, args, timeout=10):
+        if command == "variables" and args.get("variablesReference") == 6:
+            return {"success": True, "body": {"variables": [
+                {"name": "x", "value": "3"}, {"name": "y", "value": "4"}
+            ]}}
+        return {"success": False}
+
+
+# GDB DAP turns a pretty-printer's Python None summary into the text "None".
+# The proxy must recover the object summary without changing native GDB's
+# nested struct formatting.
+got = dap.Proxy.struct_text(FakeGdbProxy(), "None", 6, "Iron_Point")
+if got != "Point {x = 3, y = 4}":
+    failed += 1
+    print("FAIL: GDB DAP object summary is %r" % got)
 if failed:
     sys.exit(1)
 print("iron eval: %d expressions, %d errors: PASS" % (len(CASES), len(ERRORS)))

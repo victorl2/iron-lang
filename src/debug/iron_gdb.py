@@ -23,6 +23,22 @@ import gdb
 import gdb.printing
 
 
+_ENCODED_IRON_NAME = re.compile(r"Iron__id_([0-9a-f]+)")
+
+
+def _iron_name(name):
+    """Decode a target-reserved C identifier back to its Iron spelling."""
+    def decode(match):
+        digits = match.group(1)
+        if len(digits) % 2:
+            return match.group(0)
+        try:
+            return bytes.fromhex(digits).decode("ascii")
+        except (ValueError, UnicodeDecodeError):
+            return match.group(0)
+    return _ENCODED_IRON_NAME.sub(decode, name or "")
+
+
 # Break on panic: every Iron panic (a failed assert, an index out of
 # bounds, a missing map key, out of memory) prints its message and ends in
 # the C library's abort(). With `break abort` (iron debug and iron dap set
@@ -420,7 +436,7 @@ def _short(name):
     """An Iron type's C name as Iron writes it: Iron_Point is Point, and a
     generic instance Iron_Box__Int is Box[Int] (arguments that are plain
     type names; others keep the compiler's spelling)."""
-    name = name[5:] if name.startswith("Iron_") else name
+    name = _iron_name(name[5:] if name.startswith("Iron_") else name)
     parts = name.split("__")
     if len(parts) > 1 and all(p and p[0].isalpha() and p.isalnum() for p in parts):
         return "%s[%s]" % (parts[0], ", ".join(parts[1:]))
@@ -533,7 +549,7 @@ class ObjectPrinter:
 
     def fields_text(self):
         f = [x for x in _fields(self.val.type.strip_typedefs()) if x.name]
-        parts = ["%s = %s" % (x.name, _text(self.val[x.name])) for x in f[:8]]
+        parts = ["%s = %s" % (_iron_name(x.name), _text(self.val[x.name])) for x in f[:8]]
         return "%s {%s%s}" % (self.name, ", ".join(parts), ", ..." if len(f) > 8 else "")
 
     def children(self):
@@ -541,7 +557,7 @@ class ObjectPrinter:
             return
         for x in _fields(self.val.type.strip_typedefs()):
             if x.name:
-                yield x.name, self.val[x.name]
+                yield _iron_name(x.name), self.val[x.name]
 
 
 def _fields(t):
@@ -564,10 +580,11 @@ class TaggedPrinter:
         self.val = val
         tag = str(val["tag"])
         i = tag.find("_TAG_")
-        self.variant = tag[i + 5:] if i >= 0 else tag
+        raw_variant = tag[i + 5:] if i >= 0 else tag
+        self.variant = _iron_name(raw_variant)
         data = val["data"]
         names = [f.name for f in _fields(data.type.strip_typedefs())]
-        self.payload = data[self.variant] if self.variant in names else None
+        self.payload = data[raw_variant] if raw_variant in names else None
 
     def to_string(self):
         p = self.payload
@@ -601,7 +618,7 @@ class EnumPrinter:
     def to_string(self):
         text = str(self.val.cast(self.val.type.strip_typedefs()))
         prefix = str(self.val.type) + "_"
-        return text[len(prefix):] if text.startswith(prefix) else text
+        return _iron_name(text[len(prefix):] if text.startswith(prefix) else text)
 
 
 def _rc_counts(val):
@@ -738,7 +755,7 @@ class ClosurePrinter:
             if f.type.code == gdb.TYPE_CODE_PTR and "_cell_" in str(f.type.target().name or "") \
                     and int(v):
                 v = v.dereference()
-            yield f.name, v
+            yield _iron_name(f.name), v
 
 
 def _lookup_values(val):
@@ -942,7 +959,7 @@ def iron_variables(frame):
                 except gdb.error:
                     pass
             elif not name.startswith("_"):
-                out.append((name, frame.read_var(sym, block)))
+                out.append((_iron_name(name), frame.read_var(sym, block)))
         if block.function is not None:
             break
         block = block.superblock

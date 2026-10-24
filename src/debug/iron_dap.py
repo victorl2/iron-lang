@@ -83,6 +83,7 @@ NO_SCRIPTING = re.compile(r"does not support importing modules|"
 # The runtime's own panics print "iron: <what happened>" (out of memory, an
 # arena full, a missing map key...).
 PANIC_LINE = re.compile(r"^(panic|assertion failed|error: index|iron: |.*out of bounds)", re.I)
+ENCODED_IRON_NAME = re.compile(r"Iron__id_([0-9a-f]+)")
 
 
 # ── DAP framing ───────────────────────────────────────────────────────────────
@@ -217,13 +218,27 @@ def bad_arguments(a):
 
 # ── Naming rules shared with iron_lldb.py / iron_gdb.py ──────────────────────
 
+def decode_iron_name(c_name):
+    """Decode a target-reserved C identifier back to its Iron spelling."""
+    def decode(match):
+        digits = match.group(1)
+        if len(digits) % 2:
+            return match.group(0)
+        try:
+            return bytes.fromhex(digits).decode("ascii")
+        except (ValueError, UnicodeDecodeError):
+            return match.group(0)
+    return ENCODED_IRON_NAME.sub(decode, c_name or "")
+
+
 def iron_name(c_name):
     """(Iron name, deref) for a C local, or None for a compiler temporary."""
     if c_name.startswith("_ref_") and len(c_name) > 5:
-        return c_name[5:], True
-    if not c_name or c_name.startswith("_"):
+        return decode_iron_name(c_name[5:]), True
+    name = decode_iron_name(c_name)
+    if not name or name.startswith("_"):
         return None
-    return c_name, False
+    return name, False
 
 
 _METHODS = {}
@@ -2277,7 +2292,7 @@ class Proxy:
                 continue
             name, deref = n
             if not deref:
-                out.append(v)
+                out.append(dict(v, name=name))
                 continue
             expr = "*" + v["name"]
             r = self.request("evaluate", {"expression": expr, "frameId": frame_id,
@@ -2308,8 +2323,9 @@ class Proxy:
         by_name = {v.get("name"): v for v in variables}
         out = []
         for v in variables:
-            if not v.get("value") and v.get("variablesReference"):
-                v = dict(v, value=self.struct_text("", v["variablesReference"], v.get("type")))
+            if v.get("variablesReference"):
+                v = dict(v, value=self.struct_text(str(v.get("value", "")),
+                                                   v["variablesReference"], v.get("type")))
             name = str(v.get("name", ""))
             base = by_name.get(name[:-4], {}) if name.endswith("_len") else {}
             if base and is_c_array_value(base.get("value"), base.get("type")):
@@ -2340,8 +2356,15 @@ class Proxy:
         return text, (self.synthetic(elems) if elems else 0), len(elems)
 
     def struct_text(self, value, ref, type_name):
-        """gdb shows a struct without a printer as an empty value: write it
-        as LLDB's object summary does, Point {x = 3, y = 4}."""
+        """Write a GDB struct as LLDB's Point {x = 3, y = 4} summary.
+
+        GDB DAP serializes a pretty-printer whose to_string returns Python
+        None as the literal text "None". Native GDB needs that None to keep
+        its nested `{x = 3, y = 4}` rendering, so treat it as the missing
+        summary that it is only at this DAP boundary.
+        """
+        if self.kind == "gdb" and value == "None" and ref:
+            value = ""
         if value or not ref:
             return value
         r = self.request("variables", {"variablesReference": ref})

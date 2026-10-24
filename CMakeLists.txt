@@ -1326,6 +1326,10 @@ if(NOT WIN32)
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_values_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
   set_tests_properties(debug_values_smoke PROPERTIES PROCESSORS 2 TIMEOUT 120)
+  add_test(NAME debug_c_reserved_names
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_c_reserved_names.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_c_reserved_names PROPERTIES TIMEOUT 120)
   # The list formatters gather the elements of a layout: soa list from its
   # columns.
   add_test(NAME debug_soa_smoke

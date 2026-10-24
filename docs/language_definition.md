@@ -143,10 +143,12 @@ An identifier is a letter or `_` followed by letters, digits and `_`
 `val`, `var`, tuple destructuring and `match` patterns; it is not an
 expression. Identifiers are case sensitive. By convention types and enum
 variants are `CapitalCase`; functions, variables and fields are
-`snake_case`. Capitalization is also significant in one place: in
-`X.Y(args)` and `X.Y`, when both `X` and `Y` start with an uppercase letter
-the expression is an enum variant construction rather than a method call or
-field access (section 3.6).
+`snake_case`. An identifier is not restricted by the keywords, macros, or
+runtime symbols of the language targeted by a compiler backend. For example,
+`default`, `register`, and `int` are valid Iron identifiers. Capitalization is
+also significant in one place: in `X.Y(args)` and `X.Y`, an uppercase `X`
+makes the expression a possible enum variant construction; the resolver
+distinguishes it from a method call or field access (section 3.6).
 
 The following words are keywords and cannot be used as identifiers:
 

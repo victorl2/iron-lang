@@ -12,6 +12,32 @@ from the manual, not from the compiler.
 
 MASK = (1 << 64) - 1
 
+# C23 keywords and alternative spellings which remain legal Iron identifiers.
+# Shared generator bases occasionally choose one verbatim so ordinary fuzz
+# runs exercise the C emitter's target-language name mangling.
+C_RESERVED_IRON_IDENTIFIERS = (
+    '_Alignas', '_Alignof', '_Atomic', '_BitInt', '_Bool', '_Complex',
+    '_Decimal128', '_Decimal32', '_Decimal64', '_Generic', '_Imaginary',
+    '_Noreturn', '_Pragma', '_Static_assert', '_Thread_local',
+    'alignas', 'alignof', 'and_eq', 'asm', 'auto', 'bitand', 'bitor', 'bool',
+    'case', 'char', 'compl', 'const', 'constexpr', 'default', 'do', 'double',
+    'float', 'goto', 'inline', 'int', 'long', 'not_eq', 'nullptr', 'or_eq',
+    'register', 'restrict', 'short', 'signed', 'sizeof', 'static_assert',
+    'struct', 'switch', 'thread_local', 'typedef', 'typeof', 'typeof_unqual',
+    'union', 'unsigned', 'void', 'volatile', 'xor', 'xor_eq',
+)
+
+
+def fuzz_identifier(rng, fallback, used):
+    """Return a rare target-reserved name, otherwise the generated fallback."""
+    available = [name for name in C_RESERVED_IRON_IDENTIFIERS if name not in used]
+    if available and rng.random() < 0.08:
+        name = rng.choice(available)
+    else:
+        name = fallback
+    used.add(name)
+    return name
+
 
 def wrap(x):
     x &= MASK

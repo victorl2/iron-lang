@@ -221,6 +221,7 @@ static void score_decl(IronLsp_Server *server,
         : "";
     c.uri            = ilsp_nav_path_to_uri(entry->canonical_path, arena);
     if (!c.uri) c.uri = "";
+
     c.lsp_kind       = lsp_kind_from_node(d);
     c.kind_rank      = kind_rank_for_lsp(c.lsp_kind);
     c.score          = sc;
