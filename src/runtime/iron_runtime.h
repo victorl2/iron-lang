@@ -2180,12 +2180,6 @@ typedef struct Iron_List_Iron_Closure { Iron_Closure *items; int64_t count; int6
  * IRON_LIST_IMPL(uint8_t, uint8_t) expand into well-formed bodies. */
 typedef struct Iron_List_float   { float   *items; int64_t count; int64_t capacity; } Iron_List_float;
 typedef struct Iron_List_uint8_t { uint8_t *items; int64_t count; int64_t capacity; } Iron_List_uint8_t;
-/* The other integer widths (#580): Int8, Int16, UInt16, UInt32, UInt64. */
-typedef struct Iron_List_int8_t   { int8_t   *items; int64_t count; int64_t capacity; } Iron_List_int8_t;
-typedef struct Iron_List_int16_t  { int16_t  *items; int64_t count; int64_t capacity; } Iron_List_int16_t;
-typedef struct Iron_List_uint16_t { uint16_t *items; int64_t count; int64_t capacity; } Iron_List_uint16_t;
-typedef struct Iron_List_uint32_t { uint32_t *items; int64_t count; int64_t capacity; } Iron_List_uint32_t;
-typedef struct Iron_List_uint64_t { uint64_t *items; int64_t count; int64_t capacity; } Iron_List_uint64_t;
 
 
 #endif /* IRON_CODEGEN_PROVIDES_STRUCTS */

@@ -202,12 +202,6 @@ void Iron_List_Iron_Closure_free(Iron_List_Iron_Closure *self) {
  * UInt8 → "uint8_t". */
 IRON_LIST_IMPL(float,       float)
 IRON_LIST_IMPL(uint8_t,     uint8_t)
-/* The other integer widths (#580). */
-IRON_LIST_IMPL(int8_t,      int8_t)
-IRON_LIST_IMPL(int16_t,     int16_t)
-IRON_LIST_IMPL(uint16_t,    uint16_t)
-IRON_LIST_IMPL(uint32_t,    uint32_t)
-IRON_LIST_IMPL(uint64_t,    uint64_t)
 
 /* ── Collection method implementations (map, filter, reduce, forEach, sum) ── */
 
