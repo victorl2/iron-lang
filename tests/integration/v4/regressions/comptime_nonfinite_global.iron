@@ -1,0 +1,15 @@
+-- A global val holding a comptime NaN or infinity compiles: as static
+-- const data it was spelled `nan` / `inf` in C. Such a value keeps its
+-- run-time initializer; finite ones are constant data.
+func fdiv(a: Float, b: Float) -> Float {
+    return a / b
+}
+
+val NOT_A_NUMBER = comptime fdiv(0.0, 0.0)
+val POS_INF = comptime fdiv(1.0, 0.0)
+val NEG_INF = comptime fdiv(-1.0, 0.0)
+val HALF = comptime fdiv(1.0, 2.0)
+
+func main() {
+    println("{NOT_A_NUMBER == NOT_A_NUMBER} {POS_INF} {NEG_INF} {HALF}")
+}

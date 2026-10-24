@@ -143,10 +143,12 @@ An identifier is a letter or `_` followed by letters, digits and `_`
 `val`, `var`, tuple destructuring and `match` patterns; it is not an
 expression. Identifiers are case sensitive. By convention types and enum
 variants are `CapitalCase`; functions, variables and fields are
-`snake_case`. Capitalization is also significant in one place: in
-`X.Y(args)` and `X.Y`, when both `X` and `Y` start with an uppercase letter
-the expression is an enum variant construction rather than a method call or
-field access (section 3.6).
+`snake_case`. An identifier is not restricted by the keywords, macros, or
+runtime symbols of the language targeted by a compiler backend. For example,
+`default`, `register`, and `int` are valid Iron identifiers. Capitalization is
+also significant in one place: in `X.Y(args)` and `X.Y`, an uppercase `X`
+makes the expression a possible enum variant construction; the resolver
+distinguishes it from a method call or field access (section 3.6).
 
 The following words are keywords and cannot be used as identifiers:
 
@@ -621,7 +623,9 @@ func main() {
 `func(T1, T2) -> R` is the type of functions and lambdas taking `T1` and
 `T2` and returning `R`; omit `-> R` for a function that returns nothing.
 Function values are created from lambda expressions (section 3.7); they
-can be stored in bindings, fields and lists and passed as arguments. The
+can be stored in bindings, fields and lists and passed as arguments, and a
+function type can be a type argument (`Channel[func(Int) -> Int](4)`,
+`Map[String, func(Int) -> Int]()`, section 13). The
 name of a top-level function is a function value too (`val f = twice`,
 `apply(twice, 4)`, `xs.map(twice)`).
 
@@ -658,10 +662,14 @@ Functions, objects and enums may take type parameters in square brackets:
 `[T: Hashable]`, which every type argument must satisfy (`E0206`). Type
 arguments are inferred from the arguments of a call or construction
 (`Pair(1, "one")`) or written on the type (`Stack[Int]()`,
-`val r: Result[Int, String]`). Generic code is instantiated per set of type
-arguments at compile time. A type parameter's constraint also provides its
-static functions, called on the parameter itself: `T.parse(text)` in
-`func read[T: Parse](text: String) -> T?` (section 5.5).
+`val r: Result[Int, String]`). A type argument written in an expression
+may be any type: a function type, a tuple, an `rc`, `weak rc` or pointer
+type (`id[func(Int) -> Int](twice)`, `Box[rc Node](n)`,
+`Stack[(Int, String)]()`, `p.first[*Node](a, b)`). Generic code is
+instantiated per set of type arguments at compile time. A type parameter's
+constraint also provides its static functions, called on the parameter
+itself: `T.parse(text)` in `func read[T: Parse](text: String) -> T?`
+(section 5.5).
 
 ```iron
 func largest[T](xs: [T], less: func(T, T) -> Bool) -> T {
@@ -922,6 +930,14 @@ are visible outside, and the closure may outlive the function that
 declared the `var` (a counter closure keeps its count). A lambda may
 capture a list only when it is passed directly as a call argument
 (`E0328` otherwise); to share a list with a stored closure use `rc [T]`.
+A `nocopy` value follows the same borrow rule (6.7): a lambda may capture
+one only when it is passed directly as an argument to a callee that just
+calls it during the call; it then reads the caller's binding, and the
+value is dropped once, by that binding (`E0286` otherwise). A callee
+keeps the closure, and the capture is rejected, when it stores the
+parameter, returns it, hands it to a callee that keeps it, or is a
+constructor, `push`, `insert` or a function without an Iron body; the
+list methods `map`, `filter`, `reduce` and `forEach` only call it.
 The environment of a closure is reference counted, so a closure may be
 returned, stored in a field or list, and copied. A recursive lambda is
 written by assigning it to the `var` it calls through
@@ -2376,7 +2392,26 @@ storing it is an error (`E0286`), which is how `Box`, `Channel`, `Mutex`,
 objects moves its elements (`take()`, `pop()`, `remove()`) and lends them
 (field reads, `for`, methods), but anything that would duplicate one is
 `E0286` too: `copy()`, a slice, `filter`, and binding an element or a
-field (`val p = ps[i]`). Each object has at most
+field (`val p = ps[i]`).
+
+A closure or a thread can only borrow a `nocopy` value, as it borrows a
+list (6.8): a lambda passed directly as an argument to a callee that only
+calls it (3.7), or a `spawn` surely awaited in the block that starts it
+(7.1), reads the value through its binding and never copies or drops it.
+Any other capture, by a lambda bound to a `val` or `var`, returned, stored
+in a field, list or map, passed to a callee that keeps it, or by a spawn
+that is not surely awaited, is `E0286`. The rule covers a `val` binding or
+parameter whose type is a `nocopy` object or holds one by value (in a
+field, a fixed array, an optional, a tuple or an enum payload). It does not
+cover a `var` binding, which a closure shares through its counted cell
+(3.7), a `heap` binding, `rc` values and pointers, or `Mutex`, `Channel`,
+`RWLock` and `Arena`: these are reference counted handles, and a closure or
+thread holds its own reference to them (7.1). To share a `nocopy` value
+with a closure that is stored or returned, or with a thread that may
+outlive the block, make it reference counted, `val h = rc FileHandle.open(p)`:
+each closure then holds its own reference and the value is dropped once,
+when the last holder is gone. Two threads that both use it guard the
+reference with a lock, `Mutex(rc Hasher.new(alg))`. Each object has at most
 one `drop` and one `copy` block (`E0284`, `E0285`); `drop` may not be
 `readonly` (`E0287`) and may not `return` early (`E0288`).
 
@@ -2422,6 +2457,56 @@ func main() {
 }
 ```
 
+```iron
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+
+func twice(f: func() -> Int) -> Int {
+    return f() + f()
+}
+
+func reader(r: rc Res) -> func() -> Int {
+    return func() -> Int { return r.id }
+}
+
+func main() {
+    val a = Res(1)
+    println("{twice(func() -> Int { return a.id })}")
+    val t = spawn("t") {
+        return a.id * 10
+    }
+    println("{await t}")
+    val b = rc Res(2)
+    val get = reader(b)
+    println("{get()}")
+}
+```
+
+```output
+2
+10
+2
+drop 2
+drop 1
+```
+
+<!-- doctest-expect-error: E0286 -->
+```iron
+nocopy object Res {
+    val id: Int
+}
+
+func main() {
+    val a = Res(1)
+    val get = func() -> Int { return a.id }
+    println("{get()}")
+}
+```
+
 ### 6.8 List ownership
 
 Lists are the one kind of value that is never copied implicitly. The
@@ -2436,9 +2521,12 @@ rules, all enforced at compile time with `E0328`:
   callee may move its elements while the other parameter refers to them);
   pass `xs.copy()` for the other one.
 - A lambda may capture a list only when the lambda is passed directly as a
-  call argument; a lambda that is bound, returned or stored cannot capture a
-  list. A `spawn` body that captures a list must be awaited in the block
-  that started it.
+  call argument to a callee that only calls it (3.7); a lambda that is
+  bound, returned or stored, or given to a callee that keeps it, cannot
+  capture a list. A `spawn` body that captures a list must be awaited in the
+  block that started it, by a later statement that always runs (no
+  `return`, `break` or `continue` before it). `nocopy` values follow the
+  same rules (6.7).
 - To share a list, use `rc [T]`.
 
 <!-- doctest-expect-error: E0328 -->
@@ -2469,12 +2557,19 @@ until it returns, and tasks beyond the pool's size wait their turn. Run
 long-lived loops as bound spawns, and see `Http.poller` (networking guide)
 for servers that keep many idle connections. The body may read `val` bindings of the enclosing
 function and use `Mutex`, `Channel` and `rc` values; a list captured by a
-spawn must be awaited in the same block (`E0328`). Writing a captured
+spawn must be awaited in the same block (`E0328`), and so must a `nocopy`
+value (or a value holding one), which the thread borrows from its binding
+without copying or dropping it (`E0286`, 6.7). For a `nocopy` value the
+await must be sure: a later statement of the same block that always runs,
+with no `return`, `break` or `continue` before it that could leave the
+block; to hand one to a thread that may outlive the block, make it `rc`
+(and guard it with a `Mutex` when both threads use it). Writing a captured
 `var` from a thread is a data race and warns (`W0604`). A thread keeps what
 it captured alive until it finishes, even when the block that declared it
 ends first (always possible for a spawn that is never awaited): it holds its
 own reference to each captured `Mutex`, `Channel`, `RWLock`, `Arena`, `rc`
-value and `var`, and its own copy of the other values. A thread that is still
+value and `var`, borrows a captured list or `nocopy` value (which is why
+such a spawn must be awaited), and keeps its own copy of the other values. A thread that is still
 running when the program ends is stopped with it. Named thread pools
 are not implemented: `spawn("name", pool)` is rejected (`E0326`).
 
@@ -2508,7 +2603,9 @@ func main() {
 
 `Channel[T](capacity)` creates a bounded queue of `T`; the element type
 is written as the type argument (`val ch = Channel[Int](4)`), since no
-argument carries it.
+argument carries it. `T` may be any type, a function type included, so a
+channel can carry closures between tasks (`Channel[func(Int) -> Int](4)`)
+and `rc` handles (`Channel[rc Job](8)`).
 `ch.send(v)` blocks while the channel is full and `ch.recv()` blocks while
 it is empty. Channels are `nocopy` and are closed when their
 owner goes out of scope; there is no explicit close and no non-blocking
@@ -2580,14 +2677,44 @@ func main() {
 5
 ```
 
+A channel of closures hands work to another task; each closure keeps what
+it captured alive until it has run:
+
+```iron
+func main() {
+    val jobs = Channel[func(Int) -> Int](4)
+    val base = 100
+    val producer = spawn("producer") {
+        for i in range(3) {
+            val k = i * 10
+            jobs.send(func(x: Int) -> Int { return x + k + base })
+        }
+        return 0
+    }
+    var total = 0
+    for i in range(3) {
+        val job: func(Int) -> Int = jobs.recv()
+        total += job(i)
+    }
+    await producer
+    println("{total}")
+}
+```
+
+```output
+333
+```
+
 ### 7.4 Parallel `for`
 
 `for x in xs parallel { ... }` runs the iterations of the loop on several
 threads and waits for all of them. The body must not write bindings of the
 enclosing scope (`E0208`); use a `Mutex` to accumulate. `range(n)` and lists
 may be iterated in parallel; a list is iterated through a binding
-(`for x in xs parallel`), not a list expression. The `parallel(pool)` form parses but pools are
-not implemented (`E0326`).
+(`for x in xs parallel`), not a list expression. A parallel body cannot
+capture a `nocopy` value (`E0286`): share it as `rc` and guard it with a
+`Mutex`, since several worker threads may use it. The `parallel(pool)` form
+parses but pools are not implemented (`E0326`).
 
 ```iron
 func main() {
@@ -2614,20 +2741,25 @@ func main() {
 `comptime expr` evaluates `expr` while compiling and replaces it with the
 resulting constant. The evaluator handles integer, float and boolean
 literals and arithmetic (`+ - * / %`, comparisons, `==` and `!=`, unary
-`-` and `not`), string literals, list literals and indexing, object
+`-` and `not`), the bitwise operators and shifts (`& | ^ ~ << >>`), the
+numeric conversions (`UInt64(x)`, `Int8(x)`, `Float(n)`, ...), string
+literals, list literals and indexing, object
 construction, the built-ins `len`, `range`, `fill` and `read_file(path)`
 (which reads a file relative to the source file and yields its contents),
 and calls to top-level functions whose bodies use only `val`, `var`,
 assignment, `if`, `while`, `for` and `return` over those values. The
-evaluation computes what the same call computes at run time: Int
-arithmetic wraps, and `fill` makes independent copies. An object is
+evaluation computes what the same call computes at run time: integer
+arithmetic wraps at the width of its type, unsigned values compare and
+divide as unsigned, a shift by the width or more gives 0 (or the sign for
+`>>` of a signed value), a float converted to an integer saturates, and
+`fill` makes independent copies. An object is
 built at compile time only when it has no `init` (positional
 construction). Method calls, field access, string concatenation,
-interpolation, bitwise operators and shifts, conversions such as
-`Float(n)`, reading a global, `break` and `continue`, lambdas, `match`,
+interpolation, reading a global, `break` and `continue`, lambdas, `match`,
 enum values, and `heap` or `rc` allocation are not available at compile
 time (`E0231`); an error while evaluating, such as an integer division by
-zero or an index out of range, is `E0232` (a float divided by zero is an
+zero, a shift by a negative count or an index out of range, is `E0232`
+(a float divided by zero is an
 infinity or NaN, as at run time). Evaluation is limited to one million
 steps and to calls nested 256 deep (`E0230`). The result is typically
 bound to a global `val`.
@@ -3084,8 +3216,11 @@ integer types, `Bool` and `String` do, and an object does when it declares
 `impl Hashable` with `pure func hash() -> Int` and `pure func
 equals(other: Hashable) -> Bool` (section 5.5); two keys are the same
 entry when their hashes agree and `equals` is true. The value type may be
-anything that can be stored in a list, including lists, `rc` handles and
-other maps.
+anything that can be stored in a list, including lists, `rc` handles,
+closures and other maps; function, `rc` and pointer types are written as
+type arguments like any other (`Map[String, func(Int) -> Int]()`,
+`Map[Int, rc Node]()`). A function type, an `rc` handle or a pointer is
+not `Hashable`, so it cannot be a key or a set item.
 
 | Method | Meaning |
 |---|---|
@@ -3591,7 +3726,7 @@ codes cited in this manual:
 | E0268, E0270, E0271, E0294, E0295, E0296 | pointer arithmetic; address of a temporary; escaping stack reference; regime errors; `&` on an `rc` |
 | E0273, E0274, E0297, E0298 | `heap`/`rc`/`pool` in an invalid position |
 | E0278 | I/O in a `readonly` method |
-| E0284 to E0288 | duplicate `drop`/`copy`; copy of a `nocopy` value; `readonly drop`; early return in `drop` |
+| E0284 to E0288 | duplicate `drop`/`copy`; copy of a `nocopy` value (also a capture that is not a borrow, 6.7); `readonly drop`; early return in `drop` |
 | E0289 | checked/unchecked pointer mismatch |
 | E0293 | missing return |
 | E0299, E0301 | dereferencing a `weak rc`; `rc` inside an arena block |
@@ -3739,16 +3874,16 @@ heap_opts      ::= '(' heap_opt { ',' heap_opt } ')'
 heap_opt       ::= 'in' ':' expr | 'allow_drop_skip' ':' ( 'true' | 'false' )
 postfix        ::= primary { '.' NAME [ type_args ] [ call_args ]
                            | '[' expr [ '..' [ expr ] ] ']'
-                           | '[' type { ',' type } ']'
+                           | '[' elem { ',' elem } ']'
                            | call_args }
+elem           ::= expr | type
 call_args      ::= '(' [ expr { ',' expr } [ ',' ] ] ')'
 type_args      ::= '[' type { ',' type } ']'
 primary        ::= INT | FLOAT | STRING | 'true' | 'false' | 'null' | IDENT | 'self'
                  | '(' expr ')'
-                 | '(' expr ',' expr { ',' expr } [ ',' ] ')'
+                 | '(' elem ',' elem { ',' elem } [ ',' ] ')'
                  | '[' type ';' expr ']'
-                 | '[' [ expr { ',' expr } [ ',' ] ] ']'
-                 | '[' type ']'
+                 | '[' [ elem { ',' elem } [ ',' ] ] ']'
                  | lambda
 lambda         ::= 'func' param_list [ '->' type ] block
 
@@ -3776,10 +3911,32 @@ operators, with every binary operator left associative and `is` binding
 loosest of all. In `postfix`, `X.Y(args)` and `X.Y` where `X` and `Y` both
 start with an uppercase letter denote an enum variant construction, and
 `x.m[T](args)` is only read as a generic method call when the token after
-`[` is a type name starting with an uppercase letter or `[`. Between the
-brackets of `postfix` and of a list `primary`, an element containing `?`
-(outside parentheses) is read as a `type` (`Map[String, Int?]()`,
-`Map[String, [Int?]]()`), every other element as an `expr`. In `pattern`,
+`[` is a type name starting with an uppercase letter, `[`, or a token that
+starts a `type` by the rule below, and a `(` follows the `]`. Between the
+brackets of `postfix` and of a list `primary`, and between the parentheses
+of a tuple `primary`, an element is read as a `type` when
+
+- it starts with `?` or `*`: no expression does (there is no prefix `*`
+  operator), so `Set[*Node]()` and `Channel[?*Node](1)` hold types;
+- it starts with `func` and its signature is not followed by `{`: a
+  `lambda` always has a block, so `Channel[func(Int) -> Int](4)` and
+  `Map[String, func(func(Int) -> Int) -> Int]()` hold function types while
+  `[func(x: Int) -> Int { return x }]`, `[func(x) { return x }]` and
+  `[func() { }]` are lists of lambdas;
+- it starts with `rc` or `weak rc` (other than the expression
+  `weak rc null`) between the brackets of `postfix`, where nothing is
+  indexed by a handle (`Box[rc Node](n)`, `Channel[weak rc Node](8)`). In
+  a list or a tuple `rc x` is an element (`[rc p, rc Node(1)]`), so there
+  such an element is a `type` only when what follows the `rc` is one by
+  this rule (`[rc func(Int) -> Int]`, `[rc *Node]`, `[rc Node?]`); `[rc
+  Node]` stays an `rc` expression and reads as the list type where a type
+  is expected (`Map[String, [rc Node]]()`);
+- it contains `?` outside parentheses (`Map[String, Int?]()`,
+  `Map[String, [Int?]]()`).
+
+Every other element is an `expr`; one that names a type (`Int`,
+`Map[String, Int]`, `[Int]`, `(Int, String)`) is taken as that type where
+a type argument is expected. In `pattern`,
 the first alternative is used when the arm starts with `IDENT '.'` or with
 an uppercase identifier followed by `(`, and `expr` otherwise. The
 standalone form `func (r: T) method()` is recognized only to report

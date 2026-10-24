@@ -54,6 +54,11 @@
 #define IRON_DEBUG_TRAPS_ON 1
 #if defined(_WIN32)
 #define IRON_DEBUG_BREAK() __debugbreak()
+#elif defined(__x86_64__) || defined(__i386__)
+/* x86 reports the stop at the instruction after int3: a nop of the same
+ * asm statement keeps it on the Iron line (the next instruction of the
+ * inlined check may have no line, and LLDB showed line 0). */
+#define IRON_DEBUG_BREAK() __asm__ volatile("int3\n\tnop")
 #else
 #define IRON_DEBUG_BREAK() __builtin_debugtrap()
 #endif
@@ -77,6 +82,8 @@ void  *iron_mem_alloc(size_t size);
 void  *iron_mem_calloc(size_t count, size_t size);
 void  *iron_mem_realloc(void *ptr, size_t size);
 void   iron_mem_free(void *ptr);
+/* Apply platform allocator defaults before the runtime starts threads. */
+void   iron_allocator_init(void);
 void  *iron_mem_copy(void *dst, const void *src, size_t n);
 void  *iron_mem_move(void *dst, const void *src, size_t n);
 void  *iron_mem_set(void *dst, int byte, size_t n);
@@ -193,6 +200,10 @@ _Static_assert(sizeof(Iron_FatPtr) == 16,
                "2-register pass-by-value lock; growing past 16B is a "
                "silent perf regression on every pointer pass. "
                "See docs/dev/POINTER-LAYOUT.md for the public ABI commitment.");
+
+static inline bool iron_fatptr_equal(Iron_FatPtr a, Iron_FatPtr b) {
+    return a.addr == b.addr && a.gen == b.gen;
+}
 
 /* IronAllocHdr is the header prepended to every iron_heap_alloc'd block.
  * Release build: 16B; Debug build (IRON_DEBUG_ALLOCATOR): 32B with site
@@ -914,6 +925,23 @@ IRON_CHECK_FN void iron_check_arena_pointer_gen(Iron_FatPtr fp,
     }
 }
 
+/* Checked pointers retain their generation but not a separate provenance
+ * word when stored in fields, closure environments or passed through an
+ * otherwise opaque value.  The generation namespaces are disjoint: stack
+ * generations carry bit 63, heap generations start in the 0x7... range,
+ * and arena generations count upward from 1. */
+IRON_CHECK_FN void iron_check_dynamic_pointer_gen(Iron_FatPtr fp,
+                                                  const char *deref_file,
+                                                  int deref_line) {
+    if (fp.gen & IRON_STACK_TAG) {
+        iron_check_stack_pointer_gen(fp, deref_file, deref_line);
+    } else if (fp.gen >= 0x7000000000000000ULL) {
+        iron_check_pointer_gen(fp, deref_file, deref_line);
+    } else {
+        iron_check_arena_pointer_gen(fp, deref_file, deref_line);
+    }
+}
+
 /* ── Threads, mutexes, condition variables, read-write locks (iron_os.c) ──
  * The handles are opaque storage large enough for the platform primitive
  * (pthread or Win32); iron_os.c checks the sizes with static assertions.
@@ -951,6 +979,12 @@ typedef struct { atomic_int state; } iron_once_t;
 void iron_once(iron_once_t *once, void (*fn)(void));
 
 int  iron_thread_create(iron_thread_t *t, void *(*fn)(void *), void *arg);
+/* Names the calling thread (a spawned task's `spawn("name")`), as the
+ * debugger's threads view and crash reports show it. */
+void iron_thread_set_name(const char *name);
+/* The OS id of the calling thread, as debuggers show it (Linux tid,
+ * macOS thread id, Windows thread id). */
+uint64_t iron_thread_os_id(void);
 int  iron_thread_join(iron_thread_t t);
 int  iron_thread_detach(iron_thread_t t);
 iron_thread_t iron_thread_self(void);
@@ -1031,6 +1065,11 @@ Iron_String  iron_string_interp(const char *fmt, ...);
 Iron_String  iron_string_from_literal(const char *lit, size_t byte_len);
 const char  *iron_string_cstr(const Iron_String *s);
 size_t       iron_string_byte_len(const Iron_String *s);
+/* Reads the string only (the count of a string whose count is not cached
+ * is computed, never stored), so clang may hoist it out of a loop. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((pure))
+#endif
 size_t       iron_string_codepoint_count(const Iron_String *s);
 bool         iron_string_equals(const Iron_String *a, const Iron_String *b);
 int          iron_string_compare(const Iron_String *a, const Iron_String *b);
@@ -1406,6 +1445,9 @@ typedef struct {
     void           *value;
     size_t          value_size;
     iron_atomic_u64 refs;       /* the owner's and each spawned task's */
+    /* The OS id of the thread holding the lock, 0 when free: written by its
+     * holder while it holds it, read by debuggers (src/debug). */
+    volatile uint64_t holder;
 } Iron_Mutex;
 
 /* Mutex API */
@@ -2116,6 +2158,12 @@ typedef struct Iron_List_Iron_Closure { Iron_Closure *items; int64_t count; int6
  * IRON_LIST_IMPL(uint8_t, uint8_t) expand into well-formed bodies. */
 typedef struct Iron_List_float   { float   *items; int64_t count; int64_t capacity; } Iron_List_float;
 typedef struct Iron_List_uint8_t { uint8_t *items; int64_t count; int64_t capacity; } Iron_List_uint8_t;
+/* The other integer widths (#580): Int8, Int16, UInt16, UInt32, UInt64. */
+typedef struct Iron_List_int8_t   { int8_t   *items; int64_t count; int64_t capacity; } Iron_List_int8_t;
+typedef struct Iron_List_int16_t  { int16_t  *items; int64_t count; int64_t capacity; } Iron_List_int16_t;
+typedef struct Iron_List_uint16_t { uint16_t *items; int64_t count; int64_t capacity; } Iron_List_uint16_t;
+typedef struct Iron_List_uint32_t { uint32_t *items; int64_t count; int64_t capacity; } Iron_List_uint32_t;
+typedef struct Iron_List_uint64_t { uint64_t *items; int64_t count; int64_t capacity; } Iron_List_uint64_t;
 
 
 #endif /* IRON_CODEGEN_PROVIDES_STRUCTS */
@@ -2153,6 +2201,11 @@ IRON_LIST_DECL(Iron_Closure, Iron_Closure)
  * tests/manual/abi_float32_probe.iron for end-to-end validation. */
 IRON_LIST_DECL(float,       float)
 IRON_LIST_DECL(uint8_t,     uint8_t)
+IRON_LIST_DECL(int8_t,      int8_t)
+IRON_LIST_DECL(int16_t,     int16_t)
+IRON_LIST_DECL(uint16_t,    uint16_t)
+IRON_LIST_DECL(uint32_t,    uint32_t)
+IRON_LIST_DECL(uint64_t,    uint64_t)
 
 /* Collection method declarations for common numeric types */
 IRON_LIST_COLL_DECL(int64_t, int64_t)
@@ -2162,6 +2215,11 @@ IRON_LIST_COLL_DECL(double,  double)
  * uint8_t — keeps parity with int32_t/int64_t/double. */
 IRON_LIST_COLL_DECL(float,   float)
 IRON_LIST_COLL_DECL(uint8_t, uint8_t)
+IRON_LIST_COLL_DECL(int8_t,   int8_t)
+IRON_LIST_COLL_DECL(int16_t,  int16_t)
+IRON_LIST_COLL_DECL(uint16_t, uint16_t)
+IRON_LIST_COLL_DECL(uint32_t, uint32_t)
+IRON_LIST_COLL_DECL(uint64_t, uint64_t)
 
 
 /* ── String built-in method declarations (Phase 38) ─────────────────────────
@@ -2182,7 +2240,6 @@ Iron_String           Iron_string_char_at(Iron_String self, int64_t i);
 int64_t               Iron_string_to_int(Iron_String self);
 double                Iron_string_to_float(Iron_String self);
 Iron_String           Iron_string_join(Iron_String self, Iron_List_Iron_String parts);
-int64_t               Iron_string_len(Iron_String self);
 Iron_String           Iron_string_repeat(Iron_String self, int64_t n);
 Iron_String           Iron_string_pad_left(Iron_String self, int64_t width, Iron_String ch);
 Iron_String           Iron_string_pad_right(Iron_String self, int64_t width, Iron_String ch);
@@ -2195,10 +2252,57 @@ int64_t               Iron_string_count(Iron_String self, Iron_String sub);
  * edit to string.iron.
  */
 int64_t               Iron_string_rindex_of(Iron_String self, Iron_String sub);
-int64_t               Iron_string_byte_at(Iron_String self, int64_t i);
 Iron_String           Iron_string_from_byte(int64_t b);
 Iron_String           Iron_string_byte_slice(Iron_String self, int64_t start, int64_t end_idx);
-int64_t               Iron_string_byte_len(Iron_String self);
+
+/* Length and byte accessors used in scanning loops are defined here, inline,
+ * so a loop over `s.byte_at(i)` or bounded by `s.len()` / `s.byte_len()`
+ * compiles to plain loads: no call per byte and no by-value copy of the
+ * string. The heap / SSO layout test is the one iron_string_cstr makes. */
+#define IRON_STRING_COUNT_UNKNOWN UINT32_MAX
+
+/* The _p forms take the string by address: the emitter calls them on a
+ * named string so that a loop reads the string in place rather than
+ * through a per-iteration copy. */
+
+/* Size in bytes of the UTF-8 encoding. */
+/* Both layouts are read unconditionally and the flag selects one, so the
+ * accessors have no branch and clang can hoist them out of a loop. */
+static inline int64_t iron_string_byte_len_p(const Iron_String *s) {
+    int64_t heap_len = (int64_t)s->heap.byte_length;
+    int64_t sso_len  = (int64_t)s->sso.len;
+    return (s->heap.flags & 0x01) ? heap_len : sso_len;
+}
+static inline const char *iron_string_data_p(const Iron_String *s) {
+    const char *heap_data = s->heap.data;
+    const char *sso_data  = s->sso.data;
+    return (s->heap.flags & 0x01) ? heap_data : sso_data;
+}
+static inline int64_t Iron_string_byte_len(Iron_String self) {
+    return iron_string_byte_len_p(&self);
+}
+
+/* Byte value at index `i` (0..byte_len-1). Returns -1 for out-of-range
+ * indices so callers can branch on the negative result without a separate
+ * length check. */
+static inline int64_t iron_string_byte_at_p(const Iron_String *s, int64_t i) {
+    if ((uint64_t)i >= (uint64_t)iron_string_byte_len_p(s)) return -1;
+    return (int64_t)(unsigned char)iron_string_data_p(s)[i];
+}
+static inline int64_t Iron_string_byte_at(Iron_String self, int64_t i) {
+    return iron_string_byte_at_p(&self, i);
+}
+
+/* Length in characters (code points): the cached count of a heap string,
+ * otherwise counted. */
+static inline int64_t iron_string_len_p(const Iron_String *s) {
+    if ((s->heap.flags & 0x01) && s->heap.codepoint_count != IRON_STRING_COUNT_UNKNOWN)
+        return (int64_t)s->heap.codepoint_count;
+    return (int64_t)iron_string_codepoint_count(s);
+}
+static inline int64_t Iron_string_len(Iron_String self) {
+    return iron_string_len_p(&self);
+}
 void                  Iron_string_release(Iron_String self);
 
 #endif /* IRON_RUNTIME_H */

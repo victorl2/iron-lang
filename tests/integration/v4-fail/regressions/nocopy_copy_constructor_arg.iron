@@ -1,0 +1,16 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- A nocopy binding given to a constructor becomes a second owner (#638).
+object Holder {
+    val r: Res
+}
+func main() {
+    val a = Res(1)
+    val h = Holder(a)
+    println("{h.r.id}")
+}

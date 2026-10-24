@@ -18,8 +18,8 @@
 typedef struct { _Atomic uint64_t rc; uint64_t _pad; } IronStrHdr;
 
 /* heap.codepoint_count of a string from iron_string_seal_bytes: not
- * counted yet (iron_string_codepoint_count counts on demand). */
-#define IRON_STRING_COUNT_UNKNOWN UINT32_MAX
+ * counted yet, IRON_STRING_COUNT_UNKNOWN in iron_runtime.h
+ * (iron_string_codepoint_count counts on demand). */
 
 static char *iron__str_alloc(size_t byte_len, const char *where) {
     IronStrHdr *h = (IronStrHdr *)malloc(sizeof(IronStrHdr) + byte_len + 1);
@@ -484,6 +484,9 @@ Iron_List_Iron_String iron_runtime_args(void) {
 void iron_runtime_init(int argc, char **argv) {
     s_iron_argc = argc;
     s_iron_argv = argv;
+    /* glibc otherwise creates up to eight arenas per CPU. Configure its
+     * bounded default before the runtime creates any worker threads. */
+    iron_allocator_init();
     iron__ensure_intern_lock();
     IRON_MUTEX_LOCK(s_intern_lock);
     if (s_intern_table == NULL) {
@@ -814,14 +817,7 @@ Iron_String Iron_string_char_at(Iron_String self, int64_t i) {
 }
 
 /* Number of characters (code points). */
-int64_t Iron_string_len(Iron_String self) {
-    return (int64_t)iron_string_codepoint_count(&self);
-}
-
-/* Size in bytes of the UTF-8 encoding. */
-int64_t Iron_string_byte_len(Iron_String self) {
-    return (int64_t)iron_string_byte_len(&self);
-}
+/* Iron_string_len and Iron_string_byte_len are inline in iron_runtime.h. */
 
 int64_t Iron_string_count(Iron_String self, Iron_String sub) {
     const char *s    = iron_string_cstr(&self);
@@ -1026,6 +1022,8 @@ Iron_String Iron_string_repeat(Iron_String self, int64_t n) {
     const char *s   = iron_string_cstr(&self);
     size_t      len = iron_string_byte_len(&self);
     if (n <= 0 || len == 0) return iron_string_from_cstr("", 0);
+    if ((uint64_t)n > (uint64_t)((SIZE_MAX - 1) / len))
+        iron_oom_abort("iron_string.c:Iron_string_repeat");
     size_t total = len * (size_t)n;
     /* FIX-02: replace silent empty-string fallback with iron_oom_abort. */
     char *buf = (char *)malloc(total + 1);
@@ -1052,6 +1050,8 @@ Iron_String Iron_string_pad_left(Iron_String self, int64_t width, Iron_String ch
     /* The result is owned by the caller: hand out a reference of its own. */
     if (chars >= width) { iron_string_retain(&self); return self; }
     size_t pad_count = (size_t)(width - chars);
+    if (pad_count > (SIZE_MAX - 1 - slen) / pn)
+        iron_oom_abort("iron_string.c:Iron_string_pad_left");
     size_t total     = slen + pad_count * pn;
     char *buf = (char *)malloc(total + 1);
     if (!buf) iron_oom_abort("iron_string.c:Iron_string_pad_left");
@@ -1078,6 +1078,8 @@ Iron_String Iron_string_pad_right(Iron_String self, int64_t width, Iron_String c
     /* The result is owned by the caller: hand out a reference of its own. */
     if (chars >= width) { iron_string_retain(&self); return self; }
     size_t pad_count = (size_t)(width - chars);
+    if (pad_count > (SIZE_MAX - 1 - slen) / pn)
+        iron_oom_abort("iron_string.c:Iron_string_pad_right");
     size_t total     = slen + pad_count * pn;
     char *buf = (char *)malloc(total + 1);
     if (!buf) iron_oom_abort("iron_string.c:Iron_string_pad_right");
@@ -1109,15 +1111,7 @@ int64_t Iron_string_rindex_of(Iron_String self, Iron_String sub) {
     return -1;
 }
 
-/* Byte value at index `i` (0..len-1). Returns -1 for out-of-range indices
- * so callers can branch on the negative result without a separate length
- * check. */
-int64_t Iron_string_byte_at(Iron_String self, int64_t i) {
-    size_t len = iron_string_byte_len(&self);
-    if (i < 0 || (size_t)i >= len) return -1;
-    const char *s = iron_string_cstr(&self);
-    return (int64_t)(unsigned char)s[i];
-}
+/* Iron_string_byte_at is inline in iron_runtime.h. */
 
 /* Bytes [start, end) of the string, the byte counterpart of substring for
  * binary data (digests, ciphertexts, packets). Both ends are clamped to the

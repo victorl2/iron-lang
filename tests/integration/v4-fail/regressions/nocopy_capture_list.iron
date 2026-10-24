@@ -1,0 +1,13 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- A closure stored in a list literal cannot capture a nocopy value (#512).
+func main() {
+    val r = Res(1)
+    val fs = [func() -> Int { return r.id }]
+    println("{fs[0]()}")
+}

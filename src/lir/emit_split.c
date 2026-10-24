@@ -193,12 +193,8 @@ static IronLayoutKind split_layout_kind(EmitCtx *ctx, const char *iface_mangled,
  * is freed. Taking an element out of its per-type array (_detach) refills
  * the slot with that array's last element, so set and remove need whole
  * objects stored (split_layout_kind). */
-static void lower_impl_name(char *out, size_t cap, const char *name) {
-    size_t n = strlen(name);
-    if (n >= cap) n = cap - 1;
-    for (size_t i = 0; i < n; i++)
-        out[i] = (char)((name[i] >= 'A' && name[i] <= 'Z') ? name[i] + 32 : name[i]);
-    out[n] = '\0';
+static const char *lower_impl_name(EmitCtx *ctx, const char *name) {
+    return emit_c_lower_user_identifier(name, ctx->arena);
 }
 
 /* The site an edit helper's bounds panic reports: the C line, or in a
@@ -232,8 +228,7 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive) continue;
-        char ln[256];
-        lower_impl_name(ln, sizeof(ln), impl2->type_name);
+        const char *ln = lower_impl_name(ctx, impl2->type_name);
         if (impl2->decl && od_needs_drop(ctx, impl2->decl))
             iron_strbuf_appendf(sb,
                 "    for (int64_t _k = 0; _k < _sl->%s_count; _k++) %s_drop(&_sl->%s_items[_k]);\n",
@@ -264,14 +259,15 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive) continue;
+        const char *impl_c = emit_c_user_identifier(impl2->type_name, ctx->arena);
         if (iface_variant_is_boxed(ctx, iface_mangled, impl2->type_name))
             iron_strbuf_appendf(sb,
                 "    case %d: Iron_SplitList_%s_push_%s(_sl, *_val.data.%s); iron_mem_free(_val.data.%s); return true;\n",
-                impl2->tag, iface_mangled, impl2->type_name, impl2->type_name, impl2->type_name);
+                impl2->tag, iface_mangled, impl_c, impl_c, impl_c);
         else
             iron_strbuf_appendf(sb,
                 "    case %d: Iron_SplitList_%s_push_%s(_sl, _val.data.%s); return true;\n",
-                impl2->tag, iface_mangled, impl2->type_name, impl2->type_name);
+                impl2->tag, iface_mangled, impl_c, impl_c);
     }
     iron_strbuf_appendf(sb, "    default: return false;\n    }\n}\n\n");
 
@@ -299,8 +295,7 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive) continue;
-        char ln[256];
-        lower_impl_name(ln, sizeof(ln), impl2->type_name);
+        const char *ln = lower_impl_name(ctx, impl2->type_name);
         iron_strbuf_appendf(sb,
             "    case %d: {\n"
             "        int64_t _last = _sl->%s_count - 1;\n"
@@ -328,8 +323,7 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive || !impl2->decl || !od_needs_drop(ctx, impl2->decl)) continue;
-        char ln[256];
-        lower_impl_name(ln, sizeof(ln), impl2->type_name);
+        const char *ln = lower_impl_name(ctx, impl2->type_name);
         iron_strbuf_appendf(sb, "    case %d: %s_drop(&_sl->%s_items[_oi]); break;\n",
                             impl2->tag, emit_mangle_name(impl2->type_name, ctx->arena), ln);
     }
@@ -341,16 +335,16 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive) continue;
-        char ln[256];
-        lower_impl_name(ln, sizeof(ln), impl2->type_name);
+        const char *impl_c = emit_c_user_identifier(impl2->type_name, ctx->arena);
+        const char *ln = lower_impl_name(ctx, impl2->type_name);
         if (iface_variant_is_boxed(ctx, iface_mangled, impl2->type_name))
             iron_strbuf_appendf(sb,
                 "        case %d: _sl->%s_items[_oi] = *_val.data.%s; iron_mem_free(_val.data.%s); break;\n",
-                impl2->tag, ln, impl2->type_name, impl2->type_name);
+                impl2->tag, ln, impl_c, impl_c);
         else
             iron_strbuf_appendf(sb,
                 "        case %d: _sl->%s_items[_oi] = _val.data.%s; break;\n",
-                impl2->tag, ln, impl2->type_name);
+                impl2->tag, ln, impl_c);
     }
     iron_strbuf_appendf(sb,
         "        default: break;\n"
@@ -380,10 +374,10 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive) continue;
-        char ln[256];
-        lower_impl_name(ln, sizeof(ln), impl2->type_name);
+        const char *impl_c = emit_c_user_identifier(impl2->type_name, ctx->arena);
+        const char *ln = lower_impl_name(ctx, impl2->type_name);
         iron_strbuf_appendf(sb, "    case %d: _out = %s_from_%s(_sl->%s_items[_oi]); break;\n",
-                            impl2->tag, iface_mangled, impl2->type_name, ln);
+                            impl2->tag, iface_mangled, impl_c, ln);
     }
     iron_strbuf_appendf(sb,
         "    default: break;\n"
@@ -487,7 +481,8 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                             impl2->type_name, f->name, narrowed);
                     }
                 }
-                iron_strbuf_appendf(sb, "    %s %s;\n", c_type, f->name);
+                iron_strbuf_appendf(sb, "    %s %s;\n", c_type,
+                                    emit_c_user_identifier(f->name, ctx->arena));
             }
             iron_strbuf_appendf(sb, "} %s_Stor;\n\n", im);
             /* Record this type uses reduced storage */
@@ -539,8 +534,9 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
         for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
             iron_strbuf_appendf(sb, "    %s *%s_%s;\n",
                 common_fields[cfi].c_type, iface_lower,
-                common_fields[cfi].name);
-            SL_MEMBER("%s_%s|%s_common_cap", iface_lower, common_fields[cfi].name, iface_lower);
+                emit_c_user_identifier(common_fields[cfi].name, ctx->arena));
+            SL_MEMBER("%s_%s|%s_common_cap", iface_lower,
+                      emit_c_user_identifier(common_fields[cfi].name, ctx->arena), iface_lower);
         }
         iron_strbuf_appendf(sb, "    int64_t %s_common_count;\n", iface_lower);
         iron_strbuf_appendf(sb, "    int64_t %s_common_cap;\n", iface_lower);
@@ -551,17 +547,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive) continue;
         const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
-        char lower_name[256];
-        {
-            size_t nl2 = strlen(impl2->type_name);
-            if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
-            for (size_t ci3 = 0; ci3 < nl2; ci3++)
-                lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
-                                           impl2->type_name[ci3] <= 'Z')
-                    ? impl2->type_name[ci3] + 32
-                    : impl2->type_name[ci3]);
-            lower_name[nl2] = '\0';
-        }
+        const char *lower_name = lower_impl_name(ctx, impl2->type_name);
 
         /* Phase 48-02: Check SoA layout for this type */
         IronLayoutKind lk = iron_layout_get_kind(&ctx->layout, iface_mangled,
@@ -647,8 +633,9 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                     &ctx->value_range, impl2->type_name, f->name);
                 if (narrowed_soa) c_type = narrowed_soa;
                 iron_strbuf_appendf(sb, "    %s *%s_%s;\n",
-                    c_type, lower_name, f->name);
-                SL_MEMBER("%s_%s|%s_cap", lower_name, f->name, lower_name);
+                    c_type, lower_name, emit_c_user_identifier(f->name, ctx->arena));
+                SL_MEMBER("%s_%s|%s_cap", lower_name,
+                          emit_c_user_identifier(f->name, ctx->arena), lower_name);
             }
             iron_strbuf_appendf(sb, "    int64_t %s_count;\n", lower_name);
             iron_strbuf_appendf(sb, "    int64_t %s_cap;\n", lower_name);
@@ -689,17 +676,8 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive) continue;
         const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
-        char lower_name[256];
-        {
-            size_t nl2 = strlen(impl2->type_name);
-            if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
-            for (size_t ci3 = 0; ci3 < nl2; ci3++)
-                lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
-                                           impl2->type_name[ci3] <= 'Z')
-                    ? impl2->type_name[ci3] + 32
-                    : impl2->type_name[ci3]);
-            lower_name[nl2] = '\0';
-        }
+        const char *impl_c = emit_c_user_identifier(impl2->type_name, ctx->arena);
+        const char *lower_name = lower_impl_name(ctx, impl2->type_name);
 
         /* Phase 48-02: Check if this type uses SoA layout */
         char soa_key[768];
@@ -713,7 +691,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
         iron_strbuf_appendf(sb,
             "static inline void Iron_SplitList_%s_push_%s("
             "Iron_SplitList_%s *_sl, %s _val) {\n",
-            iface_mangled, impl2->type_name,
+            iface_mangled, impl_c,
             iface_mangled, im);
 
         if (type_is_soa && impl2->decl) {
@@ -766,8 +744,8 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                     "        _sl->%s_%s = (%s *)_iron_sl_realloc_tracked("
                     "&_sl->_tracked, &_sl->_tracked_count, &_sl->_tracked_cap, "
                     "_sl->%s_%s, (size_t)_sl->%s_cap * sizeof(%s));\n",
-                    lower_name, f->name, c_type,
-                    lower_name, f->name,
+                    lower_name, emit_c_user_identifier(f->name, ctx->arena), c_type,
+                    lower_name, emit_c_user_identifier(f->name, ctx->arena),
                     lower_name, c_type);
             }
             iron_strbuf_appendf(sb, "    }\n");
@@ -810,11 +788,14 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                 if (narrowed_sf) {
                     iron_strbuf_appendf(sb,
                         "    _sl->%s_%s[_sl->%s_count] = (%s)_val.%s;\n",
-                        lower_name, f->name, lower_name, narrowed_sf, f->name);
+                        lower_name, emit_c_user_identifier(f->name, ctx->arena),
+                        lower_name, narrowed_sf,
+                        emit_c_user_identifier(f->name, ctx->arena));
                 } else {
                     iron_strbuf_appendf(sb,
                         "    _sl->%s_%s[_sl->%s_count] = _val.%s;\n",
-                        lower_name, f->name, lower_name, f->name);
+                        lower_name, emit_c_user_identifier(f->name, ctx->arena),
+                        lower_name, emit_c_user_identifier(f->name, ctx->arena));
                 }
             }
 
@@ -830,16 +811,18 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                         "        _sl->%s_%s = (%s *)_iron_sl_realloc_tracked("
                         "&_sl->_tracked, &_sl->_tracked_count, &_sl->_tracked_cap, "
                         "_sl->%s_%s, (size_t)_sl->%s_common_cap * sizeof(%s));\n",
-                        iface_lower, common_fields[cfi].name, common_fields[cfi].c_type,
-                        iface_lower, common_fields[cfi].name,
+                        iface_lower,
+                        emit_c_user_identifier(common_fields[cfi].name, ctx->arena),
+                        common_fields[cfi].c_type,
+                        iface_lower, emit_c_user_identifier(common_fields[cfi].name, ctx->arena),
                         iface_lower, common_fields[cfi].c_type);
                 }
                 iron_strbuf_appendf(sb, "    }\n");
                 for (int cfi = 0; cfi < (int)arrlen(common_fields); cfi++) {
                     iron_strbuf_appendf(sb,
                         "    _sl->%s_%s[_sl->%s_common_count] = _val.%s;\n",
-                        iface_lower, common_fields[cfi].name,
-                        iface_lower, common_fields[cfi].name);
+                        iface_lower, emit_c_user_identifier(common_fields[cfi].name, ctx->arena),
+                        iface_lower, emit_c_user_identifier(common_fields[cfi].name, ctx->arena));
                 }
                 iron_strbuf_appendf(sb,
                     "    _sl->%s_common_count++;\n", iface_lower);
@@ -888,11 +871,15 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                     if (narrowed_af) {
                         iron_strbuf_appendf(sb,
                             "    _sl->%s_items[_sl->%s_count].%s = (%s)_val.%s;\n",
-                            lower_name, lower_name, f->name, narrowed_af, f->name);
+                            lower_name, lower_name,
+                            emit_c_user_identifier(f->name, ctx->arena), narrowed_af,
+                            emit_c_user_identifier(f->name, ctx->arena));
                     } else {
                         iron_strbuf_appendf(sb,
                             "    _sl->%s_items[_sl->%s_count].%s = _val.%s;\n",
-                            lower_name, lower_name, f->name, f->name);
+                            lower_name, lower_name,
+                            emit_c_user_identifier(f->name, ctx->arena),
+                            emit_c_user_identifier(f->name, ctx->arena));
                     }
                 }
             } else {
@@ -974,14 +961,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive || !impl2->decl || !od_needs_copy_fixup(ctx, impl2->decl)) continue;
         const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
-        char lower_name[256];
-        size_t nl2 = strlen(impl2->type_name);
-        if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
-        for (size_t ci3 = 0; ci3 < nl2; ci3++)
-            lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
-                                       impl2->type_name[ci3] <= 'Z')
-                ? impl2->type_name[ci3] + 32 : impl2->type_name[ci3]);
-        lower_name[nl2] = '\0';
+        const char *lower_name = lower_impl_name(ctx, impl2->type_name);
         iron_strbuf_appendf(sb,
             "    for (int64_t _i = 0; _i < dst.%s_count; _i++) %s_copied(&dst.%s_items[_i]);\n",
             lower_name, im, lower_name);
@@ -1009,14 +989,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
         Iron_IfaceImpl *impl2 = &entry->impls[j];
         if (!impl2->is_alive || !impl2->decl || !od_needs_drop(ctx, impl2->decl)) continue;
         const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
-        char lower_name[256];
-        size_t nl2 = strlen(impl2->type_name);
-        if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
-        for (size_t ci3 = 0; ci3 < nl2; ci3++)
-            lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
-                                       impl2->type_name[ci3] <= 'Z')
-                ? impl2->type_name[ci3] + 32 : impl2->type_name[ci3]);
-        lower_name[nl2] = '\0';
+        const char *lower_name = lower_impl_name(ctx, impl2->type_name);
         iron_strbuf_appendf(sb,
             "    for (int64_t _i = 0; _i < _sl->%s_count; _i++) %s_drop(&_sl->%s_items[_i]);\n",
             lower_name, im, lower_name);

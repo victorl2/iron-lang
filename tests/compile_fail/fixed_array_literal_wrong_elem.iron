@@ -1,0 +1,7 @@
+-- A fixed array literal element of the wrong type is a type error, not
+-- invalid C (#677).
+val T: [UInt8; 2] = [1, "x"]
+
+func main() {
+    println("{T[1]}")
+}

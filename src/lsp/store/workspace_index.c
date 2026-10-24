@@ -112,11 +112,12 @@ static int is_excluded_dir(const char *name) {
 /* Parse-only pipeline. Returns NULL on OOM or missing source; otherwise
  * returns the root Iron_Program (allocated in `arena`). `diags` is
  * caller-owned. */
-static Iron_Program *parse_only(const char *source, size_t len,
-                                 const char *filename,
-                                 Iron_Arena *arena,
-                                 Iron_DiagList *diags,
-                                 const _Atomic bool *cancel) {
+Iron_Program *ilsp_workspace_index_parse_buffer(
+    const char *source, size_t len,
+    const char *filename,
+    Iron_Arena *arena,
+    Iron_DiagList *diags,
+    const _Atomic bool *cancel) {
     if (!source || !arena || !diags) return NULL;
     Iron_Lexer lex = iron_lexer_create(source, filename ? filename : "<index>",
                                         arena, diags);
@@ -239,7 +240,8 @@ static void add_or_replace_owned_entry(IronLsp_WorkspaceIndex *wi,
     /* 2. Throw-away diaglist for parse-only; we don't emit to the client
      *    at warm-seed time (D-01 leaves analyze for on-demand). */
     Iron_DiagList diags = iron_diaglist_create();
-    Iron_Program *prog  = parse_only(src, src_len, canon, arena, &diags, NULL);
+    Iron_Program *prog  = ilsp_workspace_index_parse_buffer(
+        src, src_len, canon, arena, &diags, NULL);
     iron_diaglist_free(&diags);
     if (!prog) {
         iron_arena_free(arena);
