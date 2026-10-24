@@ -59,6 +59,8 @@ static Iron_Node *type_decl_node(const Iron_Type *t) {
             return type_decl_node(t->ptr.pointee);
         case IRON_TYPE_ARRAY:
             return type_decl_node(t->array.elem);
+        case IRON_TYPE_VIEW:
+            return type_decl_node(t->view.elem);
         /* Primitives + function + tuple + generic -> empty (D-05). */
         case IRON_TYPE_INT:  case IRON_TYPE_INT8:  case IRON_TYPE_INT16:
         case IRON_TYPE_INT32: case IRON_TYPE_INT64:

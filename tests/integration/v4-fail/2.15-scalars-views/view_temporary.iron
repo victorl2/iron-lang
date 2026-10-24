@@ -1,0 +1,8 @@
+func make_text() -> String {
+    return "temporary value longer than sso"
+}
+
+func main() {
+    val bytes = make_text().bytes()
+    println("{bytes[0]}")
+}

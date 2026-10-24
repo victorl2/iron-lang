@@ -379,7 +379,7 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
             "    dst.count = src->count;\n"
             "    dst.capacity = src->count;\n"
             "    if (src->count > 0) {\n"
-            "        dst.items = (%s *)iron_mem_alloc((size_t)src->count * sizeof(%s));\n"
+            "        dst.items = (%s *)IRON_LIST_ALLOC(__typeof__(*dst.items), (size_t)src->count * sizeof(%s));\n"
             "        if (!dst.items) iron_oom_abort(\"Iron_List_%s_clone\");\n"
             "        for (int64_t _i = 0; _i < src->count; _i++) {\n"
             "            dst.items[_i] = src->items[_i];\n"
@@ -406,7 +406,7 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
             "    dst.count = src->count;\n"
             "    dst.capacity = src->count;\n"
             "    if (src->count > 0) {\n"
-            "        dst.items = (%s *)iron_mem_alloc((size_t)src->count * sizeof(%s));\n"
+            "        dst.items = (%s *)IRON_LIST_ALLOC(__typeof__(*dst.items), (size_t)src->count * sizeof(%s));\n"
             "        if (!dst.items) iron_oom_abort(\"Iron_List_%s_clone\");\n"
             "        iron_mem_copy(dst.items, src->items, (size_t)src->count * sizeof(%s));\n"
             "    } else {\n"
@@ -432,13 +432,14 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
             "            %s_drop(&self->items[_i]);\n"
             "        }\n"
             "    }\n"
-            "    iron_mem_free(self->items);\n"
+            "    IRON_LIST_FREE(__typeof__(*self->items), self->items);\n"
             "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
             "}\n"
             "void Iron_List_%s_clear(Iron_List_%s *self) {\n"
             "    for (int64_t _i = 0; _i < self->count; _i++) {\n"
             "        %s_drop(&self->items[_i]);\n"
             "    }\n"
+            "    IRON_LIST_CANCEL_SPARE(self);\n"
             "    self->count = 0;\n"
             "}\n\n",
             mangled,
@@ -449,10 +450,11 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
     } else {
         iron_strbuf_appendf(&ctx->struct_bodies,
             "void Iron_List_%s_free(Iron_List_%s *self) {\n"
-            "    iron_mem_free(self->items);\n"
+            "    IRON_LIST_FREE(__typeof__(*self->items), self->items);\n"
             "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
             "}\n"
             "void Iron_List_%s_clear(Iron_List_%s *self) {\n"
+            "    IRON_LIST_CANCEL_SPARE(self);\n"
             "    self->count = 0;\n"
             "}\n\n",
             mangled, mangled, mangled, mangled);
@@ -1317,6 +1319,16 @@ static bool ir_has_subtype(IronLIR_Module *module, const char *name) {
 
 /* ── Object struct body emission ───────────────────────────────────────────── */
 
+/* `//iron:align=N` on a field: _Alignas raises its alignment (and so the
+ * struct's); the analyzer rejected values below the natural alignment. */
+static void emit_field_align(EmitCtx *ctx, const Iron_Field *f) {
+    if (!f || !f->align) return;
+    if (f->align == IRON_ALIGN_CACHELINE)
+        iron_strbuf_appendf(&ctx->struct_bodies, "_Alignas(IRON_CACHELINE) ");
+    else
+        iron_strbuf_appendf(&ctx->struct_bodies, "_Alignas(%u) ", (unsigned)f->align);
+}
+
 static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                                      int type_tag) {
     /* Phase 33: runtime-provided surface types (Arena/ArenaSave/Box) have their
@@ -1351,7 +1363,16 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
             f->resolved_type->nullable.inner)
             emit_ensure_optional(ctx, f->resolved_type->nullable.inner);
     }
-    iron_strbuf_appendf(&ctx->struct_bodies, "struct %s {\n", mangled);
+    /* `//iron:align=N` on the object: every instance (stack, field, list
+     * element) is at least N-aligned. */
+    if (od && od->align == IRON_ALIGN_CACHELINE)
+        iron_strbuf_appendf(&ctx->struct_bodies,
+                            "struct __attribute__((aligned(IRON_CACHELINE))) %s {\n", mangled);
+    else if (od && od->align > 1)
+        iron_strbuf_appendf(&ctx->struct_bodies,
+                            "struct __attribute__((aligned(%u))) %s {\n", (unsigned)od->align, mangled);
+    else
+        iron_strbuf_appendf(&ctx->struct_bodies, "struct %s {\n", mangled);
 
     if (od) {
         if (od->extends_name) {
@@ -1410,6 +1431,8 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                     if (!c_type) iron_oom_abort("emit_structs.c:emit_object_struct_body optional_field");
                     iron_strbuf_free(&opt_sb);
                     /* Emit the optional struct if not already done */
+                    iron_strbuf_appendf(&ctx->struct_bodies, "    ");
+                    emit_field_align(ctx, f);
                     iron_strbuf_appendf(&ctx->struct_bodies,
                                          "    %s %s;\n", c_type, field_c);
                     continue;
@@ -1434,6 +1457,8 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                     c_type = emit_annotation_to_c(ta->name, ctx);
                 }
             }
+            iron_strbuf_appendf(&ctx->struct_bodies, "    ");
+            emit_field_align(ctx, f);
             iron_strbuf_appendf(&ctx->struct_bodies,
                                  "    %s %s;\n", c_type, field_c);
         }

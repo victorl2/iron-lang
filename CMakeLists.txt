@@ -308,6 +308,7 @@ add_library(iron_compiler STATIC
     src/analyzer/init_check.c
     src/analyzer/global_order.c
     src/analyzer/list_ownership.c
+    src/analyzer/view_check.c
     src/analyzer/unused_var.c
     src/analyzer/effects.c
     src/analyzer/iface_collect.c
@@ -1661,6 +1662,27 @@ if(NOT WIN32)
     )
 endif()
 
+if(NOT WIN32)
+    add_test(
+        NAME test_run_tests_worker_failure_summary
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/run_tests_worker_failure_smoke.sh
+    )
+    set_tests_properties(test_run_tests_worker_failure_summary PROPERTIES
+        PASS_REGULAR_EXPRESSION "run_tests worker failure summary OK"
+        LABELS "unit;hijack-canary"
+        TIMEOUT 30
+    )
+    add_test(
+        NAME test_run_tests_expect_panic_directives
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/run_tests_expect_panic_smoke.sh
+    )
+    set_tests_properties(test_run_tests_expect_panic_directives PROPERTIES
+        PASS_REGULAR_EXPRESSION "run_tests expect-panic directives OK"
+        LABELS "unit"
+        TIMEOUT 30
+    )
+endif()
+
 # ── Benchmark rows (2026-07 realism split) ─────────────────────────────────
 # The old benchmark_smoke ran the FULL 139-problem corpus (~22 min serial,
 # measured 21m45s; serially re-confirmed on a quiet container 2026-07-18)
@@ -1768,6 +1790,12 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/expr_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/expr_fuzz)
     set_tests_properties(expr_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
+    # Scalar bit and overflow intrinsics, borrowed views and StringBuilder
+    # against deterministic Python integer and sequence models.
+    add_test(NAME scalar_views_fuzz
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/scalar_views_fuzz.py
+            $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/scalar_views_fuzz)
+    set_tests_properties(scalar_views_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
     # Random whole programs (control flow, collections, objects and
     # ownership, closures) compared with a Python model of the manual
     # (tests/fuzz/prog_fuzz.py). Fixed seeds.

@@ -168,4 +168,9 @@ ArrayParamMode iron_lir_get_array_param_mode(IronLIR_OptimizeInfo *info,
 /* Function inlining is on by default; `ironc build --debug` turns it off. */
 void iron_lir_set_function_inlining(bool on);
 
+/* --report-bounds-checks: print each index access that keeps its bounds
+ * check after optimization (file:line, function, kind) and a total. */
+#include <stdio.h>
+int iron_lir_report_bounds_checks(IronLIR_Module *module, FILE *out, bool include_stdlib);
+
 #endif /* IRON_LIR_OPTIMIZE_H */

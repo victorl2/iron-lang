@@ -546,6 +546,22 @@ void ilsp_facade_signature_help(struct IronLsp_Server    *server,
     if (ctx.best->kind == IRON_NODE_METHOD_CALL) {
         Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)ctx.best;
         arg_count = mc->arg_count;
+        const Iron_Type *intr_recv = mc->object
+            ? strip_handles(((Iron_ExprNode *)mc->object)->resolved_type) : NULL;
+        unsigned intr_mask = ilsp_intrinsic_receiver(intr_recv);
+        bool intr_static = false;
+        if (mc->object && mc->object->kind == IRON_NODE_IDENT) {
+            Iron_Ident *id = (Iron_Ident *)mc->object;
+            unsigned static_mask = ilsp_static_intrinsic_receiver(id->name);
+            if (static_mask) {
+                intr_mask = static_mask;
+                intr_static = true;
+                if (!intr_recv) intr_recv = ilsp_primitive_type_named(id->name);
+            }
+        }
+        const Iron_IntrinsicInfo *intr_info = iron_intrinsic_info(mc->intrinsic);
+        if (!intr_info && mc->method)
+            intr_info = iron_intrinsic_find(mc->method, intr_mask, intr_static);
         /* The method the call resolves to, in the file or the stdlib
          * (String.replace, Math.pow, a user method, an interface's
          * signature). Its receiver is implicit in Iron source, so no
@@ -555,6 +571,14 @@ void ilsp_facade_signature_help(struct IronLsp_Server    *server,
             build_sig_info(&sigs[nsig++], NULL, (Iron_MethodDecl *)d, NULL, arena);
         } else if (d && d->kind == IRON_NODE_FUNC_DECL) {
             build_sig_info(&sigs[nsig++], (Iron_FuncDecl *)d, NULL, NULL, arena);
+        } else if (intr_info) {
+            if (!intr_recv && intr_info->id == IRON_INTR_FROM_BITS)
+                intr_recv = strip_handles(((Iron_ExprNode *)mc)->resolved_type);
+            if (intr_info) {
+                sig_from_label(&sigs[nsig++],
+                               ilsp_intrinsic_signature(intr_info, intr_recv, arena),
+                               intr_info->doc, arena);
+            }
         } else if (mc->object && mc->method) {
             /* A compiler builtin: `xs.push(`, `m.put(`. */
             const Iron_Type *rt = strip_handles(((Iron_ExprNode *)mc->object)->resolved_type);

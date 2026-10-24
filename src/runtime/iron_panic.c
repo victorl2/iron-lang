@@ -276,6 +276,32 @@ void iron_panic_index_oob(const char *site_file, int site_line,
     abort();
 }
 
+/* A view slice, spare or commit outside its range (manual 2.15). */
+#undef iron_panic_view_range
+void iron_panic_view_range(const char *site_file, int site_line,
+                           int64_t start, int64_t end, int64_t len) {
+    fflush(stdout);
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+    }
+    const char *sf = site_file ? site_file : "<unknown>";
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"view_range\",", stderr);
+        fprintf(stderr, "\"site\":{\"file\":\"%s\",\"line\":%d}", sf, site_line);
+        fprintf(stderr, ",\"start\":%lld,\"end\":%lld,\"length\":%lld}\n",
+                (long long)start, (long long)end, (long long)len);
+    } else {
+        fputs("iron: range out of bounds\n", stderr);
+        fprintf(stderr, "  site: %s:%d\n", sf, site_line);
+        fprintf(stderr, "  start: %lld end: %lld length: %lld\n",
+                (long long)start, (long long)end, (long long)len);
+    }
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
 void iron_panic_key_missing(const char *site_file, int site_line) {
     fflush(stdout);  /* the program's earlier output comes first */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();

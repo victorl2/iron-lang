@@ -1342,6 +1342,25 @@ static bool emit_is_optional_unwrap(IronLIR_Func *fn, IronLIR_Instr *in) {
     return src && src->kind == IRON_TYPE_NULLABLE;
 }
 
+/* `v[i]` on a View / ViewMut: the element at v.ptr[i], checked against
+ * v.len unless the bounds pass proved the check redundant. Writes `V.ptr[idx]`
+ * (the caller adds ` = value` or uses it as an expression). */
+static void emit_view_elem(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
+                           IronLIR_Instr *instr, IronLIR_BlockId bid, int depth) {
+    emit_expr_to_buf(sb, instr->index.array, fn, ctx, bid, depth);
+    if (instr->index.bounds_elide) {
+        iron_strbuf_appendf(sb, ".ptr[");
+        emit_expr_to_buf(sb, instr->index.index, fn, ctx, bid, depth);
+        iron_strbuf_appendf(sb, "]");
+        return;
+    }
+    iron_strbuf_appendf(sb, ".ptr[iron_bounds_idx(");
+    emit_expr_to_buf(sb, instr->index.index, fn, ctx, bid, depth);
+    iron_strbuf_appendf(sb, ", ");
+    emit_expr_to_buf(sb, instr->index.array, fn, ctx, bid, depth);
+    iron_strbuf_appendf(sb, ".len, IRON_SITE)]");
+}
+
 /* The index of GET_INDEX `in` into a list with columns, checked like any
  * other element access: `count_of` receives the list expression. */
 static void emit_column_index(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
@@ -2979,7 +2998,9 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             bool use_bvec_expr = (arr_t_expr && arr_t_expr->kind == IRON_TYPE_ARRAY &&
                                   arr_t_expr->array.is_bounded);
             bool use_direct = (arr_t_expr && arr_t_expr->kind == IRON_TYPE_ARRAY && !use_bvec_expr);
-            if (use_bvec_expr) {
+            if (arr_t_expr && arr_t_expr->kind == IRON_TYPE_VIEW) {
+                emit_view_elem(sb, fn, ctx, instr, use_block_id, depth + 1);
+            } else if (use_bvec_expr) {
                 /* Phase 23 VEC-01: bounded vector inline index in expression context.
                  * Use .data[] (not .items[] — bvec struct has no items field).
                  * LIST-01: guard against len via iron_bounds_idx. */
@@ -4547,6 +4568,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             const char *c_type = emit_local_decl_type(
                 fn, instr, instr->alloca.alloc_type, ctx);
             emit_indent(sb, ind);
+            if (instr->alloca.align == IRON_ALIGN_CACHELINE)
+                iron_strbuf_appendf(sb, "_Alignas(IRON_CACHELINE) ");
+            else if (instr->alloca.align)
+                iron_strbuf_appendf(sb, "_Alignas(%u) ", (unsigned)instr->alloca.align);
             iron_strbuf_appendf(sb, "%s ", c_type);
             emit_val(sb, instr->id);
             /* Phase 23 VEC-01 Pitfall 7: bounded vector ALLOCA zero-init via
@@ -5301,7 +5326,14 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                              arr_t->array.is_bounded);
             bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY && !use_bvec &&
                                !emit_list_has_columns(ctx, arr_t));
-            if (use_bvec) {
+            if (arr_t && arr_t->kind == IRON_TYPE_VIEW) {
+                emit_indent(sb, ind);
+                if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = ");
+                emit_view_elem(sb, fn, ctx, instr, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ";\n");
+            } else if (use_bvec) {
                 /* Inline bounds-check: if (i >= (int64_t)bv.len) iron_panic_bvec_oob(...)
                  * (omitted when the elision pass proved it redundant, or when
                  * the author declared the site unchecked — UNCHK-IDX routes
@@ -5480,7 +5512,13 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                              arr_t->array.is_bounded);
             bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY &&
                                !use_bvec && !emit_list_has_columns(ctx, arr_t));
-            if (use_bvec) {
+            if (arr_t && arr_t->kind == IRON_TYPE_VIEW) {
+                emit_indent(sb, ind);
+                emit_view_elem(sb, fn, ctx, instr, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, " = ");
+                emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ";\n");
+            } else if (use_bvec) {
                 /* A bounded vector is a value struct with inline storage, so
                  * the write has to land in the vector's own storage: the slot
                  * it was loaded from, the field of an object in a slot or
@@ -6884,6 +6922,15 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (dbg_list.method) dbg_list.call_at = sb->len;
                 iron_strbuf_appendf(sb, "%s(", c_name);
                 emitted_direct = true;
+                /* An intrinsic helper macro that builds a value of the
+                 * call's type (a view, list, optional, StringBuilder)
+                 * takes that C type first (runtime/iron_intrinsics.h). */
+                if (strncmp(c_name, "iron_t_", 7) == 0) {
+                    iron_strbuf_appendf(sb, "%s",
+                        (instr->type && instr->type->kind != IRON_TYPE_VOID)
+                            ? emit_type_to_c(instr->type, ctx) : "void");
+                    has_env_arg = true;
+                }
             }
             if (!emitted_direct) {
                 /* True indirect call through an Iron_Closure value.
@@ -10020,6 +10067,9 @@ void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
                         ? fn->extern_c_name
                         : emit_mangle_func_name(fn->name, ctx->arena);
     if (emit_func_needs_no_tre(fn)) iron_strbuf_appendf(sb, "IRON_NO_TRE ");
+    if (fn->hints & IRON_HINT_INLINE)   iron_strbuf_appendf(sb, "__attribute__((always_inline)) ");
+    if (fn->hints & IRON_HINT_NOINLINE) iron_strbuf_appendf(sb, "__attribute__((noinline)) ");
+    if (fn->hints & IRON_HINT_COLD)     iron_strbuf_appendf(sb, "__attribute__((cold)) ");
     /* Phase 22 READ-08: sret ABI — readonly functions returning a fixed-size
      * array use `void fn(T_array *_sret, ...args)` instead of
      * `T_array fn(...args)`. Both decl and call sites must agree (Pitfall 6). */

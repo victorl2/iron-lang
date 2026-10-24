@@ -8,6 +8,7 @@
  * full control over scope push/pop ordering.
  */
 
+#include "analyzer/intrinsics.h"
 #include "hir/stdlib_origin.h"
 #include "comptime/comptime.h"
 #include "analyzer/generics.h"
@@ -1172,7 +1173,25 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 ((Iron_Ident *)mc->object)->name &&
                 strcmp(((Iron_Ident *)mc->object)->name, "RawPtr") == 0 &&
                 strcmp(mc->method, "of") == 0;
-            if (!is_ptr_builtin_call && !is_rawptr_builtin_call) {
+            /* `Hint.likely(c)`, `Float.from_bits(u)`, `String.from_utf8(b)`,
+             * `StringBuilder.new()`: compiler intrinsics on a type name
+             * (analyzer/intrinsics.h) that need no import. */
+            bool is_static_intrinsic = false;
+            if (mc->object && mc->object->kind == IRON_NODE_IDENT && mc->method &&
+                ((Iron_Ident *)mc->object)->name) {
+                const char *tn = ((Iron_Ident *)mc->object)->name;
+                bool hint = strcmp(tn, "Hint") == 0;
+                bool num = strcmp(tn, "Float") == 0 || strcmp(tn, "Float32") == 0 ||
+                           strcmp(tn, "Float64") == 0 || strcmp(tn, "Int") == 0 ||
+                           strcmp(tn, "Int8") == 0 || strcmp(tn, "Int16") == 0 ||
+                           strcmp(tn, "Int32") == 0 || strcmp(tn, "Int64") == 0;
+                unsigned recv = hint ? IRON_INTR_RECV_HINT
+                              : num ? (IRON_INTR_RECV_FLOAT | IRON_INTR_RECV_SIGNED)
+                              : strcmp(tn, "String") == 0 ? IRON_INTR_RECV_STRING : 0;
+                is_static_intrinsic = recv && iron_intrinsic_find(mc->method, recv, true) &&
+                                      !iron_scope_lookup(ctx->current_scope, tn);
+            }
+            if (!is_ptr_builtin_call && !is_rawptr_builtin_call && !is_static_intrinsic) {
                 resolve_expr(ctx, mc->object);
             }
             resolve_node_list(ctx, mc->args, mc->arg_count);
@@ -1454,6 +1473,11 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     mc_slot->arg_count     = ec_argc;
                     mc_slot->is_auto_deref        = false;
                     mc_slot->is_builtin_to_string = false;
+                    mc_slot->is_builtin_copy      = false;
+                    mc_slot->is_ctor_desugar      = false;
+                    mc_slot->intrinsic             = 0;
+                    mc_slot->is_generated          = false;
+                    mc_slot->is_memberwise         = false;
                     mc_slot->generic_args         = NULL;
                     mc_slot->generic_arg_count    = 0;
                     mc_slot->is_generated         = is_generated;
