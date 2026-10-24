@@ -429,7 +429,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_http_iron_concurrency PROPERTIES
-        LABELS "integration;networking;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 60 PROCESSORS 4)
 
     add_test(
         NAME test_websocket_iron_roundtrip
@@ -437,7 +437,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_websocket_iron_roundtrip PROPERTIES
-        LABELS "integration;networking;websocket;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;websocket;v4-acceptance" TIMEOUT 60 PROCESSORS 4)
 
     add_test(
         NAME test_file_operations_iron_roundtrip
@@ -445,7 +445,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_file_operations_iron_roundtrip PROPERTIES
-        LABELS "integration;file-io;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;file-io;v4-acceptance" TIMEOUT 60 PROCESSORS 4)
 
     add_test(
         NAME test_http_example_check
@@ -460,7 +460,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_udp_iron_payload_roundtrip PROPERTIES
-        LABELS "integration;networking;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 60 PROCESSORS 4)
 endif()
 
 # ── Phase 2 (CLI + TOML scaffold) tests ──────────────────────────────────────
@@ -1487,6 +1487,11 @@ add_executable(test_bvec_oob_panic test_bvec_oob_panic.c)
 target_link_libraries(test_bvec_oob_panic iron_compiler iron_runtime unity)
 add_test(NAME test_bvec_oob_panic COMMAND test_bvec_oob_panic)
 set_tests_properties(test_bvec_oob_panic PROPERTIES LABELS "unit;phase23-invariant" TIMEOUT 30)
+
+add_executable(test_codegen_byte_loops test_codegen_byte_loops.c)
+target_link_libraries(test_codegen_byte_loops iron_compiler iron_runtime unity)
+add_test(NAME test_codegen_byte_loops COMMAND test_codegen_byte_loops)
+set_tests_properties(test_codegen_byte_loops PROPERTIES LABELS "unit" TIMEOUT 30)
 
 # ── Phase 26 POL-06: rc policy refcount substrate (Plan 26-01) ───────────────
 # Wave 0 RED → GREEN after Task 2 lands the iron_rc_alloc / iron_rc_retain /

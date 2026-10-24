@@ -26,9 +26,7 @@
 #include "lsp/server/server.h"
 #include "analyzer/analyzer.h"
 #include "diagnostics/diagnostics.h"
-#include "lexer/lexer.h"
 #include "parser/ast.h"
-#include "parser/parser.h"
 #include "util/arena.h"
 #include "util/os.h"
 #include "vendor/stb_ds.h"
@@ -278,16 +276,38 @@ static void score_program(IronLsp_Server *server,
     }
 }
 
+static bool path_char_equal(char a, char b) {
+#ifdef _WIN32
+    if (a == '\\') a = '/';
+    if (b == '\\') b = '/';
+    if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a');
+    if (b >= 'A' && b <= 'Z') b = (char)(b - 'A' + 'a');
+#endif
+    return a == b;
+}
+
 static bool paths_equal(const char *a, const char *b) {
     if (!a || !b) return false;
-#ifdef _WIN32
-    return _stricmp(a, b) == 0;
-#else
-    return strcmp(a, b) == 0;
-#endif
+    while (*a && *b) {
+        if (!path_char_equal(*a, *b)) return false;
+        a++;
+        b++;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+static bool path_is_in_workspace(const char *path, const char *root) {
+    if (!path || !root) return false;
+    size_t i = 0;
+    while (root[i] && path[i] && path_char_equal(root[i], path[i])) i++;
+    if (root[i] != '\0') return false;
+    if (path[i] == '\0') return true;
+    if (i > 0 && (root[i - 1] == '/' || root[i - 1] == '\\')) return true;
+    return path[i] == '/' || path[i] == '\\';
 }
 
 static open_source_t *snapshot_open_sources(IronLsp_Server *server,
+                                             const char *workspace_root,
                                              Iron_Arena *arena) {
     open_source_t *sources = NULL;
     if (!server || !server->documents) return NULL;
@@ -303,9 +323,10 @@ static open_source_t *snapshot_open_sources(IronLsp_Server *server,
             canonical = iron_arena_strdup(arena, resolved, strlen(resolved));
             if (!canonical) continue;
         }
+        if (!path_is_in_workspace(canonical, workspace_root)) continue;
         open_source_t source = {
             .document = doc,
-            .path = path,
+            .path = canonical,
             .canonical_path = canonical,
         };
         arrput(sources, source);
@@ -319,28 +340,6 @@ static bool has_open_source(open_source_t *sources, const char *canonical_path) 
     }
     return false;
 }
-
-static Iron_Program *parse_open_source(const IronLsp_Document *doc,
-                                        const char *path,
-                                        Iron_Arena *arena) {
-    if (!doc || !doc->text || !arena) return NULL;
-    Iron_DiagList diags = iron_diaglist_create();
-    Iron_Lexer lexer = iron_lexer_create(doc->text, path, arena, &diags);
-    Iron_Token *tokens = iron_lex_all(&lexer);
-    if (!tokens) {
-        iron_diaglist_free(&diags);
-        return NULL;
-    }
-    Iron_Parser parser = iron_parser_create(
-        tokens, (int)arrlen(tokens), doc->text, path, arena, &diags);
-    iron_parser_set_mode(&parser, IRON_ANALYSIS_MODE_LSP);
-    Iron_Node *root = iron_parse(&parser);
-    arrfree(tokens);
-    iron_diaglist_free(&diags);
-    if (!root || root->kind != IRON_NODE_PROGRAM) return NULL;
-    return (Iron_Program *)root;
-}
-
 void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
                                         const char             *query,
                                         _Atomic bool           *cancel,
@@ -362,13 +361,14 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
     const char *rest;
     split_path_prefix(query, &prefix, &prefix_len, &rest);
 
+    IronLsp_WorkspaceIndex *wi = server->workspace_index;
     candidate_t *cands = NULL;
-    open_source_t *open_sources = snapshot_open_sources(server, arena);
+    open_source_t *open_sources = snapshot_open_sources(
+        server, wi->workspace_root, arena);
 
     /* Iterate workspace_index entries. Coarse read -- the workspace
      * index owns its own mutex, but we take a snapshot under our own
      * discipline by reading the entries array once. */
-    IronLsp_WorkspaceIndex *wi = server->workspace_index;
     size_t n_entries = (size_t)hmlenu(wi->entries);
     for (size_t i = 0; i < n_entries; i++) {
         if (cancel && atomic_load(cancel)) break;
@@ -387,8 +387,10 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
         IronLsp_Document snapshot;
         if (!ilsp_document_snapshot(open_sources[i].document, &snapshot)) continue;
         Iron_Arena parse_arena = iron_arena_create(64 * 1024);
-        Iron_Program *program = parse_open_source(
-            &snapshot, open_sources[i].path, &parse_arena);
+        Iron_DiagList diags = iron_diaglist_create();
+        Iron_Program *program = ilsp_workspace_index_parse_buffer(
+            snapshot.text, snapshot.text_len, open_sources[i].path,
+            &parse_arena, &diags, cancel);
         if (program) {
             IronLsp_IndexEntry current;
             memset(&current, 0, sizeof(current));
@@ -400,6 +402,7 @@ void ilsp_facade_nav_workspace_symbol(IronLsp_Server         *server,
             score_program(server, &current, program, rest,
                            prefix, prefix_len, arena, &cands);
         }
+        iron_diaglist_free(&diags);
         iron_arena_free(&parse_arena);
         ilsp_document_snapshot_free(&snapshot);
     }

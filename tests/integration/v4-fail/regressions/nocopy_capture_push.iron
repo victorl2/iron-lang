@@ -1,0 +1,14 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- A closure handed to push is stored, so it cannot borrow a nocopy value (#512).
+func main() {
+    val r = Res(1)
+    var fs: [func() -> Int] = []
+    fs.push(func() -> Int { return r.id })
+    println("{fs[0]()}")
+}

@@ -1,0 +1,10 @@
+-- @expected-error: W0604
+func main() {
+    var values = [1, 2, 3]
+    val handle = spawn("worker") {
+        values.push(4)
+        return values.len()
+    }
+    values.push(5)
+    println("{await handle}")
+}

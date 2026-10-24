@@ -655,7 +655,9 @@ static void print_instr(Iron_StrBuf *sb, const IronLIR_Instr *instr,
                             instr->gencheck.gen_source == IRON_LIR_GEN_HEAP
                                 ? "heap"
                             : instr->gencheck.gen_source == IRON_LIR_GEN_ARENA
-                                ? "arena" : "stack");
+                                ? "arena"
+                            : instr->gencheck.gen_source == IRON_LIR_GEN_DYNAMIC
+                                ? "dynamic" : "stack");
         break;
 
     case IRON_LIR_INSTR_COUNT:

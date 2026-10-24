@@ -434,10 +434,7 @@ const char *emit_web_module(IronLIR_Module *module, Iron_Arena *arena,
     for (int gi = 0; gi < module->global_count; gi++) {
         const IronLIR_Global *g = &module->globals[gi];
         if (!g->name) continue;
-        iron_strbuf_appendf(&ctx.global_consts,
-                            "static %s Iron_g_%s; /* module global '%s' (%s) */\n",
-                            emit_type_to_c(g->type, &ctx), g->name, g->name,
-                            g->is_mutable ? "var" : "val");
+        emit_module_global_decl(&ctx.global_consts, &ctx, g);
     }
     if (module->global_count > 0) {
         iron_strbuf_appendf(&ctx.global_consts, "\n");

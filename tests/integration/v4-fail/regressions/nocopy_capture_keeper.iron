@@ -1,0 +1,19 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- A callee that stores its closure parameter keeps the closure: no borrow (#512).
+object B {
+    val f: func() -> Int
+}
+func keep(f: func() -> Int) -> B {
+    return B(f)
+}
+func main() {
+    val r = Res(1)
+    val b = keep(func() -> Int { return r.id })
+    println("{b.f()}")
+}

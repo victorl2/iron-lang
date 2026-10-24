@@ -1,0 +1,10 @@
+object Pipeline {
+    var steps: [func(Int) -> Int]
+    init() { self.steps = [] }
+}
+
+func main() {
+    var pipeline = Pipeline()
+    pipeline.steps.push(func(value: Int) -> Int { return value + 1 })
+    println("{pipeline.steps.len()} {pipeline.steps[0](1)}")
+}

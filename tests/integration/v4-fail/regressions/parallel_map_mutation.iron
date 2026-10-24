@@ -1,0 +1,8 @@
+-- @expected-error: E0208
+func main() {
+    var values: Map[Int, Int] = Map()
+    for i in range(100) parallel {
+        values.put(i, i)
+    }
+    println("{values.len()}")
+}

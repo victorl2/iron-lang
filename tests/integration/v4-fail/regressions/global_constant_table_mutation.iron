@@ -1,0 +1,7 @@
+-- @expected-error: E0235
+-- A global val emitted as static const data remains immutable in Iron.
+val TABLE: [UInt8] = [1, 2, 3]
+
+func main() {
+    TABLE[0] = 9
+}

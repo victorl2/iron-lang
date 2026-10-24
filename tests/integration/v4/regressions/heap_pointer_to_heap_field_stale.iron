@@ -1,0 +1,11 @@
+-- @expect-panic: stale pointer dereference
+object Inner { val value: Int }
+object Outer { val inner: Inner }
+
+func main() {
+    val outer = heap Outer(Inner(4))
+    val pointer: *Inner = &outer.inner
+    println("{pointer.value}")
+    free outer
+    println("{pointer.value}")
+}
