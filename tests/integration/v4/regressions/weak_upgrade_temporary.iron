@@ -1,0 +1,29 @@
+object Foo {
+    val x: Int
+    drop {
+        println("drop {self.x}")
+    }
+}
+func make(n: Int) -> rc Foo {
+    return rc Foo(n)
+}
+func take(u: rc Foo?) -> Int {
+    if u != null {
+        return u.x
+    }
+    return 0
+}
+func main() {
+    val r = rc Foo(9)
+    println("{take(r.downgrade().upgrade())}")
+    val w = make(3).downgrade()
+    val gone = w.upgrade()
+    println("{gone == null}")
+    val u = r.downgrade().upgrade()
+    if u != null {
+        println("{u.x}")
+    }
+    if r.downgrade().upgrade() != null {
+        println("alive")
+    }
+}

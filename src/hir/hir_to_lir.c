@@ -447,6 +447,8 @@ static bool var_is_capture(HIR_to_LIR_Ctx *ctx, IronHIR_VarId vid);
 static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr);
 static const char *emit_type_to_c_name_for_box(HIR_to_LIR_Ctx *ctx,
                                                 const Iron_Type *elem);
+static const char *box_helper_name(HIR_to_LIR_Ctx *ctx, const Iron_Type *elem,
+                                   const char *suffix, const Iron_Type **res_elem);
 static void lower_block_stmts(HIR_to_LIR_Ctx *ctx, IronHIR_Block *block);
 static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt);
 static void ssa_construct_func(IronLIR_Func *fn);
@@ -1209,16 +1211,14 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
             entry->object_type->object.elem) {
             if (!ctx->current_block || block_is_terminated(ctx->current_block))
                 continue;
-            const char *box_prefix = emit_type_to_c_name_for_box(ctx,
-                entry->object_type->object.elem);
-            if (!box_prefix) continue;
-            size_t flen = strlen(box_prefix) + 6; /* "_free" + NUL */
-            char *free_name = (char *)iron_arena_alloc(ctx->lir_arena, flen, 1);
+            const Iron_Type *box_elem = NULL;
+            const char *free_name = box_helper_name(ctx,
+                entry->object_type->object.elem, "free", &box_elem);
             if (!free_name) continue;
-            snprintf(free_name, flen, "%s_free", box_prefix);
             IronLIR_Instr *bfref = iron_lir_func_ref(ctx->current_func,
                 ctx->current_block, free_name, NULL, span);
             if (!bfref) continue;
+            bfref->func_ref.res_elem = box_elem;
             IronLIR_ValueId bargs[1] = { entry->alloca_id };
             IronLIR_Instr *bcall = iron_lir_call(ctx->current_func,
                 ctx->current_block, NULL, bfref->id, bargs, 1, NULL, span);
@@ -2281,6 +2281,30 @@ static const char *emit_type_to_c_name_for_box(HIR_to_LIR_Ctx *ctx,
     return buf;
 }
 
+/* The name of a Box helper, `Iron_Box_<elemC>_<suffix>`. When only the
+ * emitter can spell the element's C name (a closure, an rc or weak rc
+ * handle, a pointer, a list, a tuple), the name is the format
+ * `Iron_Box_%s_<suffix>` and *res_elem is set to the element:
+ * emit_resolve_resource_calls fills it in (it called the untyped
+ * Iron_box_* functions, which do not exist). */
+static const char *box_helper_name(HIR_to_LIR_Ctx *ctx, const Iron_Type *elem,
+                                   const char *suffix, const Iron_Type **res_elem) {
+    *res_elem = NULL;
+    if (!elem) return NULL;
+    const char *box = emit_type_to_c_name_for_box(ctx, elem);
+    size_t n = (box ? strlen(box) : 12) + strlen(suffix) + 2;
+    char *fname = (char *)iron_arena_alloc(ctx->lir_arena, n, 1);
+    if (!fname) iron_oom_abort("hir_to_lir.c:box_helper_name");
+    if (box) {
+        snprintf(fname, n, "%s_%s", box, suffix);
+    } else {
+        if (elem->kind == IRON_TYPE_VOID || elem->kind == IRON_TYPE_ERROR) return NULL;
+        snprintf(fname, n, "Iron_Box_%%s_%s", suffix);
+        *res_elem = elem;
+    }
+    return fname;
+}
+
 /* 2026-07 remediation (3.7-arena panic_after_reset — stale-arena-pointer
  * checker selection): walk a value's def chain (ADDR_OF target / GET_FIELD
  * object / GET_INDEX array / PTR_OFFSET base) to its allocation root and
@@ -2830,11 +2854,20 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             size_t plen = sizeof(prefix) - 1;
             const char *esc = (elem_c && strncmp(elem_c, prefix, plen) == 0)
                 ? elem_c + plen : NULL;
+            /* An element only the emitter can name (a closure, a list...):
+             * a format it fills in (emit_resolve_resource_calls). */
+            const Iron_Type *rp_elem = NULL;
+            char *fname = NULL;
             if (esc) {
                 size_t nl = strlen(esc) + 20;
-                char *fname = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                fname = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
                 if (!fname) iron_oom_abort("hir_to_lir.c:rawptr_of_name");
                 snprintf(fname, nl, "Iron_RawPtr_of_%s", esc);
+            } else if (arg_t->kind != IRON_TYPE_VOID && arg_t->kind != IRON_TYPE_ERROR) {
+                fname = "Iron_RawPtr_of_%s";
+                rp_elem = arg_t;
+            }
+            if (fname) {
 
                 /* Lower the argument expression, then materialize it into a
                  * fresh stack slot via ALLOCA + STORE so the helper receives
@@ -2867,6 +2900,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 int rargc = (int)arrlen(rargs);
                 IronLIR_Instr *rref = iron_lir_func_ref(ctx->current_func,
                     ctx->current_block, fname, NULL, span);
+                rref->func_ref.res_elem = rp_elem;
                 IronLIR_Instr *rcall = iron_lir_call(ctx->current_func,
                     ctx->current_block, NULL, rref->id, rargs, rargc,
                     type, span);
@@ -2894,15 +2928,13 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             strcmp(expr->method_call.object->func_ref.func_name, "Box") == 0 &&
             expr->method_call.method && type &&
             type->kind == IRON_TYPE_OBJECT && type->object.elem) {
-            const char *elem_c = emit_type_to_c_name_for_box(ctx, type->object.elem);
             const char *suffix = NULL;
             if (strcmp(expr->method_call.method, "new") == 0)  suffix = "new";
             else if (strcmp(expr->method_call.method, "null") == 0) suffix = "null_val";
-            if (suffix && elem_c) {
-                size_t nlen = strlen(elem_c) + strlen(suffix) + 2;
-                char *fname = (char *)iron_arena_alloc(ctx->lir_arena, nlen, 1);
-                if (!fname) iron_oom_abort("hir_to_lir.c:box_ctor_name");
-                snprintf(fname, nlen, "%s_%s", elem_c, suffix);
+            const Iron_Type *box_elem = NULL;
+            const char *fname = suffix
+                ? box_helper_name(ctx, type->object.elem, suffix, &box_elem) : NULL;
+            if (fname) {
                 IronLIR_ValueId *bargs = NULL;
                 for (int i = 0; i < expr->method_call.arg_count; i++) {
                     IronHIR_Expr *ae = expr->method_call.args[i];
@@ -2923,6 +2955,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 int bargc = (int)arrlen(bargs);
                 IronLIR_Instr *bref = iron_lir_func_ref(ctx->current_func,
                     ctx->current_block, fname, NULL, span);
+                bref->func_ref.res_elem = box_elem;
                 IronLIR_Instr *bcall = iron_lir_call(ctx->current_func,
                     ctx->current_block, NULL, bref->id, bargs, bargc, type, span);
                 arrfree(bargs);
@@ -2947,15 +2980,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             bool b_isnull = strcmp(m, "is_null") == 0;
             bool b_free   = strcmp(m, "free")    == 0;
             if (b_unwrap || b_isnull || b_free) {
-                const char *elem_c = emit_type_to_c_name_for_box(ctx,
-                    expr->method_call.object->type->object.elem);
                 const char *suffix = b_unwrap ? "unwrap"
                                    : b_isnull ? "is_null" : "free";
-                if (elem_c) {
-                    size_t nlen = strlen(elem_c) + strlen(suffix) + 2;
-                    char *fname = (char *)iron_arena_alloc(ctx->lir_arena, nlen, 1);
-                    if (!fname) iron_oom_abort("hir_to_lir.c:box_recv_name");
-                    snprintf(fname, nlen, "%s_%s", elem_c, suffix);
+                const Iron_Type *box_elem = NULL;
+                const char *fname = box_helper_name(ctx,
+                    expr->method_call.object->type->object.elem, suffix, &box_elem);
+                if (fname) {
                     /* 2026-07 remediation (Box explicit-free double-free):
                      * when the receiver is a BINDING with a promoted drop
                      * alloca, pass the ALLOCA itself (self_by_addr renders
@@ -2985,6 +3015,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                     int bargc = (int)arrlen(bargs);
                     IronLIR_Instr *bref = iron_lir_func_ref(ctx->current_func,
                         ctx->current_block, fname, NULL, span);
+                    bref->func_ref.res_elem = box_elem;
                     IronLIR_Instr *bcall = iron_lir_call(ctx->current_func,
                         ctx->current_block, NULL, bref->id, bargs, bargc,
                         type, span);
@@ -4148,18 +4179,30 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
 
     /* Phase 27 POL-08 (Plan 27-02): rc_val.downgrade() → IRON_LIR_WEAK_RC_DOWNGRADE. */
     case IRON_HIR_EXPR_WEAK_RC_DOWNGRADE: {
-        IronLIR_ValueId src = lower_expr(ctx,
-            expr->weak_rc_downgrade.strong_rc_val);
-        return iron_lir_weak_rc_downgrade(ctx->current_func, ctx->current_block,
-                                           src, type, span)->id;
+        IronHIR_Expr *se = expr->weak_rc_downgrade.strong_rc_val;
+        IronLIR_ValueId src = lower_expr(ctx, se);
+        IronLIR_ValueId res = iron_lir_weak_rc_downgrade(ctx->current_func,
+            ctx->current_block, src, type, span)->id;
+        /* A temporary handle (`make().downgrade()`) has no other owner: its
+         * reference is released once the weak one is taken (it leaked). */
+        if (se && se->type && rc_expr_transfers_ownership(se) &&
+            ctx->current_block && !block_is_terminated(ctx->current_block))
+            emit_rc_release_for_type(ctx, se->type, src, span);
+        return res;
     }
 
     /* Phase 27 POL-09 (Plan 27-02): weak_val.upgrade() → IRON_LIR_WEAK_RC_UPGRADE. */
     case IRON_HIR_EXPR_WEAK_RC_UPGRADE: {
-        IronLIR_ValueId src = lower_expr(ctx,
-            expr->weak_rc_upgrade.weak_rc_val);
-        return iron_lir_weak_rc_upgrade(ctx->current_func, ctx->current_block,
-                                         src, type, span)->id;
+        IronHIR_Expr *we = expr->weak_rc_upgrade.weak_rc_val;
+        IronLIR_ValueId src = lower_expr(ctx, we);
+        IronLIR_ValueId res = iron_lir_weak_rc_upgrade(ctx->current_func,
+            ctx->current_block, src, type, span)->id;
+        /* A temporary weak handle (`r.downgrade().upgrade()`, `f().upgrade()`)
+         * is released once upgraded (it leaked the allocation). */
+        if (we && we->type && rc_expr_transfers_ownership(we) &&
+            ctx->current_block && !block_is_terminated(ctx->current_block))
+            emit_rc_release_for_type(ctx, we->type, src, span);
+        return res;
     }
 
     case IRON_HIR_EXPR_CONSTRUCT: {

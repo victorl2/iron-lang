@@ -1691,6 +1691,25 @@ static bool iron_elem_is_nullable_type(Iron_Parser *p) {
     return false;
 }
 
+/* Whether the `func` at token `j` starts a function type rather than a
+ * lambda. A lambda always has a body, so its signature is followed by `{`;
+ * a type never contains a brace. The scan stops at the end of the element:
+ * a `,`, `;` or closing bracket at its own nesting level. */
+static bool iron_func_is_type_at(Iron_Parser *p, int j) {
+    int depth = 0;
+    for (; j < p->token_count; j++) {
+        Iron_TokenKind k = p->tokens[j].kind;
+        if (k == IRON_TOK_EOF || k == IRON_TOK_LBRACE) return false;
+        if (k == IRON_TOK_LPAREN || k == IRON_TOK_LBRACKET) depth++;
+        else if (k == IRON_TOK_RPAREN || k == IRON_TOK_RBRACKET) {
+            if (depth == 0) return true;
+            depth--;
+        } else if (depth == 0 && (k == IRON_TOK_COMMA || k == IRON_TOK_SEMICOLON))
+            return true;
+    }
+    return false;
+}
+
 /* A parenthesized element holding a `?` and ending the element (`,` or
  * `]` after its `)`, or a `?` of its own) is a tuple type in expression
  * position: `Gp[Int, (Bool, Int?)](...)`. */
@@ -1714,9 +1733,50 @@ static bool iron_elem_is_nullable_tuple_type(Iron_Parser *p) {
     return false;
 }
 
-static Iron_Node *iron_parse_expr_or_nullable_type(Iron_Parser *p) {
-    if ((iron_check(p, IRON_TOK_IDENTIFIER) || iron_check(p, IRON_TOK_LBRACKET)) &&
-        iron_elem_is_nullable_type(p))
+/* Whether the element of a bracketed list that starts at the current token
+ * is a type written in expression position (manual section 13). No
+ * expression starts with `?` or `*` (there is no prefix `*` operator), a
+ * `func` is a lambda only when a body follows its signature. `rc x` is an
+ * expression (and `weak rc x` parses as one, to be rejected by the type
+ * checker), so in a list literal (`postfix == false`) an element starting
+ * with `rc` or `weak rc` is a type only when what follows cannot start an
+ * expression (`[rc func(Int) -> Int]`, `[rc *T]`, `[rc T?]`); `[rc T]`
+ * stays an `rc` expression, which reads as the list type where a type is
+ * expected. In the brackets of a postfix (`X[...]`) nothing indexes by a
+ * handle, so `rc` and `weak rc` always start a type there, except the
+ * expression `weak rc null`. */
+static bool iron_elem_is_type(Iron_Parser *p, bool postfix) {
+    int j = p->pos;
+    if (j >= p->token_count) return false;
+    Iron_TokenKind k = p->tokens[j].kind;
+    if (k == IRON_TOK_QUESTION || k == IRON_TOK_STAR) return true;
+    if (k == IRON_TOK_FUNC) return iron_func_is_type_at(p, j);
+    bool weak_rc = k == IRON_TOK_WEAK && j + 1 < p->token_count &&
+                   p->tokens[j + 1].kind == IRON_TOK_RC;
+    if (weak_rc && j + 2 < p->token_count && p->tokens[j + 2].kind == IRON_TOK_NULL_KW)
+        return false;
+    if (k == IRON_TOK_RC || weak_rc) {
+        if (postfix) return true;
+        int m = j;
+        while (m < p->token_count) {
+            if (p->tokens[m].kind == IRON_TOK_RC) m++;
+            else if (p->tokens[m].kind == IRON_TOK_WEAK && m + 1 < p->token_count &&
+                     p->tokens[m + 1].kind == IRON_TOK_RC) m += 2;
+            else break;
+        }
+        if (m >= p->token_count) return false;
+        Iron_TokenKind km = p->tokens[m].kind;
+        if (km == IRON_TOK_STAR || km == IRON_TOK_QUESTION) return true;
+        if (km == IRON_TOK_FUNC) return iron_func_is_type_at(p, m);
+        return iron_elem_is_nullable_type(p);
+    }
+    if (k == IRON_TOK_IDENTIFIER || k == IRON_TOK_LBRACKET)
+        return iron_elem_is_nullable_type(p);
+    return false;
+}
+
+static Iron_Node *iron_parse_bracket_elem(Iron_Parser *p, bool postfix) {
+    if (iron_elem_is_type(p, postfix))
         return iron_parse_type_annotation(p);
     if (iron_elem_is_nullable_tuple_type(p))
         return iron_parse_type_annotation(p);
@@ -1853,7 +1913,9 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             Iron_Span lparen_span = iron_token_span(p, iron_current(p));
             iron_advance(p);
             iron_skip_newlines(p);
-            Iron_Node *first = iron_parse_expr(p);
+            /* A tuple element may be a type (`Channel[(Int, func(Int) -> Int)]`):
+             * the list literal rules decide, and keep every expression. */
+            Iron_Node *first = iron_parse_bracket_elem(p, false);
             iron_skip_newlines(p);
             if (iron_check(p, IRON_TOK_COMMA)) {
                 /* Tuple literal: (e0, e1, ...) — arity >= 2 enforced. The
@@ -1867,7 +1929,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                     iron_advance(p);  /* consume , */
                     iron_skip_newlines(p);
                     if (iron_check(p, IRON_TOK_RPAREN)) break;  /* trailing comma */
-                    Iron_Node *e = iron_parse_expr(p);
+                    Iron_Node *e = iron_parse_bracket_elem(p, false);
                     arrput(elems, e);
                     iron_skip_newlines(p);
                 }
@@ -2192,7 +2254,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             while (!iron_check(p, IRON_TOK_RBRACKET) && !iron_check(p, IRON_TOK_EOF)) {
                 iron_skip_newlines(p);
                 if (iron_check(p, IRON_TOK_RBRACKET)) break;
-                Iron_Node *elem = iron_parse_expr_or_nullable_type(p);
+                Iron_Node *elem = iron_parse_bracket_elem(p, false);
                 arrput(elems, elem);
                 elem_count++;
                 iron_skip_newlines(p);
@@ -2472,8 +2534,10 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
 
             /* `x.m[Type, ...](args)`: explicit type arguments of a generic
              * method. Told apart from indexing a field (`x.fs[i](a)`) by the
-             * first token inside the brackets (a capitalised type name or a
-             * `[` of a list type) and the `(` right after the `]`. */
+             * first token inside the brackets (a capitalised type name, a
+             * `[` of a list type, or a token that starts only a type: `rc`,
+             * `weak`, `*`, `?`, or a `func` with no body) and the `(` right
+             * after the `]`. */
             Iron_Node **m_type_args = NULL;
             int m_type_arg_count = 0;
             bool type_namespace = left->kind == IRON_NODE_IDENT &&
@@ -2486,6 +2550,12 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                 iron_check(p, IRON_TOK_LBRACKET) && p->pos + 1 < p->token_count) {
                 Iron_Token *first = &p->tokens[p->pos + 1];
                 bool typeish = first->kind == IRON_TOK_LBRACKET ||
+                               first->kind == IRON_TOK_RC ||
+                               first->kind == IRON_TOK_WEAK ||
+                               first->kind == IRON_TOK_STAR ||
+                               first->kind == IRON_TOK_QUESTION ||
+                               (first->kind == IRON_TOK_FUNC &&
+                                iron_func_is_type_at(p, p->pos + 1)) ||
                                (first->kind == IRON_TOK_IDENTIFIER && first->value &&
                                 first->value[0] >= 'A' && first->value[0] <= 'Z');
                 int depth = 0, j = p->pos;
@@ -2617,7 +2687,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
         if (cur == IRON_TOK_LBRACKET) {
             iron_advance(p);
             iron_skip_newlines(p);
-            Iron_Node *idx = iron_parse_expr_or_nullable_type(p);
+            Iron_Node *idx = iron_parse_bracket_elem(p, true);
             iron_skip_newlines(p);
 
             /* `X[A, B]`: several type arguments of a generic. */
@@ -2626,7 +2696,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                 arrput(targs, idx);
                 while (iron_match(p, IRON_TOK_COMMA)) {
                     iron_skip_newlines(p);
-                    Iron_Node *more = iron_parse_expr_or_nullable_type(p);
+                    Iron_Node *more = iron_parse_bracket_elem(p, true);
                     arrput(targs, more);
                     iron_skip_newlines(p);
                 }

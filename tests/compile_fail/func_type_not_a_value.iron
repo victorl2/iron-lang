@@ -1,0 +1,5 @@
+-- Between brackets, a func with no body is a function type (#506): used
+-- as a value it is reported as a type, not parsed as a broken lambda.
+func main() {
+    val t = [func(Int) -> Int]
+}

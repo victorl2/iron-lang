@@ -1883,7 +1883,9 @@ const char *emit_cell_drop_fn(EmitCtx *ctx, Iron_Type *t) {
         return "NULL";
     }
     char name[300];
-    snprintf(name, sizeof(name), "__cell_drop_%s", tc);
+    /* `weak rc T` renders like `rc T` but releases with the weak count. */
+    snprintf(name, sizeof(name), "__cell_drop_%s%s",
+             t->kind == IRON_TYPE_WEAK_RC ? "weak_" : "", tc);
     /* `rc T` renders as `Iron_T*`: keep the thunk name an identifier. */
     for (char *q = name; *q; q++) if (*q == '*' || *q == ' ') *q = '_';
     if (shgeti(ctx->cell_drop_fns, name) < 0) {
