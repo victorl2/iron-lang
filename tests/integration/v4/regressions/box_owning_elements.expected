@@ -1,0 +1,5 @@
+boxed string 4 long enough to be on the heap false
+true false
+true 1
+end
+drop 1

@@ -24,6 +24,14 @@ typedef struct {
     /* Set by hir_lower: the captured var lives in a counted cell (#210),
      * which the env retains and releases. */
     bool             is_boxed;
+    /* Set by capture.c: the capture borrows a nocopy value (or one holding
+     * a nocopy field) from its binding, which stays its only owner. The env
+     * holds a pointer to the binding and never copies or drops it (#512). */
+    bool             is_borrowed;
+    /* Where the closure first names the binding, and the binding's symbol
+     * (diagnostics only; NULL symbol when unknown). */
+    Iron_Span        span;
+    struct Iron_Symbol *sym;
 } Iron_CaptureEntry;
 
 /* ── Node kinds ──────────────────────────────────────────────────────────── */
@@ -1012,6 +1020,10 @@ typedef struct {
     /* Parsed from compiler-generated source (see Iron_MethodCallExpr):
      * may assign a `val` field of a local being built (#455). */
     bool               is_generated;
+    /* The parser cannot distinguish `Enum.lowercase_variant` from a static
+     * member access. The resolver uses this bit to reinterpret the node once
+     * it knows that the receiver names an enum. */
+    bool               is_enum_candidate;
 } Iron_FieldAccess;
 
 typedef struct {

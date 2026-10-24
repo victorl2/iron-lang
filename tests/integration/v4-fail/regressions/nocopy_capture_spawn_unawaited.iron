@@ -1,0 +1,15 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- A spawn that is never awaited cannot borrow a nocopy value (#512).
+func main() {
+    val r = Res(1)
+    val t = spawn("t") {
+        return r.id
+    }
+    println("started")
+}

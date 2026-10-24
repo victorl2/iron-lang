@@ -688,7 +688,7 @@ func metrics_handler(app: rc App) -> Reply {
     val snap = rates_snapshot(app.rates)
     val gauges = Gauges(app.db.size(), app.db.idle(), app.db.in_use(), app.state.is_db_ready(),
         app.poller.parked(), app.poller.accepted(), app.poller.expired(),
-        max(snap.age_ms, 0), snap.count, snap.breaker_open)
+        max(snap.age_ms, 0), snap.count, app.reports.size(), snap.breaker_open)
     return Reply(Route.MetricsPage, 200, render_metrics(app.metrics_set, gauges, Time.now_ms()), true, "")
 }
 

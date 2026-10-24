@@ -199,7 +199,10 @@ typedef enum IronLIR_GenSource {
      * to iron_check_arena_pointer_gen (the third isomorphic deref-check
      * sibling). Pitfall 1: an untagged arena ptr would be checked by the heap
      * helper and read garbage. */
-    IRON_LIR_GEN_ARENA
+    IRON_LIR_GEN_ARENA,
+    /* Provenance was erased by storage in a field, closure environment or
+     * parameter.  Runtime dispatch uses the generation tag/range. */
+    IRON_LIR_GEN_DYNAMIC
 } IronLIR_GenSource;
 
 /* ── Instruction (tagged union) ───────────────────────────────────────────── */
@@ -724,6 +727,14 @@ struct IronLIR_Func {
      * their names on the alloca / IronLIR_Param. `ironc build --debug`
      * names the C locals after them so a debugger shows Iron names. */
     struct { IronLIR_ValueId key; const char *value; } *value_names;
+    /* The Iron function's closing `}` (0 when unknown), from IronHIR_Func:
+     * --debug puts the C function's closing brace, where clang places the
+     * shared return, on it. */
+    const char        *end_file;
+    uint32_t           end_line;
+    const char        *task_name;  /* IronHIR_Func.task_name */
+    Iron_Span          spawn_span;  /* IronHIR_Func.spawn_span */
+    const char        *spawn_parent;
 };
 
 /* ── Module-level global binding (2026-07 remediation) ────────────────────
@@ -732,10 +743,31 @@ struct IronLIR_Func {
  * emits one file-scope `static <ctype> Iron_g_<name>;` per entry (zero-
  * initialized; real initializers run in `__iron_module_init`, called from
  * the main() wrapper before Iron_main()). Arena-owned plain array. */
+/* One element of a constant global initializer (see IronLIR_Global). */
+typedef enum {
+    IRON_LIR_GCONST_INT,
+    IRON_LIR_GCONST_FLOAT,
+    IRON_LIR_GCONST_BOOL,
+    IRON_LIR_GCONST_STRING
+} IronLIR_GConstKind;
+
+typedef struct {
+    IronLIR_GConstKind kind;
+    int64_t            i;   /* INT (bit pattern for UInt64), BOOL */
+    double             f;   /* FLOAT */
+    const char        *s;   /* STRING, NUL-terminated UTF-8 */
+} IronLIR_GConst;
+
 typedef struct {
     const char *name;
     Iron_Type  *type;
     bool        is_mutable;
+    /* A `val` of constant data: emitted `static const` with its initializer
+     * (const_vals: one scalar, or the elements of a list / fixed array /
+     * bounded vector) and no code in __iron_module_init or the deinit. */
+    bool            is_const;
+    IronLIR_GConst *const_vals;
+    int             const_count;
 } IronLIR_Global;
 
 /* ── Module ───────────────────────────────────────────────────────────────── */

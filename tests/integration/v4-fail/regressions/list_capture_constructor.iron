@@ -1,0 +1,12 @@
+-- @expected-error: E0328
+-- A constructor stores the closure: it cannot borrow a list (#639).
+object B {
+    val f: func() -> Int
+}
+func make() -> B {
+    val xs = [4, 5]
+    return B(func() -> Int { return xs[0] })
+}
+func main() {
+    println("{make().f()}")
+}

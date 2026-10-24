@@ -1,0 +1,4 @@
+-- @expected-error: E0202
+func main() {
+    println("{[1] < [2]}")
+}

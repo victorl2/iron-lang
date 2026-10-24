@@ -130,13 +130,28 @@ static void phi_eliminate(IronLIR_Module *module) {
 
         /* Collect all phi nodes first to avoid modifying while iterating */
         IronLIR_Instr **phis = NULL;  /* stb_ds array of phi instrs */
+        Iron_Span *phi_lines = NULL;  /* the span each phi's LOAD takes */
 
         for (int bi = 0; bi < fn->block_count; bi++) {
             IronLIR_Block *block = fn->blocks[bi];
+            /* The load that replaces a phi runs at the top of its block:
+             * it takes the block's first statement's line, not the merged
+             * variable's (a nested loop's pass showed the outer loop's
+             * header under --debug). */
+            Iron_Span first = {0};
+            for (int ii = 0; ii < block->instr_count; ii++) {
+                IronLIR_Instr *instr = block->instrs[ii];
+                if (instr->kind != IRON_LIR_PHI && instr->kind != IRON_LIR_JUMP &&
+                    instr->kind != IRON_LIR_BRANCH && instr->span.line > 0) {
+                    first = instr->span;
+                    break;
+                }
+            }
             for (int ii = 0; ii < block->instr_count; ii++) {
                 IronLIR_Instr *instr = block->instrs[ii];
                 if (instr->kind == IRON_LIR_PHI) {
                     arrput(phis, instr);
+                    arrput(phi_lines, first);
                 }
             }
         }
@@ -236,11 +251,13 @@ static void phi_eliminate(IronLIR_Module *module) {
             arrfree(phi->phi.pred_blocks);
             phi->kind     = IRON_LIR_LOAD;
             phi->load.ptr = alloca_id;
+            phi->span = phi_lines[pi];   /* none (an if's merge): no line */
             /* phi->id and phi->type remain the same — the load produces the
              * same ValueId so all existing uses are automatically valid */
         }
 
         arrfree(phis);
+        arrfree(phi_lines);
     }
 }
 
@@ -4571,7 +4588,7 @@ static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
             obj_instr->type && obj_instr->type->kind == IRON_TYPE_PTR &&
             !obj_instr->type->ptr.is_unchecked) {
             *out_ptr = obj;
-            *out_gen = IRON_LIR_GEN_STACK;
+            *out_gen = IRON_LIR_GEN_DYNAMIC;
             return true;
         }
         /* Any other checked pointer whose producer does not say where it
@@ -4586,7 +4603,7 @@ static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
                               ? fn->params[obj - 1].type : NULL;
             if (ot && ot->kind == IRON_TYPE_PTR && !ot->ptr.is_unchecked) {
                 *out_ptr = obj;
-                *out_gen = IRON_LIR_GEN_STACK;
+                *out_gen = IRON_LIR_GEN_DYNAMIC;
                 return true;
             }
         }

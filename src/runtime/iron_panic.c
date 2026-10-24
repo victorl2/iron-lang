@@ -148,8 +148,12 @@ void iron_panic_bvec_oob(const char *deref_file,
         /* Text format */
         fputs("iron: bounded vector access out of bounds\n", stderr);
         fprintf(stderr, "  deref site: %s:%d\n", df, deref_line);
-        fprintf(stderr, "  index: %lld >= bound: %lld\n",
-                (long long)index, (long long)bound);
+        if (index < 0)
+            fprintf(stderr, "  index: %lld is negative, bound: %lld\n",
+                    (long long)index, (long long)bound);
+        else
+            fprintf(stderr, "  index: %lld >= bound: %lld\n",
+                    (long long)index, (long long)bound);
     }
     /* Buffered stdout dies with abort(); flush it so a panicking program
      * keeps every line it printed before the panic. */

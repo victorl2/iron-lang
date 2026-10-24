@@ -1,0 +1,20 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- A closure assigned to a field cannot capture a nocopy value (#512).
+object B {
+    var f: func() -> Int
+    init(g: func() -> Int) {
+        self.f = g
+    }
+}
+func main() {
+    val r = Res(1)
+    var b = B(func() -> Int { return 0 })
+    b.f = func() -> Int { return r.id }
+    println("{b.f()}")
+}

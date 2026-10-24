@@ -1,0 +1,11 @@
+-- @expect-panic: stale pointer dereference
+object Item { val value: Int }
+
+func main() {
+    val item = heap Item(4)
+    val pointer: *Item = &item
+    val read = func() -> Int { return pointer.value }
+    println("{read()}")
+    free item
+    println("{read()}")
+}
