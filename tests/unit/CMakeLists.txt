@@ -163,6 +163,16 @@ target_link_libraries(test_comptime iron_compiler unity)
 add_test(NAME test_comptime COMMAND test_comptime)
 set_tests_properties(test_comptime PROPERTIES LABELS "unit")
 
+# The comptime fmod (#505) against the C library's: this test, unlike the
+# compiler, links libm.
+add_executable(test_comptime_fmod test_comptime_fmod.c)
+target_link_libraries(test_comptime_fmod iron_compiler unity)
+if(NOT WIN32)
+    target_link_libraries(test_comptime_fmod m)
+endif()
+add_test(NAME test_comptime_fmod COMMAND test_comptime_fmod)
+set_tests_properties(test_comptime_fmod PROPERTIES LABELS "unit")
+
 # Arena cleanup hooks: scopes and the interface registry release their
 # heap maps with the arena. Leak detection is on for this test in Linux
 # sanitizer builds (LeakSanitizer is unsupported on macOS), although the

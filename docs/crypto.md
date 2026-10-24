@@ -27,9 +27,10 @@ mind with binary data:
 - `byte_len()` is the size in bytes and `byte_slice(start, end)` cuts by
   byte. `len()`, `substring()` and `s[a..b]` count UTF-8 characters, which
   means nothing for binary data.
-- String literals have no byte escapes. Build arbitrary bytes with
-  `Hex.decode`, `Base64.decode` or `String.from_byte(n)`; a literal cannot
-  contain `\u{0}`.
+- String literals write any byte as `\xHH` (exactly two hex digits,
+  `\x00` to `\xFF`) and the zero byte also as `\0`: `"\x89PNG\r\n\x1a\n"`
+  is the 8-byte PNG signature. At run time, `Hex.decode`, `Base64.decode`
+  and `String.from_byte(n)` build bytes too.
 
 ```iron
 import crypto

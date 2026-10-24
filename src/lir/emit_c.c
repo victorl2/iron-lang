@@ -3432,14 +3432,19 @@ static void emit_debug_list_check(Iron_StrBuf *sb, const EmitDebugListCall *d, i
     free(call);
 }
 
-/* --debug: the same check before an interface list's edit helper
- * (emit_split.c), as a statement of its own; `method` is "index" or
- * "insert". The helper's own panic then names this line. */
+static bool g_emit_line_directives;
+
+/* Before an interface list's edit helper (emit_split.c): record the Iron
+ * line of the call, so the helper's bounds panic names it in every build
+ * mode (#418), and under --debug run the same check as a statement of its
+ * own, so the debug trap stops on this line; `method` is "index" or
+ * "insert". */
 static void emit_debug_split_check(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx, int ind,
                                    const char *method, IronLIR_ValueId list,
                                    IronLIR_ValueId index) {
     emit_indent(sb, ind);
     iron_strbuf_appendf(sb, "iron_list_call_site(IRON_SITE);\n");
+    if (!g_emit_line_directives) return;
     emit_indent(sb, ind);
     iron_strbuf_appendf(sb, "iron_dbg_list_check_%s((", method);
     emit_receiver_addr(sb, fn, ctx, list, ctx->current_block_id);
@@ -3448,7 +3453,6 @@ static void emit_debug_split_check(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *c
     iron_strbuf_appendf(sb, "), IRON_SITE);\n");
 }
 
-static bool g_emit_line_directives;
 static const IronLIR_Func *g_line_fn;   /* function the next two describe */
 static unsigned g_line_fn_first;        /* its first line (entry block) */
 static unsigned g_line_fn_last;         /* the line of its last statement so far */
@@ -3480,6 +3484,28 @@ static void emit_ff_spawn_call(Iron_StrBuf *out, EmitCtx *ctx, const char *func_
         iron_strbuf_appendf(out, "    %s(&_r);\n", drop_fn);
     else
         iron_strbuf_appendf(out, "    (void)_r;\n");
+}
+
+/* Length of the well-formed UTF-8 sequence at p (1 to 4 bytes), or 0 when
+ * p does not start one. */
+static size_t utf8_seq_len(const unsigned char *p, size_t avail) {
+    unsigned char c = p[0];
+    size_t n;
+    unsigned int cp;
+    if (c < 0x80) return 1;
+    if (c >= 0xC2 && c <= 0xDF) { n = 2; cp = c & 0x1F; }
+    else if (c >= 0xE0 && c <= 0xEF) { n = 3; cp = c & 0x0F; }
+    else if (c >= 0xF0 && c <= 0xF4) { n = 4; cp = c & 0x07; }
+    else return 0;
+    if (avail < n) return 0;
+    for (size_t k = 1; k < n; k++) {
+        if ((p[k] & 0xC0) != 0x80) return 0;
+        cp = (cp << 6) | (p[k] & 0x3F);
+    }
+    if ((n == 3 && (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF))) ||
+        (n == 4 && (cp < 0x10000 || cp > 0x10FFFF)))
+        return 0;
+    return n;
 }
 
 static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
@@ -3966,7 +3992,45 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_CONST_STRING: {
         const char *sv = instr->const_str.value ? instr->const_str.value : "";
-        size_t slen = strlen(sv);
+        /* The literal's byte length: it may hold zero bytes (`\0`, `\x00`,
+         * #453), so strlen is only the fallback for constants built
+         * without one. */
+        size_t slen = instr->const_str.len ? instr->const_str.len : strlen(sv);
+        /* Escape the literal for C source embedding: the value holds raw
+         * bytes (newlines, quotes, control bytes, zero bytes), each
+         * control byte written through a C escape. Octal escapes are always three digits, so a
+         * following digit cannot extend them. The escaped text is also
+         * the interning key, so literals with zero bytes stay distinct. */
+        Iron_StrBuf esc = iron_strbuf_create(slen * 2 + 8);
+        for (size_t i = 0; i < slen; i++) {
+            unsigned char ch = (unsigned char)sv[i];
+            switch (ch) {
+                case '\n': iron_strbuf_appendf(&esc, "\\n");  break;
+                case '\r': iron_strbuf_appendf(&esc, "\\r");  break;
+                case '\t': iron_strbuf_appendf(&esc, "\\t");  break;
+                case '\\': iron_strbuf_appendf(&esc, "\\\\"); break;
+                case '"':  iron_strbuf_appendf(&esc, "\\\""); break;
+                default:
+                    if (ch < 0x20 || ch == 0x7f) {
+                        iron_strbuf_appendf(&esc, "\\%03o", ch);
+                    } else if (ch >= 0x80) {
+                        /* A valid UTF-8 sequence is copied as is; a byte
+                         * that does not start one (`\xFF`) is escaped, so
+                         * the C file stays valid UTF-8. */
+                        size_t n = utf8_seq_len((const unsigned char *)sv + i, slen - i);
+                        if (n == 0) {
+                            iron_strbuf_appendf(&esc, "\\%03o", ch);
+                        } else {
+                            iron_strbuf_append(&esc, sv + i, n);
+                            i += n - 1;
+                        }
+                    } else {
+                        iron_strbuf_append_char(&esc, (char)ch);
+                    }
+                    break;
+            }
+        }
+        const char *esc_text = iron_strbuf_get(&esc);
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_String ");
         emit_val(sb, instr->id);
@@ -3975,13 +4039,13 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * Interning is idempotent, so threads racing on first use just
          * both take the slow path once. */
         {
-            ptrdiff_t li = shgeti(ctx->literal_cache, sv);
+            ptrdiff_t li = shgeti(ctx->literal_cache, esc_text);
             int lit_idx;
             if (li >= 0) {
                 lit_idx = ctx->literal_cache[li].value;
             } else {
                 lit_idx = ctx->literal_cache_count++;
-                char *key = iron_arena_strdup(ctx->arena, sv, slen);
+                char *key = iron_arena_strdup(ctx->arena, esc_text, strlen(esc_text));
                 if (!key) iron_oom_abort("emit_c.c:literal cache key");
                 shput(ctx->literal_cache, key, lit_idx);
                 Iron_StrBuf *lf = &ctx->struct_bodies;   /* before every function */
@@ -3995,20 +4059,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     "    }\n"
                     "    Iron_String s = iron_string_from_literal(\"",
                     lit_idx, lit_idx, lit_idx, lit_idx, lit_idx, lit_idx);
-                for (size_t i = 0; i < slen; i++) {
-                    unsigned char ch = (unsigned char)sv[i];
-                    switch (ch) {
-                        case '\n': iron_strbuf_appendf(lf, "\\n");  break;
-                        case '\r': iron_strbuf_appendf(lf, "\\r");  break;
-                        case '\t': iron_strbuf_appendf(lf, "\\t");  break;
-                        case '\\': iron_strbuf_appendf(lf, "\\\\"); break;
-                        case '"':  iron_strbuf_appendf(lf, "\\\""); break;
-                        default:
-                            if (ch < 0x20 || ch == 0x7f) iron_strbuf_appendf(lf, "\\%03o", ch);
-                            else iron_strbuf_appendf(lf, "%c", (int)ch);
-                            break;
-                    }
-                }
+                iron_strbuf_append(lf, esc_text, strlen(esc_text));
                 iron_strbuf_appendf(lf,
                     "\", %zu);\n"
                     "    int expect = 0;\n"
@@ -4021,34 +4072,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     "}\n\n", slen, lit_idx, lit_idx, lit_idx, lit_idx);
             }
             iron_strbuf_appendf(sb, " = _iron_lit_%d_get();\n", lit_idx);
-            break;
         }
-        /* Escape the literal for C source embedding. Iron's lexer decodes
-         * `\n` / `\t` / `\"` / `\\` into the raw byte, so `sv` may contain
-         * newlines, quotes, backslashes, and arbitrary control characters
-         * (e.g. inline GLSL with embedded newlines, D6 residual). Emitting
-         * with `%s` broke on the first newline — the C compiler can't
-         * parse a raw LF inside a string literal. Emit each byte through
-         * a minimal C-escape table. */
-        iron_strbuf_appendf(sb, " = iron_string_from_literal(\"");
-        for (size_t i = 0; i < slen; i++) {
-            unsigned char ch = (unsigned char)sv[i];
-            switch (ch) {
-                case '\n': iron_strbuf_appendf(sb, "\\n");  break;
-                case '\r': iron_strbuf_appendf(sb, "\\r");  break;
-                case '\t': iron_strbuf_appendf(sb, "\\t");  break;
-                case '\\': iron_strbuf_appendf(sb, "\\\\"); break;
-                case '"':  iron_strbuf_appendf(sb, "\\\""); break;
-                default:
-                    if (ch < 0x20 || ch == 0x7f) {
-                        iron_strbuf_appendf(sb, "\\%03o", ch);
-                    } else {
-                        iron_strbuf_appendf(sb, "%c", (int)ch);
-                    }
-                    break;
-            }
-        }
-        iron_strbuf_appendf(sb, "\", %zu);\n", slen);
+        iron_strbuf_free(&esc);
         break;
     }
 
@@ -5500,9 +5525,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 Iron_Type *vt = emit_get_value_type(fn, instr->index.value);
                 bool wrap = vt && vt->kind == IRON_TYPE_OBJECT && vt->object.decl &&
                             vt->object.decl->name;
-                if (g_emit_line_directives)
-                    emit_debug_split_check(sb, fn, ctx, ind, "index", instr->index.array,
-                                           instr->index.index);
+                emit_debug_split_check(sb, fn, ctx, ind, "index", instr->index.array,
+                                       instr->index.index);
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "Iron_SplitList_%s_set(", im);
                 emit_receiver_addr(sb, fn, ctx, instr->index.array, ctx->current_block_id);
@@ -6488,7 +6512,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                              * list by address, an inserted concrete object wrapped
                              * into the interface. */
                             bool returns = strcmp(coll_method, "remove") == 0;
-                            if (g_emit_line_directives && instr->call.arg_count >= 2 &&
+                            if (instr->call.arg_count >= 2 &&
                                 (returns || strcmp(coll_method, "insert") == 0))
                                 emit_debug_split_check(sb, fn, ctx, ind,
                                                        returns ? "index" : "insert",
@@ -6606,6 +6630,21 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             iron_strbuf_appendf(sb, "int64_t _sp_pop_i = ");
                             emit_split_self_lvalue(sb, fn, ctx, self_arg);
                             iron_strbuf_appendf(sb, "._total_count - 1;\n");
+                            /* An empty list panics as other lists do (#418):
+                             * the debug trap on the Iron line, then the
+                             * runtime's "pop from an empty list" naming it. */
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "if (_sp_pop_i < 0) {\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "iron_dbg_list_check_pop(0, IRON_SITE);\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "iron_list_call_site(IRON_SITE);\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb,
+                                "iron_panic_index_oob(\"Iron_SplitList_%s_pop\", 0, -1, 0);\n",
+                                sp_iface);
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "}\n");
                             /* Tag switch over _order[_sp_pop_i].tag */
                             emit_indent(sb, ind + 1);
                             iron_strbuf_appendf(sb, "switch (");
@@ -6715,6 +6754,24 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             iron_strbuf_appendf(sb, "int64_t _sp_get_i = ");
                             emit_expr_to_buf(sb, idx_val, fn, ctx, ctx->current_block_id, 0);
                             iron_strbuf_appendf(sb, ";\n");
+                            /* Bounds check, as for other lists (#418). */
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "if ((uint64_t)_sp_get_i >= (uint64_t)");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order_count) {\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "iron_dbg_list_check_index(");
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order_count, _sp_get_i, IRON_SITE);\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "iron_list_call_site(IRON_SITE);\n");
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb,
+                                "iron_panic_index_oob(\"Iron_SplitList_%s_get\", 0, _sp_get_i, ", sp_iface);
+                            emit_val(sb, self_arg);
+                            iron_strbuf_appendf(sb, "._order_count);\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "}\n");
                             /* Tag switch over _order[_sp_get_i].tag */
                             emit_indent(sb, ind + 1);
                             iron_strbuf_appendf(sb, "switch (");

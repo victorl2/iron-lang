@@ -186,7 +186,8 @@ static Iron_Node *iron_parse_while_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_for_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_match_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_spawn_stmt(Iron_Parser *p);
-static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value, Iron_Span span);
+static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value,
+                                           size_t raw_len, Iron_Span span);
 
 /* ── Parser creation ─────────────────────────────────────────────────────── */
 
@@ -1174,9 +1175,31 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         }
 
         iron_expect(p, IRON_TOK_RBRACKET);
-        /* `[T]?`: a nullable list (manual 2.2: `T?` for any non-pointer
-         * type); the `?` was left unparsed. */
-        if (!ann->is_nullable) ann->is_nullable = iron_match(p, IRON_TOK_QUESTION);
+        /* `[T]?`: a nullable list (#452), section 2.2. The element moves to
+         * array_elem_ann first: on an annotation that names its element
+         * directly, is_nullable is read as the element's (`[Int?]`). */
+        if (iron_check(p, IRON_TOK_QUESTION)) {
+            iron_advance(p);
+            if (!ann->array_elem_ann) {
+                Iron_TypeAnnotation *elem = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+                if (!elem) { p->in_error_recovery = true; return iron_make_error(p); }
+                memset(elem, 0, sizeof(*elem));
+                elem->kind             = IRON_NODE_TYPE_ANNOTATION;
+                elem->span             = iron_token_span(p, start);
+                elem->name             = ann->name;
+                elem->is_func          = ann->is_func;
+                elem->func_params      = ann->func_params;
+                elem->func_param_count = ann->func_param_count;
+                elem->func_return      = ann->func_return;
+                ann->array_elem_ann    = (Iron_Node *)elem;
+                ann->name              = NULL;
+                ann->is_func           = false;
+                ann->func_params       = NULL;
+                ann->func_param_count  = 0;
+                ann->func_return       = NULL;
+            }
+            ann->is_nullable = true;
+        }
         ann->span = iron_span_merge(iron_token_span(p, start),
                                     iron_prev_token_span(p, iron_token_span(p, start)));
         return (Iron_Node *)ann;
@@ -1885,14 +1908,15 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             if (!n) { /* HARD-09 REPLACE (iron_parse_primary StringLit) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind  = IRON_NODE_STRING_LIT;
             n->span  = iron_token_span(p, t);
-            n->value = iron_arena_strdup(p->arena, t->value, strlen(t->value));
-            if (!n->value) { /* HARD-09 REPLACE (iron_parse_primary StringLit value) */ n->value = ""; }
+            n->len   = t->value_len ? t->value_len : strlen(t->value);
+            n->value = iron_arena_strdup(p->arena, t->value, n->len);
+            if (!n->value) { /* HARD-09 REPLACE (iron_parse_primary StringLit value) */ n->value = ""; n->len = 0; }
             return (Iron_Node *)n;
         }
         /* Interpolated string — parse into alternating literal/expr segments */
         case IRON_TOK_INTERP_STRING: {
             iron_advance(p);
-            return iron_parse_interp_string(p, t->value, iron_token_span(p, t));
+            return iron_parse_interp_string(p, t->value, t->value_len, iron_token_span(p, t));
         }
         /* true */
         case IRON_TOK_TRUE: {
@@ -3507,7 +3531,7 @@ static size_t interp_skip_expr(const char *s, size_t len, size_t i, int lvl) {
  *   {expr}       → re-lex and parse as expression
  */
 static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value,
-                                            Iron_Span span) {
+                                            size_t raw_len, Iron_Span span) {
     Iron_InterpString *n = ARENA_ALLOC(p->arena, Iron_InterpString);
     if (!n) { /* HARD-09 REPLACE (iron_parse_interp_string) */ p->in_error_recovery = true; return iron_make_error(p); }
     n->kind       = IRON_NODE_INTERP_STRING;
@@ -3519,8 +3543,9 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
         return (Iron_Node *)n;
     }
 
+    /* raw_len counts zero bytes in the literal text (#453). */
     const char *s   = raw_value;
-    size_t      len = strlen(s);
+    size_t      len = raw_len ? raw_len : strlen(s);
 
     /* Temporary buffer for accumulating literal segments */
     char *lit_buf = (char *)malloc(len + 1);
@@ -3539,7 +3564,8 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                 sl->kind  = IRON_NODE_STRING_LIT;
                 sl->span  = span;
                 sl->value = iron_arena_strdup(p->arena, lit_buf, lit_len);
-                if (!sl->value) { /* HARD-09 REPLACE (iron_parse_interp_string StringLit segment value) */ sl->value = ""; }
+                sl->len   = lit_len;
+                if (!sl->value) { /* HARD-09 REPLACE (iron_parse_interp_string StringLit segment value) */ sl->value = ""; sl->len = 0; }
                 arrput(n->parts, (Iron_Node *)sl);
                 n->part_count++;
                 lit_len = 0;
@@ -3669,7 +3695,7 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
         } else {
             /* Escaped braces arrive as lexer marker bytes. */
             char ch = s[i++];
-            if (ch == IRON_LEX_LITERAL_ESC && s[i]) ch = s[i++];
+            if (ch == IRON_LEX_LITERAL_ESC && i < len) ch = s[i++];
             else if (ch == IRON_LEX_LITERAL_LBRACE) ch = '{';
             else if (ch == IRON_LEX_LITERAL_RBRACE) ch = '}';
             lit_buf[lit_len++] = ch;
@@ -3684,7 +3710,8 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
         sl->kind  = IRON_NODE_STRING_LIT;
         sl->span  = span;
         sl->value = iron_arena_strdup(p->arena, lit_buf, lit_len);
-        if (!sl->value) { /* HARD-09 REPLACE (iron_parse_interp_string StringLit tail value) */ sl->value = ""; }
+        sl->len   = lit_len;
+        if (!sl->value) { /* HARD-09 REPLACE (iron_parse_interp_string StringLit tail value) */ sl->value = ""; sl->len = 0; }
         arrput(n->parts, (Iron_Node *)sl);
         n->part_count++;
         lit_len = 0;

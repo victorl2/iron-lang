@@ -32,6 +32,7 @@
 #include "util/strbuf.h"
 #include "analyzer/typo_candidate.h"
 #include "analyzer/intrinsics.h"
+#include "comptime/comptime.h"
 #include "vendor/stb_ds.h"
 
 #include <stdarg.h>
@@ -2384,24 +2385,41 @@ static bool type_is_equatable(const Iron_Type *t, int depth) {
  * global `val` whose initializer is one (a `comptime` result has been
  * folded to a literal by then). Anything else was taken for "no size" and
  * the annotation silently became a growable list; it is now an error. */
-static int array_size_value(TypeCtx *ctx, Iron_Node *n) {
-    if (n->kind == IRON_NODE_INT_LIT) {
-        Iron_IntLit *il = (Iron_IntLit *)n;
-        return il->value ? (int)strtol(il->value, NULL, 10) : -1;
+/* The value of an integer constant written as a size: a literal or
+ * constant expression, or a `comptime` expression evaluated now, before
+ * the comptime pass (#504). */
+static bool size_constant(TypeCtx *ctx, Iron_Node *n, long long *out) {
+    if (!n) return false;
+    if (try_get_constant_int(n, out)) return true;
+    if (n->kind == IRON_NODE_COMPTIME) {
+        int64_t v;
+        if (iron_comptime_eval_int_const(ctx->program, ctx->global_scope, ctx->arena,
+                                         ((Iron_ComptimeExpr *)n)->inner, &v)) {
+            *out = (long long)v;
+            return true;
+        }
     }
-    if (n->kind == IRON_NODE_IDENT) {
+    return false;
+}
+
+static int array_size_value(TypeCtx *ctx, Iron_Node *n) {
+    long long v = -1;
+    bool found = size_constant(ctx, n, &v);
+    if (!found && n->kind == IRON_NODE_IDENT) {
+        /* The name of a global val holding one (a comptime result too). */
         Iron_Ident *id = (Iron_Ident *)n;
         Iron_Symbol *sym = id->name ? iron_scope_lookup(ctx->global_scope, id->name) : NULL;
         if (sym && sym->decl_node && sym->decl_node->kind == IRON_NODE_VAL_DECL) {
             Iron_ValDecl *vd = (Iron_ValDecl *)sym->decl_node;
-            if (vd->init && vd->init->kind == IRON_NODE_INT_LIT) {
-                Iron_IntLit *il = (Iron_IntLit *)vd->init;
-                if (il->value) {
-                    long v = strtol(il->value, NULL, 10);
-                    if (v >= 0 && v <= 0x7fffffff) return (int)v;
-                }
-            }
+            found = size_constant(ctx, vd->init, &v);
         }
+    }
+    if (found) {
+        if (v >= 0 && v <= 0x7fffffff) return (int)v;
+        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, n->span,
+                   "the size of a fixed array or bounded vector must be between 0 and 2147483647",
+                   NULL);
+        return -1;
     }
     emit_error(ctx, IRON_ERR_TYPE_MISMATCH, n->span,
                "the size of a fixed array or bounded vector must be an integer constant",
@@ -4003,6 +4021,20 @@ static const char *params_signature(TypeCtx *ctx, const char *name, Iron_Node **
     return r;
 }
 
+/* A `var` parameter of a method or init takes its argument by reference
+ * (#433), as a free function's does: the argument must be a mutable place
+ * (E0267), which the call mutates. */
+static void check_var_param_arg(TypeCtx *ctx, Iron_Param *pp, Iron_Node *arg) {
+    if (!pp || pp->kind != IRON_NODE_PARAM || !pp->is_var || !arg) return;
+    mark_requires_mutable(ctx, arg);
+    if (arg_source_is_mutable(ctx, arg)) return;
+    char msg[256];
+    snprintf(msg, sizeof(msg), "cannot pass read-only argument to 'var' parameter '%s'",
+             pp->name ? pp->name : "<unnamed>");
+    emit_error(ctx, IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT, arg->span, msg,
+               "make the argument source mutable (declare as 'var')");
+}
+
 /* Check a method call's arguments against the declared parameters
  * params[first..count). Method calls used to skip this entirely:
  * `c.add("x")`, `c.add(1, 2)` and `Math.sqrt("hello")` all type-checked
@@ -4030,6 +4062,10 @@ static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
          * the caller's. */
         const char *saved_enc = ctx->enclosing_type_name;
         if (owner && iron_type_ann_mentions_self(mp->type_ann)) ctx->enclosing_type_name = owner;
+        /* A `var` parameter of a method or init takes its argument by
+         * reference (#433), as a free function's does: the argument must
+         * be a mutable place (E0267), which the call mutates. */
+        check_var_param_arg(ctx, mp, mc->args[i]);
         Iron_Type *pt = resolve_type_annotation(ctx, mp->type_ann);
         ctx->enclosing_type_name = saved_enc;
         Iron_Type *arg_resolved = ((Iron_ExprNode *)mc->args[i])->resolved_type;
@@ -5726,6 +5762,44 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     }
                     continue;
                 }
+                /* A T? of such an object (#451) prints "null" or the
+                 * to_string() text: hir_to_lir lowers the part to a null
+                 * test around the call. */
+                Iron_Type *opt_obj = part_type->kind == IRON_TYPE_NULLABLE ? part_type->nullable.inner : NULL;
+                if (opt_obj && opt_obj->kind == IRON_TYPE_RC) opt_obj = opt_obj->rc.inner;
+                if (opt_obj && opt_obj->kind == IRON_TYPE_OBJECT && opt_obj->object.decl &&
+                    is_stringifiable(ctx, opt_obj)) {
+                    const char *on = opt_obj->object.decl->name;
+                    Iron_MethodDecl *ts_md = NULL;
+                    for (int di = 0; di < ctx->program->decl_count; di++) {
+                        Iron_Node *d = ctx->program->decls[di];
+                        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+                        if (strcmp(md->type_name, on) == 0 &&
+                            strcmp(md->method_name, "to_string") == 0) { ts_md = md; break; }
+                    }
+                    if (ts_md && !ts_md->is_readonly && !ts_md->is_pure) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "'%s'.to_string() must be readonly to be interpolated",
+                                 on);
+                        emit_error(ctx, IRON_ERR_NOT_STRINGABLE, n->parts[i]->span, msg,
+                                   "declare it as `readonly func to_string() -> String`");
+                        continue;
+                    }
+                    bool returns_string = false;
+                    if (ts_md && ts_md->resolved_return_type)
+                        returns_string = ts_md->resolved_return_type->kind == IRON_TYPE_STRING;
+                    else if (ts_md && ts_md->return_type &&
+                             ts_md->return_type->kind == IRON_NODE_TYPE_ANNOTATION) {
+                        Iron_TypeAnnotation *rta = (Iron_TypeAnnotation *)ts_md->return_type;
+                        returns_string = rta->name && strcmp(rta->name, "String") == 0 &&
+                                         !rta->is_nullable && !rta->is_array;
+                    }
+                    if (!returns_string)
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, n->parts[i]->span,
+                                   "to_string() must return String to be used in interpolation", NULL);
+                    continue;
+                }
                 if (!is_stringifiable(ctx, part_type)) {
                     char msg[256];
                     const char *ts = iron_type_to_string(part_type, ctx->arena);
@@ -6749,6 +6823,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                 /* The parameter type shapes a literal argument
                                  * (`Grid([1, 2])` for a `[Int; <=4]` field). */
                                 Iron_Type *arg_t = check_expr_with_expected(ctx, ce->args[i], param_t);
+                                check_var_param_arg(ctx, pp, ce->args[i]);
                                 if (arg_t && param_t &&
                                     arg_t->kind   != IRON_TYPE_ERROR &&
                                     param_t->kind != IRON_TYPE_ERROR &&
@@ -8269,6 +8344,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                     ? resolve_type_annotation(ctx, pp->type_ann)
                                     : NULL;
                                 Iron_Type *at = check_expr_with_expected(ctx, mc->args[i], pt);
+                                check_var_param_arg(ctx, pp, mc->args[i]);
                                 if (at && pt &&
                                     at->kind != IRON_TYPE_ERROR &&
                                     pt->kind != IRON_TYPE_ERROR &&
@@ -14029,6 +14105,37 @@ static bool report_big_int_literal(Iron_Visitor *v, Iron_Node *node) {
     return true;
 }
 
+/* Methods of two types whose generated names coincide (#481): a method
+ * is named after its type lowercased up to the first underscore, so
+ * `A_b.c` and `A.b_c` (or `Ab.m` and `AB.m`) would share one function
+ * and lose a body. Reported instead of failing later without a source
+ * position. */
+static void check_method_name_collisions(TypeCtx *ctx, Iron_Program *program) {
+    struct { char *key; Iron_MethodDecl *value; } *seen = NULL;
+    sh_new_strdup(seen);
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (!md->type_name || !md->method_name || md->is_array_extension) continue;
+        char mn[512];
+        snprintf(mn, sizeof(mn), "%s_%s", md->type_name, md->method_name);
+        for (int ci = 0; mn[ci] && mn[ci] != '_'; ci++)
+            if (mn[ci] >= 'A' && mn[ci] <= 'Z') mn[ci] = (char)(mn[ci] + ('a' - 'A'));
+        ptrdiff_t at = shgeti(seen, mn);
+        if (at < 0) { shput(seen, mn, md); continue; }
+        Iron_MethodDecl *prev = seen[at].value;
+        if (strcmp(prev->type_name, md->type_name) == 0) continue;
+        char msg[600];
+        snprintf(msg, sizeof(msg),
+                 "methods '%s.%s' and '%s.%s' have the same generated name '%s'",
+                 prev->type_name, prev->method_name, md->type_name, md->method_name, mn);
+        emit_error(ctx, IRON_ERR_DUPLICATE_DECL, md->span, msg,
+                   "rename one of the methods or types");
+    }
+    shfree(seen);
+}
+
 void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                     Iron_Arena *arena, Iron_DiagList *diags,
                     const _Atomic bool *cancel_flag) {
@@ -14599,6 +14706,8 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
      * iface) pair where an implementation method's tier is weaker than its
      * corresponding interface signature tier. */
     check_iface_tier_strengthening(&ctx, program);
+
+    check_method_name_collisions(&ctx, program);
 
     shfree(ctx.narrowed);
     arrfree(ctx.narrow_kills);

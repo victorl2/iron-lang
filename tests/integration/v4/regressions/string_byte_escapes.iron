@@ -1,0 +1,41 @@
+-- \r, \0 and \xHH escapes (issues 453 and 507). A literal carries its
+-- byte length, so a zero byte is part of the value instead of ending it,
+-- and literals that differ only after a zero byte stay distinct.
+func label() -> String {
+    return comptime tag()
+}
+
+func tag() -> String {
+    return "k\0v"
+}
+
+func main() {
+    val s = "a\0b"
+    println("{s.byte_len()} {s.byte_at(0)} {s.byte_at(1)} {s.byte_at(2)}")
+    val t = "\x48\x69\x21\x7e"
+    println(t)
+    val bytes = "\x00\x7f\x80\xff"
+    println("{bytes.byte_len()} {bytes.byte_at(0)} {bytes.byte_at(1)} {bytes.byte_at(2)} {bytes.byte_at(3)}")
+    val crlf = "GET / HTTP/1.0\r\n\r\n"
+    println("{crlf.byte_len()} {crlf.byte_at(14)} {crlf.byte_at(15)}")
+    -- No octal: a digit after \0 is an ordinary character.
+    println("{"\012".byte_len()}")
+    -- Zero bytes in an interpolated string, around the interpolation.
+    val n = 42
+    val w = "\0{n}\0"
+    println("{w.byte_len()} {w.byte_at(0)} {w.byte_at(3)}")
+    -- Escaped braces written as bytes are text, not interpolation.
+    println("\x7bn\x7d \u{7B}n\u{7D}")
+    -- Interning keeps literals that differ after a zero byte apart, short
+    -- and long (heap) alike.
+    println("{s == "a\0b"} {s == "a\0c"} {s == "a"}")
+    val long1 = "zero byte inside a long literal \0 first variant"
+    val long2 = "zero byte inside a long literal \0 other variant"
+    println("{long1 == long2} {long1.byte_len()} {long2.byte_len()}")
+    println(long1.byte_slice(33, 47))
+    -- A comptime string keeps its zero byte.
+    val k = label()
+    println("{k.byte_len()} {k.byte_at(1)}")
+    -- \u{0} is the zero byte too.
+    println("{"x\u{0}y".byte_len()}")
+}
