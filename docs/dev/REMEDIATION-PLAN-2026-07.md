@@ -701,7 +701,8 @@ contracts live in dedicated `ironc check|grep` ctest rows, all passing; the
 aggregate handler can only see runtime output, now documented in headers).
 Rule 2 phase-38 markers ×6 (`:=` store-through-pointer non-surface, scalar
 checked-ptr deref-read non-surface with deliberate `<ptr>` interpolation,
-`as` cast not a token, fixed-size array returns E0215/E0305, Map.new stub).
+`as` cast not a token, fixed-size array returns E0215/the former code 305,
+Map.new stub).
 Rule 3 genuine bugs left red (4 rows / 3 bugs, minimal repros in
 /sbx/probes-w5): (1) two-hop capture-closure return degrades to
 `void(*)(void)` → invalid C; (2) 2nd call-site use of a bounded-vector

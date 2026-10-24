@@ -1,7 +1,7 @@
 # Iron Reference Manual
 
 This manual describes the Iron programming language as implemented by the
-`iron` compiler that ships with this repository (version 4.5). It is a
+`iron` compiler that ships with this repository (version 5.0). It is a
 reference, not a tutorial: each section states what the compiler accepts and
 what the program does, with a small complete example. Every `iron` code block
 in this document is compiled and executed by `scripts/test_doc_examples.sh`,
@@ -531,8 +531,9 @@ changes is where the bytes are:
   element copied or destroyed.
 
 For an element type that is not an object (numbers, `String`, enums) the
-attribute is accepted and changes nothing; fixed arrays and bounded
-vectors take no attributes. Traversing every field of every element is
+attribute is accepted and changes nothing. Fixed arrays and bounded
+vectors take no attributes by definition, although the compiler currently
+accepts and ignores them there ([#841](https://github.com/victorl2/iron-lang/issues/841)). Traversing every field of every element is
 not faster in a `layout: soa` list; use it for lists whose hot loops read
 a few fields of many elements. The debugger formatters show the elements
 of either layout.
@@ -1054,7 +1055,9 @@ clicked 3
 lifecycle; they are described in section 6. `heap` and `rc` may only
 appear in front of an allocation expression, not in a type annotation, a
 parameter or a binding keyword position (`E0273`, `E0297`); the reserved
-`pool` keyword is rejected with `E0298`.
+`pool` keyword is rejected with `E0298`. `heap` requires an object or
+collection allocation; `heap` of a number or `Bool` is a type mismatch
+(`E0202`).
 
 ### 3.9 Type tests
 
@@ -1454,8 +1457,8 @@ other expression on its own is accepted by the parser but has no effect.
 
 A program is a sequence of top-level declarations: imports, functions,
 objects, patches, interfaces, enums and global bindings. Declarations may
-appear in any order and are visible throughout the file (and, when `pub`,
-throughout the package, section 10.3).
+appear in any order and are visible throughout the file. Most become visible
+throughout the package when `pub`; section 5.10 records the current exceptions.
 
 ### 5.1 The entry point
 
@@ -1495,8 +1498,13 @@ mutated (`E0266`, `E0234`). A parameter declared `var` is a copy that the
 body may assign to and mutate; when the function returns, the final value
 is written back to the caller's `var` binding, so `var` parameters behave
 like in-out arguments. A list parameter is lent (never copied); a `var`
-list parameter lets the body grow or shrink the caller's list. Objects are
-passed by value. The result type follows `->`; omit it for a function that
+list parameter lets the body grow or shrink the caller's list. An object
+parameter is lent for the call; it is not copied and its `copy` or `drop`
+block does not run in the callee. A `var` parameter may receive a caller's
+`var` binding, mutable field, or mutable list element. The original place
+stays valid for the call and receives the final value, even if keeping it
+valid requires pinning a list or an allocation. The result type follows
+`->`; omit it for a function that
 returns nothing. Argument count and types must match exactly (`E0216`,
 `E0217`). Functions cannot be overloaded (`E0201`) and there are no default
 or named arguments. Type parameters are written after the name (section
@@ -1549,6 +1557,8 @@ func main() {
 
 A top-level function name is a function value: `val f = twice`,
 `apply(twice, 4)` and `[twice]` work like the equivalent lambdas.
+Compiler built-ins such as `print`, `println`, `len`, `range` and `fill`
+are calls, not values: naming one without calling it is `E0202`.
 
 Compiler hints on the line directly above a function are
 `//iron:fusible`, `//iron:inline`, `//iron:noinline` and `//iron:cold`.
@@ -2083,10 +2093,12 @@ is available without an import.
 
 ### 5.10 Visibility
 
-Every top-level declaration is private to its file unless marked `pub`.
-`pub` may prefix a function, object, patch, interface, enum or global
-binding (`pub val`, `pub var`). Using a private declaration from another file of the
-package is an error (`E0320`). Object members are private to the declaring
+Functions, objects, patches, enums and global bindings are private to their
+file unless marked `pub`; global bindings use `pub val` and `pub var`.
+Interfaces are currently visible package-wide even without `pub`, while an
+extern function stays file-private even when written `pub extern func`
+([#842](https://github.com/victorl2/iron-lang/issues/842)). Using any other
+private declaration from another file of the package is an error (`E0320`). Object members are private to the declaring
 file unless marked `pub` (section 5.3). The word `private` is not accepted
 (`E0101`). Visibility does not make names local: all files of a package
 share one namespace, so two files may not declare the same top-level name,
@@ -2106,8 +2118,10 @@ value, dereferencing a stale checked pointer.
 ### 6.1 Stack values
 
 A binding initialized with a plain expression holds its value directly.
-Objects are copied on assignment, when passed by value and when stored in
-lists or fields; each copy is destroyed independently. A value is destroyed
+Objects are copied on assignment and when stored in lists or fields; each
+copy is destroyed independently. Passing an object to an ordinary parameter
+lends it for the call, while a `var` parameter writes back to its original
+place (section 5.2). A value is destroyed
 when its block exits (in reverse declaration order) or, for a temporary,
 as soon as the expression that used it is done: a field read off a
 temporary (`make().name`) copies the field out and then drops the
@@ -2373,6 +2387,10 @@ pointers are distinct types (`E0289`, `E0294`) and `&` never produces an
 unchecked pointer. `RawPtr.of(x)` produces a type-erased `RawPtr` and
 `Ptr.cast[T](raw)` turns it back into a `*unchecked T`.
 
+A pointer to a collection does not expose that collection's methods or
+indexing. Calling a list, map, set, channel or lock operation through a
+pointer is `E0220`; pass or retain the collection value itself instead.
+
 ```iron
 object Config {
     var width: Int
@@ -2486,6 +2504,12 @@ when the last holder is gone. Two threads that both use it guard the
 reference with a lock, `Mutex(rc Hasher.new(alg))`. Each object has at most
 one `drop` and one `copy` block (`E0284`, `E0285`); `drop` may not be
 `readonly` (`E0287`) and may not `return` early (`E0288`).
+
+A closure may capture a `nocopy` value only as a borrow: the lambda must be
+passed directly as a call argument and the callee must not keep it. A spawn
+may borrow one only when it is awaited in the same block. Binding, returning
+or storing such a closure, passing it to a callee that keeps it, or letting
+the spawn escape is `E0286`; the diagnostic names `rc` as the ownership fix.
 
 ```iron
 object Point {
@@ -3616,7 +3640,8 @@ a filter that starts with `-`); any other argument is an error, as is a
 second file given to `ironc`. Builds and checks of the same package may run
 at the same time. All files of a package share one namespace: a
 `pub` declaration in one file is visible in every other file, and a
-private one only in its own (`E0320`). `import` of a package file is
+private one only in its own (`E0320`), subject to the interface and extern
+exceptions in section 5.10. `import` of a package file is
 optional and documents the dependency. The files are compiled in this
 order, which is the order of their globals' initialization where those do
 not depend on each other (section 5.7): the vendored files, `src/lib.iron`,
@@ -3898,6 +3923,7 @@ so that older material is not mistaken for the current language:
 - Reading and writing a primitive through a pointer (`*p`).
 - Lambda parameter inference outside a function-typed parameter position.
 - `String`, `Bool` and `Float` subjects in `match`.
+- A `nocopy object` cannot currently also be `pub` ([#840](https://github.com/victorl2/iron-lang/issues/840)).
 - raylib in Linux cross builds: it needs the system's OpenGL, which a
   static musl executable cannot load.
 - over-aligned heap, rc, arena, interface, closure and spawned-task storage;
@@ -3944,7 +3970,7 @@ program        ::= { decl }
 decl           ::= import_decl
                  | val_decl
                  | var_decl
-                 | [ 'nocopy' ] [ 'pub' ] object_decl
+                 | [ ( 'nocopy' | 'pub' ) ] object_decl
                  | [ 'pub' ] ( func_decl | extern_decl | patch_decl | interface_decl | enum_decl | array_ext_decl
                              | type_method_decl )
                  | test_decl

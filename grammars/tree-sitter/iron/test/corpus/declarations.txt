@@ -292,3 +292,45 @@ pub var counter: Int = 0
     type: (type_identifier
       (identifier))
     value: (integer_literal)))
+
+==========
+public annotated function, extern and patch declarations
+==========
+
+pub @fusible func map_one(x: Int) -> Int { return x }
+pub extern func llabs(x: Int) -> Int
+pub patch object Point { func clear() {} }
+
+---
+
+(source_file
+  (func_declaration
+    (visibility_modifier)
+    (identifier)
+    (parameter_list
+      (parameter
+        (identifier)
+        (type_identifier
+          (identifier))))
+    (type_identifier
+      (identifier))
+    (block
+      (return_statement
+        (identifier))))
+  (extern_func_declaration
+    (visibility_modifier)
+    (identifier)
+    (parameter_list
+      (parameter
+        (identifier)
+        (type_identifier
+          (identifier))))
+    (type_identifier
+      (identifier)))
+  (patch_declaration
+    (visibility_modifier)
+    (identifier)
+    (block_method_declaration
+      (identifier)
+      (parameter_list)
+      (block))))

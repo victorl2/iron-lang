@@ -23,7 +23,7 @@ func main() { val r = a + b * c }
 comparison and logical-and chain
 ==========
 
-func main() { val r = a < b && c > d }
+func main() { val r = a < b and not c > d }
 
 ---
 
@@ -39,14 +39,15 @@ func main() { val r = a < b && c > d }
             (identifier)
             (identifier))
           (binary_expression
-            (identifier)
+            (unary_expression
+              (identifier))
             (identifier)))))))
 
 ==========
 unary not
 ==========
 
-func main() { val r = !x }
+func main() { val r = not x }
 
 ---
 

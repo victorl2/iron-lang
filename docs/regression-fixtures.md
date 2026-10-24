@@ -8,7 +8,7 @@ This document formalizes the template and lists the fixtures that adopt it.
 ## Canonical Example
 
 The reference fixture is
-[`tests/integration/hir_to_lir_elif_mono_walker.iron`](../tests/integration/hir_to_lir_elif_mono_walker.iron).
+[`tests/integration/v3-archive/hir_to_lir_elif_mono_walker.iron`](../tests/integration/v3-archive/hir_to_lir_elif_mono_walker.iron).
 Read it first before adding a new regression fixture. Its top-of-file
 doc-comment establishes the pattern and explains every section with a real
 motivating bug: the Phase 37 `collect_mono_enums_node` SIGSEGV that hid in

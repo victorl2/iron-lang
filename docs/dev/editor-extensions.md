@@ -20,8 +20,8 @@ See also:
 - [`editors/zed/README.md`](../../editors/zed/README.md) — user-facing Zed install
 - [`grammars/textmate/README.md`](../../grammars/textmate/README.md) — TextMate scope map + ReDoS rules
 - [`grammars/tree-sitter/iron/README.md`](../../grammars/tree-sitter/iron/README.md) — tree-sitter build + WASM
-- [`.planning/phases/06-m5-grammars-editor-extensions/06-UI-SPEC.md`](../../.planning/phases/06-m5-grammars-editor-extensions/06-UI-SPEC.md)
-  (local-only) — cross-editor consistency invariants S1..S9
+- The local planning archive for phase 6 records the cross-editor
+  consistency invariants S1 through S9; it is not part of a source checkout.
 
 ---
 

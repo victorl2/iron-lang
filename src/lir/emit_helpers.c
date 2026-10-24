@@ -923,30 +923,6 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
                 return emit_ensure_nested_list(ctx, t->array.elem);
             }
             const char *elem_c = emit_type_to_c(t->array.elem, ctx);
-            /* A list of an integer width the runtime does not instantiate
-             * (Int8, Int16, UInt16, UInt32, UInt64): the type was named
-             * but never declared, and the C did not compile. */
-            if (strcmp(elem_c, "int8_t") == 0 || strcmp(elem_c, "int16_t") == 0 ||
-                strcmp(elem_c, "uint16_t") == 0 || strcmp(elem_c, "uint32_t") == 0 ||
-                strcmp(elem_c, "uint64_t") == 0) {
-                char list_name[64];
-                snprintf(list_name, sizeof(list_name), "Iron_List_%s", elem_c);
-                const char *res = iron_arena_strdup(ctx->arena, list_name, strlen(list_name));
-                if (!res) iron_oom_abort("emit_helpers.c:emit_type_to_c int list");
-                if (shgeti(ctx->emitted_mono_list_types, res) < 0) {
-                    shput(ctx->emitted_mono_list_types, res, true);
-                    iron_strbuf_appendf(&ctx->struct_bodies,
-                        "typedef struct %s {\n"
-                        "    %s *items;\n"
-                        "    int64_t count;\n"
-                        "    int64_t capacity;\n"
-                        "} %s;\n"
-                        "IRON_LIST_DECL(%s, %s)\n"
-                        "IRON_LIST_IMPL(%s, %s)\n",
-                        res, elem_c, res, elem_c, elem_c, elem_c, elem_c);
-                }
-                return res;
-            }
             Iron_StrBuf sb = iron_strbuf_create(64);
             bool is_iface_elem = t->array.elem &&
                                  t->array.elem->kind == IRON_TYPE_INTERFACE &&

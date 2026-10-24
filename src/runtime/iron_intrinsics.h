@@ -19,6 +19,31 @@
 
 #define IRON_INTR_FN static inline __attribute__((always_inline, unused))
 
+/* Rotates as the shift idiom every compiler turns into one rotate
+ * instruction (__builtin_rotateleft* is clang only). */
+#define IRON_INTR_ROT(S, T, W)                                                  \
+    IRON_INTR_FN T iron_rotl_raw_##S(T x, unsigned n) {                         \
+        n &= (W) - 1u;                                                          \
+        return (T)((T)(x << n) | (T)(x >> ((-n) & ((W) - 1u))));                \
+    }                                                                           \
+    IRON_INTR_FN T iron_rotr_raw_##S(T x, unsigned n) {                         \
+        n &= (W) - 1u;                                                          \
+        return (T)((T)(x >> n) | (T)(x << ((-n) & ((W) - 1u))));                \
+    }
+IRON_INTR_ROT(8,  uint8_t,  8)
+IRON_INTR_ROT(16, uint16_t, 16)
+IRON_INTR_ROT(32, uint32_t, 32)
+IRON_INTR_ROT(64, uint64_t, 64)
+#undef IRON_INTR_ROT
+
+/* Bit casts through memcpy (__builtin_bit_cast is clang only). */
+#define IRON_INTR_BITCAST(NAME, TO, FROM)                                       \
+    IRON_INTR_FN TO NAME(FROM v) { TO out; __builtin_memcpy(&out, &v, sizeof(out)); return out; }
+
+/* 128-bit integers are a GNU extension: __extension__ keeps -Wpedantic quiet. */
+__extension__ typedef __int128 iron_i128_t;
+__extension__ typedef unsigned __int128 iron_u128_t;
+
 /* ── Bit operations ──────────────────────────────────────────────────────────
  * leading_zeros / trailing_zeros are defined for 0 (the bit width), which
  * clang folds to lzcnt/tzcnt where available and to bsr/bsf with a preset
@@ -66,31 +91,31 @@
 IRON_INTR_BITS(u8,  uint8_t,  uint8_t,  8,
                __builtin_clz((unsigned)u) - 24, __builtin_ctz((unsigned)u),
                __builtin_popcount((unsigned)u),
-               __builtin_rotateleft8(u, (uint8_t)r), __builtin_rotateright8(u, (uint8_t)r))
+               iron_rotl_raw_8(u, (uint8_t)r), iron_rotr_raw_8(u, (uint8_t)r))
 IRON_INTR_BITS(i8,  int8_t,   uint8_t,  8,
                __builtin_clz((unsigned)u) - 24, __builtin_ctz((unsigned)u),
                __builtin_popcount((unsigned)u),
-               __builtin_rotateleft8(u, (uint8_t)r), __builtin_rotateright8(u, (uint8_t)r))
+               iron_rotl_raw_8(u, (uint8_t)r), iron_rotr_raw_8(u, (uint8_t)r))
 IRON_INTR_BITS(u16, uint16_t, uint16_t, 16,
                __builtin_clz((unsigned)u) - 16, __builtin_ctz((unsigned)u),
                __builtin_popcount((unsigned)u),
-               __builtin_rotateleft16(u, (uint16_t)r), __builtin_rotateright16(u, (uint16_t)r))
+               iron_rotl_raw_16(u, (uint16_t)r), iron_rotr_raw_16(u, (uint16_t)r))
 IRON_INTR_BITS(i16, int16_t,  uint16_t, 16,
                __builtin_clz((unsigned)u) - 16, __builtin_ctz((unsigned)u),
                __builtin_popcount((unsigned)u),
-               __builtin_rotateleft16(u, (uint16_t)r), __builtin_rotateright16(u, (uint16_t)r))
+               iron_rotl_raw_16(u, (uint16_t)r), iron_rotr_raw_16(u, (uint16_t)r))
 IRON_INTR_BITS(u32, uint32_t, uint32_t, 32,
                __builtin_clz(u), __builtin_ctz(u), __builtin_popcount(u),
-               __builtin_rotateleft32(u, r), __builtin_rotateright32(u, r))
+               iron_rotl_raw_32(u, r), iron_rotr_raw_32(u, r))
 IRON_INTR_BITS(i32, int32_t,  uint32_t, 32,
                __builtin_clz(u), __builtin_ctz(u), __builtin_popcount(u),
-               __builtin_rotateleft32(u, r), __builtin_rotateright32(u, r))
+               iron_rotl_raw_32(u, r), iron_rotr_raw_32(u, r))
 IRON_INTR_BITS(u64, uint64_t, uint64_t, 64,
                __builtin_clzll(u), __builtin_ctzll(u), __builtin_popcountll(u),
-               __builtin_rotateleft64(u, r), __builtin_rotateright64(u, r))
+               iron_rotl_raw_64(u, r), iron_rotr_raw_64(u, r))
 IRON_INTR_BITS(i64, int64_t,  uint64_t, 64,
                __builtin_clzll(u), __builtin_ctzll(u), __builtin_popcountll(u),
-               __builtin_rotateleft64(u, r), __builtin_rotateright64(u, r))
+               iron_rotl_raw_64(u, r), iron_rotr_raw_64(u, r))
 #undef IRON_INTR_BITS
 
 IRON_INTR_FN uint8_t  iron_bswap_u8(uint8_t x)   { return x; }
@@ -112,10 +137,10 @@ IRON_INTR_FN int64_t  iron_bswap_i64(int64_t x)  { return (int64_t)__builtin_bsw
  * schoolbook 32x32 split. Narrower types multiply in 64 bits. */
 #if defined(__SIZEOF_INT128__)
 IRON_INTR_FN uint64_t iron_mul_hi_u64(uint64_t a, uint64_t b) {
-    return (uint64_t)(((unsigned __int128)a * b) >> 64);
+    return (uint64_t)(((iron_u128_t)a * b) >> 64);
 }
 IRON_INTR_FN int64_t iron_mul_hi_i64(int64_t a, int64_t b) {
-    return (int64_t)(((__int128)a * b) >> 64);
+    return (int64_t)(((iron_i128_t)a * b) >> 64);
 }
 #else
 IRON_INTR_FN uint64_t iron_mul_hi_u64(uint64_t a, uint64_t b) {
@@ -215,8 +240,8 @@ IRON_INTR_CARRY_S(i32, int32_t, INT32_MIN, INT32_MAX)
 #undef IRON_INTR_CARRY_S
 IRON_INTR_FN bool iron_add_carry_ovf_i64(int64_t a, int64_t b, bool c) {
 #if defined(__SIZEOF_INT128__)
-    __int128 s = (__int128)a + (__int128)b + (c ? 1 : 0);
-    return s < (__int128)INT64_MIN || s > (__int128)INT64_MAX;
+    iron_i128_t s = (iron_i128_t)a + (iron_i128_t)b + (c ? 1 : 0);
+    return s < (iron_i128_t)INT64_MIN || s > (iron_i128_t)INT64_MAX;
 #else
     int64_t t, r;
     bool o1 = __builtin_add_overflow(a, b, &t);
@@ -230,10 +255,10 @@ IRON_INTR_FN bool iron_add_carry_ovf_i64(int64_t a, int64_t b, bool c) {
 }
 
 /* ── Bit casts ───────────────────────────────────────────────────────────── */
-IRON_INTR_FN uint64_t iron_f64_to_bits(double f)  { return __builtin_bit_cast(uint64_t, f); }
-IRON_INTR_FN double   iron_f64_from_bits(uint64_t u) { return __builtin_bit_cast(double, u); }
-IRON_INTR_FN uint32_t iron_f32_to_bits(float f)   { return __builtin_bit_cast(uint32_t, f); }
-IRON_INTR_FN float    iron_f32_from_bits(uint32_t u) { return __builtin_bit_cast(float, u); }
+IRON_INTR_BITCAST(iron_f64_to_bits, uint64_t, double)
+IRON_INTR_BITCAST(iron_f64_from_bits, double, uint64_t)
+IRON_INTR_BITCAST(iron_f32_to_bits, uint32_t, float)
+IRON_INTR_BITCAST(iron_f32_from_bits, float, uint32_t)
 IRON_INTR_FN uint8_t  iron_i8_to_bits(int8_t x)   { return (uint8_t)x; }
 IRON_INTR_FN int8_t   iron_i8_from_bits(uint8_t u)  { return (int8_t)u; }
 IRON_INTR_FN uint16_t iron_i16_to_bits(int16_t x) { return (uint16_t)x; }
