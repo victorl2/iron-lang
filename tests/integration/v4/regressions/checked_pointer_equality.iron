@@ -1,0 +1,15 @@
+-- Checked pointers are fat pointers. Equality compares their address and
+-- generation instead of asking C to compare two structs. (#707)
+object Res {
+    val id: Int
+}
+
+func main() {
+    val a = Res(1)
+    val b = Res(1)
+    val p: *Res = &a
+    val q: *Res = &a
+    val r: *Res = &b
+    println("{p == q} {p != q}")
+    println("{p == r} {p != r}")
+}

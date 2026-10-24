@@ -12,6 +12,10 @@
  * function of the program with that C name gets the Iron_u_ prefix. */
 void iron_lir_emit_add_reserved_c_name(const char *name);
 
+/* Public for the emitter's focused name-mangling unit test. */
+const char *iron_lir_emit_c_user_identifier(const char *name,
+                                             Iron_Arena *arena);
+
 const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                             Iron_DiagList *diags, IronLIR_OptimizeInfo *opt_info,
                             Iron_IfaceRegistry *iface_reg,

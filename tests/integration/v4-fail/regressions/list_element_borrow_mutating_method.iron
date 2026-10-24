@@ -1,0 +1,14 @@
+-- @expected-error: E0330
+object Values {
+    var items: [Int]
+    init() { self.items = [1, 2] }
+    func grow(pointer: *Int) {
+        self.items.push(3)
+        println("{pointer}")
+    }
+}
+
+func main() {
+    var values = Values()
+    values.grow(&values.items[0])
+}

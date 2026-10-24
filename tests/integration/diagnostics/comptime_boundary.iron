@@ -1,7 +1,8 @@
 -- Constructs compile-time evaluation leaves out (manual 8) are E0231, the
 -- unsupported-construct code, like method calls and interpolation: they
 -- were E0232 ("comptime error") with messages such as "function not found
--- in global scope" or "unresolved identifier".
+-- in global scope" or "unresolved identifier". (Bitwise operators and
+-- numeric conversions are evaluated now, #658.)
 val BASE = 7
 
 object Counter {
@@ -9,15 +10,6 @@ object Counter {
     init(n: Int) {
         self.n = n
     }
-}
-
-func bits(n: Int) -> Int {
-    return n & 3
-}
-
-func conv(n: Int) -> Int {
-    val f = Float(n)
-    return Int(f)
 }
 
 func reads_global(n: Int) -> Int {
@@ -34,12 +26,10 @@ func builds(n: Int) -> Int {
     return n
 }
 
-val A = comptime bits(1)
-val B = comptime conv(2)
 val C = comptime reads_global(3)
 val D = comptime joins(4)
 val E = comptime builds(5)
 
 func main() {
-    println("{A} {B} {C} {D} {E}")
+    println("{C} {D} {E}")
 }

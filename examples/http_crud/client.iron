@@ -1,0 +1,163 @@
+// client.iron: HTTP client in pure Iron exercising the CRUD server.
+//
+// Talks HTTP/1.1 over TCP to server.iron on 127.0.0.1:8471, one
+// connection per request (Connection: close), and verifies every step:
+//
+//   create x2 -> list -> read -> update -> reread -> delete -> 404 ->
+//   binary-payload roundtrip (NUL / 0xFF / CRLF bytes) -> shutdown
+//
+// Exits after printing "ALL CHECKS PASSED" (or the failure count).
+import net
+
+var g_pass = 0
+var g_fail = 0
+
+val g_host = "127.0.0.1"
+val g_port = 8471
+
+// Byte offset of the first occurrence of needle in s, or -1. String
+// positions count characters, and response bodies may hold any bytes.
+func byte_index_of(s: String, needle: String) -> Int {
+    val n = s.byte_len()
+    val m = needle.byte_len()
+    var i = 0
+    while i + m <= n {
+        var j = 0
+        while j < m and s.byte_at(i + j) == needle.byte_at(j) {
+            j = j + 1
+        }
+        if j == m {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// One full request/response cycle; returns the raw response ("" on error).
+func http_request(method: String, path: String, body: String) -> String {
+    val (sock, derr) = Net.tcp_dial(g_host, g_port, 3000)
+    if derr.code != 0 {
+        println("dial failed: {derr.code}")
+        return ""
+    }
+    val blen = body.byte_len()
+    val req = "{method} {path} HTTP/1.1\u{D}\n"
+        + "Host: {g_host}\u{D}\n"
+        + "Content-Length: {blen}\u{D}\n"
+        + "Connection: close\u{D}\n"
+        + "\u{D}\n"
+        + body
+    val (nw, werr) = TcpSocket.write(sock, req, 3000)
+    if werr.code != 0 or nw != req.byte_len() {
+        println("send failed: {werr.code} sent={nw}")
+        TcpSocket.close(sock)
+        return ""
+    }
+    // The server closes the connection after responding: read until EOF.
+    var chunks: [String] = []
+    while true {
+        val (chunk, rerr) = TcpSocket.read(sock, 65536, 5000)
+        if rerr.code != 0 or chunk.byte_len() == 0 {
+            break
+        }
+        chunks.push(chunk)
+    }
+    TcpSocket.close(sock)
+    return "".join(chunks)
+}
+
+func status_of(resp: String) -> Int {
+    if resp.byte_len() < 12 {
+        return 0
+    }
+    return resp.byte_slice(9, 12).to_int()
+}
+
+func body_of(resp: String) -> String {
+    val i = byte_index_of(resp, "\u{D}\n\u{D}\n")
+    if i < 0 {
+        return ""
+    }
+    return resp.byte_slice(i + 4, resp.byte_len())
+}
+
+func check(label: String, cond: Bool) {
+    if cond {
+        g_pass = g_pass + 1
+        println("ok - {label}")
+    } else {
+        g_fail = g_fail + 1
+        println("FAIL - {label}")
+    }
+}
+
+func main() {
+    println("client: starting CRUD sequence against {g_host}:{g_port}")
+
+    // create
+    val r1 = http_request("POST", "/records", "alpha\nfirst note")
+    check("create alpha -> 201", status_of(r1) == 201)
+    val id1 = body_of(r1).trim().to_int()
+    check("alpha id == 1", id1 == 1)
+
+    val r2 = http_request("POST", "/records", "beta\nsecond note")
+    check("create beta -> 201", status_of(r2) == 201)
+    val id2 = body_of(r2).trim().to_int()
+    check("beta id == 2", id2 == 2)
+
+    // list
+    val r3 = http_request("GET", "/records", "")
+    check("list -> 200", status_of(r3) == 200)
+    val listing = body_of(r3)
+    check("list count 2", listing.starts_with("2\n"))
+    check("list has alpha", listing.contains("1|alpha"))
+    check("list has beta", listing.contains("2|beta"))
+
+    // read
+    val r4 = http_request("GET", "/records/1", "")
+    check("read alpha -> 200", status_of(r4) == 200)
+    check("read alpha body", body_of(r4) == "1\nalpha\nfirst note\n")
+
+    // update
+    val r5 = http_request("PUT", "/records/1", "alpha-renamed\nedited note")
+    check("update alpha -> 200", status_of(r5) == 200)
+    val r6 = http_request("GET", "/records/1", "")
+    check("reread renamed body", body_of(r6) == "1\nalpha-renamed\nedited note\n")
+
+    // delete
+    val r7 = http_request("DELETE", "/records/2", "")
+    check("delete beta -> 204", status_of(r7) == 204)
+    val r8 = http_request("GET", "/records/2", "")
+    check("read deleted -> 404", status_of(r8) == 404)
+    val r9 = http_request("GET", "/records", "")
+    check("list count 1 after delete", body_of(r9).starts_with("1\n"))
+
+    // binary payload roundtrip: note containing NUL, 0xFF and CRLF bytes
+    // proves the whole pipeline (HTTP body -> memory -> binary file ->
+    // memory -> HTTP body) is byte-clean
+    var bin_note = "A"
+    bin_note = bin_note + String.from_byte(0)
+    bin_note = bin_note + "B"
+    bin_note = bin_note + "\u{D}\n"
+    bin_note = bin_note + String.from_byte(255)
+    bin_note = bin_note + "Z"
+    val r10 = http_request("POST", "/records", "binrec\n" + bin_note)
+    check("create binrec -> 201", status_of(r10) == 201)
+    val id3 = body_of(r10).trim().to_int()
+    val r11 = http_request("GET", "/records/{id3}", "")
+    check("read binrec -> 200", status_of(r11) == 200)
+    val expected_bin = "{id3}\nbinrec\n" + bin_note + "\n"
+    check("binary note roundtrip intact", body_of(r11) == expected_bin)
+    val r12 = http_request("DELETE", "/records/{id3}", "")
+    check("delete binrec -> 204", status_of(r12) == 204)
+
+    // shutdown
+    val r13 = http_request("GET", "/shutdown", "")
+    check("shutdown -> 200", status_of(r13) == 200)
+
+    println("client: {g_pass} passed, {g_fail} failed")
+    if g_fail == 0 {
+        println("ALL CHECKS PASSED")
+    }
+}

@@ -1,0 +1,414 @@
+// server.iron: HTTP/1.1 CRUD server written in pure Iron, on raw TCP.
+//
+// Storage is a raw binary file (records.bin), no JSON and no text rows:
+//
+//   [4]  magic "IRDB"
+//   [1]  format version (0x01)
+//   [4]  u32 big-endian live record count
+//   per record:
+//     [4] u32-BE id
+//     [4] u32-BE name byte length, then the raw name bytes
+//     [4] u32-BE note byte length, then the raw note bytes
+//
+// Name and note bytes are stored verbatim: embedded NUL, CRLF and high
+// bytes all survive. String positions in Iron count characters, so every
+// place that handles payload bytes uses byte_len, byte_at and byte_slice.
+//
+// Resource model (bodies are "name\nnote", responses text/plain):
+//   POST   /records      create; body "name\nnote"      -> 201, body "id\n"
+//   GET    /records      list                           -> 200, "count\n" then "id|name\n" rows
+//   GET    /records/{id} read one                       -> 200, "id\nname\nnote\n" | 404
+//   PUT    /records/{id} update; body "name\nnote"      -> 200 | 404
+//   DELETE /records/{id} delete                         -> 204 | 404
+//   GET    /shutdown     stop the accept loop           -> 200
+//
+// One connection at a time, with a 1s accept timeout so the shutdown flag
+// is re-checked between clients.
+import net
+import io
+
+// Store state: parallel lists indexed together. g_alive is a tombstone
+// flag (1 = live) so deletes never compact the lists; store_save writes
+// only live rows, so the file compacts itself on every change.
+var g_ids: [Int] = []
+var g_alive: [Int] = []
+var g_names: [String] = []
+var g_notes: [String] = []
+var g_next_id = 1
+var g_running = true
+
+val g_db_path = "records.bin"
+val g_port = 8471
+val g_max_store_bytes = 64 * 1024 * 1024
+
+// Byte offset of the first occurrence of needle in s, or -1.
+func byte_index_of(s: String, needle: String) -> Int {
+    val n = s.byte_len()
+    val m = needle.byte_len()
+    var i = 0
+    while i + m <= n {
+        var j = 0
+        while j < m and s.byte_at(i + j) == needle.byte_at(j) {
+            j = j + 1
+        }
+        if j == m {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+func u32_be(n: Int) -> String {
+    return String.from_byte((n / 16777216) % 256)
+        + String.from_byte((n / 65536) % 256)
+        + String.from_byte((n / 256) % 256)
+        + String.from_byte(n % 256)
+}
+
+func read_u32_be(data: String, off: Int) -> Int {
+    var n = data.byte_at(off) * 16777216
+    n = n + data.byte_at(off + 1) * 65536
+    n = n + data.byte_at(off + 2) * 256
+    n = n + data.byte_at(off + 3)
+    return n
+}
+
+func live_count() -> Int {
+    var n = 0
+    var i = 0
+    while i < g_ids.len() {
+        if g_alive[i] == 1 {
+            n = n + 1
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// Index of the live record with this id, or -1.
+func find_live(id: Int) -> Int {
+    var i = 0
+    while i < g_ids.len() {
+        if g_alive[i] == 1 and g_ids[i] == id {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+func store_save() {
+    // Collect the parts and join once, so the file image is copied once.
+    var parts: [String] = []
+    parts.push("IRDB")
+    parts.push(String.from_byte(1))
+    parts.push(u32_be(live_count()))
+    var i = 0
+    while i < g_ids.len() {
+        if g_alive[i] == 0 {
+            i = i + 1
+            continue
+        }
+        val name = g_names[i]
+        val note = g_notes[i]
+        parts.push(u32_be(g_ids[i]))
+        parts.push(u32_be(name.byte_len()))
+        parts.push(name)
+        parts.push(u32_be(note.byte_len()))
+        parts.push(note)
+        i = i + 1
+    }
+    val w = IO.write_bytes(g_db_path, "".join(parts))
+    if w.error != 0 {
+        println("store: write failed: {w.error_message}")
+    }
+}
+
+func store_load() {
+    if not IO.file_exists(g_db_path) {
+        return
+    }
+    val r = IO.read_bytes(g_db_path, g_max_store_bytes)
+    if r.error != 0 {
+        println("store: read failed ({r.error_message}), starting empty")
+        return
+    }
+    val data = r.data
+    val size = data.byte_len()
+    if size < 9 {
+        println("store: file too short, starting empty")
+        return
+    }
+    if data.byte_slice(0, 4) != "IRDB" {
+        println("store: bad magic, starting empty")
+        return
+    }
+    if data.byte_at(4) != 1 {
+        println("store: unsupported version, starting empty")
+        return
+    }
+    val count = read_u32_be(data, 5)
+    var off = 9
+    var i = 0
+    var ok = true
+    while i < count {
+        if off + 8 > size {
+            ok = false
+            break
+        }
+        val id = read_u32_be(data, off)
+        val name_len = read_u32_be(data, off + 4)
+        off = off + 8
+        if off + name_len + 4 > size {
+            ok = false
+            break
+        }
+        val name = data.byte_slice(off, off + name_len)
+        off = off + name_len
+        val note_len = read_u32_be(data, off)
+        off = off + 4
+        if off + note_len > size {
+            ok = false
+            break
+        }
+        val note = data.byte_slice(off, off + note_len)
+        off = off + note_len
+        g_ids.push(id)
+        g_alive.push(1)
+        g_names.push(name)
+        g_notes.push(note)
+        if id >= g_next_id {
+            g_next_id = id + 1
+        }
+        i = i + 1
+    }
+    if not ok {
+        println("store: truncated record data, keeping what parsed")
+    }
+}
+
+func http_response(status: Int, reason: String, body: String) -> String {
+    val blen = body.byte_len()
+    return "HTTP/1.1 {status} {reason}\u{D}\n"
+        + "Content-Type: text/plain; charset=utf-8\u{D}\n"
+        + "Content-Length: {blen}\u{D}\n"
+        + "Connection: close\u{D}\n"
+        + "\u{D}\n"
+        + body
+}
+
+// Content-Length of the request, 0 when absent. The head is ASCII.
+func content_length_of(head: String) -> Int {
+    val lines = head.split("\u{D}\n")
+    var value = 0
+    for line in lines {
+        if line.lower().starts_with("content-length:") {
+            value = line.substring(15, line.len()).trim().to_int()
+        }
+    }
+    return value
+}
+
+// Reads one full request (headers plus Content-Length bytes of body).
+// Returns "" on a transport error or malformed framing.
+func read_request(conn: TcpSocket) -> String {
+    var chunks: [String] = []
+    var have = 0
+    var head_end = -1
+    var need = 0
+    while true {
+        val (chunk, rerr) = TcpSocket.read(conn, 65536, 5000)
+        if rerr.code != 0 {
+            return ""
+        }
+        if chunk.byte_len() == 0 {
+            // peer closed before completing the request
+            break
+        }
+        chunks.push(chunk)
+        have = have + chunk.byte_len()
+        if head_end < 0 {
+            val so_far = "".join(chunks)
+            head_end = byte_index_of(so_far, "\u{D}\n\u{D}\n")
+            if head_end >= 0 {
+                need = head_end + 4 + content_length_of(so_far.byte_slice(0, head_end))
+            }
+        }
+        if head_end >= 0 and have >= need {
+            break
+        }
+    }
+    if head_end < 0 {
+        return ""
+    }
+    return "".join(chunks)
+}
+
+// Request body convention: the name is the first line, the note the rest.
+func split_name(body: String) -> String {
+    val nl = byte_index_of(body, "\n")
+    if nl < 0 {
+        return body
+    }
+    return body.byte_slice(0, nl)
+}
+
+func split_note(body: String) -> String {
+    val nl = byte_index_of(body, "\n")
+    if nl < 0 {
+        return ""
+    }
+    return body.byte_slice(nl + 1, body.byte_len())
+}
+
+func route_create(body: String) -> String {
+    val name = split_name(body)
+    if name.byte_len() == 0 {
+        return http_response(400, "Bad Request", "name required\n")
+    }
+    val id = g_next_id
+    g_next_id = g_next_id + 1
+    g_ids.push(id)
+    g_alive.push(1)
+    g_names.push(name)
+    g_notes.push(split_note(body))
+    store_save()
+    println("created record {id} ({name.byte_len()} name bytes)")
+    return http_response(201, "Created", "{id}\n")
+}
+
+func route_list() -> String {
+    var rows: [String] = []
+    rows.push("{live_count()}\n")
+    var i = 0
+    while i < g_ids.len() {
+        if g_alive[i] == 1 {
+            val id = g_ids[i]
+            val name = g_names[i]
+            rows.push("{id}|{name}\n")
+        }
+        i = i + 1
+    }
+    return http_response(200, "OK", "".join(rows))
+}
+
+func route_read(id: Int) -> String {
+    val idx = find_live(id)
+    if idx < 0 {
+        return http_response(404, "Not Found", "no record {id}\n")
+    }
+    val name = g_names[idx]
+    val note = g_notes[idx]
+    return http_response(200, "OK", "{id}\n{name}\n{note}\n")
+}
+
+func route_update(id: Int, body: String) -> String {
+    val idx = find_live(id)
+    if idx < 0 {
+        return http_response(404, "Not Found", "no record {id}\n")
+    }
+    val name = split_name(body)
+    if name.byte_len() == 0 {
+        return http_response(400, "Bad Request", "name required\n")
+    }
+    g_names[idx] = name
+    g_notes[idx] = split_note(body)
+    store_save()
+    println("updated record {id}")
+    return http_response(200, "OK", "updated\n")
+}
+
+func route_delete(id: Int) -> String {
+    val idx = find_live(id)
+    if idx < 0 {
+        return http_response(404, "Not Found", "no record {id}\n")
+    }
+    g_alive[idx] = 0
+    store_save()
+    println("deleted record {id}")
+    return http_response(204, "No Content", "")
+}
+
+func route_request(req: String) -> String {
+    val head_end = byte_index_of(req, "\u{D}\n\u{D}\n")
+    if head_end < 0 {
+        return http_response(400, "Bad Request", "malformed request\n")
+    }
+    val head = req.byte_slice(0, head_end)
+    val body_start = head_end + 4
+    val body = req.byte_slice(body_start, body_start + content_length_of(head))
+    val lines = head.split("\u{D}\n")
+    val parts = lines[0].split(" ")
+    if parts.len() < 2 {
+        return http_response(400, "Bad Request", "malformed request line\n")
+    }
+    val method = parts[0]
+    val path = parts[1]
+
+    if method == "GET" and path == "/shutdown" {
+        g_running = false
+        return http_response(200, "OK", "bye\n")
+    }
+    if path == "/records" {
+        if method == "GET" {
+            return route_list()
+        }
+        if method == "POST" {
+            return route_create(body)
+        }
+        return http_response(405, "Method Not Allowed", "unsupported method\n")
+    }
+    if path.starts_with("/records/") {
+        val id = path.byte_slice(9, path.byte_len()).to_int()
+        if id <= 0 {
+            return http_response(400, "Bad Request", "bad id\n")
+        }
+        if method == "GET" {
+            return route_read(id)
+        }
+        if method == "PUT" {
+            return route_update(id, body)
+        }
+        if method == "DELETE" {
+            return route_delete(id)
+        }
+        return http_response(405, "Method Not Allowed", "unsupported method\n")
+    }
+    return http_response(404, "Not Found", "no such route\n")
+}
+
+func main() {
+    store_load()
+    println("store: {live_count()} records loaded, next id {g_next_id}")
+
+    val (listener, lerr) = Net.tcp_listen("127.0.0.1", g_port)
+    if lerr.code != 0 {
+        println("listen failed: {lerr.code}")
+        return
+    }
+    println("listening on 127.0.0.1:{g_port}")
+
+    while g_running {
+        val (conn, aerr) = TcpListener.accept(listener, 1000)
+        if aerr.code != 0 {
+            // accept timeout: re-check g_running
+            continue
+        }
+        val req = read_request(conn)
+        var resp = ""
+        if req == "" {
+            resp = http_response(400, "Bad Request", "unreadable request\n")
+        } else {
+            resp = route_request(req)
+        }
+        val (_, werr) = TcpSocket.write(conn, resp, 5000)
+        if werr.code != 0 {
+            println("response write failed: {werr.code}")
+        }
+        TcpSocket.close(conn)
+    }
+
+    TcpListener.close(listener)
+    println("server stopped")
+}

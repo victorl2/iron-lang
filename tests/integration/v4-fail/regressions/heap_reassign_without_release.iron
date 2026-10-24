@@ -1,0 +1,8 @@
+-- @expected-error: E0207
+object Item { val value: Int }
+
+func main() {
+    var item = heap Item(1)
+    item = heap Item(2)
+    free item
+}

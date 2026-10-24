@@ -46,6 +46,14 @@ typedef struct {
     Iron_Span       span;
     const char     *message;     /* arena-allocated */
     const char     *suggestion;  /* arena-allocated, NULL if none */
+    /* Optional richer form (iron_diag_emit_labeled), all NULL / zero in a
+     * plain diagnostic: a label under the primary caret, a second location
+     * with its own label (the declaration a use refers to; line 0 when
+     * absent), and a note printed before the help. */
+    const char     *label;
+    Iron_Span       related_span;
+    const char     *related_label;
+    const char     *note;
 } Iron_Diagnostic;
 
 /* ── Diagnostic list ─────────────────────────────────────────────────────── */
@@ -66,6 +74,26 @@ void iron_diag_emit(Iron_DiagList *list,
                     Iron_Span      span,
                     const char    *message,
                     const char    *suggestion);
+
+/* iron_diag_emit with a label under the caret, a related location with its
+ * own label (related_span.line == 0 for none) and a note. Any of the extra
+ * strings may be NULL. The help (suggestion) may span several lines. */
+void iron_diag_emit_labeled(Iron_DiagList *list,
+                            Iron_Arena    *arena,
+                            Iron_DiagLevel level,
+                            int            code,
+                            Iron_Span      span,
+                            const char    *message,
+                            const char    *label,
+                            Iron_Span      related_span,
+                            const char    *related_label,
+                            const char    *note,
+                            const char    *suggestion);
+
+/* The whole text of a diagnostic for a client that shows only one message
+ * (an editor): the message, then the labels, the note and the help, one per
+ * line. Arena-allocated. */
+const char *iron_diag_full_text(const Iron_Diagnostic *d, Iron_Arena *arena);
 
 /* Print a single diagnostic with optional source context.
  * source_text may be NULL; if non-NULL, a 3-line context window is shown.

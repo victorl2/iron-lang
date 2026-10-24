@@ -1,0 +1,120 @@
+-- Builtin nocopy types borrowed by a lambda passed directly and by an
+-- awaited spawn (#512): a Hasher's native state, a FileHandle's descriptor,
+-- and a Box allocation are released once by their bindings (it was a double
+-- free and a double close). FileHandle close is intentionally silent (#814),
+-- so ASan, Valgrind, and the descriptor-reuse fixture verify that release.
+-- The builtin reference-counted
+-- handles remain valid stored captures, including their nocopy guard types.
+-- rc Mutex / rc Channel / rc RWLock destroy the handle and its value with
+-- the last reference (#636), and a match arm reads a nocopy payload without
+-- copying it (#642).
+import crypto
+import encoding
+import io
+import mysql
+
+object Tag {
+    val id: Int
+    drop {
+        println("drop tag {self.id}")
+    }
+}
+
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop res {self.id}")
+    }
+}
+
+enum Slot {
+    Empty,
+    Full(Res)
+}
+
+func twice(f: func() -> Int) -> Int {
+    return f() + f()
+}
+
+func both(f: func() -> Bool) -> Bool {
+    return f() and f()
+}
+
+func main() {
+    val h = Hasher.new(HashAlgorithm.Sha256)
+    val t = spawn("t") {
+        return h.handle * 0
+    }
+    println("{await t}")
+    println("{twice(func() -> Int { return h.handle * 0 })}")
+    var hv = Hasher.new(HashAlgorithm.Sha256)
+    val n = [1, 2].map(func(x: Int) -> Int {
+        hv.update("ab")
+        return x
+    })
+    println(Hex.encode(hv.finish()))
+
+    val path = "/tmp/iron_nocopy_capture_stdlib.txt"
+    IO.write_file(path, "hello")
+    val fh = FileHandle.open(path)
+    println("{twice(func() -> Int { return fh.fd * 0 })}")
+    val ft = spawn("ft") {
+        return fh.fd * 0
+    }
+    println("{await ft}")
+
+    val b = Box(Tag(3))
+    println("{twice(func() -> Int { return b.unwrap().id })}")
+    val bt = spawn("bt") {
+        return b.unwrap().id
+    }
+    println("{await bt}")
+
+    -- A refused connection still owns a native MysqlConn allocation. The
+    -- zero-handle statement and result exercise their nocopy drop paths; the
+    -- live-server suite uses real statement and result allocations.
+    val bad_conn = Mysql.connect_url("mysql://u:p@127.0.0.1:1/db?tls=disabled&connect_timeout=100")
+    println("{both(func() -> Bool { return bad_conn.failed() })}")
+    val bad_task = spawn("mysql") {
+        return bad_conn.failed()
+    }
+    println("{await bad_task}")
+    val no_error = MysqlError(0, "", "", false)
+    val empty_stmt = MysqlStmt(0, no_error)
+    val empty_result = MysqlResult(0, no_error)
+    println("{twice(func() -> Int { return empty_stmt.handle * 0 })}")
+    println("{twice(func() -> Int { return empty_result.handle * 0 })}")
+
+    val plain_m = Mutex(5)
+    val read_m = func() -> Int {
+        val g = plain_m.lock()
+        return g.get()
+    }
+    val plain_c = Channel[Int](1)
+    val send_c = func() -> Int {
+        plain_c.send(6)
+        return 0
+    }
+    val plain_l = RWLock(7)
+    val read_l = func() -> Int {
+        val g = plain_l.read()
+        return g.get()
+    }
+    val write_l = func() -> Int {
+        val g = plain_l.write()
+        g.set(8)
+        return g.get()
+    }
+    send_c()
+    println("{read_m()} {plain_c.recv()} {read_l()} {write_l()}")
+
+    val m = rc Mutex(Tag(1))
+    val c = rc Channel[Tag](2)
+    val l = rc RWLock(Tag(2))
+    val s = Slot.Full(Res(3))
+    match s {
+        Slot.Full(x) -> println("slot {x.id}")
+        Slot.Empty -> println("empty")
+    }
+    println("end")
+}

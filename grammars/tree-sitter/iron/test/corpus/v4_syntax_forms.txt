@@ -270,3 +270,148 @@ func kind(sh: Shape) -> String {
           (block
             (return_statement
               (string_literal))))))))
+
+================================================================================
+function, rc and pointer types as type arguments
+================================================================================
+
+func main() {
+    val ch = Channel[func(Int) -> Int](4)
+    var m = Map[String, func(Int) -> Int]()
+    val n = Map[String, [func(Int) -> Int]]()
+    val s = Set[*Node]()
+    val w = Channel[weak rc Node](1)
+    val p = h.pick[func(Int) -> Int](f, g)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (func_declaration
+    (identifier)
+    (parameter_list)
+    (block
+      (val_declaration
+        (identifier)
+        (call_expression
+          (generic_expression
+            (identifier)
+            (type_arguments
+              (function_type
+                (type_identifier
+                  (identifier))
+                (type_identifier
+                  (identifier)))))
+          (integer_literal)))
+      (var_declaration
+        (identifier)
+        (call_expression
+          (generic_expression
+            (identifier)
+            (type_arguments
+              (type_identifier
+                (identifier))
+              (function_type
+                (type_identifier
+                  (identifier))
+                (type_identifier
+                  (identifier)))))))
+      (val_declaration
+        (identifier)
+        (call_expression
+          (generic_expression
+            (identifier)
+            (type_arguments
+              (type_identifier
+                (identifier))
+              (array_type
+                (function_type
+                  (type_identifier
+                    (identifier))
+                  (type_identifier
+                    (identifier))))))))
+      (val_declaration
+        (identifier)
+        (call_expression
+          (generic_expression
+            (identifier)
+            (type_arguments
+              (pointer_type
+                (type_identifier
+                  (identifier)))))))
+      (val_declaration
+        (identifier)
+        (call_expression
+          (generic_expression
+            (identifier)
+            (type_arguments
+              (weak_rc_type
+                (type_identifier
+                  (identifier)))))
+          (integer_literal)))
+      (val_declaration
+        (identifier)
+        (call_expression
+          (generic_expression
+            (member_expression
+              (identifier)
+              (identifier))
+            (type_arguments
+              (function_type
+                (type_identifier
+                  (identifier))
+                (type_identifier
+                  (identifier)))))
+          (identifier)
+          (identifier))))))
+
+================================================================================
+lambdas between brackets stay lambdas
+================================================================================
+
+func main() {
+    val fs = [func(x: Int) -> Int { return x }, func() { }]
+    val r = fs[0](func(x: Int) -> Int { return x })
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (func_declaration
+    (identifier)
+    (parameter_list)
+    (block
+      (val_declaration
+        (identifier)
+        (array_literal
+          (lambda_expression
+            (parameter_list
+              (parameter
+                (identifier)
+                (type_identifier
+                  (identifier))))
+            (type_identifier
+              (identifier))
+            (block
+              (return_statement
+                (identifier))))
+          (lambda_expression
+            (parameter_list)
+            (block))))
+      (val_declaration
+        (identifier)
+        (call_expression
+          (index_expression
+            (identifier)
+            (integer_literal))
+          (lambda_expression
+            (parameter_list
+              (parameter
+                (identifier)
+                (type_identifier
+                  (identifier))))
+            (type_identifier
+              (identifier))
+            (block
+              (return_statement
+                (identifier)))))))))

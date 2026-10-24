@@ -1,0 +1,6 @@
+1111 111 18446744073709551615 -128 2 65535
+0.1 -2.5 0.1 false 0 1
+short 5 5
+a string longer than twenty three bytes 39 39
+tab	here "quoted" é 19 20
+shorthello 3 true

@@ -16,6 +16,8 @@
 #include "analyzer/capture.h"
 #include "analyzer/types.h"
 #include "diagnostics/diagnostics.h"
+#include "lexer/lexer.h"
+#include "parser/printer.h"
 #include "vendor/stb_ds.h"
 
 #include <stdio.h>
@@ -44,8 +46,35 @@ typedef struct {
      * argument is fine and any other lambda capturing one is an error. A
      * spawn capturing one must be awaited in the block that starts it. */
     bool               lambda_is_call_arg;
-    bool               spawn_awaited_here;
+    /* nocopy captures (#512): how the lambda being reached is used, and
+     * whether the spawn being reached is surely awaited in its block. */
+    int                lambda_use;       /* LambdaUse */
+    const char        *lambda_use_name;  /* binding, field, type or callee named in the error */
+    bool               spawn_strict_await;
+    bool               spawn_is_stmt;    /* a spawn whose handle is discarded */
+    const char        *func_name;        /* the function whose body is walked */
+    Iron_Program      *program;
+    struct ParamEsc   *param_escape;     /* stb_ds map: parameter node -> escapes */
+    struct MethodEnt  *methods;          /* stb_ds map: "Type.method" -> decl */
+    struct SpanSet    *reported;         /* capture spans already reported */
 } CaptureCtx;
+
+/* How a lambda literal is used by the expression around it. */
+typedef enum {
+    LUSE_OTHER = 0,     /* anything not listed below */
+    LUSE_ARG_BORROW,    /* direct argument of a callee that only calls it */
+    LUSE_ARG_KEEPS,     /* direct argument of a callee that may keep it */
+    LUSE_BOUND,         /* initializer of a val / var */
+    LUSE_ASSIGNED,      /* assigned to a binding */
+    LUSE_RETURNED,      /* returned */
+    LUSE_FIELD,         /* constructor argument (a field of the object) */
+    LUSE_FIELD_ASSIGN,  /* assigned to a field */
+    LUSE_LIST           /* list element, or handed to push / insert / set */
+} LambdaUse;
+
+typedef struct ParamEsc { Iron_Node *key; bool value; } ParamEsc;
+typedef struct MethodEnt { char *key; Iron_MethodDecl *value; } MethodEnt;
+typedef struct SpanSet { char *key; int value; } SpanSet;
 
 /* An owned list, or an object that holds one (recursively). */
 static bool type_holds_owned_list(const struct Iron_Type *t, int depth) {
@@ -62,8 +91,6 @@ static bool type_holds_owned_list(const struct Iron_Type *t, int depth) {
     return false;
 }
 
-/* Does `node` contain `await <name>`? */
-static bool awaits_ident(Iron_Node *node, const char *name);
 
 static void report_list_capture(CaptureCtx *ctx, Iron_Span span, const char *name,
                                 const char *what, const char *help) {
@@ -72,6 +99,552 @@ static void report_list_capture(CaptureCtx *ctx, Iron_Span span, const char *nam
              what, name ? name : "?");
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                    IRON_ERR_LIST_IMPLICIT_COPY, span, msg, help);
+}
+
+/* ── nocopy captures (#512) ──────────────────────────────────────────────
+ *
+ * A nocopy value has a single owner, so a closure or a task may only
+ * borrow it: a lambda passed directly as an argument to a callee that
+ * only calls it during the call, or a spawn awaited in the block that
+ * started it (on every path: no return, break or continue between). The
+ * env then holds the bytes for reads and never copies or drops them. Any
+ * other capture would need a second owner and is E0286; `rc` shares one.
+ *
+ * Not affected: a captured `var` (it moves into a counted cell shared by
+ * every holder), a `heap` binding (the env holds its handle), an `rc` or
+ * pointer value, and the runtime's shared handles Mutex, Channel, RWLock
+ * and Arena, which a closure or task holds its own reference to. */
+
+/* A captured value the rule governs: a val binding or parameter (not a
+ * `var`, which is shared through its cell, nor a `heap` binding) whose type
+ * is or holds a nocopy object. Returns that object type. */
+static const struct Iron_Type *capture_nocopy_part(const Iron_CaptureEntry *c) {
+    if (!c || c->is_mutable) return NULL;
+    if (c->sym && c->sym->decl_node && c->sym->decl_node->kind == IRON_NODE_VAL_DECL) {
+        Iron_ValDecl *vd = (Iron_ValDecl *)c->sym->decl_node;
+        if (vd->init && vd->init->kind == IRON_NODE_HEAP) return NULL;
+    }
+    return iron_type_nocopy_part(c->type);
+}
+
+/* ── Does a callee keep a closure it is given? ───────────────────────────
+ *
+ * A function-typed parameter escapes when the body uses it other than by
+ * calling it, or handing it on as an argument to a parameter that does not
+ * escape, outside any closure or spawn that outlives the call. Computed for
+ * every function and method with a body as a least fixpoint (mutual
+ * recursion starts from "does not escape"). A callee without a body (extern,
+ * runtime-backed stdlib) keeps what it is given, except the list methods
+ * map, filter, reduce and forEach, which only call it. */
+
+typedef enum { VERDICT_BORROWS, VERDICT_KEEPS, VERDICT_FIELD, VERDICT_LIST } ArgVerdict;
+
+static bool node_is_lambda(const Iron_Node *n) { return n && n->kind == IRON_NODE_LAMBDA; }
+
+static Iron_MethodDecl *find_method(CaptureCtx *ctx, const char *type_name, const char *method) {
+    if (!type_name || !method) return NULL;
+    char key[512];
+    snprintf(key, sizeof(key), "%s.%s", type_name, method);
+    ptrdiff_t i = shgeti(ctx->methods, key);
+    return i >= 0 ? ctx->methods[i].value : NULL;
+}
+
+static bool body_is_empty(Iron_Node *body) {
+    return !body || (body->kind == IRON_NODE_BLOCK && ((Iron_Block *)body)->stmt_count == 0);
+}
+
+/* The parameter at `idx` escapes (true when unknown). */
+static bool param_escapes(CaptureCtx *ctx, Iron_Node **params, int count, int idx) {
+    if (idx < 0 || idx >= count || !params[idx]) return true;
+    ptrdiff_t i = hmgeti(ctx->param_escape, params[idx]);
+    return i < 0 ? true : ctx->param_escape[i].value;
+}
+
+static const char *call_callee_name(Iron_CallExpr *ce) {
+    if (ce->callee && ce->callee->kind == IRON_NODE_IDENT) return ((Iron_Ident *)ce->callee)->name;
+    if (ce->callee && ce->callee->kind == IRON_NODE_FIELD_ACCESS) return ((Iron_FieldAccess *)ce->callee)->field;
+    return NULL;
+}
+
+/* What the callee of `call` does with the lambda given as argument `argi`. */
+static ArgVerdict lambda_arg_verdict(CaptureCtx *ctx, Iron_Node *call, int argi,
+                                     const char **name_out) {
+    *name_out = NULL;
+    if (call->kind == IRON_NODE_CALL) {
+        Iron_CallExpr *ce = (Iron_CallExpr *)call;
+        *name_out = call_callee_name(ce);
+        if (ce->desugared) return VERDICT_KEEPS;
+        if (!ce->callee || ce->callee->kind != IRON_NODE_IDENT) return VERDICT_KEEPS;
+        Iron_Symbol *sym = ((Iron_Ident *)ce->callee)->resolved_sym;
+        if (!sym || !sym->decl_node) return VERDICT_KEEPS;
+        if (sym->decl_node->kind == IRON_NODE_OBJECT_DECL) return VERDICT_FIELD;
+        if (sym->sym_kind != IRON_SYM_FUNCTION || sym->decl_node->kind != IRON_NODE_FUNC_DECL)
+            return VERDICT_KEEPS;
+        Iron_FuncDecl *fd = (Iron_FuncDecl *)sym->decl_node;
+        if (fd->is_extern || body_is_empty(fd->body)) return VERDICT_KEEPS;
+        return param_escapes(ctx, fd->params, fd->param_count, argi) ? VERDICT_KEEPS
+                                                                     : VERDICT_BORROWS;
+    }
+    if (call->kind != IRON_NODE_METHOD_CALL) return VERDICT_KEEPS;
+    Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)call;
+    *name_out = mc->method;
+    const char *m = mc->method ? mc->method : "";
+    bool storing = strcmp(m, "push") == 0 || strcmp(m, "insert") == 0 ||
+                   strcmp(m, "set") == 0 || strcmp(m, "append") == 0 ||
+                   strcmp(m, "put") == 0 || strcmp(m, "add") == 0 ||
+                   strcmp(m, "push_front") == 0 || strcmp(m, "prepend") == 0;
+    const char *type_name = NULL;
+    const struct Iron_Type *rt = NULL;
+    if (mc->object && mc->object->kind == IRON_NODE_IDENT) {
+        Iron_Symbol *os = ((Iron_Ident *)mc->object)->resolved_sym;
+        if (os && os->sym_kind == IRON_SYM_TYPE) type_name = os->name;   /* Type.method(...) */
+    }
+    if (!type_name && mc->object) {
+        rt = ((Iron_Ident *)mc->object)->resolved_type;   /* expression prefix */
+        while (rt && (rt->kind == IRON_TYPE_PTR || rt->kind == IRON_TYPE_RC))
+            rt = rt->kind == IRON_TYPE_PTR ? rt->ptr.pointee : rt->rc.inner;
+        if (rt && rt->kind == IRON_TYPE_ARRAY) {
+            Iron_MethodDecl *ext = NULL;
+            for (ptrdiff_t k = 0; k < shlen(ctx->methods); k++) {
+                Iron_MethodDecl *md = ctx->methods[k].value;
+                if (md->is_array_extension && md->method_name && strcmp(md->method_name, m) == 0 &&
+                    !body_is_empty(md->body)) { ext = md; break; }
+            }
+            if (ext)
+                return param_escapes(ctx, ext->params, ext->param_count,
+                                     ext->is_receiver_form ? argi + 1 : argi)
+                           ? VERDICT_KEEPS : VERDICT_BORROWS;
+            if (strcmp(m, "map") == 0 || strcmp(m, "filter") == 0 ||
+                strcmp(m, "reduce") == 0 || strcmp(m, "forEach") == 0)
+                return VERDICT_BORROWS;
+            return storing ? VERDICT_LIST : VERDICT_KEEPS;
+        }
+        if (rt && rt->kind == IRON_TYPE_OBJECT && rt->object.decl) type_name = rt->object.decl->name;
+    }
+    Iron_MethodDecl *md = find_method(ctx, type_name, m);
+    if (!md || body_is_empty(md->body)) return storing ? VERDICT_LIST : VERDICT_KEEPS;
+    return param_escapes(ctx, md->params, md->param_count,
+                         md->is_receiver_form ? argi + 1 : argi)
+               ? VERDICT_KEEPS : VERDICT_BORROWS;
+}
+
+/* One pass over a body, marking its tracked parameters that escape. */
+typedef struct {
+    CaptureCtx *ctx;
+    Iron_Node **params;
+    int         count;
+    int         outliving;   /* > 0 inside a closure or spawn that may outlive the call */
+    bool        changed;
+} EscWalk;
+
+static void esc_walk(EscWalk *w, Iron_Node *node);
+
+static int tracked_param(EscWalk *w, Iron_Node *n) {
+    if (!n || n->kind != IRON_NODE_IDENT) return -1;
+    Iron_Symbol *s = ((Iron_Ident *)n)->resolved_sym;
+    if (!s || !s->decl_node) return -1;
+    for (int i = 0; i < w->count; i++)
+        if (w->params[i] == s->decl_node) return i;
+    return -1;
+}
+
+static void esc_mark(EscWalk *w, int i) {
+    ptrdiff_t k = hmgeti(w->ctx->param_escape, w->params[i]);
+    if (k >= 0 && !w->ctx->param_escape[k].value) {
+        w->ctx->param_escape[k].value = true;
+        w->changed = true;
+    }
+}
+
+static bool esc_visit(Iron_Visitor *v, Iron_Node *node) {
+    EscWalk *w = (EscWalk *)v->ctx;
+    int pi = tracked_param(w, node);
+    if (pi >= 0) { esc_mark(w, pi); return false; }
+    switch ((int)node->kind) {
+        case IRON_NODE_CALL:
+        case IRON_NODE_METHOD_CALL: {
+            bool is_call = node->kind == IRON_NODE_CALL;
+            Iron_Node **args = is_call ? ((Iron_CallExpr *)node)->args
+                                       : ((Iron_MethodCallExpr *)node)->args;
+            int argc = is_call ? ((Iron_CallExpr *)node)->arg_count
+                               : ((Iron_MethodCallExpr *)node)->arg_count;
+            if (is_call) {
+                Iron_Node *callee = ((Iron_CallExpr *)node)->callee;
+                /* calling the parameter is the use it is for */
+                if (!(w->outliving == 0 && tracked_param(w, callee) >= 0)) esc_walk(w, callee);
+                if (((Iron_CallExpr *)node)->desugared) esc_walk(w, ((Iron_CallExpr *)node)->desugared);
+            } else {
+                esc_walk(w, ((Iron_MethodCallExpr *)node)->object);
+            }
+            for (int i = 0; i < argc; i++) {
+                Iron_Node *a = args[i];
+                if (!a) continue;
+                int ap = tracked_param(w, a);
+                bool lam = node_is_lambda(a);
+                if (w->outliving == 0 && (ap >= 0 || lam)) {
+                    const char *nm;
+                    if (lambda_arg_verdict(w->ctx, node, i, &nm) == VERDICT_BORROWS) {
+                        if (lam) esc_walk(w, ((Iron_LambdaExpr *)a)->body);
+                        continue;   /* handed on to a parameter that only calls it */
+                    }
+                }
+                esc_walk(w, a);
+            }
+            return false;
+        }
+        case IRON_NODE_LAMBDA:
+        case IRON_NODE_SPAWN:
+            /* a closure or task reached here may outlive the call */
+            w->outliving++;
+            return true;
+        default:
+            return true;
+    }
+}
+
+static void esc_post(Iron_Visitor *v, Iron_Node *node) {
+    EscWalk *w = (EscWalk *)v->ctx;
+    if (node->kind == IRON_NODE_LAMBDA || node->kind == IRON_NODE_SPAWN) w->outliving--;
+}
+
+static void esc_walk(EscWalk *w, Iron_Node *node) {
+    if (!node) return;
+    Iron_Visitor v = { w, esc_visit, esc_post };
+    iron_ast_walk(node, &v);
+}
+
+static bool param_tracked_type(Iron_Node *p) {
+    if (!p || p->kind != IRON_NODE_PARAM) return false;
+    const struct Iron_Type *t = ((Iron_Param *)p)->resolved_type;
+    return !t || t->kind == IRON_TYPE_FUNC || t->kind == IRON_TYPE_GENERIC_PARAM ||
+           (t->kind == IRON_TYPE_NULLABLE && t->nullable.inner &&
+            t->nullable.inner->kind == IRON_TYPE_FUNC);
+}
+
+static void compute_param_escapes(CaptureCtx *ctx) {
+    Iron_Program *prog = ctx->program;
+    int total = prog->decl_count + prog->prelude_decl_count;
+    for (int i = 0; i < total; i++) {
+        Iron_Node *d = prog->decls[i];
+        if (!d) continue;
+        if (d->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+            const char *tn = md->type_name;
+            if (tn && md->method_name) {
+                char key[512];
+                snprintf(key, sizeof(key), "%s.%s", tn, md->method_name);
+                if (shgeti(ctx->methods, key) < 0) shput(ctx->methods, key, md);
+                else if (body_is_empty(ctx->methods[shgeti(ctx->methods, key)].value->body))
+                    shput(ctx->methods, key, md);
+            } else if (md->is_array_extension && md->method_name) {
+                char key[512];
+                snprintf(key, sizeof(key), "[].%s", md->method_name);
+                if (shgeti(ctx->methods, key) < 0) shput(ctx->methods, key, md);
+            }
+            for (int k = 0; k < md->param_count; k++)
+                if (param_tracked_type(md->params[k])) hmput(ctx->param_escape, md->params[k], false);
+        } else if (d->kind == IRON_NODE_FUNC_DECL) {
+            Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+            for (int k = 0; k < fd->param_count; k++)
+                if (param_tracked_type(fd->params[k])) hmput(ctx->param_escape, fd->params[k], false);
+        }
+    }
+    for (int round = 0; round < 64; round++) {
+        bool changed = false;
+        for (int i = 0; i < total; i++) {
+            if (iron_cancel_requested(ctx->cancel_flag)) return;
+            Iron_Node *d = prog->decls[i];
+            if (!d) continue;
+            EscWalk w = { ctx, NULL, 0, 0, false };
+            Iron_Node *body = NULL;
+            if (d->kind == IRON_NODE_METHOD_DECL) {
+                Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+                w.params = md->params; w.count = md->param_count; body = md->body;
+            } else if (d->kind == IRON_NODE_FUNC_DECL) {
+                Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+                w.params = fd->params; w.count = fd->param_count; body = fd->body;
+            } else {
+                continue;
+            }
+            bool any = false;
+            for (int k = 0; k < w.count; k++)
+                if (hmgeti(ctx->param_escape, w.params[k]) >= 0) any = true;
+            if (!any || !body) continue;
+            esc_walk(&w, body);
+            if (w.changed) changed = true;
+        }
+        if (!changed) break;
+    }
+}
+
+/* ── Is a spawn surely awaited in its block? ─────────────────────────────── */
+
+/* Does evaluating expression `n` always await `name`? (`a && await t`
+ * may skip the await; closures and spawn bodies run elsewhere.) */
+static bool expr_surely_awaits(Iron_Node *n, const char *name) {
+    if (!n) return false;
+    switch ((int)n->kind) {
+        case IRON_NODE_AWAIT: {
+            Iron_AwaitExpr *ae = (Iron_AwaitExpr *)n;
+            if (ae->handle && ae->handle->kind == IRON_NODE_IDENT &&
+                strcmp(((Iron_Ident *)ae->handle)->name, name) == 0)
+                return true;
+            return expr_surely_awaits(ae->handle, name);
+        }
+        case IRON_NODE_BINARY: {
+            Iron_BinaryExpr *be = (Iron_BinaryExpr *)n;
+            if (expr_surely_awaits(be->left, name)) return true;
+            if (be->op == IRON_TOK_AND || be->op == IRON_TOK_OR) return false;
+            return expr_surely_awaits(be->right, name);
+        }
+        case IRON_NODE_UNARY: return expr_surely_awaits(((Iron_UnaryExpr *)n)->operand, name);
+        case IRON_NODE_FIELD_ACCESS: return expr_surely_awaits(((Iron_FieldAccess *)n)->object, name);
+        case IRON_NODE_INDEX:
+            return expr_surely_awaits(((Iron_IndexExpr *)n)->object, name) ||
+                   expr_surely_awaits(((Iron_IndexExpr *)n)->index, name);
+        case IRON_NODE_CALL: {
+            Iron_CallExpr *ce = (Iron_CallExpr *)n;
+            if (expr_surely_awaits(ce->callee, name)) return true;
+            for (int i = 0; i < ce->arg_count; i++)
+                if (expr_surely_awaits(ce->args[i], name)) return true;
+            return false;
+        }
+        case IRON_NODE_METHOD_CALL: {
+            Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)n;
+            if (expr_surely_awaits(mc->object, name)) return true;
+            for (int i = 0; i < mc->arg_count; i++)
+                if (expr_surely_awaits(mc->args[i], name)) return true;
+            return false;
+        }
+        case IRON_NODE_CONSTRUCT: {
+            Iron_ConstructExpr *ce = (Iron_ConstructExpr *)n;
+            for (int i = 0; i < ce->arg_count; i++)
+                if (expr_surely_awaits(ce->args[i], name)) return true;
+            return false;
+        }
+        case IRON_NODE_INTERP_STRING: {
+            Iron_InterpString *is = (Iron_InterpString *)n;
+            for (int i = 0; i < is->part_count; i++)
+                if (expr_surely_awaits(is->parts[i], name)) return true;
+            return false;
+        }
+        case IRON_NODE_ARRAY_LIT: {
+            Iron_ArrayLit *al = (Iron_ArrayLit *)n;
+            for (int i = 0; i < al->element_count; i++)
+                if (expr_surely_awaits(al->elements[i], name)) return true;
+            return false;
+        }
+        case IRON_NODE_RC: return expr_surely_awaits(((Iron_RcExpr *)n)->inner, name);
+        case IRON_NODE_HEAP: return expr_surely_awaits(((Iron_HeapExpr *)n)->inner, name);
+        case IRON_NODE_IS: return expr_surely_awaits(((Iron_IsExpr *)n)->expr, name);
+        default: return false;
+    }
+}
+
+/* A statement of the block that always awaits `name` when it runs. */
+static bool stmt_surely_awaits(Iron_Node *st, const char *name) {
+    if (!st) return false;
+    switch ((int)st->kind) {
+        case IRON_NODE_VAL_DECL: return expr_surely_awaits(((Iron_ValDecl *)st)->init, name);
+        case IRON_NODE_VAR_DECL: return expr_surely_awaits(((Iron_VarDecl *)st)->init, name);
+        case IRON_NODE_ASSIGN:
+            return expr_surely_awaits(((Iron_AssignStmt *)st)->value, name) ||
+                   expr_surely_awaits(((Iron_AssignStmt *)st)->target, name);
+        case IRON_NODE_RETURN: return expr_surely_awaits(((Iron_ReturnStmt *)st)->value, name);
+        case IRON_NODE_BLOCK: {
+            Iron_Block *b = (Iron_Block *)st;
+            for (int i = 0; i < b->stmt_count; i++)
+                if (stmt_surely_awaits(b->stmts[i], name)) return true;
+            return false;
+        }
+        case IRON_NODE_IF: case IRON_NODE_WHILE: case IRON_NODE_FOR: case IRON_NODE_MATCH:
+        case IRON_NODE_DEFER: case IRON_NODE_SPAWN: case IRON_NODE_LAMBDA:
+            return false;
+        default:
+            return expr_surely_awaits(st, name);
+    }
+}
+
+/* Can statement `st` leave the enclosing block (return, or a break /
+ * continue not inside a loop of its own)? */
+static bool stmt_may_exit(Iron_Node *st, bool in_loop);
+typedef struct { bool in_loop; bool found; } ExitWalk;
+static bool exit_visit(Iron_Visitor *v, Iron_Node *n) {
+    ExitWalk *e = (ExitWalk *)v->ctx;
+    if (e->found) return false;
+    switch ((int)n->kind) {
+        case IRON_NODE_RETURN: e->found = true; return false;
+        case IRON_NODE_BREAK: case IRON_NODE_CONTINUE:
+            if (!e->in_loop) e->found = true;
+            return false;
+        case IRON_NODE_LAMBDA: case IRON_NODE_SPAWN: return false;
+        case IRON_NODE_WHILE: case IRON_NODE_FOR: {
+            Iron_Node *body = n->kind == IRON_NODE_WHILE ? ((Iron_WhileStmt *)n)->body
+                                                         : ((Iron_ForStmt *)n)->body;
+            if (stmt_may_exit(body, true)) e->found = true;
+            return false;
+        }
+        default: return true;
+    }
+}
+static bool stmt_may_exit(Iron_Node *st, bool in_loop) {
+    if (!st) return false;
+    ExitWalk e = { in_loop, false };
+    Iron_Visitor v = { &e, exit_visit, NULL };
+    iron_ast_walk(st, &v);
+    return e.found;
+}
+
+/* The spawn bound by stmts[i] (`val h = spawn ...`) is awaited by a later
+ * statement of the same block that always runs once the spawn has. */
+static bool spawn_surely_awaited(Iron_Block *blk, int i, const char *name) {
+    for (int j = i + 1; j < blk->stmt_count; j++) {
+        if (stmt_surely_awaits(blk->stmts[j], name)) return true;
+        if (stmt_may_exit(blk->stmts[j], false)) return false;
+    }
+    return false;
+}
+
+/* ── The E0286 report ─────────────────────────────────────────────────────── */
+
+static const char *nocopy_type_name(const struct Iron_Type *t) {
+    return t && t->kind == IRON_TYPE_OBJECT && t->object.decl && t->object.decl->name
+        ? t->object.decl->name : "the value";
+}
+
+/* `val h = rc <init>` for a val binding whose initializer can be shown. */
+static const char *rc_rewrite(CaptureCtx *ctx, const Iron_CaptureEntry *c) {
+    if (!c->sym || !c->sym->decl_node || c->sym->decl_node->kind != IRON_NODE_VAL_DECL) return NULL;
+    Iron_ValDecl *vd = (Iron_ValDecl *)c->sym->decl_node;
+    if (!vd->init || vd->binding_count > 0 || !vd->name) return NULL;
+    if (vd->init->kind == IRON_NODE_RC) return NULL;
+    char *txt = iron_print_ast(vd->init, NULL, ctx->arena);
+    if (!txt || !txt[0]) return NULL;
+    size_t n = strlen(txt);
+    while (n > 0 && (txt[n - 1] == '\n' || txt[n - 1] == ' ' || txt[n - 1] == ';')) txt[--n] = '\0';
+    if (n == 0 || n > 200 || strchr(txt, '\n')) return NULL;
+    size_t sz = n + strlen(vd->name) + 32;
+    char *out = (char *)iron_arena_alloc(ctx->arena, sz, 1);
+    if (!out) return NULL;
+    snprintf(out, sz, "val %s = rc %s", vd->name, txt);
+    return out;
+}
+
+static bool already_reported(CaptureCtx *ctx, Iron_Span sp) {
+    char key[96];
+    snprintf(key, sizeof(key), "%p:%u:%u", (const void *)sp.filename, sp.line, sp.col);
+    if (shgeti(ctx->reported, key) >= 0) return true;
+    shput(ctx->reported, key, 1);
+    return false;
+}
+
+typedef enum {
+    NOCOPY_CAPTURE_CLOSURE,
+    NOCOPY_CAPTURE_SPAWN,
+    NOCOPY_CAPTURE_PARALLEL_FOR
+} NocopyCaptureKind;
+
+static void report_nocopy_capture(CaptureCtx *ctx, const Iron_CaptureEntry *c,
+                                  const struct Iron_Type *nc, NocopyCaptureKind kind,
+                                  Iron_Span fallback) {
+    Iron_Span at = c->span.line > 0 ? c->span : fallback;
+    if (already_reported(ctx, at)) return;
+    const char *name = c->name ? c->name : "?";
+    const char *tn = nocopy_type_name(nc);
+    const struct Iron_Type *ct = c->type;
+    bool direct = ct && ct->kind == IRON_TYPE_OBJECT && ct->object.decl == nc->object.decl;
+
+    char msg[320], label[320], rel[400], help[900];
+    if (kind == NOCOPY_CAPTURE_SPAWN)
+        snprintf(msg, sizeof(msg), "spawn captures the nocopy value `%s`, but the task can outlive it", name);
+    else if (kind == NOCOPY_CAPTURE_PARALLEL_FOR)
+        snprintf(msg, sizeof(msg), "parallel for captures the nocopy value `%s`, which cannot be shared with its workers", name);
+    else
+        snprintf(msg, sizeof(msg), "closure captures the nocopy value `%s`, but the closure can outlive it", name);
+
+    const char *un = ctx->lambda_use_name ? ctx->lambda_use_name : "?";
+    if (kind == NOCOPY_CAPTURE_SPAWN) {
+        snprintf(label, sizeof(label), ctx->spawn_is_stmt
+                 ? "captured here by a spawn whose handle is discarded, so it is never awaited"
+                 : "captured here by a spawn that is not surely awaited in the block that starts it");
+    } else if (kind == NOCOPY_CAPTURE_PARALLEL_FOR) {
+        snprintf(label, sizeof(label),
+                 "captured here by a parallel for, which is not a permitted nocopy borrow");
+    } else {
+        switch (ctx->lambda_use) {
+            case LUSE_BOUND: case LUSE_ASSIGNED:
+                snprintf(label, sizeof(label), "captured here by a closure that is stored in `%s`", un); break;
+            case LUSE_RETURNED:
+                snprintf(label, sizeof(label), "captured here by a closure that is returned from `%s`", un); break;
+            case LUSE_FIELD:
+                snprintf(label, sizeof(label), "captured here by a closure that is stored in a field of `%s`", un); break;
+            case LUSE_FIELD_ASSIGN:
+                snprintf(label, sizeof(label), "captured here by a closure that is stored in the field `%s`", un); break;
+            case LUSE_LIST:
+                snprintf(label, sizeof(label), "captured here by a closure that is stored in a list or map"); break;
+            case LUSE_ARG_KEEPS:
+                snprintf(label, sizeof(label), "captured here by a closure passed to `%s`, which may keep it after the call returns", un); break;
+            default:
+                snprintf(label, sizeof(label), "captured here by a closure that is not passed directly as a call argument"); break;
+        }
+    }
+
+    bool is_param = c->sym && c->sym->decl_node && c->sym->decl_node->kind == IRON_NODE_PARAM;
+    if (direct)
+        snprintf(rel, sizeof(rel), "`%s` is %s here; %s is nocopy, so it has a single owner",
+                 name, is_param ? "a parameter" : "declared", tn);
+    else
+        snprintf(rel, sizeof(rel), "`%s` is %s here; it holds a %s, which is nocopy, so it has a single owner",
+                 name, is_param ? "a parameter" : "declared", tn);
+
+    const char *note = "a nocopy value can only be borrowed by a lambda passed directly as a call "
+                       "argument, or by a spawn awaited in the same block";
+    const char *rw = rc_rewrite(ctx, c);
+    const char *ctn = direct ? tn : nocopy_type_name(ct);
+    char share[300], guarded[300];
+    if (rw) {
+        snprintf(share, sizeof(share), "    %s", rw);
+        snprintf(guarded, sizeof(guarded), "    val %s = Mutex(%s)", name, rw + strlen(name) + 7);
+    } else {
+        snprintf(share, sizeof(share), "    create it as `rc %s(...)` and take `rc %s` here instead of `%s`",
+                 ctn, ctn, ctn);
+        snprintf(guarded, sizeof(guarded), "    val m = Mutex(rc %s(...))", ctn);
+    }
+    if (kind == NOCOPY_CAPTURE_SPAWN) {
+        snprintf(help, sizeof(help),
+                 "await the task in this block (`val t = spawn(\"t\") { ... }`, then `await t`) to lend it to the task;\n"
+                 "to share it with a task that outlives this block, make it reference counted:\n"
+                 "%s\n"
+                 "the task then holds its own reference, and the value is dropped once, when the last holder is gone;\n"
+                 "if both threads use it, also guard it with a Mutex, since two threads must not use one %s at the same time:\n"
+                 "%s\n"
+                 "and lock it around each use (`val g = %s.lock()`, then `g.get()`)",
+                 share, tn, guarded, rw ? name : "m");
+    } else if (kind == NOCOPY_CAPTURE_PARALLEL_FOR) {
+        snprintf(help, sizeof(help),
+                 "make the value reference counted and guard it with a Mutex, since several worker threads must not use one %s at the same time:\n"
+                 "%s\n"
+                 "lock it in the parallel body (`val g = %s.lock()`, then use `g.get()`); "
+                 "each worker then holds a reference, and the value is dropped once, when the last holder is gone",
+                 tn, guarded, rw ? name : "m");
+    } else {
+        snprintf(help, sizeof(help),
+                 "to share it with a closure that is stored, returned or outlives this block, make it reference counted:\n"
+                 "%s\n"
+                 "the closure then holds its own reference, and the value is dropped once, when the last holder is gone",
+                 share);
+    }
+    Iron_Span decl = c->sym ? c->sym->span : (Iron_Span){0};
+    /* A val / var symbol sits at its keyword: point at the name. */
+    if (c->sym && c->sym->decl_node &&
+        (c->sym->decl_node->kind == IRON_NODE_VAL_DECL || c->sym->decl_node->kind == IRON_NODE_VAR_DECL) &&
+        decl.line == c->sym->decl_node->span.line && decl.col == c->sym->decl_node->span.col) {
+        decl.col += 4;
+        decl.end_line = decl.line;
+        decl.end_col = decl.col + (uint32_t)strlen(name);
+    }
+    iron_diag_emit_labeled(ctx->diags, ctx->arena, IRON_DIAG_ERROR, IRON_ERR_COPY_OF_NOCOPY_TYPE,
+                           at, msg, label, decl, rel, note, help);
 }
 
 /* stb_ds string hashmap entry (int value — we just use it as a set) */
@@ -83,6 +656,8 @@ typedef struct {
     struct Iron_Type *type;
     bool             is_mutable;
     bool             is_boxed;
+    Iron_Span        span;
+    struct Iron_Symbol *sym;
 } TmpCapture;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -156,6 +731,8 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
                                  ? id->resolved_type
                                  : id->resolved_sym->type;
             cap.is_mutable = id->resolved_sym->is_mutable;
+            cap.span       = id->span;
+            cap.sym        = id->resolved_sym;
             /* A captured `var` local moves into a counted cell (#210). */
             cap.is_boxed = false;
             if (cap.is_mutable && id->resolved_sym->decl_node &&
@@ -190,6 +767,8 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
                 cap.type       = ic->type;
                 cap.is_mutable = ic->is_mutable;
                 cap.is_boxed   = ic->is_boxed;
+                cap.span       = ic->span;
+                cap.sym        = ic->sym;
                 arrput(*captures, cap);
             }
             break;
@@ -457,18 +1036,35 @@ static void find_captures(CaptureCtx *ctx, Iron_LambdaExpr *le) {
             arr[i].type       = captures[i].type;
             arr[i].is_mutable = captures[i].is_mutable;
             arr[i].is_boxed   = captures[i].is_boxed;
+            arr[i].span       = captures[i].span;
+            arr[i].sym        = captures[i].sym;
         }
         le->captures      = arr;
         le->capture_count = count;
 
-        if (!ctx->lambda_is_call_arg) {
+        /* A callee that keeps the closure (stores it, a constructor, push)
+         * would keep the borrow past the call too. */
+        if (ctx->lambda_use != LUSE_ARG_BORROW) {
             for (int ci = 0; ci < count; ci++) {
                 if (!type_holds_owned_list(arr[ci].type, 0)) continue;
                 report_list_capture(ctx, le->span, arr[ci].name, "closure",
-                    "a closure bound, returned or stored outlives the borrow: "
-                    "share the list as `rc [T]`, or pass the closure directly as an argument");
+                    ctx->lambda_use == LUSE_ARG_KEEPS || ctx->lambda_use == LUSE_FIELD ||
+                    ctx->lambda_use == LUSE_LIST
+                    ? "the callee keeps the closure (it stores it), so the closure outlives the borrow: "
+                      "share the list as `rc [T]`"
+                    : "a closure bound, returned or stored outlives the borrow: "
+                      "share the list as `rc [T]`, or pass the closure directly as an argument");
                 break;
             }
+        }
+
+        /* nocopy values (#512): borrowed by a closure the callee only
+         * calls during the call, an error anywhere else. */
+        for (int ci = 0; ci < count; ci++) {
+            const struct Iron_Type *nc = capture_nocopy_part(&arr[ci]);
+            if (!nc) continue;
+            if (ctx->lambda_use == LUSE_ARG_BORROW) arr[ci].is_borrowed = true;
+            else report_nocopy_capture(ctx, &arr[ci], nc, NOCOPY_CAPTURE_CLOSURE, le->span);
         }
 
         /* Phase 22 OQ-04: if this lambda inherits readonly context, reject
@@ -533,18 +1129,32 @@ static void find_spawn_captures(CaptureCtx *ctx, Iron_SpawnStmt *ss) {
             arr[i].type       = captures[i].type;
             arr[i].is_mutable = captures[i].is_mutable;
             arr[i].is_boxed   = captures[i].is_boxed;
+            arr[i].span       = captures[i].span;
+            arr[i].sym        = captures[i].sym;
         }
         ss->captures      = arr;
         ss->capture_count = count;
 
-        if (!ctx->spawn_awaited_here) {
+        /* An await that a return, break or continue may skip, or that only
+         * a branch runs, leaves the task running past the list. */
+        if (!ctx->spawn_strict_await) {
             for (int ci = 0; ci < count; ci++) {
                 if (!type_holds_owned_list(arr[ci].type, 0)) continue;
                 report_list_capture(ctx, ss->span, arr[ci].name, "spawn",
                     "await the handle in the same block (`val h = spawn(...) {...}` "
-                    "then `await h`), or share the list as `rc [T]`");
+                    "then `await h`, with no return, break or continue before it), "
+                    "or share the list as `rc [T]`");
                 break;
             }
+        }
+
+        /* nocopy values (#512): borrowed by a task surely awaited in the
+         * block that starts it, an error otherwise. */
+        for (int ci = 0; ci < count; ci++) {
+            const struct Iron_Type *nc = capture_nocopy_part(&arr[ci]);
+            if (!nc) continue;
+            if (ctx->spawn_strict_await) arr[ci].is_borrowed = true;
+            else report_nocopy_capture(ctx, &arr[ci], nc, NOCOPY_CAPTURE_SPAWN, ss->span);
         }
     } else {
         ss->captures      = NULL;
@@ -584,9 +1194,22 @@ static void find_pfor_captures(CaptureCtx *ctx, Iron_ForStmt *fs) {
             arr[i].type       = captures[i].type;
             arr[i].is_mutable = captures[i].is_mutable;
             arr[i].is_boxed   = captures[i].is_boxed;
+            arr[i].span       = captures[i].span;
+            arr[i].sym        = captures[i].sym;
         }
         fs->pfor_captures      = arr;
         fs->pfor_capture_count = count;
+
+        /* The nocopy borrow rule deliberately has only two forms: a lambda
+         * argument whose callee only calls it, and a surely awaited spawn.
+         * A parallel for has several workers, so sharing requires rc plus a
+         * lock rather than copying the single-owner value (#703). */
+        for (int ci = 0; ci < count; ci++) {
+            const struct Iron_Type *nc = capture_nocopy_part(&arr[ci]);
+            if (nc)
+                report_nocopy_capture(ctx, &arr[ci], nc,
+                                      NOCOPY_CAPTURE_PARALLEL_FOR, fs->span);
+        }
     } else {
         fs->pfor_captures      = NULL;
         fs->pfor_capture_count = 0;
@@ -599,223 +1222,62 @@ static void find_pfor_captures(CaptureCtx *ctx, Iron_ForStmt *fs) {
 
 /* ── Lambda walker ────────────────────────────────────────────────────────── */
 
-/* Recursively walk `node` searching for IRON_NODE_LAMBDA nodes. When found,
- * first recurse into the lambda body to process nested lambdas (inner-out
- * ordering), then process the lambda itself. */
-static bool awaits_ident(Iron_Node *node, const char *name) {
-    if (!node || !name) return false;
-    switch ((int)(node->kind)) {
-        case IRON_NODE_LAMBDA: {
-            Iron_LambdaExpr *le = (Iron_LambdaExpr *)node;
-            (void)le;
-            break;
-        }
-        case IRON_NODE_BLOCK: {
-            Iron_Block *blk = (Iron_Block *)node;
-            for (int i = 0; i < blk->stmt_count; i++) {
-                if (awaits_ident(blk->stmts[i], name)) return true;
+/* Walk `child` with the lambda use `use` (it applies only if `child` is
+ * itself a lambda literal: walk_node_for_lambdas clears it otherwise). */
+static void walk_with_use(CaptureCtx *ctx, Iron_Node *child, int use, const char *name) {
+    int su = ctx->lambda_use;
+    const char *sn = ctx->lambda_use_name;
+    ctx->lambda_use = use;
+    ctx->lambda_use_name = name;
+    walk_node_for_lambdas(ctx, child);
+    ctx->lambda_use = su;
+    ctx->lambda_use_name = sn;
+}
+
+/* Walk the arguments of a call or method call: a lambda literal argument
+ * borrows only when the callee does not keep it. */
+static void walk_call_args(CaptureCtx *ctx, Iron_Node *call, Iron_Node **args, int argc) {
+    for (int i = 0; i < argc; i++) {
+        bool prev = ctx->lambda_is_call_arg;
+        ctx->lambda_is_call_arg = args[i] && args[i]->kind == IRON_NODE_LAMBDA;
+        int use = LUSE_OTHER;
+        const char *nm = NULL;
+        if (ctx->lambda_is_call_arg) {
+            switch (lambda_arg_verdict(ctx, call, i, &nm)) {
+                case VERDICT_BORROWS: use = LUSE_ARG_BORROW; break;
+                case VERDICT_FIELD:   use = LUSE_FIELD; break;
+                case VERDICT_LIST:    use = LUSE_LIST; break;
+                case VERDICT_KEEPS:   use = LUSE_ARG_KEEPS; break;
             }
-            break;
         }
-        case IRON_NODE_VAL_DECL: {
-            Iron_ValDecl *vd = (Iron_ValDecl *)node;
-            if (awaits_ident(vd->init, name)) return true;
-            break;
-        }
-        case IRON_NODE_VAR_DECL: {
-            Iron_VarDecl *vd = (Iron_VarDecl *)node;
-            if (awaits_ident(vd->init, name)) return true;
-            break;
-        }
-        case IRON_NODE_ASSIGN: {
-            Iron_AssignStmt *as = (Iron_AssignStmt *)node;
-            if (awaits_ident(as->value, name)) return true;
-            break;
-        }
-        case IRON_NODE_RETURN: {
-            Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
-            if (awaits_ident(rs->value, name)) return true;
-            break;
-        }
-        case IRON_NODE_IF: {
-            Iron_IfStmt *is = (Iron_IfStmt *)node;
-            if (awaits_ident(is->condition, name)) return true;
-            if (awaits_ident(is->body, name)) return true;
-            for (int i = 0; i < is->elif_count; i++) {
-                if (awaits_ident(is->elif_conds[i], name)) return true;
-                if (awaits_ident(is->elif_bodies[i], name)) return true;
-            }
-            if (awaits_ident(is->else_body, name)) return true;
-            break;
-        }
-        case IRON_NODE_WHILE: {
-            Iron_WhileStmt *ws = (Iron_WhileStmt *)node;
-            if (awaits_ident(ws->condition, name)) return true;
-            if (awaits_ident(ws->body, name)) return true;
-            break;
-        }
-        case IRON_NODE_FOR: {
-            Iron_ForStmt *fs = (Iron_ForStmt *)node;
-            if (awaits_ident(fs->iterable, name)) return true;
-            if (awaits_ident(fs->body, name)) return true;
-            break;
-        }
-        case IRON_NODE_MATCH: {
-            Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
-            if (awaits_ident(ms->subject, name)) return true;
-            for (int i = 0; i < ms->case_count; i++) {
-                if (awaits_ident(ms->cases[i], name)) return true;
-            }
-            if (awaits_ident(ms->else_body, name)) return true;
-            break;
-        }
-        case IRON_NODE_MATCH_CASE: {
-            Iron_MatchCase *mc = (Iron_MatchCase *)node;
-            if (awaits_ident(mc->body, name)) return true;
-            break;
-        }
-        case IRON_NODE_CALL: {
-            Iron_CallExpr *ce = (Iron_CallExpr *)node;
-            if (awaits_ident(ce->callee, name)) return true;
-            for (int i = 0; i < ce->arg_count; i++) {
-                if (awaits_ident(ce->args[i], name)) return true;
-            }
-            break;
-        }
-        case IRON_NODE_METHOD_CALL: {
-            Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
-            if (awaits_ident(mc->object, name)) return true;
-            for (int i = 0; i < mc->arg_count; i++) {
-                if (awaits_ident(mc->args[i], name)) return true;
-            }
-            break;
-        }
-        case IRON_NODE_BINARY: {
-            Iron_BinaryExpr *be = (Iron_BinaryExpr *)node;
-            if (awaits_ident(be->left, name)) return true;
-            if (awaits_ident(be->right, name)) return true;
-            break;
-        }
-        case IRON_NODE_UNARY: {
-            Iron_UnaryExpr *ue = (Iron_UnaryExpr *)node;
-            if (awaits_ident(ue->operand, name)) return true;
-            break;
-        }
-        case IRON_NODE_FIELD_ACCESS: {
-            Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
-            if (awaits_ident(fa->object, name)) return true;
-            break;
-        }
-        case IRON_NODE_INDEX: {
-            Iron_IndexExpr *ie = (Iron_IndexExpr *)node;
-            if (awaits_ident(ie->object, name)) return true;
-            if (awaits_ident(ie->index, name)) return true;
-            break;
-        }
-        case IRON_NODE_SLICE: {
-            Iron_SliceExpr *se = (Iron_SliceExpr *)node;
-            if (awaits_ident(se->object, name)) return true;
-            if (awaits_ident(se->start, name)) return true;
-            if (awaits_ident(se->end, name)) return true;
-            break;
-        }
-        case IRON_NODE_HEAP: {
-            Iron_HeapExpr *he = (Iron_HeapExpr *)node;
-            if (awaits_ident(he->inner, name)) return true;
-            break;
-        }
-        case IRON_NODE_RC: {
-            Iron_RcExpr *re = (Iron_RcExpr *)node;
-            if (awaits_ident(re->inner, name)) return true;
-            break;
-        }
-        case IRON_NODE_COMPTIME: {
-            Iron_ComptimeExpr *ce = (Iron_ComptimeExpr *)node;
-            if (awaits_ident(ce->inner, name)) return true;
-            break;
-        }
-        case IRON_NODE_IS: {
-            Iron_IsExpr *ie = (Iron_IsExpr *)node;
-            if (awaits_ident(ie->expr, name)) return true;
-            break;
-        }
-        case IRON_NODE_AWAIT: {
-            Iron_AwaitExpr *ae = (Iron_AwaitExpr *)node;
-            if (ae->handle && ae->handle->kind == IRON_NODE_IDENT &&
-                ((Iron_Ident *)ae->handle)->name &&
-                strcmp(((Iron_Ident *)ae->handle)->name, name) == 0)
-                return true;
-            if (awaits_ident(ae->handle, name)) return true;
-            break;
-        }
-        case IRON_NODE_CONSTRUCT: {
-            Iron_ConstructExpr *ce = (Iron_ConstructExpr *)node;
-            for (int i = 0; i < ce->arg_count; i++) {
-                if (awaits_ident(ce->args[i], name)) return true;
-            }
-            break;
-        }
-        case IRON_NODE_ARRAY_LIT: {
-            Iron_ArrayLit *al = (Iron_ArrayLit *)node;
-            if (awaits_ident(al->size, name)) return true;
-            for (int i = 0; i < al->element_count; i++) {
-                if (awaits_ident(al->elements[i], name)) return true;
-            }
-            break;
-        }
-        case IRON_NODE_INTERP_STRING: {
-            Iron_InterpString *is = (Iron_InterpString *)node;
-            for (int i = 0; i < is->part_count; i++) {
-                if (awaits_ident(is->parts[i], name)) return true;
-            }
-            break;
-        }
-        case IRON_NODE_FREE: {
-            Iron_FreeStmt *fs = (Iron_FreeStmt *)node;
-            if (awaits_ident(fs->expr, name)) return true;
-            break;
-        }
-        case IRON_NODE_LEAK: {
-            Iron_LeakStmt *ls = (Iron_LeakStmt *)node;
-            if (awaits_ident(ls->expr, name)) return true;
-            break;
-        }
-        case IRON_NODE_DEFER: {
-            Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
-            if (awaits_ident(ds->expr, name)) return true;
-            break;
-        }
-        case IRON_NODE_IN_ARENA: {
-            Iron_InArenaBlock *ia = (Iron_InArenaBlock *)node;
-            if (awaits_ident(ia->body, name)) return true;
-            break;
-        }
-        case IRON_NODE_SPAWN: {
-            Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
-            (void)ss;
-            break;
-        }
-        /* -Wswitch-enum opt-out: walk_node_for_lambdas is a generic AST
-         * walker; every kind that does not contain a lambda / spawn / pfor
-         * is a valid no-op. */
-        default:
-            break;
+        walk_with_use(ctx, args[i], use, nm);
+        ctx->lambda_is_call_arg = prev;
     }
-    return false;
 }
 
 static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
     if (!node) return;
     /* HARD-05: cancel poll at recursive walker entry. */
     if (iron_cancel_requested(ctx->cancel_flag)) return;
+    /* A lambda use describes the node it was set for, never a node below. */
+    if (node->kind != IRON_NODE_LAMBDA && ctx->lambda_use != LUSE_OTHER) {
+        walk_with_use(ctx, node, LUSE_OTHER, NULL);
+        return;
+    }
     switch ((int)(node->kind)) {
         case IRON_NODE_LAMBDA: {
             Iron_LambdaExpr *le = (Iron_LambdaExpr *)node;
             bool is_arg = ctx->lambda_is_call_arg;
+            int use = ctx->lambda_use;
+            const char *use_name = ctx->lambda_use_name;
             /* Process nested lambdas first */
             ctx->lambda_is_call_arg = false;
+            ctx->lambda_use = LUSE_OTHER;
+            ctx->lambda_use_name = NULL;
             walk_node_for_lambdas(ctx, le->body);
             ctx->lambda_is_call_arg = is_arg;
+            ctx->lambda_use = use;
+            ctx->lambda_use_name = use_name;
             /* Now analyze this lambda */
             find_captures(ctx, le);
             break;
@@ -825,39 +1287,51 @@ static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
             for (int i = 0; i < blk->stmt_count; i++) {
                 Iron_Node *st = blk->stmts[i];
                 /* `val h = spawn(...) {...}` awaited later in this block. */
-                bool prev = ctx->spawn_awaited_here;
+                bool prev_strict = ctx->spawn_strict_await;
+                bool prev_stmt = ctx->spawn_is_stmt;
+                ctx->spawn_strict_await = false;
+                ctx->spawn_is_stmt = st && st->kind == IRON_NODE_SPAWN;
                 if (st && st->kind == IRON_NODE_VAL_DECL) {
                     Iron_ValDecl *vd = (Iron_ValDecl *)st;
-                    if (vd->init && vd->init->kind == IRON_NODE_SPAWN && vd->name) {
-                        bool awaited = false;
-                        for (int j = i + 1; j < blk->stmt_count && !awaited; j++)
-                            awaited = awaits_ident(blk->stmts[j], vd->name);
-                        ctx->spawn_awaited_here = awaited;
-                    }
+                    if (vd->init && vd->init->kind == IRON_NODE_SPAWN && vd->name)
+                        ctx->spawn_strict_await = spawn_surely_awaited(blk, i, vd->name);
+                } else if (st && st->kind == IRON_NODE_VAR_DECL) {
+                    Iron_VarDecl *vd = (Iron_VarDecl *)st;
+                    if (vd->init && vd->init->kind == IRON_NODE_SPAWN && vd->name)
+                        ctx->spawn_strict_await = spawn_surely_awaited(blk, i, vd->name);
                 }
                 walk_node_for_lambdas(ctx, st);
-                ctx->spawn_awaited_here = prev;
+                ctx->spawn_strict_await = prev_strict;
+                ctx->spawn_is_stmt = prev_stmt;
             }
             break;
         }
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)node;
-            walk_node_for_lambdas(ctx, vd->init);
+            walk_with_use(ctx, vd->init, LUSE_BOUND, vd->name ? vd->name : "the tuple");
             break;
         }
         case IRON_NODE_VAR_DECL: {
             Iron_VarDecl *vd = (Iron_VarDecl *)node;
-            walk_node_for_lambdas(ctx, vd->init);
+            walk_with_use(ctx, vd->init, LUSE_BOUND, vd->name);
             break;
         }
         case IRON_NODE_ASSIGN: {
             Iron_AssignStmt *as = (Iron_AssignStmt *)node;
-            walk_node_for_lambdas(ctx, as->value);
+            Iron_Node *t = as->target;
+            if (t && t->kind == IRON_NODE_IDENT)
+                walk_with_use(ctx, as->value, LUSE_ASSIGNED, ((Iron_Ident *)t)->name);
+            else if (t && t->kind == IRON_NODE_FIELD_ACCESS)
+                walk_with_use(ctx, as->value, LUSE_FIELD_ASSIGN, ((Iron_FieldAccess *)t)->field);
+            else if (t && t->kind == IRON_NODE_INDEX)
+                walk_with_use(ctx, as->value, LUSE_LIST, NULL);
+            else
+                walk_node_for_lambdas(ctx, as->value);
             break;
         }
         case IRON_NODE_RETURN: {
             Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
-            walk_node_for_lambdas(ctx, rs->value);
+            walk_with_use(ctx, rs->value, LUSE_RETURNED, ctx->func_name);
             break;
         }
         case IRON_NODE_IF: {
@@ -904,23 +1378,13 @@ static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
         case IRON_NODE_CALL: {
             Iron_CallExpr *ce = (Iron_CallExpr *)node;
             walk_node_for_lambdas(ctx, ce->callee);
-            for (int i = 0; i < ce->arg_count; i++) {
-                bool prev = ctx->lambda_is_call_arg;
-                ctx->lambda_is_call_arg = ce->args[i] && ce->args[i]->kind == IRON_NODE_LAMBDA;
-                walk_node_for_lambdas(ctx, ce->args[i]);
-                ctx->lambda_is_call_arg = prev;
-            }
+            walk_call_args(ctx, node, ce->args, ce->arg_count);
             break;
         }
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
             walk_node_for_lambdas(ctx, mc->object);
-            for (int i = 0; i < mc->arg_count; i++) {
-                bool prev = ctx->lambda_is_call_arg;
-                ctx->lambda_is_call_arg = mc->args[i] && mc->args[i]->kind == IRON_NODE_LAMBDA;
-                walk_node_for_lambdas(ctx, mc->args[i]);
-                ctx->lambda_is_call_arg = prev;
-            }
+            walk_call_args(ctx, node, mc->args, mc->arg_count);
             break;
         }
         case IRON_NODE_BINARY: {
@@ -974,16 +1438,21 @@ static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_AWAIT: {
             Iron_AwaitExpr *ae = (Iron_AwaitExpr *)node;
-            bool prev = ctx->spawn_awaited_here;
-            if (ae->handle && ae->handle->kind == IRON_NODE_SPAWN) ctx->spawn_awaited_here = true;
+            bool prev_strict = ctx->spawn_strict_await;
+            bool prev_stmt = ctx->spawn_is_stmt;
+            if (ae->handle && ae->handle->kind == IRON_NODE_SPAWN) {
+                ctx->spawn_strict_await = true;
+                ctx->spawn_is_stmt = false;
+            }
             walk_node_for_lambdas(ctx, ae->handle);
-            ctx->spawn_awaited_here = prev;
+            ctx->spawn_strict_await = prev_strict;
+            ctx->spawn_is_stmt = prev_stmt;
             break;
         }
         case IRON_NODE_CONSTRUCT: {
             Iron_ConstructExpr *ce = (Iron_ConstructExpr *)node;
             for (int i = 0; i < ce->arg_count; i++) {
-                walk_node_for_lambdas(ctx, ce->args[i]);
+                walk_with_use(ctx, ce->args[i], LUSE_FIELD, ce->type_name);
             }
             break;
         }
@@ -991,7 +1460,7 @@ static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
             Iron_ArrayLit *al = (Iron_ArrayLit *)node;
             walk_node_for_lambdas(ctx, al->size);
             for (int i = 0; i < al->element_count; i++) {
-                walk_node_for_lambdas(ctx, al->elements[i]);
+                walk_with_use(ctx, al->elements[i], LUSE_LIST, NULL);
             }
             break;
         }
@@ -1019,8 +1488,14 @@ static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_SPAWN: {
             Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
+            /* Whether this spawn is surely awaited describes it alone. */
+            bool strict = ctx->spawn_strict_await, is_stmt = ctx->spawn_is_stmt;
+            ctx->spawn_strict_await = false;
+            ctx->spawn_is_stmt = false;
             walk_node_for_lambdas(ctx, ss->pool_expr);
             walk_node_for_lambdas(ctx, ss->body);
+            ctx->spawn_strict_await = strict;
+            ctx->spawn_is_stmt = is_stmt;
             /* Perform capture analysis for spawn block body */
             find_spawn_captures(ctx, ss);
             break;
@@ -1172,16 +1647,20 @@ void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
     (void)global_scope; /* not needed: resolved_sym already attached to idents */
 
     CaptureCtx ctx;
+    memset(&ctx, 0, sizeof(ctx));
     ctx.arena            = arena;
     ctx.diags            = diags;
     ctx.lambda_is_call_arg = false;
-    ctx.spawn_awaited_here = false;
     ctx.cancel_flag      = cancel_flag;
     ctx.readonly_context = false;
+    ctx.program          = program;
+    sh_new_strdup(ctx.methods);
+    sh_new_strdup(ctx.reported);
+    compute_param_escapes(&ctx);
 
     for (int i = 0; i < program->decl_count; i++) {
         /* HARD-05: cancel poll inside top-level decl loop. */
-        if (iron_cancel_requested(cancel_flag)) return;
+        if (iron_cancel_requested(cancel_flag)) break;
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
         switch ((int)(decl->kind)) {
@@ -1191,6 +1670,7 @@ void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
                  * per RESEARCH Pitfall 4 (TypeCtx not available post-typecheck). */
                 bool prev_readonly = ctx.readonly_context;
                 ctx.readonly_context = fd->is_readonly;
+                ctx.func_name = fd->name;
                 if (fd->body) walk_node_for_lambdas(&ctx, fd->body);
                 ctx.readonly_context = prev_readonly;
                 break;
@@ -1201,6 +1681,7 @@ void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
                  * pure methods also set readonly_context since pure >= readonly. */
                 bool prev_readonly = ctx.readonly_context;
                 ctx.readonly_context = (md->is_readonly || md->is_pure);
+                ctx.func_name = md->method_name;
                 if (md->body) walk_node_for_lambdas(&ctx, md->body);
                 ctx.readonly_context = prev_readonly;
                 break;
@@ -1211,6 +1692,9 @@ void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
                 break;
         }
     }
+    hmfree(ctx.param_escape);
+    shfree(ctx.methods);
+    shfree(ctx.reported);
 }
 
 void iron_capture_verbose_report(Iron_Program *program, Iron_Arena *arena) {

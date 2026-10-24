@@ -1,0 +1,32 @@
+-- Heap bindings have value semantics when copied into ordinary owners.
+object Number { val value: Int }
+object Holder {
+    var number: Number
+    init(number: Number) { self.number = number }
+}
+
+func pair() -> (Number, Int) {
+    val number = heap Number(4)
+    defer free number
+    return (number, 5)
+}
+
+func main() {
+    var numbers: [Number] = []
+    val one = heap Number(1)
+    numbers.push(one)
+    free one
+
+    var holder = Holder(Number(0))
+    val two = heap Number(2)
+    holder.number = two
+    free two
+
+    var mapped: Map[Int, Number] = Map()
+    val three = heap Number(3)
+    mapped.put(3, three)
+    free three
+
+    val (four, five) = pair()
+    println("{numbers[0].value} {holder.number.value} {mapped.get(3).value} {four.value} {five}")
+}

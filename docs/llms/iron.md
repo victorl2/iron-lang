@@ -40,8 +40,7 @@ the program's namespace, so call its `pub` functions directly.
 ## Syntax essentials
 
 - Comments start with `--`. There are no `//` or `#` comments.
-- Blocks use braces. Newlines are whitespace, and the grammar determines
-  statement boundaries; semicolons appear only in collection syntax.
+- Blocks use braces; statements end at the newline (no semicolons).
 - `val` is an immutable binding, `var` a mutable one. Types are inferred or
   written as `name: Type`.
 - Strings interpolate with braces: `"{name} has {hp} HP"`; any expression,
@@ -84,11 +83,15 @@ awaited in the same block. To share a list, use `rc [T]`: every copy of the
 handle reaches the same list, which is freed with the last handle, and the
 list can be grown through any handle.
 
-The same borrow rule applies to every `nocopy` value. A lambda may capture
-one only when passed directly to a call whose callee does not keep the
-closure. A spawn may capture one only when awaited in the same block.
-Otherwise the compiler reports `E0286` and recommends `rc` as the ownership
-fix.
+A `nocopy` value (a `FileHandle`, a `Hasher`, a database handle, or an
+object holding one) follows the same rule: a closure may borrow it only as a
+lambda passed directly as an argument, and a `spawn` only when the task is
+awaited later in the same block. Any other capture is `E0286`. To keep one
+in a stored or returned closure, or hand it to a task that is not awaited,
+create it with `rc` (`val h = rc FileHandle.open(path)`); guard it with a
+`Mutex(rc ...)` when several threads use it. A parallel `for` cannot capture
+a `nocopy` value; use that `Mutex(rc ...)` form. A captured `var` is shared,
+not copied, so it is not affected.
 
 ```iron
 func make_counter() -> func() -> Int {
@@ -551,7 +554,7 @@ Write tests as `test "name" { ... }` blocks next to the code (in `src/`) or in
 runs in its own process; `assert_eq(actual, expected)` and `assert_ne(a, b)`
 report both values and the line on failure. Other builds leave tests out.
 
-<!-- doctest-test -->
+<!-- doctest-skip: a test block needs `iron test` to run -->
 ```iron
 func add(a: Int, b: Int) -> Int {
     return a + b
