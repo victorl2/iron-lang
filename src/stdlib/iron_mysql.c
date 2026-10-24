@@ -250,9 +250,10 @@ static uint64_t rd_lenenc(Rd *r, int *is_null) {
 
 /* Length-encoded string: returns a pointer into the packet. */
 static const uint8_t *rd_lenstr(Rd *r, size_t *len) {
-    uint64_t n = rd_lenenc(r, NULL);
+    int is_null = 0;
+    uint64_t n = rd_lenenc(r, &is_null);
     *len = 0;
-    if (r->bad || n > r->n - r->i) { r->bad = 1; return NULL; }
+    if (r->bad || is_null || n > r->n - r->i) { r->bad = 1; return NULL; }
     const uint8_t *s = r->p + r->i;
     r->i += (size_t)n;
     *len = (size_t)n;
@@ -399,9 +400,11 @@ static Iron_MysqlError iron_err_code(int64_t code) {
 }
 
 /* Parse an ERR packet payload (starting at 0xff). */
-static void err_from_packet(MyErr *e, const uint8_t *p, size_t n, uint32_t caps) {
+static int err_from_packet(MyErr *e, const uint8_t *p, size_t n, uint32_t caps) {
+    if (n < 3 || p[0] != 0xff) return 0;
+    if ((caps & CLIENT_PROTOCOL_41) && (n < 9 || p[3] != '#')) return 0;
     e->server = true;
-    e->code = n >= 3 ? rd16(p + 1) : 2000;
+    e->code = rd16(p + 1);
     memcpy(e->sqlstate, "HY000", 6);
     size_t i = 3;
     if ((caps & CLIENT_PROTOCOL_41) && n >= 9 && p[3] == '#') {
@@ -413,6 +416,7 @@ static void err_from_packet(MyErr *e, const uint8_t *p, size_t n, uint32_t caps)
     if (m >= sizeof(e->message)) m = sizeof(e->message) - 1;
     memcpy(e->message, p + i, m);
     e->message[m] = '\0';
+    return 1;
 }
 
 /* ── Hashing and RSA (libcrypto) ────────────────────────────────────────── */
@@ -716,6 +720,12 @@ typedef struct MyConn {
     uint64_t idle_since_ms;
     char *pubkey;                  /* server RSA public key (PEM) */
     size_t pubkey_len;
+    int test_transport;            /* in-process transport for conformance */
+    const uint8_t *test_in;
+    size_t test_in_len;
+    size_t test_in_pos;
+    size_t test_read_size;
+    MyBuf test_out;
 } MyConn;
 
 typedef struct MyStmt {
@@ -751,6 +761,7 @@ static void conn_destroy(MyConn *c) {
     free(c->pend);
     iron_mutex_destroy(&c->pend_lock);
     if (c->pubkey) free(c->pubkey);
+    buf_free(&c->test_out);
     free(c);
 }
 
@@ -864,6 +875,8 @@ static int conn_fail(MyConn *c, MyErr *e, int64_t code) {
 }
 
 static int conn_write(MyConn *c, const uint8_t *p, size_t n) {
+    if (c->test_transport)
+        return buf_put(&c->test_out, p, n) ? 0 : IRON_ERR_MYSQL_NO_MEMORY;
     while (n > 0) {
         if (c->tls) {
             int64_t chunk = n > (size_t)INT_MAX ? INT_MAX : (int64_t)n;
@@ -908,6 +921,16 @@ static int conn_write(MyConn *c, const uint8_t *p, size_t n) {
  * error code (IRON_ERR_NET_CLOSED when the server closed the connection). */
 static int64_t conn_read_some(MyConn *c, uint8_t *p, size_t cap) {
     if (cap > (size_t)INT_MAX) cap = INT_MAX;
+    if (c->test_transport) {
+        size_t left = c->test_in_len - c->test_in_pos;
+        if (left == 0) return -IRON_ERR_NET_CLOSED;
+        if (cap > left) cap = left;
+        if (c->test_read_size && cap > c->test_read_size) cap = c->test_read_size;
+        memcpy(p, c->test_in + c->test_in_pos, cap);
+        c->test_in_pos += cap;
+        c->cmd_rx += cap;
+        return (int64_t)cap;
+    }
     for (;;) {
         if (c->tls) {
             Iron_Result_Int_Error rd = iron_tls_read(c->tls, p, (int64_t)cap, c->deadline);
@@ -1101,14 +1124,15 @@ static int cmd_begin(MyConn *c, MyErr *e, size_t *at) {
  * connection status. */
 static int parse_ok(MyConn *c, const uint8_t *p, size_t n, MySet *s) {
     Rd r = { p, n, 1, 0 };
-    uint64_t affected = rd_lenenc(&r, NULL);
-    uint64_t insert_id = rd_lenenc(&r, NULL);
+    int affected_null = 0, insert_null = 0;
+    uint64_t affected = rd_lenenc(&r, &affected_null);
+    uint64_t insert_id = rd_lenenc(&r, &insert_null);
     uint16_t status = 0, warnings = 0;
     if (c->caps & CLIENT_PROTOCOL_41) {
         status = rd_u16(&r);
         warnings = rd_u16(&r);
     }
-    if (r.bad) return 0;
+    if (r.bad || affected_null || insert_null) return 0;
     c->status = status;
     if (s) {
         s->affected = affected;
@@ -1124,24 +1148,23 @@ static int parse_ok(MyConn *c, const uint8_t *p, size_t n, MySet *s) {
 }
 
 static int is_eof_packet(const uint8_t *p, size_t n) {
-    return n > 0 && p[0] == 0xfe && n < 9;
+    return n == 5 && p[0] == 0xfe;
 }
 
 static int is_terminator(MyConn *c, const uint8_t *p, size_t n) {
     if (n == 0 || p[0] != 0xfe) return 0;
     if (c->caps & CLIENT_DEPRECATE_EOF) return n < MAX_PACKET_CHUNK;
-    return n < 9;
+    return n == 5;
 }
 
 /* EOF packet (0xfe warnings status) or, with CLIENT_DEPRECATE_EOF, an OK
  * packet with a 0xfe header. */
 static int parse_terminator(MyConn *c, const uint8_t *p, size_t n, MySet *s) {
     if ((c->caps & CLIENT_DEPRECATE_EOF)) return parse_ok(c, p, n, s);
-    if (n >= 5) {
-        uint16_t warnings = rd16(p + 1);
-        c->status = rd16(p + 3);
-        if (s) { s->warnings = warnings; s->status = c->status; }
-    }
+    if (n != 5) return 0;
+    uint16_t warnings = rd16(p + 1);
+    c->status = rd16(p + 3);
+    if (s) { s->warnings = warnings; s->status = c->status; }
     return 1;
 }
 
@@ -1343,8 +1366,8 @@ static int auth_loop(MyConn *c, const MyCfg *k, uint8_t *scramble, size_t *slen,
             return rc;
         }
         if (p[0] == 0xff) {
-            err_from_packet(e, p, n, c->caps);
-            rc = (int)e->code ? (int)e->code : IRON_ERR_MYSQL_AUTH;
+            rc = err_from_packet(e, p, n, c->caps)
+                ? (int)e->code : conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
             break;
         }
         if (p[0] == 0xfe) {
@@ -1421,7 +1444,8 @@ static int conn_handshake(MyConn *c, const MyCfg *k, MyErr *e) {
     int rc = conn_read_packet(c, &p, &n, e);
     if (rc) return rc;
     if (n > 0 && p[0] == 0xff) {
-        err_from_packet(e, p, n, 0);
+        if (!err_from_packet(e, p, n, 0))
+            return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
         return (int)e->code;
     }
     Rd r = { p, n, 0, 0 };
@@ -1682,13 +1706,15 @@ static int parse_column(MyMeta *m, MyCol *col, const uint8_t *p, size_t n) {
     if (r.bad || !meta_put(m, str, len, &col->name, &col->name_len)) return 0;
     str = rd_lenstr(&r, &len);
     if (r.bad || !meta_put(m, str, len, &col->org_name, &col->org_name_len)) return 0;
-    (void)rd_lenenc(&r, NULL);                       /* length of fixed fields */
+    uint64_t fixed_len = rd_lenenc(&r, NULL);
+    if (r.bad || fixed_len != 0x0c) return 0;
     col->charset = rd_u16(&r);
     col->length = rd_u32(&r);
     col->type = rd_u8(&r);
     col->flags = rd_u16(&r);
     col->decimals = rd_u8(&r);
-    return !r.bad;
+    rd_skip(&r, 2);                                  /* filler */
+    return !r.bad && r.i == n;
 }
 
 /* Build column metadata from length-prefixed definition packets. */
@@ -1811,7 +1837,9 @@ static int64_t binary_value_len(uint8_t type, const uint8_t *p, size_t n, size_t
         case T_NEWDATE: case T_DATETIME2: case T_TIMESTAMP2: case T_TIME2:
             if (n < 1) return -1;
             *skip = 1;
-            return p[0];
+            if (type == T_TIME || type == T_TIME2)
+                return p[0] == 0 || p[0] == 8 || p[0] == 12 ? p[0] : -1;
+            return p[0] == 0 || p[0] == 4 || p[0] == 7 || p[0] == 11 ? p[0] : -1;
         default: {
             Rd r = { p, n, 0, 0 };
             uint64_t len = rd_lenenc(&r, NULL);
@@ -1887,7 +1915,8 @@ static int read_results(MyConn *c, MyResult *res, int binary, int discard,
             if (!s) return conn_fail(c, e, IRON_ERR_MYSQL_NO_MEMORY);
             if (!parse_ok(c, p, n, s)) return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
         } else if (p[0] == 0xff) {
-            err_from_packet(e, p, n, c->caps);
+            if (!err_from_packet(e, p, n, c->caps))
+                return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
             return 0;
         } else if (p[0] == 0xfb) {
             /* LOCAL INFILE request: refuse by sending an empty packet, then
@@ -1898,7 +1927,10 @@ static int read_results(MyConn *c, MyResult *res, int binary, int discard,
             if (rc) return rc;
             rc = conn_read_packet(c, &p, &n, e);
             if (rc) return rc;
-            if (n > 0 && p[0] == 0xff) err_from_packet(e, p, n, c->caps);
+            if (n > 0 && p[0] == 0xff) {
+                if (!err_from_packet(e, p, n, c->caps))
+                    return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
+            }
             else if (n > 0 && p[0] == 0x00) parse_ok(c, p, n, NULL);
             if (!e->code) err_set(e, IRON_ERR_MYSQL_LOCAL_INFILE);
             if (!(c->status & SERVER_MORE_RESULTS_EXISTS)) return 0;
@@ -1906,7 +1938,8 @@ static int read_results(MyConn *c, MyResult *res, int binary, int discard,
         } else {
             Rd r = { p, n, 0, 0 };
             uint64_t ncols = rd_lenenc(&r, NULL);
-            if (r.bad || ncols == 0 || ncols > 4096) return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
+            if (r.bad || r.i != n || ncols == 0 || ncols > 4096)
+                return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
             MySet scratch;
             set_init(&scratch);
             MySet *s = discard ? &scratch : result_add_set(res);
@@ -1926,7 +1959,10 @@ static int read_results(MyConn *c, MyResult *res, int binary, int discard,
                     break;
                 }
                 if (n > 0 && p[0] == 0xff) {
-                    err_from_packet(e, p, n, c->caps);
+                    if (!err_from_packet(e, p, n, c->caps)) {
+                        if (discard) set_free(&scratch);
+                        return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
+                    }
                     if (discard) set_free(&scratch);
                     return 0;
                 }
@@ -2037,7 +2073,8 @@ static int simple_command(MyConn *c, uint8_t cmd, const char *arg, size_t arg_le
     rc = conn_read_packet(c, &p, &n, e);
     if (rc) return rc;
     if (n > 0 && p[0] == 0xff) {
-        err_from_packet(e, p, n, c->caps);
+        if (!err_from_packet(e, p, n, c->caps))
+            return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
         return (int)e->code;
     }
     if (n == 0 || p[0] != 0x00 || !parse_ok(c, p, n, NULL))
@@ -2065,10 +2102,11 @@ static int prepare_stmt(MyConn *c, const char *sql, size_t len, MyPrep *out, MyE
     rc = conn_read_packet(c, &p, &n, e);
     if (rc) return rc;
     if (n > 0 && p[0] == 0xff) {
-        err_from_packet(e, p, n, c->caps);
+        if (!err_from_packet(e, p, n, c->caps))
+            return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
         return (int)e->code;
     }
-    if (n < 12 || p[0] != 0x00) return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
+    if (n != 12 || p[0] != 0x00) return conn_fail(c, e, IRON_ERR_MYSQL_PROTOCOL);
     out->id = rd32(p + 1);
     out->ncols = rd16(p + 5);
     out->nparams = rd16(p + 7);
@@ -3893,4 +3931,313 @@ int64_t Iron_mysqlnative_pool_info(int64_t h, int64_t what) {
     int64_t v = what == 0 ? p->total : what == 1 ? p->nidle : what == 2 ? p->in_use : 0;
     iron_mutex_unlock(&p->lock);
     return v;
+}
+
+/* ── Debugger summaries ─────────────────────────────────────────────────────
+ * What the debugger formatters (src/debug) show for a MysqlResult, a
+ * MysqlConn and a MysqlPool, whose Iron objects hold only a handle: called
+ * by the debugger while the program is stopped. The text lives in a
+ * per-thread buffer until the next call. kind: 0 result, 1 connection,
+ * 2 pool. */
+static void dbg_put(char *out, size_t cap, size_t *n, const char *s, size_t len) {
+    if (*n >= cap - 1) return;
+    size_t room = cap - 1 - *n;
+    if (len > room) len = room;
+    memcpy(out + *n, s, len);
+    *n += len;
+    out[*n] = 0;
+}
+
+__attribute__((used)) const char *iron_mysql_debug_text(int64_t h, int64_t kind) {
+    static _Thread_local char out[1024];
+    size_t n = 0;
+    char tmp[256];
+    out[0] = 0;
+    if (!h) return "null";
+    if (kind == 0) {
+        MyResult *r = AS_RES(h);
+        MySet *s = cur_set(r);
+        if (r->err.code != 0) {
+            snprintf(tmp, sizeof(tmp), "error %lld: %s", (long long)r->err.code, r->err.message);
+            dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+            return out;
+        }
+        if (!s) return "no result set";
+        snprintf(tmp, sizeof(tmp), "%llu rows x %u columns",
+                 (unsigned long long)s->nrows, (unsigned)s->ncols);
+        dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+        if (s->ncols) {
+            const uint8_t *strs = set_strings(s);
+            dbg_put(out, sizeof(out), &n, " (", 2);
+            for (uint32_t c = 0; c < s->ncols && strs; c++) {
+                if (c) dbg_put(out, sizeof(out), &n, ", ", 2);
+                dbg_put(out, sizeof(out), &n, (const char *)strs + s->cols[c].name,
+                        s->cols[c].name_len);
+            }
+            dbg_put(out, sizeof(out), &n, ")", 1);
+        }
+        if (!s->ncols && s->affected) {
+            snprintf(tmp, sizeof(tmp), ", %llu affected", (unsigned long long)s->affected);
+            dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+        }
+        /* The first rows. */
+        for (uint64_t row = 0; row < s->nrows && row < 3; row++) {
+            dbg_put(out, sizeof(out), &n, row ? ", [" : ": [", 3);
+            for (uint32_t c = 0; c < s->ncols; c++) {
+                if (c) dbg_put(out, sizeof(out), &n, ", ", 2);
+                Cell cell;
+                if (get_cell(r, (int64_t)row, (int64_t)c, &cell) != 0) {
+                    dbg_put(out, sizeof(out), &n, "null", 4);
+                    continue;
+                }
+                Iron_String t = cell_text(&cell);
+                size_t len = iron_string_byte_len(&t);
+                const char *p = iron_string_cstr(&t);
+                dbg_put(out, sizeof(out), &n, "\"", 1);
+                dbg_put(out, sizeof(out), &n, p, len > 40 ? 40 : len);
+                if (len > 40) dbg_put(out, sizeof(out), &n, "...", 3);
+                dbg_put(out, sizeof(out), &n, "\"", 1);
+                iron_string_release(&t);
+            }
+            dbg_put(out, sizeof(out), &n, "]", 1);
+        }
+        if (s->nrows > 3) dbg_put(out, sizeof(out), &n, ", ...", 5);
+        return out;
+    }
+    if (kind == 1) {
+        MyConn *c = AS_CONN(h);
+        snprintf(tmp, sizeof(tmp), "%s%s",
+                 c->open && !c->broken ? "open" : c->broken ? "broken" : "closed",
+                 c->tls ? " (TLS)" : "");
+        dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+        /* A connection that never reached a server has neither. */
+        if (c->version[0]) {
+            snprintf(tmp, sizeof(tmp), ", server %s, thread %u", c->version,
+                     (unsigned)c->thread_id);
+            dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+        }
+        if (c->err.code != 0) {
+            snprintf(tmp, sizeof(tmp), ", last error %lld: %s", (long long)c->err.code,
+                     c->err.message);
+            dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+        }
+        return out;
+    }
+    if (kind == 2) {
+        MyPool *p = AS_POOL(h);
+        snprintf(tmp, sizeof(tmp), "%d connections (%d idle, %d in use), min %lld, max %lld",
+                 p->total, p->nidle, p->in_use, (long long)p->min, (long long)p->max);
+        dbg_put(out, sizeof(out), &n, tmp, strlen(tmp));
+        return out;
+    }
+    return "";
+}
+
+/* ── In-process protocol transport ─────────────────────────────────────── */
+
+static void test_transport_init(MyConn *c, const uint8_t *wire, size_t wire_len,
+                                size_t read_size) {
+    c->test_transport = 1;
+    c->test_in = wire;
+    c->test_in_len = wire_len;
+    c->test_read_size = read_size ? read_size : wire_len;
+    c->deadline = deadline_after(5000);
+}
+
+Iron_MysqlError iron_mysql_test_read_packet(const uint8_t *wire, size_t wire_len,
+                                            size_t read_size, uint8_t first_sequence,
+                                            uint64_t max_packet,
+                                            Iron_MysqlTestBytes *payload) {
+    if (payload) memset(payload, 0, sizeof(*payload));
+    MyConn *c = conn_new();
+    if (!c) return iron_err_code(IRON_ERR_MYSQL_NO_MEMORY);
+    test_transport_init(c, wire, wire_len, read_size);
+    c->seq = first_sequence;
+    c->max_packet = max_packet;
+    MyErr e;
+    err_clear(&e);
+    const uint8_t *p = NULL;
+    size_t n = 0;
+    int rc = conn_read_packet(c, &p, &n, &e);
+    if (!rc && payload) {
+        payload->data = (uint8_t *)malloc(n ? n : 1);
+        if (!payload->data) err_set(&e, IRON_ERR_MYSQL_NO_MEMORY);
+        else {
+            if (n) memcpy(payload->data, p, n);
+            payload->len = n;
+        }
+    }
+    Iron_MysqlError out = err_to_iron(&e);
+    conn_unref(c);
+    return out;
+}
+
+Iron_MysqlError iron_mysql_test_decode_lenenc(const uint8_t *encoded, size_t encoded_len,
+                                              uint64_t *value, bool *is_null,
+                                              size_t *consumed) {
+    Rd r = { encoded, encoded_len, 0, 0 };
+    int null_value = 0;
+    uint64_t v = rd_lenenc(&r, &null_value);
+    if (value) *value = v;
+    if (is_null) *is_null = null_value != 0;
+    if (consumed) *consumed = r.i;
+    if (!r.bad) return err_to_iron(NULL);
+    return iron_err_code(IRON_ERR_MYSQL_PROTOCOL);
+}
+
+Iron_MysqlError iron_mysql_test_encode_lenenc(uint64_t value,
+                                              Iron_MysqlTestBytes *encoded) {
+    if (encoded) memset(encoded, 0, sizeof(*encoded));
+    MyBuf b = { 0 };
+    if (!buf_lenenc(&b, value)) return iron_err_code(IRON_ERR_MYSQL_NO_MEMORY);
+    if (encoded) {
+        encoded->data = b.p;
+        encoded->len = b.len;
+    } else {
+        buf_free(&b);
+    }
+    return err_to_iron(NULL);
+}
+
+int64_t iron_mysql_test_decode_result(const uint8_t *wire, size_t wire_len,
+                                      size_t read_size, uint32_t capabilities,
+                                      uint8_t first_sequence, bool binary) {
+    MyResult *res = result_new();
+    MyConn *c = conn_new();
+    if (!res || !c) {
+        if (res) result_destroy(res);
+        if (c) conn_unref(c);
+        return HANDLE(closed_result(IRON_ERR_MYSQL_NO_MEMORY));
+    }
+    test_transport_init(c, wire, wire_len, read_size);
+    c->open = 1;
+    c->caps = capabilities;
+    c->seq = first_sequence;
+    (void)read_results(c, res, binary ? 1 : 0, 0, NULL);
+    conn_unref(c);
+    return HANDLE(res);
+}
+
+Iron_MysqlError iron_mysql_test_handshake(const uint8_t *wire, size_t wire_len,
+                                          size_t read_size,
+                                          Iron_MysqlConfig config,
+                                          Iron_MysqlTestBytes *written) {
+    if (written) memset(written, 0, sizeof(*written));
+    MyCfg k;
+    if (!cfg_from_iron(&k, &config)) return iron_err_code(IRON_ERR_MYSQL_NO_MEMORY);
+    MyConn *c = conn_new();
+    if (!c) {
+        cfg_free(&k);
+        return iron_err_code(IRON_ERR_MYSQL_NO_MEMORY);
+    }
+    test_transport_init(c, wire, wire_len, read_size);
+    c->timeout_ms = k.timeout;
+    c->max_packet = k.max_packet > 0 ? (uint64_t)k.max_packet : 1073741824u;
+    MyErr e;
+    err_clear(&e);
+    (void)conn_handshake(c, &k, &e);
+    if (written) {
+        written->data = c->test_out.p;
+        written->len = c->test_out.len;
+        memset(&c->test_out, 0, sizeof(c->test_out));
+    }
+    Iron_MysqlError out = err_to_iron(&e);
+    conn_unref(c);
+    cfg_free(&k);
+    return out;
+}
+
+Iron_MysqlError iron_mysql_test_encode_params(const Iron_MysqlValueList *params,
+                                              Iron_MysqlTestBytes *encoded) {
+    if (encoded) memset(encoded, 0, sizeof(*encoded));
+    MyErr e;
+    err_clear(&e);
+    if (!params || params->count < 0 || params->count > UINT16_MAX ||
+        (params->count && !params->items)) {
+        err_set(&e, IRON_ERR_MYSQL_INVALID_ARGUMENT);
+        return err_to_iron(&e);
+    }
+    MyBuf out = { 0 }, values = { 0 };
+    size_t count = (size_t)params->count;
+    size_t bitmap_len = (count + 7) / 8;
+    if (!buf_reserve(&out, bitmap_len + 1 + count * 2)) goto oom;
+    memset(out.p, 0, bitmap_len);
+    out.len = bitmap_len;
+    if (!buf_u8(&out, 1)) goto oom;             /* new-params-bound flag */
+    size_t types_at = out.len;
+    for (size_t i = 0; i < count; i++) if (!buf_u16(&out, 0)) goto oom;
+    for (size_t i = 0; i < count; i++) {
+        uint8_t type, flag;
+        int ok = bind_value(&values, &params->items[i], &type, &flag);
+        if (ok < 0) {
+            err_setf(&e, IRON_ERR_MYSQL_INVALID_ARGUMENT,
+                     "parameter %u has an out of range date or time", (unsigned)i + 1);
+            goto done;
+        }
+        if (!ok) goto oom;
+        if (params->items[i].tag == Iron_MysqlValue_TAG_Null)
+            out.p[i / 8] |= (uint8_t)(1u << (i % 8));
+        out.p[types_at + 2 * i] = type;
+        out.p[types_at + 2 * i + 1] = flag;
+    }
+    if (!buf_put(&out, values.p, values.len)) goto oom;
+    if (encoded) {
+        encoded->data = out.p;
+        encoded->len = out.len;
+        memset(&out, 0, sizeof(out));
+    }
+    goto done;
+oom:
+    err_set(&e, IRON_ERR_MYSQL_NO_MEMORY);
+done:
+    buf_free(&out);
+    buf_free(&values);
+    return err_to_iron(&e);
+}
+
+int64_t iron_mysql_test_statement_exchange(const uint8_t *wire, size_t wire_len,
+                                           size_t read_size, const char *sql,
+                                           size_t sql_len,
+                                           const Iron_MysqlValueList *params,
+                                           Iron_MysqlTestBytes *written) {
+    if (written) memset(written, 0, sizeof(*written));
+    MyResult *res = result_new();
+    MyConn *c = conn_new();
+    if (!res || !c) {
+        if (res) result_destroy(res);
+        if (c) conn_unref(c);
+        return closed_result(IRON_ERR_MYSQL_NO_MEMORY);
+    }
+    test_transport_init(c, wire, wire_len, read_size);
+    c->open = 1;
+    c->caps = CLIENT_PROTOCOL_41 | CLIENT_DEPRECATE_EOF;
+    MyPrep prep;
+    MyErr e;
+    err_clear(&e);
+    int rc = prepare_stmt(c, sql, sql_len, &prep, &e);
+    if (!rc) rc = execute_stmt(c, &prep, params, res);
+    if (!rc) {
+        queue_stmt_close(c, prep.id);
+        MyErr ping_error;
+        err_clear(&ping_error);
+        rc = simple_command(c, COM_PING, "", 0, &ping_error);
+        if (rc) res->err = ping_error;
+    } else if (!res->err.code) {
+        res->err = e;
+    }
+    prep_free(&prep);
+    if (written) {
+        written->data = c->test_out.p;
+        written->len = c->test_out.len;
+        memset(&c->test_out, 0, sizeof(c->test_out));
+    }
+    conn_unref(c);
+    return HANDLE(res);
+}
+
+void iron_mysql_test_bytes_free(Iron_MysqlTestBytes *bytes) {
+    if (!bytes) return;
+    free(bytes->data);
+    bytes->data = NULL;
+    bytes->len = 0;
 }

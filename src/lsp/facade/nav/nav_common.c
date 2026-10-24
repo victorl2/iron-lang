@@ -82,6 +82,7 @@ static void attach_range_local(yyjson_mut_doc *d, yyjson_mut_val *parent,
 static IronLsp_Position endpoint_to_lsp(const char *text, size_t text_len,
                                          const IronLsp_LineIndex *idx,
                                          uint32_t iron_line, uint32_t iron_col,
+                                         bool exclusive_end,
                                          IronLsp_PositionEncoding enc) {
     IronLsp_Position p = { .line = 0, .character = 0 };
     if (iron_line == 0) return p;
@@ -101,8 +102,12 @@ static IronLsp_Position endpoint_to_lsp(const char *text, size_t text_len,
     while (line_end < text_len && text[line_end] != '\n') line_end++;
     size_t line_len = line_end - line_start;
 
-    /* iron_col is 1-based byte offset into the line. */
-    size_t byte_in_line = (iron_col > 0) ? (iron_col - 1) : 0;
+    /* Iron spans use an inclusive 1-based end column, while LSP ranges
+     * use an exclusive 0-based end.  Starts therefore subtract one and
+     * ends do not.  Keep this in lockstep with facade/span.c. */
+    size_t byte_in_line = iron_col > 0
+                            ? (exclusive_end ? iron_col : iron_col - 1)
+                            : 0;
     if (byte_in_line > line_len) byte_in_line = line_len;
 
     const char *line_text = text + line_start;
@@ -126,13 +131,12 @@ IronLsp_Range ilsp_nav_span_to_range_via_lineidx(
     IronLsp_PositionEncoding        enc) {
     IronLsp_Range r = { {0, 0}, {0, 0} };
     if (!text || text_len == 0) return r;
-    /* Mirror facade/span.c: convert each endpoint identically (end_col
-     * is treated as 1-based byte-offset, matching the Iron_Span
-     * contract used throughout the compiler). */
+    /* Mirror facade/span.c, including its inclusive-Iron to
+     * exclusive-LSP conversion for the end point. */
     r.start = endpoint_to_lsp(text, text_len, idx,
-                               span.line, span.col, enc);
+                               span.line, span.col, false, enc);
     r.end = endpoint_to_lsp(text, text_len, idx,
-                             span.end_line, span.end_col, enc);
+                             span.end_line, span.end_col, true, enc);
     /* Unset end_line collapses range to zero-width at start. */
     if (span.end_line == 0 && span.line != 0) {
         r.end = r.start;
@@ -613,7 +617,15 @@ static void occ_push(OccCtx *c, size_t off, const Iron_Node *decl, const char *n
 static size_t occ_member(const IronLsp_Document *doc, const Iron_Node *object,
                          const char *name) {
     if (!object || object->span.line == 0 || !name) return SIZE_MAX;
-    size_t i = occ_offset(doc, object->span.end_line, object->span.end_col);
+    size_t i = SIZE_MAX;
+    if (object->kind == IRON_NODE_FIELD_ACCESS) {
+        /* `a.b.c`: the object `a.b` ends with its own member name (its span
+         * does not always reach it). */
+        const Iron_FieldAccess *inner = (const Iron_FieldAccess *)object;
+        size_t m = inner->field ? occ_member(doc, inner->object, inner->field) : SIZE_MAX;
+        if (m != SIZE_MAX) i = m + strlen(inner->field) - 1;
+    }
+    if (i == SIZE_MAX) i = occ_offset(doc, object->span.end_line, object->span.end_col);
     if (i == SIZE_MAX) return SIZE_MAX;
     i++;
     while (i < doc->text_len && (doc->text[i] == ' ' || doc->text[i] == '\t' ||

@@ -1,0 +1,3 @@
+'pick' does not change self: declare it `readonly func pick(...)`
+declare 'h2' with var instead of val
+readonly method 'Picker.choose[func(Int) -> Int]' return type 'func(Int) -> Int' is not readonly-compatible

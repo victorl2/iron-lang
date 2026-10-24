@@ -10,7 +10,8 @@ expected output with a small model of the construct while it generates.
 ProbeGen has the shape prog_fuzz expects of a generator (render, model,
 funcs, mainblock), so the reducer deletes probes and statements as usual.
 """
-from pf_lang import Block, Stmt, Expected, Bail, iron_str  # noqa: F401
+from pf_lang import (Block, Stmt, Expected, Bail, iron_str,
+                     fuzz_identifier)  # noqa: F401
 
 
 class Probe(Stmt):
@@ -48,11 +49,12 @@ class ProbeGen:
         self.imports = []
         self.mainblock = Block([])
         self.n = 0
+        self.generated_names = set()
         self.leaks_ok = False
 
     def fresh(self, p='v'):
         self.n += 1
-        return f'{p}{self.n}'
+        return fuzz_identifier(self.r, f'{p}{self.n}', self.generated_names)
 
     def need(self, key, text):
         """A top-level declaration (text: a string of lines), once."""

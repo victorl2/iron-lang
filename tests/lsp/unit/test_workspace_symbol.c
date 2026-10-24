@@ -9,8 +9,8 @@
  *   2. overlong query is rejected with an empty result (T-03-07).
  *   3. empty query / no workspace_index -> empty result.
  *   4. path-prefix filter narrows results via '/' split.
- *   5. queries hold the index lock while reading entry-owned ASTs.
- *   6. an open document replaces the saved workspace-index generation.
+ *   5. modified open documents do not expose stale indexed symbols.
+ *   6. open documents replace indexed symbols and report current ranges.
  */
 #include "unity.h"
 
@@ -28,8 +28,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
-#include <time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include "support/posix_test.h"
@@ -66,6 +64,11 @@ static void make_tmp_workspace(char *out_root, size_t cap) {
         "func writer()  {}\n");
     write_file(utilp,
         "func helper() {}\n");
+
+    char stalep[512];
+    snprintf(stalep, sizeof(stalep), "%s/stale.iron", dir);
+    write_file(stalep,
+        "pub func old_symbol_with_long_name() {}\n");
 }
 
 static void rm_tree(const char *root) {
@@ -185,84 +188,78 @@ static void test_path_prefix_filter(void) {
     fx_destroy(&f);
 }
 
-/* ── Test 05: entry generation is pinned during a query ───────── */
+/* -- Test 05: edited open document suppresses stale index entry -- */
 
-typedef struct {
-    IronLsp_Server *server;
-    Iron_Arena     *arena;
-    _Atomic bool    started;
-    _Atomic bool    done;
-    size_t          result_count;
-} query_thread_ctx_t;
-
-static void *workspace_symbol_thread(void *opaque) {
-    query_thread_ctx_t *ctx = (query_thread_ctx_t *)opaque;
-    IronLsp_WorkspaceSymbol *out = NULL;
-    atomic_store(&ctx->started, true);
-    ilsp_facade_nav_workspace_symbol(ctx->server, "gret", NULL, ctx->arena,
-                                      &out, &ctx->result_count);
-    atomic_store(&ctx->done, true);
-    return NULL;
-}
-
-static void test_query_holds_index_lock_while_reading_entries(void) {
+static void test_modified_open_document_suppresses_stale_symbols(void) {
     fx_t f; fx_init(&f);
+
+    char uri[600];
+    snprintf(uri, sizeof(uri), "file://%s/main.iron", f.root);
+    const char *disk_text =
+        "pub func greeter() {}\n"
+        "func reader()  {}\n"
+        "func writer()  {}\n";
+    IronLsp_Document *doc = ilsp_document_create(
+        uri, disk_text, strlen(disk_text), 1);
+    TEST_ASSERT_NOT_NULL(doc);
+    sh_new_strdup(f.server.documents);
+    shput(f.server.documents, uri, doc);
+
     Iron_Arena arena = iron_arena_create(16 * 1024);
-    query_thread_ctx_t ctx = {
-        .server = &f.server,
-        .arena = &arena,
-        .started = false,
-        .done = false,
-        .result_count = 0,
-    };
-    pthread_t thread;
+    IronLsp_WorkspaceSymbol *out = NULL;
+    size_t n = 0;
+    ilsp_facade_nav_workspace_symbol(&f.server, "gret", NULL, &arena,
+                                       &out, &n);
+    TEST_ASSERT_GREATER_OR_EQUAL_size_t(1, n);
+    iron_arena_free(&arena);
 
-    /* Holding the index lock must prevent the query from reading an AST.
-     * Without that discipline, watched-file invalidation can free the AST
-     * or replace its line index between scoring and range conversion. */
-    IRON_MUTEX_LOCK(f.wi->lock);
-    TEST_ASSERT_EQUAL_INT(0, pthread_create(&thread, NULL,
-                                            workspace_symbol_thread, &ctx));
-    while (!atomic_load(&ctx.started)) {
-        struct timespec wait = { .tv_sec = 0, .tv_nsec = 1000000 };
-        nanosleep(&wait, NULL);
-    }
-    struct timespec allow_query = { .tv_sec = 0, .tv_nsec = 20000000 };
-    nanosleep(&allow_query, NULL);
-    TEST_ASSERT_FALSE(atomic_load(&ctx.done));
-    IRON_MUTEX_UNLOCK(f.wi->lock);
+    const char *edited_text = "pub func x() {}\n";
+    TEST_ASSERT_TRUE(ilsp_document_apply_full_replace(
+        doc, edited_text, strlen(edited_text), 2));
 
-    TEST_ASSERT_EQUAL_INT(0, pthread_join(thread, NULL));
-    TEST_ASSERT_TRUE(atomic_load(&ctx.done));
-    TEST_ASSERT_GREATER_OR_EQUAL_size_t(1, ctx.result_count);
+    arena = iron_arena_create(16 * 1024);
+    out = NULL;
+    n = 0;
+    ilsp_facade_nav_workspace_symbol(&f.server, "gret", NULL, &arena,
+                                       &out, &n);
+    TEST_ASSERT_EQUAL_size_t(0, n);
 
     iron_arena_free(&arena);
     fx_destroy(&f);
 }
 
-/* ── Test 06: open text supersedes the saved index entry ──────── */
-
-static void test_open_document_symbols_use_current_text(void) {
+/* Open buffers override disk-backed index entries (#832). */
+static void test_open_document_overlays_saved_workspace_symbol(void) {
     fx_t f; fx_init(&f);
+
     char uri[600];
-    snprintf(uri, sizeof(uri), "file://%s/main.iron", f.root);
-    const char *current = "pub func g() {}\n";
+    snprintf(uri, sizeof(uri), "file://%s/stale.iron", f.root);
+    const char *current = "pub func fresh() {}\n";
     IronLsp_Document *doc = ilsp_document_create(
         uri, current, strlen(current), 2);
     TEST_ASSERT_NOT_NULL(doc);
     sh_new_strdup(f.server.documents);
-    shput(f.server.documents, doc->uri, doc);
+    shput(f.server.documents, uri, doc);
 
     Iron_Arena arena = iron_arena_create(64 * 1024);
     IronLsp_WorkspaceSymbol *out = NULL;
     size_t n = 0;
-    ilsp_facade_nav_workspace_symbol(&f.server, "g", NULL, &arena, &out, &n);
+    ilsp_facade_nav_workspace_symbol(
+        &f.server, "old_symbol_with_long_name", NULL, &arena, &out, &n);
+    TEST_ASSERT_EQUAL_size_t(0, n);
 
+    iron_arena_free(&arena);
+    arena = iron_arena_create(64 * 1024);
+    out = NULL;
+    n = 0;
+    ilsp_facade_nav_workspace_symbol(
+        &f.server, "fresh", NULL, &arena, &out, &n);
     TEST_ASSERT_EQUAL_size_t(1, n);
-    TEST_ASSERT_EQUAL_STRING("g", out[0].name);
+    TEST_ASSERT_EQUAL_STRING("fresh", out[0].name);
     TEST_ASSERT_EQUAL_UINT32(0, out[0].range.start.line);
-    TEST_ASSERT_LESS_OR_EQUAL_UINT32((uint32_t)strlen("pub func g() {}"),
-                                     out[0].range.end.character);
+    TEST_ASSERT_EQUAL_UINT32(0, out[0].range.end.line);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(
+        (uint32_t)(strlen(current) - 1), out[0].range.end.character);
 
     iron_arena_free(&arena);
     fx_destroy(&f);
@@ -274,7 +271,7 @@ int main(void) {
     RUN_TEST(test_query_too_long_returns_empty);
     RUN_TEST(test_no_workspace_index_empty);
     RUN_TEST(test_path_prefix_filter);
-    RUN_TEST(test_query_holds_index_lock_while_reading_entries);
-    RUN_TEST(test_open_document_symbols_use_current_text);
+    RUN_TEST(test_modified_open_document_suppresses_stale_symbols);
+    RUN_TEST(test_open_document_overlays_saved_workspace_symbol);
     return UNITY_END();
 }

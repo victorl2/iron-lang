@@ -37,6 +37,10 @@ func check(cond: Bool, what: String) {
     }
 }
 
+func twice(f: func() -> Int) -> Int {
+    return f() + f()
+}
+
 func main() {
     val url = OS.env_or("IRON_MYSQL_URL", "")
     if url == "" {
@@ -51,12 +55,19 @@ func main() {
     if conn.error.failed() {
         return
     }
+    -- A var nocopy connection is shared through its counted cell, while val
+    -- results and statements are borrowed by direct lambda arguments (#512).
+    val conn_id = func() -> Int { return conn.connection_id() }
+    check(conn_id() > 0, "captured connection remains live")
+    val observed_stmt = conn.prepare("SELECT ?")
+    check(twice(func() -> Int { return observed_stmt.param_count() }) == 2, "borrow captured statement")
     conn.run("DROP TABLE IF EXISTS iron_q")
     check(conn.run("CREATE TABLE iron_q (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(50) UNIQUE, n INT)").ok(), "create table")
 
     -- OK packet: affected rows, insert id, info, warnings.
     val ins = conn.query("INSERT INTO iron_q (name, n) VALUES ('a', 1), ('b', 2), ('c', 3)")
     check(ins.ok() and ins.affected_rows() == 3 and ins.last_insert_id() == 1, "multi-row insert: affected {ins.affected_rows()} id {ins.last_insert_id()}")
+    check(twice(func() -> Int { return ins.affected_rows() }) == 6, "borrow captured result")
     check(ins.info().contains("Records: 3"), "insert info: {ins.info()}")
     check(ins.row_count() == 0 and ins.column_count() == 0, "insert has no rows")
     val upd = conn.exec("UPDATE iron_q SET n = n + ? WHERE n >= ?", [MysqlValue.Int(10), MysqlValue.Int(2)])

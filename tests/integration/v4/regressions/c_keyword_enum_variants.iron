@@ -1,0 +1,120 @@
+-- Every C23 keyword spelling that is legal in Iron remains usable as an enum variant.
+enum CKeywordVariants {
+    _Alignas = 1,
+    _Alignof = 2,
+    _Atomic = 3,
+    _BitInt = 4,
+    _Bool = 5,
+    _Complex = 6,
+    _Decimal128 = 7,
+    _Decimal32 = 8,
+    _Decimal64 = 9,
+    _Generic = 10,
+    _Imaginary = 11,
+    _Noreturn = 12,
+    _Static_assert = 13,
+    _Thread_local = 14,
+    alignas = 15,
+    alignof = 16,
+    and_eq = 17,
+    asm = 18,
+    auto = 19,
+    bitand = 20,
+    bitor = 21,
+    bool = 22,
+    case = 23,
+    char = 24,
+    compl = 25,
+    const = 26,
+    constexpr = 27,
+    default = 28,
+    do = 29,
+    double = 30,
+    float = 31,
+    goto = 32,
+    inline = 33,
+    int = 34,
+    long = 35,
+    not_eq = 36,
+    nullptr = 37,
+    or_eq = 38,
+    register = 39,
+    restrict = 40,
+    short = 41,
+    signed = 42,
+    sizeof = 43,
+    static_assert = 44,
+    struct = 45,
+    switch = 46,
+    thread_local = 47,
+    typedef = 48,
+    typeof = 49,
+    typeof_unqual = 50,
+    union = 51,
+    unsigned = 52,
+    void = 53,
+    volatile = 54,
+    xor = 55,
+    xor_eq = 56,
+    _Pragma = 57,
+}
+
+func main() {
+    println("{CKeywordVariants._Alignas}")
+    println("{CKeywordVariants._Alignof}")
+    println("{CKeywordVariants._Atomic}")
+    println("{CKeywordVariants._BitInt}")
+    println("{CKeywordVariants._Bool}")
+    println("{CKeywordVariants._Complex}")
+    println("{CKeywordVariants._Decimal128}")
+    println("{CKeywordVariants._Decimal32}")
+    println("{CKeywordVariants._Decimal64}")
+    println("{CKeywordVariants._Generic}")
+    println("{CKeywordVariants._Imaginary}")
+    println("{CKeywordVariants._Noreturn}")
+    println("{CKeywordVariants._Static_assert}")
+    println("{CKeywordVariants._Thread_local}")
+    println("{CKeywordVariants.alignas}")
+    println("{CKeywordVariants.alignof}")
+    println("{CKeywordVariants.and_eq}")
+    println("{CKeywordVariants.asm}")
+    println("{CKeywordVariants.auto}")
+    println("{CKeywordVariants.bitand}")
+    println("{CKeywordVariants.bitor}")
+    println("{CKeywordVariants.bool}")
+    println("{CKeywordVariants.case}")
+    println("{CKeywordVariants.char}")
+    println("{CKeywordVariants.compl}")
+    println("{CKeywordVariants.const}")
+    println("{CKeywordVariants.constexpr}")
+    println("{CKeywordVariants.default}")
+    println("{CKeywordVariants.do}")
+    println("{CKeywordVariants.double}")
+    println("{CKeywordVariants.float}")
+    println("{CKeywordVariants.goto}")
+    println("{CKeywordVariants.inline}")
+    println("{CKeywordVariants.int}")
+    println("{CKeywordVariants.long}")
+    println("{CKeywordVariants.not_eq}")
+    println("{CKeywordVariants.nullptr}")
+    println("{CKeywordVariants.or_eq}")
+    println("{CKeywordVariants.register}")
+    println("{CKeywordVariants.restrict}")
+    println("{CKeywordVariants.short}")
+    println("{CKeywordVariants.signed}")
+    println("{CKeywordVariants.sizeof}")
+    println("{CKeywordVariants.static_assert}")
+    println("{CKeywordVariants.struct}")
+    println("{CKeywordVariants.switch}")
+    println("{CKeywordVariants.thread_local}")
+    println("{CKeywordVariants.typedef}")
+    println("{CKeywordVariants.typeof}")
+    println("{CKeywordVariants.typeof_unqual}")
+    println("{CKeywordVariants.union}")
+    println("{CKeywordVariants.unsigned}")
+    println("{CKeywordVariants.void}")
+    println("{CKeywordVariants.volatile}")
+    println("{CKeywordVariants.xor}")
+    println("{CKeywordVariants.xor_eq}")
+    println("{CKeywordVariants._Pragma}")
+}

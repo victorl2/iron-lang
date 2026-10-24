@@ -206,6 +206,22 @@ static DWORD WINAPI iron_thread_proc(void *p) {
     fn(arg);
     return 0;
 }
+uint64_t iron_thread_os_id(void) { return (uint64_t)GetCurrentThreadId(); }
+
+void iron_thread_set_name(const char *name) {
+    /* SetThreadDescription is Windows 10 1607 and later: looked up, so
+     * older systems still run the program. */
+    typedef HRESULT (WINAPI *set_desc_fn)(HANDLE, PCWSTR);
+    HMODULE k = GetModuleHandleW(L"kernel32.dll");
+    set_desc_fn set_desc = k ? (set_desc_fn)(void (*)(void))GetProcAddress(k, "SetThreadDescription")
+                             : NULL;
+    if (!set_desc || !name) return;
+    wchar_t wide[128];
+    if (MultiByteToWideChar(CP_UTF8, 0, name, -1, wide, 128) <= 0) return;
+    wide[127] = 0;
+    set_desc(GetCurrentThread(), wide);
+}
+
 int iron_thread_create(iron_thread_t *t, void *(*fn)(void *), void *arg) {
     iron_thread_start *start = (iron_thread_start *)malloc(sizeof(*start));
     if (!start) return -1;
@@ -261,6 +277,38 @@ _Static_assert(sizeof(pthread_t) <= sizeof(uintptr_t), "iron_thread_t storage");
 #define MUTEX(m)  ((pthread_mutex_t *)(m)->opaque)
 #define COND(c)   ((pthread_cond_t *)(c)->opaque)
 #define RWLOCK(l) ((pthread_rwlock_t *)(l)->opaque)
+
+#if defined(__linux__)
+int pthread_setname_np(pthread_t thread, const char *name);
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
+
+uint64_t iron_thread_os_id(void) {
+#if defined(__APPLE__)
+    uint64_t id = 0;
+    pthread_threadid_np(NULL, &id);
+    return id;
+#elif defined(__linux__)
+    return (uint64_t)syscall(SYS_gettid);
+#else
+    return (uint64_t)(uintptr_t)pthread_self();
+#endif
+}
+
+void iron_thread_set_name(const char *name) {
+    if (!name) return;
+#if defined(__APPLE__)
+    pthread_setname_np(name);
+#elif defined(__linux__)
+    char buf[16];   /* the kernel keeps 15 bytes and the terminator */
+    size_t n = strlen(name);
+    if (n > 15) n = 15;
+    memcpy(buf, name, n);
+    buf[n] = 0;
+    pthread_setname_np(pthread_self(), buf);
+#endif
+}
 
 typedef struct { void *(*fn)(void *); void *arg; } iron_thread_start;
 

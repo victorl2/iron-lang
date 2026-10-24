@@ -1,0 +1,150 @@
+-- comptime evaluates & | ^ ~ << >> and the numeric conversions with the
+-- run-time semantics of each integer width (wrapping, unsigned compare and
+-- division, shift counts of the width or more, saturating float to int):
+-- every compile-time result equals the same call at run time, and tables
+-- computed at compile time (powers of ten, character classes) match.
+
+func mix(a: Int, b: Int) -> Int {
+    var h = 0
+    h = h ^ (a & b)
+    h = h ^ ((a | b) << 3)
+    h = h ^ (a >> 7)
+    h = h ^ (~b)
+    h = h ^ (a << 63)
+    h = h ^ (a << 64)
+    h = h ^ (a >> 64)
+    h = h ^ (b >> 63)
+    h = h ^ (a << ((b % 70 + 70) % 70))
+    return h
+}
+
+func umix(a: UInt64, b: UInt64) -> UInt64 {
+    var h: UInt64 = 1469598103934665603
+    h = (h ^ a) * 1099511628211
+    h = h ^ (b >> 33)
+    h = h ^ (b << 7)
+    h = h ^ (h >> 64)
+    h = h ^ (~a)
+    if a > b {
+        h = h + a / (b | 1)
+    } else {
+        h = h + a % (b | 1)
+    }
+    return h
+}
+
+func nmix(a: Int8, b: UInt8, c: Int16, d: UInt32) -> Int {
+    val x: Int8 = a << 3
+    val y: UInt8 = b << 5
+    val z: Int8 = a >> 9
+    val w: UInt8 = ~b
+    val v: Int16 = c * 300
+    val u: UInt32 = d << 31
+    val t: UInt32 = d >> 32
+    val s: Int8 = a + 100
+    var r = Int(x) * 1000003 + Int(y) * 7 + Int(z) * 11 + Int(w) * 13
+    r = r + Int(v) * 17 + Int(u) + Int(t) * 19 + Int(s) * 23
+    r = r ^ Int(UInt8(a)) ^ Int(Int8(b)) ^ Int(UInt16(c)) ^ Int(Int32(d))
+    return r
+}
+
+func shift_edges(k: Int, huge: UInt64) -> Int {
+    val i8: Int8 = -3
+    val u8: UInt8 = 129
+    val i16: Int16 = -12345
+    val u16: UInt16 = 40000
+    val i32: Int32 = -2000000001
+    val u32: UInt32 = 4000000000
+    val i64: Int = -9000000000000000001
+    val u64: UInt64 = 18000000000000000001
+    var h = Int(i8 << (7 + k))
+    h = h * 31 + Int(i8 << (8 + k))
+    h = h * 31 + Int(i8 >> (8 + k))
+    h = h * 31 + Int(u8 >> (8 + k))
+    h = h * 31 + Int(i16 << (15 + k))
+    h = h * 31 + Int(i16 << (16 + k))
+    h = h * 31 + Int(i16 >> (16 + k))
+    h = h * 31 + Int(u16 >> (16 + k))
+    h = h * 31 + Int(i32 << (31 + k))
+    h = h * 31 + Int(i32 << (32 + k))
+    h = h * 31 + Int(i32 >> (32 + k))
+    h = h * 31 + Int(u32 >> (32 + k))
+    h = h * 31 + (i64 << (63 + k))
+    h = h * 31 + (i64 << (64 + k))
+    h = h * 31 + (i64 >> (64 + k))
+    h = h * 31 + Int(u64 >> (64 + k))
+    h = h * 31 + Int(i8 >> huge)
+    return h
+}
+
+func table(n: Int) -> [UInt64] {
+    var out: [UInt64] = fill(n, UInt64(0))
+    var p: UInt64 = 1
+    var i = 0
+    while i < n {
+        out[i] = p
+        p = p * 10
+        i += 1
+    }
+    return out
+}
+
+func classes() -> [UInt8] {
+    var t: [UInt8] = fill(128, UInt8(0))
+    var c = 0
+    while c < 128 {
+        var k: UInt8 = 0
+        if c >= 48 and c <= 57 {
+            k = k | 1
+        }
+        if (c | 32) >= 97 and (c | 32) <= 122 {
+            k = k | 2
+        }
+        if c == 32 or c == 9 or c == 10 or c == 13 {
+            k = k | 4
+        }
+        t[c] = k
+        c += 1
+    }
+    return t
+}
+
+func sum_bytes(xs: [UInt8]) -> Int {
+    var t = 0
+    for x in xs {
+        t = t * 31 + Int(x)
+    }
+    return t
+}
+
+val C1 = comptime mix(123456789, -987654321)
+val C2 = comptime mix(-1, 64)
+val C3 = comptime mix(9223372036854775807, -9223372036854775807 - 1)
+val C4 = comptime umix(18446744073709551615, 3)
+val C5 = comptime umix(12345, 18446744073709551557)
+val C6 = comptime nmix(-77, 201, -1234, 4000000000)
+val C7 = comptime nmix(127, 255, 32767, 1)
+val C8 = comptime shift_edges(0, 18446744073709551615)
+val POW10 = comptime table(20)
+val CLASS = comptime classes()
+
+func main() {
+    var k = 0
+    k += 1
+    println("{C1 == mix(123456789, -987654321)} {C1}")
+    println("{C2 == mix(-k, 64)} {C3 == mix(9223372036854775807, -9223372036854775807 - k)}")
+    println("{C4 == umix(18446744073709551615, 3)} {C4}")
+    println("{C5 == umix(12345, 18446744073709551557)} {C5}")
+    println("{C6 == nmix(-77, 201, -1234, 4000000000)} {C6}")
+    println("{C7 == nmix(127, 255, 32767, 1)} {C7}")
+    println("{C8 == shift_edges(k - 1, 18446744073709551615)}")
+    val rt = table(20)
+    var same = true
+    for i in range(20) {
+        if rt[i] != POW10[i] {
+            same = false
+        }
+    }
+    println("{same} {POW10[19]}")
+    println("{sum_bytes(CLASS) == sum_bytes(classes())} {CLASS[48]} {CLASS[65]} {CLASS[32]}")
+}

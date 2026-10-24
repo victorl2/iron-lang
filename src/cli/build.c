@@ -499,12 +499,15 @@ static bool iron_path_marker_safe(const char *path) {
 
 /* Prepend `-- @file: "<source_path>" @line: 1` to *source_io. Returns lines
  * added (1) or 0 on failure/unsafe path (source left unchanged). */
-static int prepend_user_line_marker(char **source_io, const char *source_path) {
+static int prepend_user_line_marker(char **source_io, const char *source_path,
+                                    bool packed) {
     if (!source_io || !*source_io || !iron_path_marker_safe(source_path)) return 0;
-    size_t mlen = strlen("-- @file: \"") + strlen(source_path) + strlen("\" @line: 1\n");
+    /* `@packed`: the user's source is itself several files under markers. */
+    const char *tail = packed ? "\" @line: 1 @packed\n" : "\" @line: 1\n";
+    size_t mlen = strlen(IRON_FILE_MARKER_OPEN) + strlen(source_path) + strlen(tail);
     char *combined = (char *)malloc(mlen + strlen(*source_io) + 1);
     if (!combined) return 0;
-    int n = snprintf(combined, mlen + 1, "-- @file: \"%s\" @line: 1\n", source_path);
+    int n = snprintf(combined, mlen + 1, IRON_FILE_MARKER_OPEN "%s%s", source_path, tail);
     if (n < 0 || (size_t)n != mlen) { free(combined); return 0; }
     strcpy(combined + mlen, *source_io);
     free(*source_io);
@@ -528,7 +531,7 @@ static int prepend_marked_file(char **source_io, const char *base_dir,
     char marker[4224];
     size_t mlen = 0;
     if (markers && iron_path_marker_safe(path)) {
-        int n = snprintf(marker, sizeof(marker), "-- @file: \"%s\" @line: 1\n", path);
+        int n = snprintf(marker, sizeof(marker), IRON_FILE_MARKER_OPEN "%s\" @line: 1\n", path);
         if (n > 0 && (size_t)n < sizeof(marker)) mlen = (size_t)n;
     }
     /* Declarations from this file carry the marker path as their span
@@ -890,6 +893,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     if (opts.debug_info && !opts.release) {
         argv_buf[ai++] = "/Od";
         argv_buf[ai++] = "/Z7";
+        argv_buf[ai++] = "/clang:-fno-eliminate-unused-debug-types";
     }
 #else
     argv_buf[ai++] = clang_path;
@@ -927,6 +931,9 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     if (opts.debug_info && !opts.release) {
         argv_buf[ai++] = "-O0";
         argv_buf[ai++] = "-g";
+        /* Keep the types only sizeof names (a heap value's object), which
+         * the formatters look up to show what a pointer points at. */
+        argv_buf[ai++] = "-fno-eliminate-unused-debug-types";
         argv_buf[ai++] = "-fno-omit-frame-pointer";
     }
     /* IRON_CC_FLAGS: extra C compiler flags, after the ones above (so an
@@ -1903,7 +1910,8 @@ int iron_build(const char *source_path, const char *output_path,
      * user code resumes. When the marker cannot be placed (whitespace in the
      * path / OOM), line_markers stays false and every prepend below falls
      * back to the legacy marker-less bytes — never a half-marked buffer. */
-    bool line_markers = prepend_user_line_marker(&source, source_path) == 1;
+    bool line_markers = prepend_user_line_marker(
+        &source, source_path, iron_file_markers_packed_source()) == 1;
     if (line_markers) stdlib_prepended_lines += 1;
 
     /* 1c. Detect "import raylib" in source and prepend raylib.iron */
@@ -2146,6 +2154,11 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 3. Lex */
     Iron_Lexer lexer = iron_lexer_create(source, source_path, &arena, &diags);
+    /* Everything above the user's source is the prelude written above: its
+     * file markers are honored, a `@file:` comment in the user's source is
+     * not (see diagnostics.h). */
+    iron_lexer_set_user_start_line(&lexer, (uint32_t)stdlib_prepended_lines + 1);
+    iron_diag_set_user_start_line((uint32_t)stdlib_prepended_lines + 1);
     Iron_Token *tokens = iron_lex_all(&lexer);
 
     if (diags.error_count > 0) {
@@ -2290,6 +2303,9 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 6b. Lower HIR to LIR */
     Iron_Arena ir_arena = iron_arena_create(1024 * 1024);
+    /* --debug: set before lowering too, which names more bindings then. */
+    iron_lir_emit_set_line_directives(opts.target != IRON_TARGET_WEB && opts.debug_info &&
+                                      !opts.release);
     IronLIR_Module *ir_module = iron_hir_to_lir(hir_module, (Iron_Program *)ast,
                                                analysis.global_scope,
                                                &ir_arena, &diags);

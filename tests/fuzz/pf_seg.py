@@ -10,7 +10,7 @@ update, a hash computed with hashlib, a JSON tree it built itself). Only
 the last segment of a program may panic. The reducer of prog_fuzz.py
 shrinks a failing program by dropping whole segments (`segs`).
 """
-from pf_lang import Block, Expected
+from pf_lang import Block, Expected, fuzz_identifier
 
 
 class Seg:
@@ -63,10 +63,11 @@ class SegProgram:
         self.funcs = []
         self.mainblock = Block([])
         self.uid = 0
+        self.generated_names = set()
 
     def fresh(self, p='v'):
         self.uid += 1
-        return f'{p}{self.uid}'
+        return fuzz_identifier(self.r, f'{p}{self.uid}', self.generated_names)
 
     def program(self):
         n = self.r.randint(*self.NSEGS)

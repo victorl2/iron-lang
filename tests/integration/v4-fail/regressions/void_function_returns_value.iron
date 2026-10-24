@@ -1,0 +1,8 @@
+-- @expected-error: E0215
+func value_from_void() {
+    return 5
+}
+
+func main() {
+    value_from_void()
+}

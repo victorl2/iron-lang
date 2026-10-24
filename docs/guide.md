@@ -203,19 +203,60 @@ load as on the other systems.
 
 Through `iron dap`, what you type while paused is Iron: hover, watch
 expressions and the debug console take `xs.len() > 2 and not done`,
-`name == "ann"`, `ages.get("ann")` or `xs[i] * 2`. The adapter reads
-the values the expression names from the debugger and computes the rest
-with Iron's rules (`and` / `or` / `not`, truncating `/`, string `==`,
-`len`, and a list's, map's or string's `len`, `is_empty`, `has`, `get`,
-`get_or`, `contains`). Breakpoint conditions are Iron too, and so are hit
-counts (`5`, `>= 5`, `% 5`) and logpoint messages, whose `{expr}` parts
-are filled in like an Iron string (`i = {i}, total = {total}`). An
-expression that is not Iron (a debugger command typed in the console)
-goes to the debugger as written; start it with a backquote to skip the
-Iron reading. Objects show as `Point {x = 3, y = 4}` and lists as their
-elements. Step Into stays in Iron code: it enters `square(4)` but steps
-over the runtime behind `println(...)` or `xs.push(v)`, instead of
-walking through the runtime's C.
+`name == "ann"`, `ages.get("ann")`, `xs[i] * 2` or `color == Color.Green`.
+A name or a field (`total`, `p.x`) is read from the debugger, with its
+type and children; anything else is computed by the adapter with Iron's
+rules: integer arithmetic wraps at the width of its operands (a literal
+takes its partner's type), `Int` and `Float` or two widths do not mix,
+`/` truncates, float division by zero gives `inf` or `NaN` and `%` on
+floats is `fmod`, `s[i]` is `s.char_at(i)` (`""` out of range), string
+literals take Iron's escapes and `{expr}` interpolation, a map's `has`
+looks at its keys, a set's at its items, and a global is found by its
+Iron name. The list, map, set and string methods `len`, `is_empty`,
+`has`, `get`, `get_or`, `contains`, `starts_with`, `ends_with`,
+`index_of`, `substring`, `char_at`, `upper`, `lower`, `trim`, `replace`,
+`repeat` and `String.from_byte` are available, as are the conversions
+`Int(x)`, `UInt8(x)`, `Float(x)` and the like. An expression that fails
+gives the error the program would panic with: `integer division by
+zero`, `index out of bounds (index 5, bound 3)`, `key not found in map`;
+an unknown name gives `` no variable `name` here ``. Breakpoint conditions
+are Iron too, and so are hit counts (`5`, `>= 5`, `% 5`) and logpoint
+messages, whose `{expr}` parts are filled in like an Iron string (`i =
+{i}, total = {total}`). An expression that is not Iron (a debugger command
+typed in the console, a C expression) goes to the debugger as written;
+start it with a backquote to skip the Iron reading. The debug console
+completes the Iron names in scope.
+
+Values show as Iron writes them: integers of every width as numbers,
+floats as Iron prints them (`0.1`, `5`, `inf`), strings as Iron literals
+(`"a\u{0}b"`, `"line\n"`), objects as `Point {x = 3, y = 4}` (generic
+instances as `Box[Int] {...}`), lists as their elements, maps and sets
+with their entries as children (`["ann"] = 31`), enums as `Green` or
+`Rect(2, 3)`, an `rc` value with its counts, a closure with the values
+it captured (a captured `var` as its current value), a checked pointer or
+`heap` value as the value it points at (`freed` once freed), a `Mutex`
+as `Mutex(5) locked by thread 4711` or `unlocked`, a `Json` value as its
+JSON text, a `JsonWriter` as what it wrote so far, and a `MysqlResult`,
+`MysqlConn`, `MysqlPool` or `HttpClient` as what its handle holds (rows,
+columns and the first rows; the server and connection state; the pool's
+counts; the origin and how many of its connections are open and busy).
+The Globals scope lists the program's global bindings. C declares a
+function's locals at its top, so a binding declared further down the
+function is listed too: until its statement runs it holds whatever its
+memory held (`<not assigned yet>` for a collection or string the
+formatters can tell is not one yet).
+
+Step Into stays in Iron code: it enters `square(4)`, a method, an
+`init`, a lambda or a generic instance, but steps over the runtime behind
+`println(...)` or `xs.push(v)`, instead of walking through the runtime's
+C. Stepping visits each statement's line, a loop's header between passes
+and a function's closing brace before it returns; Step Over or Step Out
+of `main` lets the program run to its end. The call stack names Iron
+functions as written: `Counter.add`, `gid[Int]`, `func` for a lambda.
+A spawned task's thread carries the task's name (`spawn("db-worker")`;
+pool workers are `iron pool`), its body's frame reads `spawn
+"db-worker"`, and under it a frame `spawned in main` points at the
+`spawn` statement.
 
 In VS Code, F5 in a `.iron` file debugs it with the Iron extension's
 `iron` debug type (`"type": "iron"`, `"program"` a `.iron` file or the

@@ -30,10 +30,11 @@ class Scoped:
         self.u = 0
         self.tag = 0
         self.scopes = []
+        self.generated_names = set()
 
     def fresh(self, p='v'):
         self.n += 1
-        return f'{p}{self.n}'
+        return fuzz_identifier(self.r, f'{p}{self.n}', self.generated_names)
 
     def push(self):
         self.scopes.append({})

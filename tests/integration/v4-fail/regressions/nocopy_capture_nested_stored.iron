@@ -1,0 +1,19 @@
+-- @expected-error: E0286
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+-- A stored lambda nested in a borrowing one still cannot capture (#512).
+func twice(f: func() -> Int) -> Int {
+    return f() + f()
+}
+func main() {
+    val r = Res(1)
+    val n = twice(func() -> Int {
+        val inner = func() -> Int { return r.id }
+        return inner()
+    })
+    println("{n}")
+}
