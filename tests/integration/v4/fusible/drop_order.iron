@@ -1,0 +1,78 @@
+// Values with a drop or copy hook that a stage produces live in a real
+// list: the stage that makes them is never fused with the stage that reads
+// them. The reader and what follows it fuse, reading that list in place, so
+// every value is dropped once, when its list goes. A nocopy value is never
+// duplicated.
+
+object Token {
+    val n: Int
+
+    drop {
+        println("drop {self.n}")
+    }
+}
+
+nocopy object Ticket {
+    val n: Int
+
+    drop {
+        println("release {self.n}")
+    }
+}
+
+object Copied {
+    val n: Int
+
+    copy {
+        println("copy {self.n}")
+    }
+}
+
+func token(x: Int) -> Token {
+    return Token(x)
+}
+
+func token_n(t: Token) -> Int {
+    return t.n
+}
+
+func ticket(x: Int) -> Ticket {
+    return Ticket(x)
+}
+
+func ticket_n(t: Ticket) -> Int {
+    return t.n
+}
+
+func copied(x: Int) -> Copied {
+    return Copied(x)
+}
+
+func copied_n(c: Copied) -> Int {
+    return c.n
+}
+
+func pos(x: Int) -> Bool {
+    return x > 0
+}
+
+func main() {
+    println("sum {[1, 2].map(token).map(token_n).sum()}")  // @fused: map sum
+    println("sum {[4, 5].map(ticket).map(ticket_n).sum()}")  // @fused: map sum
+    println("sum {[7, 8].map(copied).map(copied_n).sum()}")  // @fused: map sum
+    println("sum {[1, 2].map(token).map(token_n).filter(pos).sum()}")  // @fused: map filter sum
+
+    // A stage that prints between the maker and the reader shows the order.
+    val read = [1, 2].map(token).map(func(t: Token) -> Int {  // @fused: filter sum
+        println("read {t.n}")
+        return t.n
+    }).filter(pos).sum()
+    println("sum {read}")
+
+    // A source whose elements have hooks: read in place, dropped with the
+    // list at the end of main.
+    val tokens = [Token(10), Token(20)]
+    println("start")
+    println("sum {tokens.map(token_n).filter(pos).sum()}")  // @fused: map filter sum
+    println("end")
+}

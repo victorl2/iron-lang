@@ -1,0 +1,25 @@
+-- @expect-panic: iface_list_get_out_of_bounds.iron:23
+-- get(i) past the end of a list of interface values panics with an index
+-- out of bounds naming the Iron line, as for other lists; it read a
+-- garbage element (issue 418).
+interface Shape {
+    readonly func area() -> Int
+}
+
+object Sq impl Shape {
+    val s: Int
+    readonly func area() -> Int { return self.s * self.s }
+}
+
+object Rect impl Shape {
+    val w: Int
+    val h: Int
+    readonly func area() -> Int { return self.w * self.h }
+}
+
+func main() {
+    val shapes: [Shape] = [Sq(2), Rect(2, 3)]
+    println("{shapes.get(0).area()} {shapes.get(1).area()}")
+    val g = shapes.get(2)
+    println("not reached {g.area()}")
+}

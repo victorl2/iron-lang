@@ -679,6 +679,9 @@ void iron_diag_set_user_start_line(uint32_t line);
 #define IRON_ERR_CTOR_SPELLING            333   /* `Channel.new(4)` / `Arena.with_capacity(n)`: containers are constructed as `Channel[Int](4)` / `Arena(n)` */
 #define IRON_ERR_LOOP_JUMP_OUTSIDE        335   /* `break` / `continue` outside a loop, in a lambda, defer or spawn body inside one, or in a parallel for */
 #define IRON_ERR_RETURN_IN_DEFER          336   /* `return` inside a defer body */
+#define IRON_ERR_ALIGN_VALUE           368   /* `//iron:align=N`: N not a power of two from 1 to 4096 (or cacheline), below the natural alignment, or for storage that cannot honor it yet */
+#define IRON_ERR_VIEW_ESCAPE           369   /* a view stored in a field, list, global or other compound type, captured by a stored closure or unawaited spawn, or returned without the single source parameter */
+#define IRON_ERR_VIEW_SOURCE           370   /* the source of a live view is resized, reassigned, taken or passed to a var parameter, or is not borrowable (a temporary, a list behind a pointer) */
 #define IRON_ERR_GLOBAL_INIT_CYCLE        345   /* a global depends on itself through its initializer */
 #define IRON_ERR_NOT_STRINGABLE           334   /* `{x}` where x has no text form: not a number, Bool, String, enum, their nullable, or an object with to_string() */
 /* Static functions and `Self` in interfaces (#455). */
@@ -700,6 +703,12 @@ void iron_diag_set_user_start_line(uint32_t line);
 #define IRON_ERR_LOWER_UNRESOLVED_IDENT    401
 #define IRON_ERR_LOWER_INVALID_ASSIGN      402
 #define IRON_ERR_LOWER_INVALID_MATCH       403
+
+/* Web-target semantic checks.  Keep these in the central registry so code
+ * allocation and documentation checks see the same namespace as every other
+ * compiler diagnostic. */
+#define IRON_ERR_WEB_AWAIT                  501
+#define IRON_ERR_WEB_TOP_LEVEL_LOADER       502
 
 /* HIR verifier errors (500 range) */
 /* HIR verifier errors are compiler bugs, like the LIR verifier's 900s. They
@@ -739,6 +748,8 @@ void iron_diag_set_user_start_line(uint32_t line);
 #define IRON_WARN_CONSTANT_TYPE_TEST 615  /* `c is T` on a concrete value: known at compile time (#179) */
 #define IRON_WARN_NULL_COMPARE_NEVER 616  /* `x == null` where x is not nullable: always the same answer */
 #define IRON_WARN_UNKNOWN_IRON_HINT  617  /* `//iron:<hint>` names no compiler hint, or one that does not apply there */
+#define IRON_WARN_FUSIBLE_HINT_UNMET 618  /* `//iron:fusible` on a function that cannot run inside a fused loop */
+#define IRON_WARN_INLINE_NOT_HONORED   631   /* `//iron:inline` on a function that calls itself: clang cannot inline it everywhere */
 
 /* Phase 28 ARENA-09 (Plan 28-03): arena-allocated type with a transitive
  * non-trivial destructor. A type warns if it (or a field whose type

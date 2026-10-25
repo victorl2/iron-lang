@@ -1,0 +1,14 @@
+-- @expect-panic: index: -2 is negative, bound: 2
+-- A read through a negative index into a bounded vector must panic (#674).
+func getb(b: [Int; <=4], i: Int) -> Int {
+    return b[i]
+}
+
+func main() {
+    var b: [Int; <=4] = []
+    b.push(5)
+    b.push(6)
+    println("{getb(b, 1)}")
+    println("{getb(b, -2)}")
+    println("not reached")
+}

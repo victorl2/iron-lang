@@ -1,0 +1,181 @@
+import http
+import json
+import mysql
+
+enum Color {
+    Red,
+    Green,
+}
+
+interface Named {
+    readonly func name() -> String
+}
+
+object Line impl Named {
+    val tag: String
+    readonly func name() -> String {
+        return self.tag
+    }
+}
+
+object Box2[T] {
+    val item: T
+}
+
+object Point {
+    val x: Int
+    val y: Int
+}
+
+object Counter {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func add(k: Int) -> Int {
+        self.n = self.n + k
+        return self.n
+    }
+}
+
+func gid[T](v: T) -> T {
+    return v -- @gid_body
+}
+
+func rec(n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    return rec(n - 1) + 1
+}
+
+func pair(a: Int, b: Int) -> (Int, Int) {
+    return (a, b)
+}
+
+var counter = 3
+
+func values() {
+    val i8: Int8 = -5
+    val u8: UInt8 = 200
+    val i32: Int32 = -70000
+    val item: Int = 62
+    val f: Float = 0.1
+    val f32: Float32 = 0.1
+    val zero = "a" + String.from_byte(0) + "b"
+    val quote = "say \"hi\"\nline2"
+    val uni = "héllo"
+    val s = "hello"
+    val xs = [1, 2, 3]
+    var m = Map[String, Int]()
+    m.put("ann", 31)
+    val color = Color.Green
+    val nm: Named = Line("seg")
+    val gb = Box2[Int](99)
+    val r = rc Point(8, 9)
+    val r2 = r
+    val w = r.downgrade()
+    val alias = item
+    val (q, rem) = pair(17, 5)
+    var cap = 5
+    val k = 10
+    val add = func(x: Int) -> Int {
+        cap = cap + 1
+        return x + k + cap
+    }
+    val hp = heap Point(11, 12)
+    leak hp
+    val mx = Mutex(5)
+    val js = Json.parse("\{\"id\": 7, \"tags\": [\"a\"]}").value
+    val jw = JsonWriter.compact()
+    jw.begin_object()
+    jw.field_int("visits", 3)
+    counter += 1
+    println("{i8} {u8} {i32} {f} {f32} {zero.len()} {quote} {uni} {s} {xs.len()} {color} {nm.name()} {gb.item} {r2.x} {w.upgrade() != null} {alias} {q} {rem} {add(1)} {hp.x} {js} {counter}") -- @values
+    jw.end_object()
+    println(jw.finish())
+}
+
+func stepping() {
+    var x = 4
+    if x % 2 == 0 {
+        x = x + 1 -- @then
+    } else {
+        x = x + 2
+    }
+    x = x * 3 -- @after_if
+    for i in range(2) {
+        for j in range(1) {
+            x = x + 1 -- @inner
+        }
+    }
+    var c = Counter(2) -- @ctor
+    x = x + c.add(1) -- @method
+    x = x + gid(x) -- @generic
+    x = x + rec(1) -- @rec
+    val twice = func(a: Int) -> Int {
+        return a * 2 -- @lambda
+    }
+    x = twice(x) -- @call_lambda
+    println("x {x}")
+}
+
+func bump(wk: *var Counter) -> Int {
+    wk.n = wk.n + 1
+    return wk.n -- @pointer
+}
+
+-- Debugging services (#548): a checked pointer parameter, a held Mutex,
+-- native handles (nothing listens on port 9: no server is needed).
+func services() {
+    var ctr = Counter(3)
+    val bumped = bump(&ctr)
+    val lk = Mutex(5)
+    val hc = HttpClient.open("http://127.0.0.1:9", "", false, 4, 0)
+    var conn = Mysql.connect_url("mysql://root@127.0.0.1:9/db")
+    val res = conn.query("select 1")
+    val dbs = Mysql.open_pool_url("mysql://root@127.0.0.1:9/db", MysqlPoolOptions(0, 2))
+    {
+        val g = lk.lock()
+        g.set(g.get() + bumped)
+        println("held {g.get()} {hc.error} {res.error.code} {dbs.error.code}") -- @held
+    }
+    println("released {bumped}") -- @released
+    HttpClient.close(hc.client)
+}
+
+-- Lists kept as C arrays whose elements are not Int (#588), and bindings
+-- declared after the stop, holding whatever their memory held (#585).
+func arrays(names: [String], halves: [Float32], bytes: [UInt8]) -> Int {
+    val total = names.len() + halves.len() + bytes.len()
+    println("total {total}") -- @arrays
+    var later = Map[String, String?]()
+    later.put("key", "a string long enough to live on the heap, not inline")
+    var after = [1, 2, 3]
+    after.push(4)
+    var seen = Set[String]()
+    seen.add("x")
+    val plus = func(a: Int) -> Int {
+        return a + total
+    }
+    return total + later.len() + after.len() + seen.len() + plus(1)
+}
+
+func work(n: Int) -> Int {
+    var t = 0
+    for i in range(n) {
+        t = t + i -- @work
+    }
+    return t
+}
+
+func main() {
+    values()
+    stepping()
+    services()
+    println("{arrays(["a", "b"], [Float32(0.5)], [UInt8(1), UInt8(2)])}")
+    val h = spawn("worker") {
+        return work(3) -- @spawn_body
+    }
+    println("{await h}") -- @await
+}

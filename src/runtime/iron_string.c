@@ -18,8 +18,8 @@
 typedef struct { _Atomic uint64_t rc; uint64_t _pad; } IronStrHdr;
 
 /* heap.codepoint_count of a string from iron_string_seal_bytes: not
- * counted yet (iron_string_codepoint_count counts on demand). */
-#define IRON_STRING_COUNT_UNKNOWN UINT32_MAX
+ * counted yet, IRON_STRING_COUNT_UNKNOWN in iron_runtime.h
+ * (iron_string_codepoint_count counts on demand). */
 
 static char *iron__str_alloc(size_t byte_len, const char *where) {
     IronStrHdr *h = (IronStrHdr *)malloc(sizeof(IronStrHdr) + byte_len + 1);
@@ -46,6 +46,11 @@ static void iron__str_free(Iron_String *s) {
 /* Key: heap-allocated C string (owned by the table)
  * Value: the interned Iron_String (which points into the same key buffer) */
 static struct { char *key; Iron_String value; } *s_intern_table = NULL;
+/* Interned strings that hold a zero byte (`"a\0b"`, #453): the table
+ * above is keyed by C string, which would make them equal to their prefix.
+ * They are rare (literals with `\0` or `\x00`), so a list searched by
+ * length and bytes keeps them apart. */
+static Iron_String *s_intern_bin = NULL;
 
 static iron_mutex_t s_intern_lock;
 static iron_once_t s_intern_once = IRON_ONCE_INIT;
@@ -400,6 +405,24 @@ Iron_String iron_string_intern(Iron_String s) {
     iron__ensure_intern_lock();
     IRON_MUTEX_LOCK(s_intern_lock);
 
+    if (blen > 0 && memchr(cstr, 0, blen) != NULL) {
+        for (ptrdiff_t bi = 0; bi < arrlen(s_intern_bin); bi++) {
+            Iron_String *e = &s_intern_bin[bi];
+            if (iron_string_byte_len(e) == blen &&
+                memcmp(iron_string_cstr(e), cstr, blen) == 0) {
+                Iron_String existing = *e;
+                IRON_MUTEX_UNLOCK(s_intern_lock);
+                if (iron__str_counted(&s)) iron_string_release(&s);
+                return existing;
+            }
+        }
+        Iron_String bin = s;
+        if (blen > IRON_STRING_SSO_MAX) bin.heap.flags = 0x03; /* is_heap | is_interned */
+        arrput(s_intern_bin, bin);
+        IRON_MUTEX_UNLOCK(s_intern_lock);
+        return bin;
+    }
+
     ptrdiff_t idx = shgeti(s_intern_table, cstr);
     if (idx >= 0) {
         Iron_String existing = s_intern_table[idx].value;
@@ -484,6 +507,9 @@ Iron_List_Iron_String iron_runtime_args(void) {
 void iron_runtime_init(int argc, char **argv) {
     s_iron_argc = argc;
     s_iron_argv = argv;
+    /* glibc otherwise creates up to eight arenas per CPU. Configure its
+     * bounded default before the runtime creates any worker threads. */
+    iron_allocator_init();
     iron__ensure_intern_lock();
     IRON_MUTEX_LOCK(s_intern_lock);
     if (s_intern_table == NULL) {
@@ -601,6 +627,12 @@ void iron_runtime_shutdown(void) {
     }
     shfree(s_intern_table);
     s_intern_table = NULL;
+    for (ptrdiff_t i = 0; i < arrlen(s_intern_bin); i++) {
+        Iron_String *v = &s_intern_bin[i];
+        if ((v->heap.flags & 0x01) && v->heap.data) iron__str_free(v);
+    }
+    arrfree(s_intern_bin);
+    s_intern_bin = NULL;
     IRON_MUTEX_UNLOCK(s_intern_lock);
 }
 
@@ -814,14 +846,7 @@ Iron_String Iron_string_char_at(Iron_String self, int64_t i) {
 }
 
 /* Number of characters (code points). */
-int64_t Iron_string_len(Iron_String self) {
-    return (int64_t)iron_string_codepoint_count(&self);
-}
-
-/* Size in bytes of the UTF-8 encoding. */
-int64_t Iron_string_byte_len(Iron_String self) {
-    return (int64_t)iron_string_byte_len(&self);
-}
+/* Iron_string_len and Iron_string_byte_len are inline in iron_runtime.h. */
 
 int64_t Iron_string_count(Iron_String self, Iron_String sub) {
     const char *s    = iron_string_cstr(&self);
@@ -1026,6 +1051,8 @@ Iron_String Iron_string_repeat(Iron_String self, int64_t n) {
     const char *s   = iron_string_cstr(&self);
     size_t      len = iron_string_byte_len(&self);
     if (n <= 0 || len == 0) return iron_string_from_cstr("", 0);
+    if ((uint64_t)n > (uint64_t)((SIZE_MAX - 1) / len))
+        iron_oom_abort("iron_string.c:Iron_string_repeat");
     size_t total = len * (size_t)n;
     /* FIX-02: replace silent empty-string fallback with iron_oom_abort. */
     char *buf = (char *)malloc(total + 1);
@@ -1052,6 +1079,8 @@ Iron_String Iron_string_pad_left(Iron_String self, int64_t width, Iron_String ch
     /* The result is owned by the caller: hand out a reference of its own. */
     if (chars >= width) { iron_string_retain(&self); return self; }
     size_t pad_count = (size_t)(width - chars);
+    if (pad_count > (SIZE_MAX - 1 - slen) / pn)
+        iron_oom_abort("iron_string.c:Iron_string_pad_left");
     size_t total     = slen + pad_count * pn;
     char *buf = (char *)malloc(total + 1);
     if (!buf) iron_oom_abort("iron_string.c:Iron_string_pad_left");
@@ -1078,6 +1107,8 @@ Iron_String Iron_string_pad_right(Iron_String self, int64_t width, Iron_String c
     /* The result is owned by the caller: hand out a reference of its own. */
     if (chars >= width) { iron_string_retain(&self); return self; }
     size_t pad_count = (size_t)(width - chars);
+    if (pad_count > (SIZE_MAX - 1 - slen) / pn)
+        iron_oom_abort("iron_string.c:Iron_string_pad_right");
     size_t total     = slen + pad_count * pn;
     char *buf = (char *)malloc(total + 1);
     if (!buf) iron_oom_abort("iron_string.c:Iron_string_pad_right");
@@ -1109,15 +1140,7 @@ int64_t Iron_string_rindex_of(Iron_String self, Iron_String sub) {
     return -1;
 }
 
-/* Byte value at index `i` (0..len-1). Returns -1 for out-of-range indices
- * so callers can branch on the negative result without a separate length
- * check. */
-int64_t Iron_string_byte_at(Iron_String self, int64_t i) {
-    size_t len = iron_string_byte_len(&self);
-    if (i < 0 || (size_t)i >= len) return -1;
-    const char *s = iron_string_cstr(&self);
-    return (int64_t)(unsigned char)s[i];
-}
+/* Iron_string_byte_at is inline in iron_runtime.h. */
 
 /* Bytes [start, end) of the string, the byte counterpart of substring for
  * binary data (digests, ciphertexts, packets). Both ends are clamped to the
@@ -1146,4 +1169,126 @@ Iron_String Iron_string_from_byte(int64_t b) {
  * source compatibility and does nothing. */
 void Iron_string_release(Iron_String self) {
     (void)self;
+}
+
+/* ── Views and StringBuilder (iron_intrinsics.h) ───────────────────────── */
+
+/* Length of the well-formed UTF-8 sequence at p[0..n), or 0 when it is not
+ * one (overlong forms, surrogates and code points above U+10FFFF are not). */
+static int iron__utf8_seq(const uint8_t *p, int64_t n) {
+    uint8_t c = p[0];
+    if (c < 0x80) return 1;
+    int len; uint32_t cp;
+    if (c >= 0xC2 && c <= 0xDF) { len = 2; cp = c & 0x1F; }
+    else if (c >= 0xE0 && c <= 0xEF) { len = 3; cp = c & 0x0F; }
+    else if (c >= 0xF0 && c <= 0xF4) { len = 4; cp = c & 0x07; }
+    else return 0;
+    if (n < len) return 0;
+    for (int i = 1; i < len; i++) {
+        if ((p[i] & 0xC0) != 0x80) return 0;
+        cp = (cp << 6) | (p[i] & 0x3F);
+    }
+    if (len == 3 && (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF))) return 0;
+    if (len == 4 && (cp < 0x10000 || cp > 0x10FFFF)) return 0;
+    return len;
+}
+
+bool iron_bytes_valid_utf8(Iron_View_uint8_t b) {
+    int64_t i = 0;
+    while (i < b.len) {
+        int k = iron__utf8_seq(b.ptr + i, b.len - i);
+        if (!k) return false;
+        i += k;
+    }
+    return true;
+}
+
+Iron_String iron_bytes_to_string_exact(Iron_View_uint8_t b) {
+    return iron_string_from_cstr((const char *)b.ptr, (size_t)(b.len > 0 ? b.len : 0));
+}
+
+/* A copy of the bytes with each maximal invalid sequence replaced by
+ * U+FFFD (one per byte that starts no valid sequence). */
+Iron_String iron_bytes_to_string(Iron_View_uint8_t b) {
+    if (iron_bytes_valid_utf8(b)) return iron_bytes_to_string_exact(b);
+    size_t cap = (size_t)b.len * 3 + 1, w = 0;
+    char *buf = (char *)malloc(cap);
+    if (!buf) iron_oom_abort("iron_bytes_to_string");
+    int64_t i = 0;
+    while (i < b.len) {
+        int k = iron__utf8_seq(b.ptr + i, b.len - i);
+        if (k) { memcpy(buf + w, b.ptr + i, (size_t)k); w += (size_t)k; i += k; }
+        else { buf[w++] = (char)0xEF; buf[w++] = (char)0xBF; buf[w++] = (char)0xBD; i++; }
+    }
+    Iron_String s = iron_string_from_cstr(buf, w);
+    free(buf);
+    return s;
+}
+
+/* StringBuilder storage is a heap string block (IronStrHdr, bytes, one
+ * spare byte for the NUL) so finish() can hand it to a String as is. */
+void iron_sb_grow(Iron_SBRT *sb, int64_t extra) {
+    if (sb->capacity < 0) sb->capacity = sb->length;
+    if (extra < 0) extra = 0;
+    int64_t need = sb->length + extra;
+    if (need < sb->length || need > (int64_t)UINT32_MAX - 1)
+        iron_oom_abort("StringBuilder: a string is at most 4 GiB");
+    int64_t cap = sb->capacity ? sb->capacity * 2 : 32;
+    if (cap < need) cap = need;
+    if (cap > (int64_t)UINT32_MAX - 1) cap = (int64_t)UINT32_MAX - 1;
+    IronStrHdr *old = sb->data ? ((IronStrHdr *)(uintptr_t)sb->data) - 1 : NULL;
+    IronStrHdr *h = (IronStrHdr *)realloc(old, sizeof(IronStrHdr) + (size_t)cap + 1);
+    if (!h) iron_oom_abort("StringBuilder");
+    if (!old) { atomic_init(&h->rc, 1); h->_pad = 0; }
+    sb->data = (int64_t)(uintptr_t)(h + 1);
+    sb->capacity = cap;
+}
+
+Iron_String iron_sb_finish(Iron_SBRT *sb) {
+    if (sb->capacity < 0) sb->capacity = sb->length;
+    Iron_String s;
+    memset(&s, 0, sizeof s);
+    char *data = (char *)(uintptr_t)sb->data;
+    size_t len = (size_t)sb->length;
+    if (!data || len <= IRON_STRING_SSO_MAX) {
+        s = iron_string_from_cstr(data ? data : "", len);
+        if (data) free(((IronStrHdr *)data) - 1);
+    } else {
+        IronStrHdr *h = ((IronStrHdr *)data) - 1;
+        /* Give back a large unused tail. */
+        if ((int64_t)len + 4096 < sb->capacity) {
+            IronStrHdr *nh = (IronStrHdr *)realloc(h, sizeof(IronStrHdr) + len + 1);
+            if (nh) { h = nh; data = (char *)(h + 1); }
+        }
+        data[len] = '\0';
+        s.heap.data = data;
+        s.heap.byte_length = (uint32_t)len;
+        s.heap.codepoint_count = IRON_STRING_COUNT_UNKNOWN;
+        s.heap.flags = 0x01;
+    }
+    sb->data = 0;
+    sb->length = 0;
+    sb->capacity = 0;
+    return s;
+}
+
+void Iron_stringbuilder__release(int64_t data) {
+    if (data) free(((IronStrHdr *)(uintptr_t)data) - 1);
+}
+
+void iron_sb_push_uint(void *sb, uint64_t n) {
+    char tmp[20];
+    int k = 20;
+    do { tmp[--k] = (char)('0' + n % 10); n /= 10; } while (n);
+    Iron_View_uint8_t v = { (uint8_t *)tmp + k, 20 - k };
+    iron_sb_push_bytes(sb, v);
+}
+
+void iron_sb_push_int(void *sb, int64_t n) {
+    if (n < 0) {
+        iron_sb_push_byte(sb, '-');
+        iron_sb_push_uint(sb, 0u - (uint64_t)n);
+    } else {
+        iron_sb_push_uint(sb, (uint64_t)n);
+    }
 }

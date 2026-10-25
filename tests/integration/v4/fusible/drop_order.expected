@@ -1,0 +1,20 @@
+drop 1
+drop 2
+sum 3
+release 4
+release 5
+sum 9
+sum 15
+drop 1
+drop 2
+sum 3
+read 1
+read 2
+drop 1
+drop 2
+sum 3
+start
+sum 30
+end
+drop 10
+drop 20

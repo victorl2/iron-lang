@@ -13,6 +13,7 @@
  *   iron_lir_compute_inline_info (Phase 16)
  */
 
+#include "hir/stdlib_origin.h"
 #include "lir/lir_optimize.h"
 #include "lir/print.h"
 #include "lir/verify.h"
@@ -129,13 +130,28 @@ static void phi_eliminate(IronLIR_Module *module) {
 
         /* Collect all phi nodes first to avoid modifying while iterating */
         IronLIR_Instr **phis = NULL;  /* stb_ds array of phi instrs */
+        Iron_Span *phi_lines = NULL;  /* the span each phi's LOAD takes */
 
         for (int bi = 0; bi < fn->block_count; bi++) {
             IronLIR_Block *block = fn->blocks[bi];
+            /* The load that replaces a phi runs at the top of its block:
+             * it takes the block's first statement's line, not the merged
+             * variable's (a nested loop's pass showed the outer loop's
+             * header under --debug). */
+            Iron_Span first = {0};
+            for (int ii = 0; ii < block->instr_count; ii++) {
+                IronLIR_Instr *instr = block->instrs[ii];
+                if (instr->kind != IRON_LIR_PHI && instr->kind != IRON_LIR_JUMP &&
+                    instr->kind != IRON_LIR_BRANCH && instr->span.line > 0) {
+                    first = instr->span;
+                    break;
+                }
+            }
             for (int ii = 0; ii < block->instr_count; ii++) {
                 IronLIR_Instr *instr = block->instrs[ii];
                 if (instr->kind == IRON_LIR_PHI) {
                     arrput(phis, instr);
+                    arrput(phi_lines, first);
                 }
             }
         }
@@ -235,11 +251,13 @@ static void phi_eliminate(IronLIR_Module *module) {
             arrfree(phi->phi.pred_blocks);
             phi->kind     = IRON_LIR_LOAD;
             phi->load.ptr = alloca_id;
+            phi->span = phi_lines[pi];   /* none (an if's merge): no line */
             /* phi->id and phi->type remain the same — the load produces the
              * same ValueId so all existing uses are automatically valid */
         }
 
         arrfree(phis);
+        arrfree(phi_lines);
     }
 }
 
@@ -312,6 +330,12 @@ static void analyze_array_param_modes(IronLIR_Module *module,
              * the list itself (emit_c.c main wrapper), never by Iron code
              * that would pass a pointer and a length. */
             if (fn->name && strcmp(fn->name, "main") == 0) continue;
+            /* Lifted functions are invoked through a closure, spawn, or
+             * parallel-loop ABI whose function type still contains one
+             * list value. Rewriting only the lifted C signature to
+             * pointer+length makes indirect callers pass the wrong number
+             * and shape of arguments (#848). */
+            if (fn->name && strncmp(fn->name, "__", 2) == 0) continue;
 
             for (int pi = 0; pi < fn->param_count; pi++) {
                 Iron_Type *pt = fn->params[pi].type;
@@ -488,7 +512,10 @@ static bool lir_vid_is_global_slot(IronLIR_Func *fn, IronLIR_ValueId vid) {
     if (!fn || vid == IRON_LIR_VALUE_INVALID) return false;
     if ((ptrdiff_t)vid >= arrlen(fn->value_table)) return false;
     IronLIR_Instr *in = fn->value_table[vid];
-    return in && in->kind == IRON_LIR_ALLOCA && in->alloca.global_name != NULL;
+    /* An over-aligned local (`//iron:align=N`) is storage with a stated
+     * address property: keep it, and every access to it, real. */
+    return in && in->kind == IRON_LIR_ALLOCA &&
+           (in->alloca.global_name != NULL || in->alloca.align != 0);
 }
 
 /* ── Stack-array optimization pre-pass (ARR-01) ─────────────────────────── */
@@ -1862,15 +1889,24 @@ static bool run_constant_folding(IronLIR_Module *module) {
     return changed;
 }
 
-/* An instruction that can stop the program: a checked list index, or an
- * integer division or modulo by a value not known to be nonzero. It has no
- * other effect, but an unused `val v = xs[i]` must still panic when i is
- * out of bounds (and `val q = a / b` when b is 0), so DCE keeps it and the
- * emitter does not fold it into a use it never has. */
+/* An instruction that can stop the program: a checked list index, an
+ * integer division or modulo by a value not known to be nonzero, or a shift
+ * by a count not known to be non-negative. It has no other effect, but an
+ * unused `val v = xs[i]` must still panic when i is out of bounds (and
+ * `val q = a / b` when b is 0, `val s = a << n` when n is negative), so DCE
+ * keeps it and the emitter does not fold it into a use it never has. */
 bool iron_lir_instr_may_trap(IronLIR_Func *fn, IronLIR_Instr *in) {
     if (!in) return false;
     if (in->kind == IRON_LIR_GET_INDEX)
         return !in->index.bounds_elide && !in->index.bounds_unchecked;
+    if (in->kind == IRON_LIR_SHL || in->kind == IRON_LIR_SHR) {
+        IronLIR_ValueId n = in->binop.right;
+        if (fn && n != IRON_LIR_VALUE_INVALID && n < (IronLIR_ValueId)arrlen(fn->value_table)) {
+            IronLIR_Instr *ni = fn->value_table[n];
+            if (ni && ni->kind == IRON_LIR_CONST_INT && ni->const_int.value >= 0) return false;
+        }
+        return true;
+    }
     if (in->kind == IRON_LIR_DIV || in->kind == IRON_LIR_MOD) {
         if (!in->type || !iron_type_is_integer(in->type)) return false;
         IronLIR_ValueId d = in->binop.right;
@@ -2018,7 +2054,8 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
             if (in->kind == IRON_LIR_ALLOCA) {
                 /* A global slot aliases the module static, which any
                  * callee may write: it is escaped from the start. */
-                hmput(escaped, in->id, in->alloca.global_name != NULL);
+                hmput(escaped, in->id, in->alloca.global_name != NULL ||
+                                       in->alloca.align != 0);
             }
         }
     }
@@ -2224,7 +2261,7 @@ static bool run_dead_alloca_elimination(IronLIR_Module *module) {
                     /* Module-global slot (2026-07 remediation): a STORE
                      * through the slot IS the observable global write —
                      * never delete the slot or its stores. */
-                    if (in->alloca.global_name) continue;
+                    if (in->alloca.global_name || in->alloca.align) continue;
                     if (hmgeti(loaded, in->id) < 0) {
                         hmput(dead_alloca, in->id, true);
                     }
@@ -4566,7 +4603,7 @@ static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
             obj_instr->type && obj_instr->type->kind == IRON_TYPE_PTR &&
             !obj_instr->type->ptr.is_unchecked) {
             *out_ptr = obj;
-            *out_gen = IRON_LIR_GEN_STACK;
+            *out_gen = IRON_LIR_GEN_DYNAMIC;
             return true;
         }
         /* Any other checked pointer whose producer does not say where it
@@ -4581,7 +4618,7 @@ static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
                               ? fn->params[obj - 1].type : NULL;
             if (ot && ot->kind == IRON_TYPE_PTR && !ot->ptr.is_unchecked) {
                 *out_ptr = obj;
-                *out_gen = IRON_LIR_GEN_STACK;
+                *out_gen = IRON_LIR_GEN_DYNAMIC;
                 return true;
             }
         }
@@ -5541,6 +5578,7 @@ bool run_pointer_check_elimination(IronLIR_Module *module,
 typedef struct {
     int checks_total;   /* checked-shape accesses at entry */
     int elided_t1;      /* Tier-1 dominator-redundant elisions */
+    int elided_t2;      /* Tier-2 loop range elisions */
     int hoisted_t3;     /* Tier-3 preheader-hoisted checks */
 } BoundsElisionStat;
 
@@ -5600,6 +5638,7 @@ static bool bce_checked_shape(IronLIR_Func *fn, IronLIR_Instr *in) {
      * and needs no elision itself (already raw). */
     if (in->index.bounds_unchecked) return false;
     Iron_Type *at = bce_value_type(fn, in->index.array);
+    if (at && at->kind == IRON_TYPE_VIEW) return true;   /* v.ptr[i] checked against v.len */
     if (!at || at->kind != IRON_TYPE_ARRAY) return false;
     if (at->array.elem && at->array.elem->kind == IRON_TYPE_INTERFACE)
         return false;
@@ -5833,6 +5872,221 @@ static void bce_insert_before_terminator(IronLIR_Block *pre, IronLIR_Instr *g) {
     pre->instr_count = (int)arrlen(spliced);
 }
 
+/* ── Tier 2: loop range rule ──────────────────────────────────────────────
+ * In a loop whose header exits unless `i < n` (or `i + K <= n`), where n is
+ * the length (`.len` of a view, `.count` of a list) of an array value and
+ * i is a variable that only ever holds a constant >= 0 or `i + c` with
+ * c >= 0, an access `a[i]` (or `a[i + c]` with 0 <= c < K) of the same
+ * array in a block the loop body's entry dominates, with no write to i
+ * between the header and the access, is in range: its check is removed.
+ * A view's length cannot change; a list's can, so a list needs the length
+ * read in the header (with no barrier between it and the access) or a
+ * barrier-free loop. This covers `for x in v`, `while i < v.len()` and the
+ * blocked `while i + 64 <= n` loops of parsers. */
+
+static IronLIR_Instr *t2_def(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID || (ptrdiff_t)vid >= arrlen(fn->value_table)) return NULL;
+    return fn->value_table[vid];
+}
+
+static bool t2_const(IronLIR_Func *fn, IronLIR_ValueId vid, int64_t *out) {
+    IronLIR_Instr *d = t2_def(fn, vid);
+    if (!d || d->kind != IRON_LIR_CONST_INT) return false;
+    *out = d->const_int.value;
+    return true;
+}
+
+/* `var` alloca used as a value (the variable's current value). */
+static bool t2_is_var(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    IronLIR_Instr *d = t2_def(fn, vid);
+    return d && d->kind == IRON_LIR_ALLOCA && !d->alloca.global_name && !d->alloca.is_boxed;
+}
+
+/* The induction variable starts at a nonnegative constant that cannot make
+ * the guard addition wrap, and stores in the loop only advance it by at
+ * most the guarded range K. Arbitrary constant assignments in the loop are
+ * not induction steps: accepting one let `i = INT64_MAX` make `i + K` wrap
+ * on the next guard and made an elided access unsafe (#711). */
+static bool t2_var_induction(IronLIR_Func *fn, IronLIR_LoopInfo *L,
+                             IronLIR_ValueId v, int64_t K) {
+    bool initialized = false;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        bool in_loop = hmgeti(L->body_blocks, blk->id) >= 0;
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            if (in->kind == IRON_LIR_ADDR_OF && in->addr_of.target == v) return false;
+            /* Passed by address (a var parameter, a pointer receiver) or
+             * captured: something else may write it. */
+            if (in->kind == IRON_LIR_CALL)
+                for (int a = 0; a < in->call.arg_count; a++)
+                    if (in->call.args[a] == v) return false;
+            if (in->kind == IRON_LIR_MAKE_CLOSURE)
+                for (int a = 0; a < in->make_closure.capture_count; a++)
+                    if (in->make_closure.captures[a] == v) return false;
+            if (in->kind == IRON_LIR_SPAWN)
+                for (int a = 0; a < in->spawn.capture_count; a++)
+                    if (in->spawn.captures[a] == v) return false;
+            if (in->kind == IRON_LIR_PARALLEL_FOR)
+                for (int a = 0; a < in->parallel_for.capture_count; a++)
+                    if (in->parallel_for.captures[a] == v) return false;
+            if (in->kind != IRON_LIR_STORE || in->store.ptr != v) continue;
+            int64_t c;
+            if (t2_const(fn, in->store.value, &c)) {
+                if (in_loop || c < 0 || c > INT64_MAX - K) return false;
+                initialized = true;
+                continue;
+            }
+            IronLIR_Instr *d = t2_def(fn, in->store.value);
+            if (in_loop && d && d->kind == IRON_LIR_ADD) {
+                if (d->binop.left == v && t2_const(fn, d->binop.right, &c) && c > 0 && c <= K)
+                    continue;
+                if (d->binop.right == v && t2_const(fn, d->binop.left, &c) && c > 0 && c <= K)
+                    continue;
+            }
+            return false;
+        }
+    }
+    return initialized;
+}
+
+/* idx is `v` (offset 0) or `v + c` (offset c). */
+static bool t2_index_offset(IronLIR_Func *fn, IronLIR_ValueId idx, IronLIR_ValueId v, int64_t *off) {
+    if (idx == v) { *off = 0; return true; }
+    IronLIR_Instr *d = t2_def(fn, idx);
+    if (!d || d->kind != IRON_LIR_ADD) return false;
+    if (d->binop.left == v && t2_const(fn, d->binop.right, off)) return true;
+    if (d->binop.right == v && t2_const(fn, d->binop.left, off)) return true;
+    return false;
+}
+
+/* Can control get from block `from` (after instruction index `after`, or
+ * from its start when after < 0) to block `to` (before index `before`)
+ * inside loop L without passing through the header? */
+static bool t2_path_avoiding_header(IronLIR_Func *fn, IronLIR_LoopInfo *L,
+                                    IronLIR_Block *from, IronLIR_Block *to) {
+    if (from == to) return false;   /* same-block order is checked by the caller */
+    struct { IronLIR_BlockId key; bool value; } *seen = NULL;
+    IronLIR_BlockId *work = NULL;
+    for (int si = 0; si < (int)arrlen(from->succs); si++) arrput(work, from->succs[si]);
+    bool hit = false;
+    for (int wi = 0; wi < (int)arrlen(work) && !hit; wi++) {
+        IronLIR_BlockId b = work[wi];
+        if (b == L->header || hmgeti(seen, b) >= 0) continue;
+        if (hmgeti(L->body_blocks, b) < 0) continue;
+        hmput(seen, b, true);
+        if (b == to->id) { hit = true; break; }
+        IronLIR_Block *blk = find_block(fn, b);
+        if (!blk) continue;
+        for (int si = 0; si < (int)arrlen(blk->succs); si++) arrput(work, blk->succs[si]);
+    }
+    hmfree(seen);
+    arrfree(work);
+    return hit;
+}
+
+static int t2_elide_loop(IronLIR_Func *fn, IronLIR_DomEntry *idom, IronLIR_LoopInfo *L) {
+    IronLIR_Block *hdr = find_block(fn, L->header);
+    if (!hdr || hdr->instr_count == 0) return 0;
+    IronLIR_Instr *br = hdr->instrs[hdr->instr_count - 1];
+    if (br->kind != IRON_LIR_BRANCH) return 0;
+    IronLIR_BlockId body_id = br->branch.then_block;
+    if (hmgeti(L->body_blocks, body_id) < 0) return 0;
+    IronLIR_Block *body = find_block(fn, body_id);
+    if (!body || (int)arrlen(body->preds) != 1 || body->preds[0] != hdr->id) return 0;
+
+    /* The guard: i < n, or i + K <= n. */
+    IronLIR_Instr *cmp = t2_def(fn, br->branch.cond);
+    if (!cmp) return 0;
+    IronLIR_ValueId ivar = IRON_LIR_VALUE_INVALID, nval = IRON_LIR_VALUE_INVALID;
+    int64_t K = 0;
+    if (cmp->kind == IRON_LIR_LT) {
+        ivar = cmp->binop.left; nval = cmp->binop.right; K = 1;
+    } else if (cmp->kind == IRON_LIR_LTE) {
+        IronLIR_Instr *a = t2_def(fn, cmp->binop.left);
+        int64_t k;
+        if (!a || a->kind != IRON_LIR_ADD) return 0;
+        if (t2_const(fn, a->binop.right, &k)) ivar = a->binop.left;
+        else if (t2_const(fn, a->binop.left, &k)) ivar = a->binop.right;
+        else return 0;
+        if (k < 1) return 0;
+        K = k; nval = cmp->binop.right;
+    } else {
+        return 0;
+    }
+    if (!t2_is_var(fn, ivar) || !t2_var_induction(fn, L, ivar, K)) return 0;
+
+    /* n: the length of an array value. */
+    IronLIR_Instr *nd = t2_def(fn, nval);
+    if (!nd || nd->kind != IRON_LIR_GET_FIELD || !nd->field.field) return 0;
+    IronLIR_ValueId arr = nd->field.object;
+    Iron_Type *at = bce_value_type(fn, arr);
+    if (!at) return 0;
+    bool is_view = at->kind == IRON_TYPE_VIEW;
+    bool is_list = at->kind == IRON_TYPE_ARRAY && at->array.size < 0 && !at->array.is_bounded &&
+                   !(at->array.elem && at->array.elem->kind == IRON_TYPE_INTERFACE);
+    if (is_view ? strcmp(nd->field.field, "len") != 0
+                : !(is_list && strcmp(nd->field.field, "count") == 0)) return 0;
+    /* The array value must not change inside the loop. */
+    if (t2_is_var(fn, arr)) {
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            if (hmgeti(L->body_blocks, blk->id) < 0) continue;
+            for (int ii = 0; ii < blk->instr_count; ii++)
+                if (blk->instrs[ii]->kind == IRON_LIR_STORE && blk->instrs[ii]->store.ptr == arr)
+                    return 0;
+        }
+    }
+    IronLIR_Block *nblk = NULL;
+    (void)bce_find_def(fn, nval, &nblk);
+    bool n_in_header = nblk == hdr;
+    bool loop_barrier_free = true;
+    if (is_list) {
+        for (int bi = 0; bi < fn->block_count && loop_barrier_free; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            if (hmgeti(L->body_blocks, blk->id) < 0) continue;
+            for (int ii = 0; ii < blk->instr_count; ii++)
+                if (bce_instr_is_barrier(blk->instrs[ii], NULL, 0)) { loop_barrier_free = false; break; }
+        }
+        if (!n_in_header && !loop_barrier_free) return 0;
+    }
+
+    int elided = 0;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *A = fn->blocks[bi];
+        if (hmgeti(L->body_blocks, A->id) < 0) continue;
+        if (A != body && !dominates(idom, body_id, A->id)) continue;
+        for (int ii = 0; ii < A->instr_count; ii++) {
+            IronLIR_Instr *g = A->instrs[ii];
+            if (!bce_checked_shape(fn, g) || g->index.bounds_elide) continue;
+            if (g->index.array != arr) continue;
+            int64_t off;
+            if (!t2_index_offset(fn, g->index.index, ivar, &off) || off < 0 || off >= K) continue;
+            /* No write to i between the header and the access. */
+            bool written = false;
+            for (int k = 0; k < ii && !written; k++)
+                if (A->instrs[k]->kind == IRON_LIR_STORE && A->instrs[k]->store.ptr == ivar)
+                    written = true;
+            for (int sbi = 0; sbi < fn->block_count && !written; sbi++) {
+                IronLIR_Block *S = fn->blocks[sbi];
+                if (S == A || hmgeti(L->body_blocks, S->id) < 0 || S == hdr) continue;
+                bool stores = false;
+                for (int k = 0; k < S->instr_count; k++)
+                    if (S->instrs[k]->kind == IRON_LIR_STORE && S->instrs[k]->store.ptr == ivar)
+                        stores = true;
+                if (stores && t2_path_avoiding_header(fn, L, S, A)) written = true;
+            }
+            if (written) continue;
+            /* A list's length read in the header must still hold here. */
+            if (is_list && !loop_barrier_free &&
+                bce_region_has_barrier(fn, hdr, br, A, g, NULL, 0)) continue;
+            g->index.bounds_elide = true;
+            elided++;
+        }
+    }
+    return elided;
+}
+
 static bool run_bounds_check_elimination(IronLIR_Module *module,
                                          BoundsElisionStat *stat) {
     if (stat) memset(stat, 0, sizeof(*stat));
@@ -5970,6 +6224,15 @@ static bool run_bounds_check_elimination(IronLIR_Module *module,
                         break;
                     }
                 }
+            }
+        }
+
+        /* ── Tier 2: loop range rule (see t2_elide_loop) ─────────────────── */
+        for (int li = 0; li < loop_count; li++) {
+            int n = t2_elide_loop(fn, idom, &loops[li]);
+            if (n > 0) {
+                any_changed = true;
+                if (stat) stat->elided_t2 += n;
             }
         }
 
@@ -6591,6 +6854,8 @@ static void run_function_inlining(IronLIR_Module *module,
     for (int fi = 0; fi < module->func_count; fi++) {
         IronLIR_Func *fn = module->funcs[fi];
         if (fn->is_extern || fn->block_count == 0) continue;
+        /* `//iron:noinline` / `//iron:cold`: keep the call. */
+        if (fn->hints & (IRON_HINT_NOINLINE | IRON_HINT_COLD)) continue;
         /* Skip lifted functions — their void *_env calling convention
          * is incompatible with the inliner's parameter remapping. */
         if (strncmp(fn->name, "__lambda_", 9) == 0 ||
@@ -6782,6 +7047,7 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
 
     /* Initialize info maps to NULL (stb_ds convention) */
     memset(info, 0, sizeof(*info));
+    info->optimizing = !skip_new_passes;
 
     /* Phase 0: Structural passes (always run, not skippable) */
     phi_eliminate(module);
@@ -6952,9 +7218,9 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
             if (ir_text) {
                 fprintf(stderr,
                         "=== After bounds-check-elim: %d/%d guards elided "
-                        "(T1=%d T3-hoisted=%d) ===\n%s\n",
-                        bce_stat.elided_t1 + bce_stat.hoisted_t3,
-                        bce_stat.checks_total, bce_stat.elided_t1,
+                        "(T1=%d T2=%d T3-hoisted=%d) ===\n%s\n",
+                        bce_stat.elided_t1 + bce_stat.elided_t2 + bce_stat.hoisted_t3,
+                        bce_stat.checks_total, bce_stat.elided_t1, bce_stat.elided_t2,
                         bce_stat.hoisted_t3, ir_text);
                 free(ir_text);
             }
@@ -6986,4 +7252,39 @@ void iron_lir_optimize_info_free(IronLIR_OptimizeInfo *info) {
     hmfree(info->inline_eligible);
     shfree(info->func_purity);
     hmfree(info->value_block);
+}
+
+/* ── --report-bounds-checks ────────────────────────────────────────────────
+ * Lists every index access that still carries a bounds check after the
+ * elimination passes, per function, at its Iron line. Accesses in the
+ * prepended standard library are left out unless `include_stdlib`. */
+int iron_lir_report_bounds_checks(IronLIR_Module *module, FILE *out, bool include_stdlib) {
+    int total = 0;
+    if (!module || !out) return 0;
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+        int in_fn = 0;
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (!bce_checked_shape(fn, in) || in->index.bounds_elide) continue;
+                const char *file = in->span.filename ? in->span.filename : "?";
+                if (!include_stdlib && iron_stdlib_origin_classify(file) == 1) continue;
+                Iron_Type *at = bce_value_type(fn, in->index.array);
+                fprintf(out, "%s:%u: note: bounds check left in '%s' (%s of %s)\n",
+                        file, in->span.line, fn->name,
+                        in->kind == IRON_LIR_SET_INDEX ? "write" : "read",
+                        at && at->kind == IRON_TYPE_VIEW ? (at->view.is_mut ? "a ViewMut" : "a view")
+                        : at && at->kind == IRON_TYPE_ARRAY && at->array.size >= 0 ? "a fixed array"
+                        : "a list");
+                in_fn++;
+            }
+        }
+        total += in_fn;
+    }
+    fprintf(out, "note: --report-bounds-checks: %d bounds check%s left\n", total,
+            total == 1 ? "" : "s");
+    return total;
 }

@@ -1,0 +1,18 @@
+-- @expect-panic: index out of bounds
+
+func read_after_wrap(v: View[Int]) -> Int {
+    var i = 0
+    while i + 2 <= v.len() {
+        val x = v[i]
+        i = 9223372036854775807
+        if x == 99 {
+            return x
+        }
+    }
+    return 0
+}
+
+func main() {
+    val xs = [1, 2]
+    println("{read_after_wrap(xs)}")
+}

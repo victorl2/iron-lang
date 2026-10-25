@@ -1,0 +1,27 @@
+func gid[T](v: T) -> T {
+    return v
+}
+
+func sum_to[T](v: T, n: Int) -> Int {
+    var total = 0
+    for i in range(n) {
+        total = total + i
+    }
+    println("{total}")
+    return total
+}
+
+object Holder[T] {
+    val item: T
+    func map[U](f: func(T) -> U) -> U {
+        val r = f(self.item)
+        println("mapped")
+        return r
+    }
+}
+
+func main() {
+    var h = Holder[Int](4)
+    val m = h.map(func(a: Int) -> Int { return a + 1 })
+    println("{gid(3)} {sum_to("x", 4)} {m}")
+}

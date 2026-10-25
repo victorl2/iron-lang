@@ -19,6 +19,7 @@
 #include "analyzer/iface_collect.h"
 #include "analyzer/types.h"
 #include "diagnostics/diagnostics.h"
+#include "lir/fusion_safety.h"
 
 /* ── Loop fusion chain types (Phase 49) ──────────────────────────────────── */
 
@@ -42,8 +43,6 @@ typedef struct {
     FusionChainNode *nodes;        /* stb_ds array, in execution order */
     int node_count;
     IronLIR_ValueId source;        /* original collection input to the chain */
-    bool is_split;                 /* true if source is a split collection */
-    const char *sp_iface;          /* interface name if split, NULL otherwise */
     /* $drop glue of the lambda temporaries an interior node borrowed:
      * emitted after the fused loop instead of after the (unemitted)
      * interior call, which ran before the loop and freed the env (#190). */
@@ -276,6 +275,9 @@ typedef struct {
     struct { const void *key; bool value; } *fusion_dead;  /* keyed by instruction */
         /* maps call_vid -> chain_index; positive = chain idx */
     struct { IronLIR_ValueId key; int value; } *fusion_chain_position;
+    /* Which functions may run inside a fused loop (fusion_safety.c); made
+     * on first use, one per module. */
+    IronLIR_FusionSafety *fusion_safety;
         /* maps call_vid -> position within its chain (0 = first, N-1 = terminal) */
 
     /* Monomorphic collection tracking (Phase 49) */
@@ -297,6 +299,19 @@ typedef struct {
 
 /* ── Name mangling ───────────────────────────────────────────────────────── */
 
+/* A user-chosen Iron identifier as a collision-free C identifier. Safe names
+ * are returned unchanged. Reserved names are encoded reversibly in a namespace
+ * which is itself reserved below, so no user spelling can collide with one. */
+const char *emit_c_user_identifier(const char *name, Iron_Arena *arena);
+/* A lowercased identifier component used by split-list storage members. */
+const char *emit_c_lower_user_identifier(const char *name, Iron_Arena *arena);
+/* The same operation for a dot-separated member path such as
+ * `data.SomeVariant._0`. */
+const char *emit_c_user_member_path(const char *path, Iron_Arena *arena);
+/* A static object member, preserving a runtime header's fixed full C symbol. */
+const char *emit_c_static_member_identifier(const char *type_c,
+                                             const char *member,
+                                             Iron_Arena *arena);
 const char *emit_mangle_name(const char *name, Iron_Arena *arena);
 const char *emit_object_type_name(const char *name, EmitCtx *ctx);
 const char *emit_mangle_func_name(const char *name, Iron_Arena *arena);
@@ -454,6 +469,9 @@ void emit_drop_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx, Iron_Type *t, cons
 /* The C name of a container element type with spaces and `*` as `_`, as
  * the per-T Mutex / Channel / RWLock glue names spell it. */
 const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem);
+/* The C struct of View[elem] / ViewMut[elem] (Iron_View_<elem>), emitting
+ * its typedef on first use for non-scalar element types. */
+const char *emit_ensure_view(EmitCtx *ctx, const Iron_Type *elem);
 void emit_copy_fixup_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
                             Iron_Type *t, const char *lv);
 const char *emit_cell_drop_fn(EmitCtx *ctx, Iron_Type *t);
@@ -516,6 +534,7 @@ bool emit_val_is_any_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid);
  * For HEAP_ALLOC: returns emit_type_to_c(instr->type, ctx).
  * For ADDR_OF targeting HEAP_ALLOC: returns the heap alloc's C type.
  * Returns NULL if not a fat ptr. */
+const char *emit_debug_fatptr(EmitCtx *ctx, const char *pointee_c);
 const char *emit_fat_ptr_pointee_type_c(IronLIR_Func *fn, IronLIR_ValueId vid, EmitCtx *ctx);
 bool emit_val_is_type_ref(IronLIR_Func *fn, IronLIR_ValueId vid);
 Iron_Type *emit_get_value_type(IronLIR_Func *fn, IronLIR_ValueId vid);
@@ -539,6 +558,11 @@ void emit_ctx_cleanup(EmitCtx *ctx);
 void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
                          EmitCtx *ctx, bool with_newline);
 void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn);
+
+/* The file-scope definition of module global `g` (emit_c.c): a zero-
+ * initialized static, or for constant data a `static const` with its
+ * initializer. Shared by the native and web emitters. */
+void emit_module_global_decl(Iron_StrBuf *sb, EmitCtx *ctx, const IronLIR_Global *g);
 /* Declare the env structs of lambdas whose closure is never built. */
 void emit_unbuilt_closure_envs(EmitCtx *ctx, IronLIR_Module *module);
 void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,

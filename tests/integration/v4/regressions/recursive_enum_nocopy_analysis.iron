@@ -1,0 +1,15 @@
+-- Regression: nocopy analysis must visit recursive enum payloads as a graph.
+enum Tree { Leaf, A(Tree, Tree), B(Tree, Tree) }
+
+func classify(tree: Tree) -> Int {
+    match tree {
+        Tree.Leaf -> return 0
+        Tree.A(left, right) -> return 1
+        Tree.B(left, right) -> return 2
+    }
+    return -1
+}
+
+func main() {
+    println("{classify(Tree.Leaf)}")
+}

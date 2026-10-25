@@ -14,6 +14,7 @@
 #include "lsp/facade/nav/nav_common.h"
 #include "lsp/facade/nav/visibility.h"
 #include "lsp/facade/nav/patch_lookup.h"
+#include "lsp/facade/builtin_members.h"
 #include "lsp/facade/compile.h"
 #include "lsp/facade/span.h"
 #include "lsp/store/document.h"
@@ -951,8 +952,19 @@ static const char *expression_type_markdown(Iron_Node *node, Iron_Arena *arena) 
     sb_append(&sb, "```iron\n");
     if (node->kind == IRON_NODE_METHOD_CALL) {
         Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+        const Iron_IntrinsicInfo *info = iron_intrinsic_info(mc->intrinsic);
         const Iron_Type *rt = mc->object
             ? ((Iron_ExprNode *)mc->object)->resolved_type : NULL;
+        if (!rt && mc->intrinsic == IRON_INTR_FROM_BITS) rt = t;
+        if (info) {
+            sb_append(&sb, ilsp_intrinsic_signature(info, rt, arena));
+            sb_append(&sb, "\n```");
+            if (info->doc && info->doc[0]) {
+                sb_append(&sb, "\n\n");
+                sb_append(&sb, info->doc);
+            }
+            return sb.buf;
+        }
         const char *rs = rt ? iron_type_to_string(rt, arena) : NULL;
         if (rs) {
             sb_append(&sb, rs);

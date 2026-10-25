@@ -1,0 +1,8 @@
+P1:name 1 long enough to live on the heap null
+[P2:name 2 long enough to live on the heap] [null] 3
+P5:name 5 long enough to live on the heap | null
+<P3:name 3 long enough to live on the heap> <null>
+false 6
+P1:name 1 long enough to live on the heap;null;
+P9:shared null
+P9:shared

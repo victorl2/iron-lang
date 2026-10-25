@@ -1,0 +1,1 @@
+type 'func(Int) -> Int' does not satisfy constraint 'Hashable'

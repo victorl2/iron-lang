@@ -1045,6 +1045,20 @@ static void find_captures(CaptureCtx *ctx, Iron_LambdaExpr *le) {
         /* A callee that keeps the closure (stores it, a constructor, push)
          * would keep the borrow past the call too. */
         if (ctx->lambda_use != LUSE_ARG_BORROW) {
+            /* A view borrows its source for the block it lives in (manual
+             * 2.15): the closure may use it only during the call. */
+            for (int ci = 0; ci < count; ci++) {
+                if (!arr[ci].type || arr[ci].type->kind != IRON_TYPE_VIEW) continue;
+                char msg[320];
+                snprintf(msg, sizeof(msg),
+                         "closure captures view '%s', which must not outlive its block",
+                         arr[ci].name ? arr[ci].name : "?");
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR, IRON_ERR_VIEW_ESCAPE,
+                               le->span, msg,
+                               "pass the closure directly as a call argument, or capture the "
+                               "source (a list or String) instead of the view");
+                break;
+            }
             for (int ci = 0; ci < count; ci++) {
                 if (!type_holds_owned_list(arr[ci].type, 0)) continue;
                 report_list_capture(ctx, le->span, arr[ci].name, "closure",
@@ -1138,6 +1152,18 @@ static void find_spawn_captures(CaptureCtx *ctx, Iron_SpawnStmt *ss) {
         /* An await that a return, break or continue may skip, or that only
          * a branch runs, leaves the task running past the list. */
         if (!ctx->spawn_strict_await) {
+            for (int ci = 0; ci < count; ci++) {
+                if (!arr[ci].type || arr[ci].type->kind != IRON_TYPE_VIEW) continue;
+                char msg[320];
+                snprintf(msg, sizeof(msg),
+                         "spawn captures view '%s', which must not outlive its block",
+                         arr[ci].name ? arr[ci].name : "?");
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR, IRON_ERR_VIEW_ESCAPE,
+                               ss->span, msg,
+                               "await the handle in the same block (`val h = spawn(...) {...}` "
+                               "then `await h`)");
+                break;
+            }
             for (int ci = 0; ci < count; ci++) {
                 if (!type_holds_owned_list(arr[ci].type, 0)) continue;
                 report_list_capture(ctx, ss->span, arr[ci].name, "spawn",

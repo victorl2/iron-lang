@@ -375,7 +375,7 @@ Iron_TlsStreamResult iron_tls_client_connect_mode(Iron_TcpSocket socket,
                 return out;
             }
         } else {
-            if (SSL_set1_host(ssl, host_text) != 1 ||
+            if (X509_VERIFY_PARAM_set1_host(verify, host_text, 0) != 1 ||
                 SSL_set_tlsext_host_name(ssl, host_text) != 1) {
                 iron_tls_stream_close(stream);
                 free(host_text);

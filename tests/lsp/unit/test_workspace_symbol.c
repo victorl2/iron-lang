@@ -4,12 +4,13 @@
  * ilsp_facade_nav_workspace_symbol against a tmp workspace seeded
  * with a couple of .iron files.
  *
- * Five RUN_TESTs:
+ * Six RUN_TESTs:
  *   1. fuzzy match surfaces the best-scoring candidate first.
  *   2. overlong query is rejected with an empty result (T-03-07).
  *   3. empty query / no workspace_index -> empty result.
  *   4. path-prefix filter narrows results via '/' split.
  *   5. modified open documents do not expose stale indexed symbols.
+ *   6. open documents replace indexed symbols and report current ranges.
  */
 #include "unity.h"
 
@@ -63,6 +64,11 @@ static void make_tmp_workspace(char *out_root, size_t cap) {
         "func writer()  {}\n");
     write_file(utilp,
         "func helper() {}\n");
+
+    char stalep[512];
+    snprintf(stalep, sizeof(stalep), "%s/stale.iron", dir);
+    write_file(stalep,
+        "pub func old_symbol_with_long_name() {}\n");
 }
 
 static void rm_tree(const char *root) {
@@ -222,6 +228,43 @@ static void test_modified_open_document_suppresses_stale_symbols(void) {
     fx_destroy(&f);
 }
 
+/* Open buffers override disk-backed index entries (#832). */
+static void test_open_document_overlays_saved_workspace_symbol(void) {
+    fx_t f; fx_init(&f);
+
+    char uri[600];
+    snprintf(uri, sizeof(uri), "file://%s/stale.iron", f.root);
+    const char *current = "pub func fresh() {}\n";
+    IronLsp_Document *doc = ilsp_document_create(
+        uri, current, strlen(current), 2);
+    TEST_ASSERT_NOT_NULL(doc);
+    sh_new_strdup(f.server.documents);
+    shput(f.server.documents, uri, doc);
+
+    Iron_Arena arena = iron_arena_create(64 * 1024);
+    IronLsp_WorkspaceSymbol *out = NULL;
+    size_t n = 0;
+    ilsp_facade_nav_workspace_symbol(
+        &f.server, "old_symbol_with_long_name", NULL, &arena, &out, &n);
+    TEST_ASSERT_EQUAL_size_t(0, n);
+
+    iron_arena_free(&arena);
+    arena = iron_arena_create(64 * 1024);
+    out = NULL;
+    n = 0;
+    ilsp_facade_nav_workspace_symbol(
+        &f.server, "fresh", NULL, &arena, &out, &n);
+    TEST_ASSERT_EQUAL_size_t(1, n);
+    TEST_ASSERT_EQUAL_STRING("fresh", out[0].name);
+    TEST_ASSERT_EQUAL_UINT32(0, out[0].range.start.line);
+    TEST_ASSERT_EQUAL_UINT32(0, out[0].range.end.line);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(
+        (uint32_t)(strlen(current) - 1), out[0].range.end.character);
+
+    iron_arena_free(&arena);
+    fx_destroy(&f);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_fuzzy_returns_best_match);
@@ -229,5 +272,6 @@ int main(void) {
     RUN_TEST(test_no_workspace_index_empty);
     RUN_TEST(test_path_prefix_filter);
     RUN_TEST(test_modified_open_document_suppresses_stale_symbols);
+    RUN_TEST(test_open_document_overlays_saved_workspace_symbol);
     return UNITY_END();
 }

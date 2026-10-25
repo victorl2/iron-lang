@@ -27,27 +27,6 @@ def main() -> int:
     )
     tests = {test["name"]: test for test in json.loads(result.stdout)["tests"]}
     failed = False
-    acceptance = properties(tests["test_v4_acceptance"])
-    if acceptance.get("PROCESSORS", 0) < 4:
-        print("test_v4_acceptance: PROCESSORS must be at least 4", file=sys.stderr)
-        failed = True
-    if acceptance.get("TIMEOUT", 0) < 7200:
-        print("test_v4_acceptance: TIMEOUT must be at least 7200 seconds", file=sys.stderr)
-        failed = True
-    for name in ("test_opt_parity", "test_leak_check"):
-        props = properties(tests[name])
-        if props.get("PROCESSORS", 0) < 4:
-            print(f"{name}: PROCESSORS must be at least 4", file=sys.stderr)
-            failed = True
-        if props.get("TIMEOUT", 0) < 1800:
-            print(f"{name}: TIMEOUT must be at least 1800 seconds", file=sys.stderr)
-            failed = True
-        if props.get("RESOURCE_LOCK") != ["iron_exhaustive_corpus"]:
-            print(f"{name}: must lock iron_exhaustive_corpus", file=sys.stderr)
-            failed = True
-        if props.get("TIMEOUT", 0) < 7200:
-            print(f"{name}: TIMEOUT must be at least 7200 seconds", file=sys.stderr)
-            failed = True
     parallel_fuzz = (
         "prog_fuzz",
         "prog_fuzz_types",

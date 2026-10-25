@@ -1,0 +1,8 @@
+-- Negative test: \x takes exactly two hex digits (issue 453). A zero byte
+-- is allowed in a literal now (\0, \x00, \u{0}); a short or non-hex byte
+-- escape is an error rather than text.
+
+func main() {
+    val s = "a\x4gb"
+    println("{s.byte_len()}")
+}

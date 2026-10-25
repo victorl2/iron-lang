@@ -414,6 +414,20 @@ static void verify_expr(const IronHIR_Expr *expr, const IronHIR_Module *mod,
                            "method call has NULL object",
                            "provide a receiver object");
         }
+        /* `$opt_to_string(p, v.to_string())` (#451) binds v itself. */
+        if (expr->method_call.method &&
+            strcmp(expr->method_call.method, "$opt_to_string") == 0 &&
+            expr->method_call.arg_count == 1 && expr->method_call.args[0] &&
+            expr->method_call.args[0]->kind == IRON_HIR_EXPR_METHOD_CALL &&
+            expr->method_call.args[0]->method_call.object &&
+            expr->method_call.args[0]->method_call.object->kind == IRON_HIR_EXPR_IDENT) {
+            push_scope(stack);
+            declare_var(stack, expr->method_call.args[0]->method_call.object->ident.var_id,
+                        mod, expr->span, diags, arena);
+            verify_expr(expr->method_call.args[0], mod, stack, diags, arena);
+            pop_scope(stack);
+            break;
+        }
         for (int i = 0; i < expr->method_call.arg_count; i++) {
             verify_expr(expr->method_call.args[i], mod, stack, diags, arena);
         }

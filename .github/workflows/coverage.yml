@@ -51,10 +51,10 @@ permissions:
 jobs:
   coverage:
     runs-on: ubuntu-latest
-    # The acceptance corpus runs regression fixtures in both pipelines
-    # (optimized and --no-optimize) one at a time; 30 minutes no longer
-    # fits. The limit guards against hangs, not normal growth.
-    timeout-minutes: 60
+    # Instrumented builds and the full acceptance corpus are substantially
+    # slower than regular CI. The limit guards against hangs while leaving
+    # enough time to render and upload the coverage report.
+    timeout-minutes: 120
 
     steps:
       - uses: actions/checkout@v4
@@ -62,7 +62,12 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build clang llvm
+          # Keep the raylib link dependencies aligned with Linux CI. Manual
+          # compile-only fixtures still compile the vendored platform code.
+          sudo apt-get install -y cmake ninja-build clang llvm pkg-config \
+            openssl libssl-dev \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libasound2-dev
           # Sanity-check that llvm-profdata and llvm-cov landed on PATH
           command -v llvm-profdata
           command -v llvm-cov

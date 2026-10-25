@@ -1,0 +1,14 @@
+// @expect-panic: shift by a negative count
+// A shift whose result is not used still panics on a negative count. The
+// optimizer removed it as dead code (#860), like it once did an unused
+// checked index.
+func probe(x: Int) -> Int {
+    val unused = 1 << (x - 5)
+    val also = 256 >> (x - 5)
+    return x
+}
+
+func main() {
+    println("before")
+    println("{probe(1)}")
+}

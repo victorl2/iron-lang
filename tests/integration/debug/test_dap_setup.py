@@ -134,8 +134,12 @@ def transient_request(command, args):
 
 
 proxy4.request = transient_request
+message = proxy4.trap_message({"id": 41})
 expect("panic trap retries a transient evaluation failure",
-       proxy4.trap_message({"id": 1}) == "read_file: cannot open x")
+       message == "read_file: cannot open x", message)
 expect("panic trap retries exactly once", len(requests) == 2, requests)
+expect("panic message retry keeps the stopped frame",
+       all(r[0] == "evaluate" and r[1].get("frameId") == 41
+           for r in requests), requests)
 
 sys.exit(1 if failed else 0)

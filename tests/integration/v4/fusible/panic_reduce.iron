@@ -1,0 +1,21 @@
+// @expect-panic: integer division by zero
+// A reduce callback that can panic is not fused with the stages before it:
+// the effect-free map and filter fuse into one loop, the reduce runs after.
+
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+func odd(x: Int) -> Bool {
+    return x % 2 == 1
+}
+
+func risky(acc: Int, x: Int) -> Int {
+    return acc + 100 / (x - 5)
+}
+
+func main() {
+    val kept = [2, 4, 6].map(inc).filter(odd)  // @fused: map filter
+    println("{kept.len()}")
+    println("{[2, 4, 6].map(inc).filter(odd).reduce(0, risky)}")  // @fused: map filter
+}

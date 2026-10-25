@@ -68,6 +68,9 @@ typedef struct {
     IronLIR_InlineEligEntry *inline_eligible;  /* per-function: ValueId -> inlineable */
     IronLIR_FuncPurityEntry *func_purity;      /* per-module: func_name -> pure */
     IronLIR_ValueBlockEntry *value_block;      /* per-function: ValueId -> defining BlockId */
+    /* The optimizing passes ran (not --no-optimize, not --debug). Loop
+     * fusion is one of them in spirit: the emitter fuses only then. */
+    bool                     optimizing;
 } IronLIR_OptimizeInfo;
 
 /* Run all optimization passes on the module in place.
@@ -167,5 +170,10 @@ ArrayParamMode iron_lir_get_array_param_mode(IronLIR_OptimizeInfo *info,
 
 /* Function inlining is on by default; `ironc build --debug` turns it off. */
 void iron_lir_set_function_inlining(bool on);
+
+/* --report-bounds-checks: print each index access that keeps its bounds
+ * check after optimization (file:line, function, kind) and a total. */
+#include <stdio.h>
+int iron_lir_report_bounds_checks(IronLIR_Module *module, FILE *out, bool include_stdlib);
 
 #endif /* IRON_LIR_OPTIMIZE_H */

@@ -274,13 +274,19 @@ static void print_node(PrintCtx *ctx, Iron_Node *node);
  * text back so it lexes to the same value. Braces are escaped too, since an
  * unescaped `{` would start an interpolation. (The lexer's escaped-brace
  * markers never reach the AST: both decoders turn them into braces.) */
-static void print_string_text(PrintCtx *ctx, const char *s) {
-    for (const unsigned char *c = (const unsigned char *)s; c && *c; c++) {
+static void print_string_text(PrintCtx *ctx, const Iron_StringLit *lit) {
+    const char *s = lit->value;
+    if (!s) return;
+    size_t n = lit->len ? lit->len : strlen(s);   /* may hold zero bytes */
+    for (const unsigned char *c = (const unsigned char *)s;
+         c < (const unsigned char *)s + n; c++) {
         switch (*c) {
             case '\\': iron_strbuf_appendf(ctx->sb, "\\\\"); break;
             case '"':  iron_strbuf_appendf(ctx->sb, "\\\""); break;
             case '\n': iron_strbuf_appendf(ctx->sb, "\\n"); break;
             case '\t': iron_strbuf_appendf(ctx->sb, "\\t"); break;
+            case '\r': iron_strbuf_appendf(ctx->sb, "\\r"); break;
+            case '\0': iron_strbuf_appendf(ctx->sb, "\\0"); break;
             case '{':
                 iron_strbuf_appendf(ctx->sb, "\\{"); break;
             case '}':
@@ -1021,7 +1027,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_STRING_LIT: {
             iron_strbuf_appendf(ctx->sb, "\"");
-            print_string_text(ctx, ((Iron_StringLit *)node)->value);
+            print_string_text(ctx, (Iron_StringLit *)node);
             iron_strbuf_appendf(ctx->sb, "\"");
             break;
         }
@@ -1033,7 +1039,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                 Iron_Node *part = n->parts[i];
                 if (part->kind == IRON_NODE_STRING_LIT) {
                     /* Literal segment: print without quotes */
-                    print_string_text(ctx, ((Iron_StringLit *)part)->value);
+                    print_string_text(ctx, (Iron_StringLit *)part);
                 } else {
                     /* Expression segment: wrap in {} */
                     iron_strbuf_appendf(ctx->sb, "{");
@@ -1337,7 +1343,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             Iron_EnumConstruct *n = (Iron_EnumConstruct *)node;
             if (n->enum_name) iron_strbuf_appendf(ctx->sb, "%s.", n->enum_name);
             iron_strbuf_appendf(ctx->sb, "%s", n->variant_name ? n->variant_name : "");
-            if (n->arg_count > 0) {
+            if (n->arg_count > 0 || n->reserved_flags[0]) {
                 print_args(ctx, n->args, n->arg_count);
             }
             break;

@@ -205,6 +205,19 @@ typedef struct {
     bool        trailing;  /* at the end of the node's first line */
 } Iron_Directive;
 
+/* Compiler hints recorded from `//iron:<hint>` directives (manual 1.2):
+ * code-generation facts that never change what a program does.
+ *   IRON_HINT_INLINE / NOINLINE / COLD   on a func or method (hints field)
+ *   align                                on an object, field, val or var:
+ *                                        the alignment in bytes, or
+ *                                        IRON_ALIGN_CACHELINE; 0 = none */
+enum {
+    IRON_HINT_INLINE   = 1u << 0,
+    IRON_HINT_NOINLINE = 1u << 1,
+    IRON_HINT_COLD     = 1u << 2,
+};
+#define IRON_ALIGN_CACHELINE 0xFFFFu
+
 /* ── Top-level declarations ──────────────────────────────────────────────── */
 
 typedef struct {
@@ -306,6 +319,8 @@ typedef struct Iron_ObjectDecl {
      * (286) at every copy site (assignment, param-pass-by-value, return) when
      * the source type has is_nocopy=true. */
     bool          is_nocopy;
+    /* `//iron:align=N` above the object: every instance's alignment. */
+    uint16_t      align;
 } Iron_ObjectDecl;
 
 typedef struct Iron_InterfaceDecl {
@@ -386,6 +401,7 @@ typedef struct {
      * (`ironc build --test`); other builds drop it after checking. */
     bool               is_test;
     const char        *test_name;
+    uint8_t            hints;     /* IRON_HINT_* from `//iron:` directives */
     /* `static func` in an interface body: a function of the implementing
      * type, called as `T.f(args)` (no receiver). */
     bool               is_static;
@@ -479,6 +495,7 @@ typedef struct {
      * semantics. Plan 20-02b's emit_c.c reads it on method bodies for
      * the iron_stack_gen prologue/epilogue injection. Default false. */
     bool               takes_local_addr;
+    uint8_t            hints;     /* IRON_HINT_* from `//iron:` directives */
     /* `static func` in an object, patch or interface default body: no
      * receiver. is_receiver_form is true (it was declared in a body) but
      * params[] holds only the declared parameters, there is no `self`. */
@@ -544,6 +561,7 @@ typedef struct {
      * the analyzer pass so codegen can read field types without TypeCtx.
      * Default NULL (arena-zalloc); populated on first resolver access. */
     struct Iron_Type *field_type_cached;
+    uint16_t          align;   /* `//iron:align=N` on the field; 0 = none */
 } Iron_Field;
 
 typedef struct {
@@ -672,6 +690,7 @@ typedef struct {
     const char        *doc_comment;
     Iron_Directive    *directives;
     int                directive_count;
+    uint16_t           align;   /* `//iron:align=N` on the binding; 0 = none */
     /* A top-level binding (a global), and whether it was declared `pub`:
      * globals are private to their file unless pub (#547). */
     bool               is_global;
@@ -702,6 +721,7 @@ typedef struct {
     const char        *doc_comment;
     Iron_Directive    *directives;
     int                directive_count;
+    uint16_t           align;   /* `//iron:align=N` on the binding; 0 = none */
     /* A top-level binding (a global), and whether it was declared `pub`. */
     bool               is_global;
     bool               is_pub;
@@ -860,6 +880,8 @@ typedef struct {
     Iron_NodeKind      kind;   /* IRON_NODE_STRING_LIT */
     struct Iron_Type  *resolved_type;  /* set by type checker */
     const char        *value;
+    size_t             len;    /* byte length of value, which may hold zero
+                                * bytes (`\0`, #453); 0 means strlen(value) */
 } Iron_StringLit;
 
 typedef struct {
@@ -959,14 +981,15 @@ typedef struct {
      * method named copy: an explicit duplicate (copy glue runs, list
      * fields are cloned, the user copy block runs). */
     bool               is_builtin_copy;
-    /* `x.m[A, B](args)`: explicit type arguments of a generic method
-     * (type annotations); NULL / 0 otherwise. */
-    Iron_Node        **generic_args;
-    int                generic_arg_count;
     /* Set by typecheck.c on the method call it synthesizes for a runtime
      * container constructor (`Channel[Int](4)` becomes `Channel.new(4)`
      * internally). User code spelling the `.new` form is rejected. */
     bool               is_ctor_desugar;
+    /* Set by typecheck.c when the call is a compiler intrinsic
+     * (analyzer/intrinsics.h: Iron_Intrinsic, 0 = none): a bit operation,
+     * wide or overflow arithmetic, a bit cast, a branch hint or a view
+     * operation, lowered by hir_to_lir.c without a function call. */
+    uint16_t           intrinsic;
     /* Parsed from compiler-generated source (an interface default body
      * copied into an implementor): may use the generated-code forms such
      * as `T.__fields(...)` (#455). */
@@ -974,6 +997,11 @@ typedef struct {
     /* Set by typecheck.c on a generated `T.__fields(v1, ..., vn)`: built
      * from its field values in declaration order, without any init. */
     bool               is_memberwise;
+    /* Keep pointer-aligned fields after the compact flags above. Besides
+     * saving tail padding, this preserves the resolver's checked in-place
+     * rewrite from Iron_EnumConstruct as these nodes gain flags. */
+    int                generic_arg_count;
+    Iron_Node        **generic_args;
 } Iron_MethodCallExpr;
 
 typedef struct {
@@ -1005,6 +1033,10 @@ typedef struct {
     /* Parsed from compiler-generated source (see Iron_MethodCallExpr):
      * may assign a `val` field of a local being built (#455). */
     bool               is_generated;
+    /* The parser cannot distinguish `Enum.lowercase_variant` from a static
+     * member access. The resolver uses this bit to reinterpret the node once
+     * it knows that the receiver names an enum. */
+    bool               is_enum_candidate;
 } Iron_FieldAccess;
 
 typedef struct {

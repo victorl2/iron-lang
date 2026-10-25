@@ -1221,11 +1221,13 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     static const char *const allowed_build[] = {
         "--verbose", "--release", "--debug", "--target=", "--target", "-o", "--output",
         "--debug-build", "--emit-c", "--test", "--no-optimize", "--strict-v3", "--no-strict-v3",
-        "--force-comptime", "--dump-ir-passes", "--report-compression", "--warn-fusion-break", NULL };
+        "--force-comptime", "--dump-ir-passes", "--report-compression",
+        "--report-bounds-checks", "--warn-fusion-break", NULL };
     static const char *const allowed_run[] = {
         "--verbose", "--release", "--debug", "--target=", "--target", "-o", "--output",
         "--debug-build", "--no-optimize", "--strict-v3", "--no-strict-v3",
-        "--force-comptime", "--dump-ir-passes", "--report-compression", "--warn-fusion-break", NULL };
+        "--force-comptime", "--dump-ir-passes", "--report-compression",
+        "--report-bounds-checks", "--warn-fusion-break", NULL };
     static const char *const allowed_debug[] = { "--verbose", "--gdb", "--lldb", NULL };
     if (reject_unknown_args(g_debug_session ? "debug" : run_after ? "run" : "build", argc, argv,
                             g_debug_session ? allowed_debug : run_after ? allowed_run : allowed_build,

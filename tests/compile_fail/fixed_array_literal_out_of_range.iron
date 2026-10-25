@@ -1,0 +1,6 @@
+-- A fixed array literal element out of the element range is E0292, not a
+-- silent wrap (#677).
+func main() {
+    val a: [UInt8; 2] = [1, 300]
+    println("{a[1]}")
+}

@@ -19,6 +19,30 @@ func main() { in arena { val x = 1 } }
             value: (integer_literal)))))))
 
 ==========
+heap allow_drop_skip option
+==========
+
+func main() { val p = heap(allow_drop_skip: true) Point(1, 2) }
+
+---
+
+(source_file
+  (func_declaration
+    (identifier)
+    (parameter_list)
+    (block
+      (val_declaration
+        (identifier)
+        (heap_expression
+          (heap_options
+            (heap_option
+              (boolean_literal)))
+          (call_expression
+            (identifier)
+            (integer_literal)
+            (integer_literal)))))))
+
+==========
 heap with named arena option
 ==========
 

@@ -74,6 +74,15 @@ static bool is_user_decl(Iron_Node *d) {
             ((Iron_Block *)fd->body)->stmt_count > 0)
             return true;
     }
+    /* So is a generic function of a stdlib module object written in Iron
+     * (`func Json.encode_list[T: JsonEncodable](xs: [T])`, #452); Box's
+     * empty-bodied functions stay compiler builtins. */
+    if (d->kind == IRON_NODE_METHOD_DECL) {
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (md->generic_param_count > 0 && md->body && md->body->kind == IRON_NODE_BLOCK &&
+            ((Iron_Block *)md->body)->stmt_count > 0)
+            return true;
+    }
     return d->span.filename &&
            iron_stdlib_origin_classify(d->span.filename) != 1;
 }
@@ -302,8 +311,13 @@ static char *rewrite_template(const char *src, GenInst *gi, Iron_Arena *arena) {
         if (off + vlen > srclen || strncmp(src + off, t->value, vlen) != 0) continue;
 
         int pidx = -1;
-        if (!header_done && strcmp(t->value, name) == 0 && i > 0 &&
-            (toks[i - 1].kind == IRON_TOK_OBJECT || toks[i - 1].kind == IRON_TOK_FUNC)) {
+        /* The header: `object Name[`, `func name[`, or a stdlib module
+         * function's `func Type.name[`. */
+        bool header = !header_done && strcmp(t->value, name) == 0 && i > 0 &&
+            (toks[i - 1].kind == IRON_TOK_OBJECT || toks[i - 1].kind == IRON_TOK_FUNC ||
+             (i >= 3 && toks[i - 1].kind == IRON_TOK_DOT &&
+              toks[i - 2].kind == IRON_TOK_IDENTIFIER && toks[i - 3].kind == IRON_TOK_FUNC));
+        if (header) {
             header_done = true;
             iron_strbuf_appendf(&out, "%.*s%s", (int)(off - cursor), src + cursor, gi->mangled);
             cursor = off + vlen;
@@ -366,10 +380,36 @@ static void set_spans(Iron_Node *root, Iron_Span sp) {
     arrfree(c.nodes);
 }
 
+/* Takes a declaration's own generic parameters out of its collected nodes:
+ * the instance of `func id[T](v: T)` is printed without `[T]`. */
+static void drop_generic_params(SpanCollect *c, Iron_Node *decl) {
+    Iron_Node **params = NULL;
+    int count = 0;
+    if (decl->kind == IRON_NODE_FUNC_DECL) {
+        params = ((Iron_FuncDecl *)decl)->generic_params;
+        count = ((Iron_FuncDecl *)decl)->generic_param_count;
+    } else if (decl->kind == IRON_NODE_METHOD_DECL) {
+        params = ((Iron_MethodDecl *)decl)->generic_params;
+        count = ((Iron_MethodDecl *)decl)->generic_param_count;
+    } else if (decl->kind == IRON_NODE_OBJECT_DECL) {
+        params = ((Iron_ObjectDecl *)decl)->generic_params;
+        count = ((Iron_ObjectDecl *)decl)->generic_param_count;
+    }
+    for (int i = 0; i < count; i++) {
+        for (ptrdiff_t k = 0; k < arrlen(c->nodes); k++) {
+            if (c->nodes[k] == params[i]) { arrdel(c->nodes, k); break; }
+        }
+    }
+}
+
 static void copy_spans(Iron_Node *inst, Iron_Node *tmpl) {
     SpanCollect a = { NULL }, b = { NULL };
     collect_nodes(inst, &a);
     collect_nodes(tmpl, &b);
+    /* The template's `[T]` has no node in the instance: without this every
+     * statement of a generic function's instance took the declaration's
+     * line, and a debugger stepped through it on one line (#722). */
+    if (arrlen(a.nodes) != arrlen(b.nodes)) drop_generic_params(&b, tmpl);
     bool same = arrlen(a.nodes) == arrlen(b.nodes);
     for (ptrdiff_t i = 0; same && i < arrlen(a.nodes); i++)
         same = a.nodes[i]->kind == b.nodes[i]->kind;
@@ -400,8 +440,9 @@ static Iron_Node *template_of(Iron_Program *program, GenInst *gi, Iron_Node *d) 
     }
     if (d->kind != IRON_NODE_METHOD_DECL) return NULL;
     Iron_MethodDecl *md = (Iron_MethodDecl *)d;
-    if (gi->decl->kind == IRON_NODE_METHOD_DECL)
-        return same_member(md, (Iron_MethodDecl *)gi->decl) ? gi->decl : NULL;
+    /* A generic method is printed alone (in its `patch object`), and its
+     * instance is named after its type arguments: the one method there. */
+    if (gi->decl->kind == IRON_NODE_METHOD_DECL) return gi->decl;
     if (gi->decl->kind != IRON_NODE_OBJECT_DECL) return NULL;
     const char *oname = ((Iron_ObjectDecl *)gi->decl)->name;
     for (int i = 0; i < program->decl_count; i++) {
@@ -436,9 +477,12 @@ static int materialize_one(Iron_Program *program, GenInst *gi, Iron_Arena *arena
             if (md->type_name && strcmp(md->type_name, oname) == 0) arrput(decls, d);
         }
     }
-    if (gi->decl->kind == IRON_NODE_METHOD_DECL) {
+    if (gi->decl->kind == IRON_NODE_METHOD_DECL &&
+        ((Iron_MethodDecl *)gi->decl)->is_receiver_form) {
         /* A generic method is printed inside `patch object T { ... }` so
-         * the instance is a method of the same type. */
+         * the instance is a method of the same type. (A stdlib module
+         * function, `func Json.encode_list[T](...)`, prints in that
+         * standalone form, which its file's marker keeps legal.) */
         Iron_ObjectDecl *patch = ARENA_ALLOC(arena, Iron_ObjectDecl);
         if (!patch) { arrfree(decls); return 0; }
         memset(patch, 0, sizeof(*patch));
@@ -484,6 +528,14 @@ static int materialize_one(Iron_Program *program, GenInst *gi, Iron_Arena *arena
     Iron_Lexer lexer = iron_lexer_create(snippet, file, arena, diags);
     /* Line 1 is the marker written above; the instance starts on line 2. */
     iron_lexer_set_user_start_line(&lexer, 2);
+    /* An instance of a stdlib module function is stdlib code: its `@file`
+     * marker opens a stdlib region (which allows the standalone
+     * `func Type.name` form) only when it names a file other than the
+     * entry one. */
+    if (gi->decl->kind == IRON_NODE_METHOD_DECL &&
+        !((Iron_MethodDecl *)gi->decl)->is_receiver_form &&
+        gi->decl->span.filename && iron_stdlib_origin_classify(gi->decl->span.filename) == 1)
+        lexer.entry_filename = "<generic>";
     Iron_Token *tokens = iron_lex_all(&lexer);
     int token_count = (int)arrlen(tokens);
     Iron_Parser parser = iron_parser_create(tokens, token_count, snippet, file,

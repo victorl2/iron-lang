@@ -40,8 +40,8 @@ func main() {
         Mb.So(g) -> println("{a.v} {b} {g.v}")
         Mb.No -> println("no")
     }
-    val o = r.o
-    if o != null {
+    if r.o != null {
+        val o = r.o.copy()
         println("{len(o)} {len(r.l)} {r.l[1] == E1.Q}")
     }
     val e = E3.V0([Mb.So("x"), Mb.No])
