@@ -1,0 +1,5 @@
+rows:row_id/id;name/;first;
+[A stored row.
+Second line: {braces} and "quotes" stay literal.]id=The primary key.;name=none;secret=Never written out.;count=none;
+a;
+a=none;

@@ -11,8 +11,10 @@
 int iron_expand_reflection(Iron_Program *program, Iron_Arena *arena,
                            Iron_DiagList *diags);
 
-/* Stable bridge for the slash-comment stage (#652). Until that AST lands on
- * main, reflection deliberately observes no documentation or directives. */
+/* Reflected metadata from comments (#652): the documentation run above an
+ * object or field (NULL when there is none) and the value of its
+ * `//key:value` directive for `key` (NULL when absent, "" when written
+ * `//key:`). A key written more than once gives its first value. */
 const char *iron_reflect_field_doc(const Iron_Field *field);
 const char *iron_reflect_field_tag(const Iron_Field *field, const char *key);
 const char *iron_reflect_object_doc(const Iron_ObjectDecl *object);

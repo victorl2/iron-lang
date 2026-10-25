@@ -2994,12 +2994,49 @@ compile-time properties:
 | `f.is_nullable` | whether the declared type is nullable |
 | `f.is_pub` | whether the field is public |
 | `f.visibility` | `"public"` or `"private"` |
-| `f.doc` | directive-provided documentation, currently always `null` |
-| `f.tag(name)` | directive value for `name`, currently always `null` |
+| `f.doc` | the field's documentation (section 1.2) as a `String`, or `null` |
+| `f.tag(name)` | the value of the field's `//name:value` directive as a `String`, or `null` |
 
-The corresponding object-level hooks are `typeinfo(T).doc` and
-`typeinfo(T).tag(name)`. They also return `null` until slash-comment
-directive metadata is integrated.
+`name` must be a string literal. A directive belongs to the field when it is
+on its own line in the comment run directly above the field, or at the end of
+the field's line; `//json:` gives `""`, and when a key is written more than
+once the first value is used. The compiler gives directive keys no meaning of
+its own: each library reads and validates its own. The object-level forms are
+`typeinfo(T).doc` and `typeinfo(T).tag(name)`, read from the comments above
+the object declaration.
+
+```iron
+interface Columns {
+    readonly func columns() -> String {
+        var out = ""
+        comptime for f in fields(Self) {
+            comptime if f.tag("db") != "skip" {
+                comptime if f.tag("db") == null {
+                    out = out + f.name + ";"
+                } else {
+                    out = out + f.tag("db") + ";"
+                }
+            }
+        }
+        return out
+    }
+}
+
+object Row impl Columns {
+    // The primary key.
+    val id: Int          //db:row_id
+    val name: String
+    val secret: String   //db:skip
+}
+
+func main() {
+    println(Row(1, "a", "s").columns())
+}
+```
+
+```output
+row_id;name;
+```
 
 `value.(f)` becomes a direct access to that field. It may appear on either
 side of assignment when the field and value are writable. A default method
@@ -4324,11 +4361,9 @@ arm_body       ::= block | stmt
 comptime_for_stmt ::= 'comptime' 'for' IDENT 'in' 'fields' '(' type ')' block
 comptime_if_stmt ::= 'comptime' 'if' expr block
                      { 'elif' expr block } [ 'else' block ]
-comptime_match_stmt ::= 'comptime' 'match' reflect_type '{'
-                        { reflect_pattern '->' arm_body }
+comptime_match_stmt ::= 'comptime' 'match' type '{'
+                        { type '->' arm_body }
                         [ 'else' '->' arm_body ] '}'
-reflect_type   ::= type | IDENT '.' 'type'
-reflect_pattern ::= type
 pattern        ::= [ IDENT '.' ] IDENT [ '(' [ sub_pattern { ',' sub_pattern } [ ',' ] ] ')' ]
                  | expr
 sub_pattern    ::= '_' | IDENT '.' IDENT [ '(' [ sub_pattern { ',' sub_pattern } [ ',' ] ] ')' ] | IDENT
@@ -4370,7 +4405,9 @@ type           ::= 'weak' 'rc' type
                  | tuple_type
                  | list_type
                  | func_type
+                 | reflected_type
                  | named_type
+reflected_type ::= IDENT '.' 'type'
 ptr_type       ::= '*' [ 'var' ] [ 'unchecked' ] type
 tuple_type     ::= '(' type ',' type { ',' type } ')'
 list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']' [ '?' ]

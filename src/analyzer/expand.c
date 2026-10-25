@@ -39,27 +39,36 @@ typedef struct {
     int              changed;
 } ExpandCtx;
 
-const char *iron_reflect_field_doc(const Iron_Field *field) {
-    (void)field;
+/* Metadata from #652's comments: the documentation run above a node and
+ * its `//key:value` directives. A key written more than once gives its
+ * first value. */
+static const char *directive_value(const Iron_Directive *directives,
+                                   int count, const char *key) {
+    if (!directives || !key) return NULL;
+    for (int i = 0; i < count; i++) {
+        if (directives[i].key && strcmp(directives[i].key, key) == 0)
+            return directives[i].value ? directives[i].value : "";
+    }
     return NULL;
+}
+
+const char *iron_reflect_field_doc(const Iron_Field *field) {
+    return field ? field->doc_comment : NULL;
 }
 
 const char *iron_reflect_field_tag(const Iron_Field *field, const char *key) {
-    (void)field;
-    (void)key;
-    return NULL;
+    if (!field) return NULL;
+    return directive_value(field->directives, field->directive_count, key);
 }
 
 const char *iron_reflect_object_doc(const Iron_ObjectDecl *object) {
-    (void)object;
-    return NULL;
+    return object ? object->doc_comment : NULL;
 }
 
 const char *iron_reflect_object_tag(const Iron_ObjectDecl *object,
                                     const char *key) {
-    (void)object;
-    (void)key;
-    return NULL;
+    if (!object) return NULL;
+    return directive_value(object->directives, object->directive_count, key);
 }
 
 static Iron_ObjectDecl *find_object(Iron_Program *program, const char *name) {

@@ -151,8 +151,8 @@ static bool emit_reflection_members(IronLsp_CompletionCandidate **out,
         { "is_nullable", "compile-time nullability: Bool", LSP_CK_PROPERTY },
         { "is_pub", "compile-time visibility flag: Bool", LSP_CK_PROPERTY },
         { "visibility", "compile-time visibility: String", LSP_CK_PROPERTY },
-        { "doc", "compile-time directive documentation: String?", LSP_CK_PROPERTY },
-        { "tag", "func tag(name: String) -> String?", LSP_CK_METHOD },
+        { "doc", "compile-time documentation comment: String?", LSP_CK_PROPERTY },
+        { "tag", "func tag(name: String) -> String?  (//name:value directive)", LSP_CK_METHOD },
     };
     for (size_t i = 0; i < sizeof(members) / sizeof(members[0]); i++)
         maybe_push(out, arena, members[i].name, members[i].kind,

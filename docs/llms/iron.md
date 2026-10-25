@@ -344,11 +344,11 @@ for field metadata conditions. Branches not selected are not type checked.
 `Fields[T]()` is the construction counterpart in an opted-in interface
 default: assign with `b.(f)`, check the first absent required field with
 `b.missing()`, and return `b.build()`. A zero-argument `init` is called when
-one exists; otherwise construction is field by field. `f.doc` and
-`f.tag("name")` are stable hooks for directive metadata, but return `null`
-until slash-comment directives are integrated. Object-level metadata uses
-`typeinfo(T).doc` and `typeinfo(T).tag("name")` with the same temporary null
-result. Reflection has no run-time
+one exists; otherwise construction is field by field. `f.doc` is the field's
+`//` documentation run and `f.tag("json")` the value of its `//json:...`
+directive (own line above the field or trailing on its line), both
+compile-time `String?` constants. Object-level metadata uses
+`typeinfo(T).doc` and `typeinfo(T).tag("name")`. Reflection has no run-time
 field table, and it does not yet cover enums or generic object declarations.
 
 

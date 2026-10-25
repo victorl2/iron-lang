@@ -171,8 +171,8 @@ static bool reflection_hover(const IronLsp_Document *doc,
         { "is_nullable", "field.is_nullable: Bool", "Whether the declared field type is nullable." },
         { "is_pub", "field.is_pub: Bool", "Whether the field is public." },
         { "visibility", "field.visibility: String", "The compile-time string public or private." },
-        { "doc", "field.doc: String?", "Directive documentation metadata. It is null until slash-comment directives are integrated." },
-        { "tag", "field.tag(name: String) -> String?", "Directive tag metadata. It is null until slash-comment directives are integrated." },
+        { "doc", "field.doc: String?", "The field's // documentation comment as a compile-time string, or null." },
+        { "tag", "field.tag(name: String) -> String?", "The value of the field's //name:value directive as a compile-time string, or null." },
     };
     const struct ReflectionHoverInfo *info = NULL;
     for (size_t i = 0; i < sizeof(infos) / sizeof(infos[0]); i++) {

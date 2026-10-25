@@ -1,8 +1,9 @@
 """Compile-time field reflection programs.
 
 Random object shapes exercise interface-default expansion, declaration-order
-metadata, generic fields(T), direct reflected reads, Fields[T] writes and
-missing-field tracking. The model computes the same hashes and text without
+metadata, documentation and `//fuzz:` directive metadata (fields and objects
+that carry either are left out of the hash), generic fields(T), direct
+reflected reads, Fields[T] writes and missing-field tracking. The model computes the same hashes and text without
 using the compiler.
 """
 from pf_probe import Probe, ProbeGen
@@ -101,15 +102,36 @@ class ReflectGen(ProbeGen):
             (ident, 'reflected'),
         ))
 
-        fields = '\n'.join(
-            f'    {"pub " if is_pub else ""}val {name}: Int'
-            for name, is_pub in zip(names, public))
-        self.need(ident, f'''object {ident} impl FuzzReflect {{
+        # metadata per field: none, a doc comment, an own-line directive,
+        # a trailing directive, or a directive of another key (ignored)
+        meta = [r.choice(('none', 'none', 'doc', 'tag', 'trailing', 'other'))
+                for _ in names]
+        lines = []
+        for name, is_pub, m in zip(names, public, meta):
+            if m == 'doc':
+                lines.append(f'    // The {name} field.')
+            elif m == 'tag':
+                lines.append('    //fuzz:skip')
+            elif m == 'other':
+                lines.append('    //other:x')
+            decl = f'    {"pub " if is_pub else ""}val {name}: Int'
+            if m == 'trailing':
+                decl += '  //fuzz:skip'
+            lines.append(decl)
+        fields = '\n'.join(lines)
+        object_meta = r.choice(('', '', '', '// Documented.\n', '//fuzz:off\n'))
+        self.need(ident, f'''{object_meta}object {ident} impl FuzzReflect {{
 {fields}
 }}''')
 
-        original_hash = hash_values(values)
-        seeded_hash = hash_values([seed + i for i in range(count)])
+        def hashed(vals):
+            if object_meta:
+                return 17
+            return hash_values([v for v, m in zip(vals, meta)
+                                if m in ('none', 'other')])
+
+        original_hash = hashed(values)
+        seeded_hash = hashed([seed + i for i in range(count)])
         names_text = ''.join(name + ';' for name in names)
         public_count = sum(public)
         args = ', '.join(str(v) for v in values)
