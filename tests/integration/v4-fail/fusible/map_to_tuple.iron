@@ -1,0 +1,10 @@
+// A list cannot hold tuples, also when the list is the result of map: the
+// program was accepted and the generated C did not compile (#858).
+func split(x: Int) -> (Int, Bool) {
+    return (x, x > 1)
+}
+
+func main() {
+    val parts = [1, 2].map(split)
+    println("{parts.len()}")
+}

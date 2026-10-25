@@ -1,7 +1,7 @@
 # Iron Reference Manual
 
 This manual describes the Iron programming language as implemented by the
-`iron` compiler that ships with this repository (version 4.5). It is a
+`iron` compiler that ships with this repository (version 5.0). It is a
 reference, not a tutorial: each section states what the compiler accepts and
 what the program does, with a small complete example. Every `iron` code block
 in this document is compiled and executed by `scripts/test_doc_examples.sh`,
@@ -124,11 +124,12 @@ hints are:
 
 | Hint | On | Meaning |
 |------|----|---------|
-| `//iron:fusible` | a function or method, on the line above `func` | eligible for loop fusion of chained list operations (section 5.2) |
+| `//iron:fusible` | a function or method, on the line above `func` | the function can run inside a fused list loop: no effects, no panics (sections 5.2 and 9.3.2) |
 
 An `//iron:` hint the compiler does not know, or one written above a
 declaration it does not apply to, is warning W0617, so a misspelling such
-as `//iron:fusable` does not pass silently.
+as `//iron:fusable` does not pass silently. A `//iron:fusible` function
+that cannot keep the claim is warning W0618.
 
 **Transition.** Earlier versions wrote line comments with `--`,
 documentation lines with `///` and the fusion hint as `@fusible`. These
@@ -143,10 +144,12 @@ An identifier is a letter or `_` followed by letters, digits and `_`
 `val`, `var`, tuple destructuring and `match` patterns; it is not an
 expression. Identifiers are case sensitive. By convention types and enum
 variants are `CapitalCase`; functions, variables and fields are
-`snake_case`. Capitalization is also significant in one place: in
-`X.Y(args)` and `X.Y`, when both `X` and `Y` start with an uppercase letter
-the expression is an enum variant construction rather than a method call or
-field access (section 3.6).
+`snake_case`. An identifier is not restricted by the keywords, macros, or
+runtime symbols of the language targeted by a compiler backend. For example,
+`default`, `register`, and `int` are valid Iron identifiers. Capitalization is
+also significant in one place: in `X.Y(args)` and `X.Y`, an uppercase `X`
+makes the expression a possible enum variant construction; the resolver
+distinguishes it from a method call or field access (section 3.6).
 
 The following words are keywords and cannot be used as identifiers:
 
@@ -202,16 +205,39 @@ A string literal is at most 4095 bytes. The escape sequences are:
 
 | Escape | Meaning |
 |---|---|
-| `\n` | newline |
-| `\t` | tab |
+| `\n` | newline (byte 10) |
+| `\r` | carriage return (byte 13) |
+| `\t` | tab (byte 9) |
+| `\0` | the zero byte |
+| `\xHH` | the byte `HH`: exactly two hex digits, `\x00` to `\xFF` |
 | `\\` | backslash |
 | `\"` | double quote |
 | `\{` and `\}` | literal braces (not interpolation) |
 | `\u{H}` | the Unicode scalar `H` (1 to 6 hex digits), encoded as UTF-8 |
 
 Any other character after a backslash is kept together with the backslash.
-A literal cannot contain the zero byte: `\u{0}` is an error (`E0002`);
-build such strings with `String.from_byte(0)`.
+`\0` is only the zero byte: a digit after it is an ordinary character
+(`"\012"` is the three bytes 0, `1`, `2`; there are no octal escapes). A
+`\x` that is not followed by two hex digits, and a `\u` that does not
+name a Unicode scalar, are errors (`E0002`).
+
+`\xHH` writes one byte, not a character. A string holds bytes (binary
+data is a `String`, section 9.12), so every value is allowed, but a byte
+from `\x80` to `\xFF` on its own is not UTF-8 text: write characters as
+`\u{...}` (`"\u{e9}"` is the two bytes `\xC3\xA9`) and keep `\x80` and
+above for binary data. A literal may contain zero bytes anywhere; they are
+part of its value and its `byte_len()`:
+
+```iron
+func main() {
+    val s = "a\0b\x41\r\n"
+    println("{s.byte_len()} {s.byte_at(1)} {s.byte_at(3)} {s.byte_at(4)}")
+}
+```
+
+```output
+6 0 65 13
+```
 
 A string literal that contains an unescaped `{` is an **interpolated
 string**: each `{expression}` is evaluated and its text spliced in (section
@@ -307,7 +333,7 @@ strings.
 | `Float` | 64-bit IEEE double (the default float type) |
 | `Float32`, `Float64` | floats of the given width |
 | `Bool` | `true` or `false` |
-| `String` | an immutable sequence of Unicode characters, stored as UTF-8 |
+| `String` | an immutable sequence of Unicode characters, stored as UTF-8 (it may also hold arbitrary bytes, section 1.4) |
 | `Void` | the result type of a function without `-> T` (never written) |
 
 Arithmetic on the same integer type wraps on overflow (two's complement).
@@ -324,7 +350,7 @@ Iterating a string with `for` yields one-character strings.
 
 `T?` is a type whose values are either a `T` or `null`. A nullable type can
 be written for any non-pointer type (`Int?`, `String?`, `Node?`,
-`Result[Int, String]?`). A plain `T` converts to `T?` implicitly, so a
+`Result[Int, String]?`, `[Int]?` for a list that may be absent). A plain `T` converts to `T?` implicitly, so a
 function declared `-> Int?` may `return i` or `return null`. Reading a
 field or calling a method through a nullable value without checking it
 first is an error (`E0204`); compare with `null` first. `x != null`
@@ -374,6 +400,41 @@ found at 2
 missing
 now
 true true true
+```
+
+A nullable list `[T]?` (or a nullable map, set, or object holding a list)
+follows the list ownership rules of section 2.3: it has one owner, so
+binding it to a second name, storing it in a field or returning a
+parameter is an error (`E0328`); check it for `null`, then write
+`xs.copy()` or `xs.take()`. A function returning `[T]?` returns a fresh
+list or `null`:
+
+```iron
+func evens(n: Int) -> [Int]? {
+    if n < 0 {
+        return null
+    }
+    var out: [Int] = []
+    for i in range(n) {
+        if i % 2 == 0 {
+            out.push(i)
+        }
+    }
+    return out
+}
+
+func main() {
+    val xs = evens(5)
+    if xs != null {
+        println("{xs.len()} {xs[2]}")
+    }
+    println("{evens(-1) == null}")
+}
+```
+
+```output
+3 4
+true
 ```
 
 A nullable type may also be the element type of a list, fixed array or
@@ -431,7 +492,10 @@ reference `weak rc T?` (section 6.3).
 ### 2.3 Lists, fixed arrays and bounded vectors
 
 `[T]` is a growable list of `T`. `[T; N]` is a fixed-size array of exactly
-`N` elements, where `N` is an integer constant. `[T; <=N]` is a bounded
+`N` elements, where `N` is an integer constant: a literal or constant
+expression (`[Int; 2 * 8]`), a `comptime` expression (section 8), or the
+name of a global `val` holding one of these (`val N = comptime size(3)`,
+then `[Int; N]`); anything else is an error (`E0202`). `[T; <=N]` is a bounded
 vector: a list that can hold at most `N` elements and whose storage is
 inline. All three are indexed with `xs[i]` from 0, checked at run time
 (an out-of-range index panics; a constant out-of-range index on a fixed
@@ -532,8 +596,9 @@ changes is where the bytes are:
   element copied or destroyed.
 
 For an element type that is not an object (numbers, `String`, enums) the
-attribute is accepted and changes nothing; fixed arrays and bounded
-vectors take no attributes. Traversing every field of every element is
+attribute is accepted and changes nothing. Fixed arrays and bounded
+vectors take no attributes by definition, although the compiler currently
+accepts and ignores them there ([#841](https://github.com/victorl2/iron-lang/issues/841)). Traversing every field of every element is
 not faster in a `layout: soa` list; use it for lists whose hot loops read
 a few fields of many elements. The debugger formatters show the elements
 of either layout.
@@ -588,6 +653,66 @@ func main() {
 dot1 dot3 square2 
 ```
 
+#### 2.3.1 Borrowed views
+
+`View[T]` is a read-only borrowed window over contiguous elements and
+`ViewMut[T]` is writable. `Bytes` is `View[UInt8]`. A view is a two-word
+value containing a pointer and a length; making or slicing one does not
+copy its elements.
+
+Use `s.bytes()` for a String, `xs.view()` for a list, fixed array or bounded
+vector, and `xs.view_mut()` for a writable view of a `var` collection.
+`v.slice(start, end)` checks `0 <= start <= end <= v.len()` once. Indexing
+and iteration use the same checked rules as lists. There is deliberately no
+unchecked view access. The optimizer removes proven checks from ordinary
+loops, and `--report-bounds-checks` lists those that remain.
+
+Views have these methods:
+
+| Method | Description |
+|---|---|
+| `len() -> Int`, `slice(a, b) -> Self` | length and checked subview |
+| `index_of(x) -> Int` | first index, or `-1` |
+| `starts_with(v)`, `ends_with(v)`, `equals(v)` | comparison with a read-only view |
+| `to_list() -> [T]` | copy the elements |
+| `fill(x)`, `copy_from(v)` | write a `ViewMut`; the source must fit |
+| `as_view() -> View[T]` | read-only form of a `ViewMut` |
+
+`Bytes` also has `to_string()` (a lossy UTF-8 copy) and
+`load_u64_le_or(i, fill)`, which reads up to eight little-endian bytes and
+uses `fill` past the end. `String.from_utf8(bytes) -> String?` copies valid
+UTF-8 and returns `null` for invalid bytes. A String, list, fixed array or
+bounded vector is lent automatically to a compatible view parameter.
+
+```iron
+func middle(input: Bytes) -> Bytes {
+    return input.slice(1, input.len() - 1)
+}
+
+func main() {
+    val bytes = "hello".bytes()
+    println("{middle(bytes).to_string()} {bytes[0]}")
+    var xs = [1, 2, 3]
+    val writable = xs.view_mut()
+    writable[1] = 9
+    println("{xs[1]}")
+}
+```
+
+```output
+ell 104
+9
+```
+
+A view cannot be stored in a field, global, list, map, nullable, tuple,
+closure or detached task (`E0369`). A function may return a view only when
+it has exactly one view, String or list parameter, and the result comes from
+that parameter. While a view is live, its source cannot be reassigned,
+resized, taken, passed to a `var` parameter or mutated directly (`E0370`);
+writes go through `ViewMut`. Liveness ends at the view's last lexical use.
+A temporary and a list or String reached through a heap, rc or pointer
+handle cannot be borrowed.
+
 ### 2.4 Tuples
 
 `(T1, T2, ...)` with at least two element types is a tuple type. A tuple
@@ -624,7 +749,9 @@ func main() {
 `func(T1, T2) -> R` is the type of functions and lambdas taking `T1` and
 `T2` and returning `R`; omit `-> R` for a function that returns nothing.
 Function values are created from lambda expressions (section 3.7); they
-can be stored in bindings, fields and lists and passed as arguments. The
+can be stored in bindings, fields and lists and passed as arguments, and a
+function type can be a type argument (`Channel[func(Int) -> Int](4)`,
+`Map[String, func(Int) -> Int]()`, section 13). The
 name of a top-level function is a function value too (`val f = twice`,
 `apply(twice, 4)`, `xs.map(twice)`).
 
@@ -661,10 +788,14 @@ Functions, objects and enums may take type parameters in square brackets:
 `[T: Hashable]`, which every type argument must satisfy (`E0206`). Type
 arguments are inferred from the arguments of a call or construction
 (`Pair(1, "one")`) or written on the type (`Stack[Int]()`,
-`val r: Result[Int, String]`). Generic code is instantiated per set of type
-arguments at compile time. A type parameter's constraint also provides its
-static functions, called on the parameter itself: `T.parse(text)` in
-`func read[T: Parse](text: String) -> T?` (section 5.5).
+`val r: Result[Int, String]`). A type argument written in an expression
+may be any type: a function type, a tuple, an `rc`, `weak rc` or pointer
+type (`id[func(Int) -> Int](twice)`, `Box[rc Node](n)`,
+`Stack[(Int, String)]()`, `p.first[*Node](a, b)`). Generic code is
+instantiated per set of type arguments at compile time. A type parameter's
+constraint also provides its static functions, called on the parameter
+itself: `T.parse(text)` in `func read[T: Parse](text: String) -> T?`
+(section 5.5).
 
 ```iron
 func largest[T](xs: [T], less: func(T, T) -> Bool) -> T {
@@ -861,7 +992,8 @@ value that has a text form may be interpolated: numbers, booleans,
 strings, enums (the variant name), objects with a
 `readonly func to_string() -> String` method (through that method, also
 behind `rc`), the nullable forms of all of these (`null` when there is no
-value), and the results of calls and field accesses. Interpolating a
+value; for an object `T?` or `rc T?`, `to_string()` runs only when there is
+a value), and the results of calls and field accesses. Interpolating a
 value with no text form, such as an object without `to_string()`, is an
 error (`E0334`). Floats print the shortest
 decimal that reads back to the same value, without a trailing `.0`
@@ -925,6 +1057,14 @@ are visible outside, and the closure may outlive the function that
 declared the `var` (a counter closure keeps its count). A lambda may
 capture a list only when it is passed directly as a call argument
 (`E0328` otherwise); to share a list with a stored closure use `rc [T]`.
+A `nocopy` value follows the same borrow rule (6.7): a lambda may capture
+one only when it is passed directly as an argument to a callee that just
+calls it during the call; it then reads the caller's binding, and the
+value is dropped once, by that binding (`E0286` otherwise). A callee
+keeps the closure, and the capture is rejected, when it stores the
+parameter, returns it, hands it to a callee that keeps it, or is a
+constructor, `push`, `insert` or a function without an Iron body; the
+list methods `map`, `filter`, `reduce` and `forEach` only call it.
 The environment of a closure is reference counted, so a closure may be
 returned, stored in a field or list, and copied. A recursive lambda is
 written by assigning it to the `var` it calls through
@@ -981,7 +1121,9 @@ clicked 3
 lifecycle; they are described in section 6. `heap` and `rc` may only
 appear in front of an allocation expression, not in a type annotation, a
 parameter or a binding keyword position (`E0273`, `E0297`); the reserved
-`pool` keyword is rejected with `E0298`.
+`pool` keyword is rejected with `E0298`. `heap` requires an object or
+collection allocation; `heap` of a number or `Bool` is a type mismatch
+(`E0202`).
 
 ### 3.9 Type tests
 
@@ -1393,8 +1535,8 @@ other expression on its own is accepted by the parser but has no effect.
 
 A program is a sequence of top-level declarations: imports, functions,
 objects, patches, interfaces, enums and global bindings. Declarations may
-appear in any order and are visible throughout the file (and, when `pub`,
-throughout the package, section 10.3).
+appear in any order and are visible throughout the file. Most become visible
+throughout the package when `pub`; section 5.10 records the current exceptions.
 
 ### 5.1 The entry point
 
@@ -1433,13 +1575,17 @@ Parameters are `val` by default: a parameter cannot be reassigned or
 mutated (`E0266`, `E0234`). A parameter declared `var` is a copy that the
 body may assign to and mutate; when the function returns, the final value
 is written back to the caller's `var` binding, so `var` parameters behave
-like in-out arguments. The argument is a `var` variable, or a field or an
-element of one (`E0267` for anything read-only); a field or element stays
-where it is for the call: changing the list it is in, or freeing or
-resetting the value it is in, aborts while the call runs (section 6.4). A
-list parameter is lent (never copied); a `var`
-list parameter lets the body grow or shrink the caller's list. Objects are
-passed by value. The result type follows `->`; omit it for a function that
+like in-out arguments; the same holds for a `var` parameter of a method or
+an `init`. The argument is a `var` binding, or a mutable field or list
+element of one (`E0267` for anything read-only). The original place stays
+where it is for the call and receives the final value: the list it is in is
+pinned and the heap, arena or pointed-to value it is in is kept alive, so
+changing that list, or freeing or resetting that value, aborts while the
+call runs (section 6.4). A list parameter is lent (never copied); a `var`
+list parameter lets the body grow or shrink the caller's list. An object
+parameter is lent for the call; it is not copied and its `copy` or `drop`
+block does not run in the callee. The result type follows
+`->`; omit it for a function that
 returns nothing. Argument count and types must match exactly (`E0216`,
 `E0217`). Functions cannot be overloaded (`E0201`) and there are no default
 or named arguments. Type parameters are written after the name (section
@@ -1492,11 +1638,26 @@ func main() {
 
 A top-level function name is a function value: `val f = twice`,
 `apply(twice, 4)` and `[twice]` work like the equivalent lambdas.
+Compiler built-ins such as `print`, `println`, `len`, `range` and `fill`
+are calls, not values: naming one without calling it is `E0202`.
 
-The compiler hint `//iron:fusible` on the line directly above a `func`
-marks it as eligible for loop fusion of chained list operations; it changes
-nothing else about the function. The older `@fusible` before `func` means
-the same and is accepted while code migrates (section 1.2).
+Compiler hints on the line directly above a function are
+`//iron:fusible`, `//iron:inline`, `//iron:noinline` and `//iron:cold`.
+They respectively allow list-loop fusion, require inlining, prevent
+inlining, and put an unlikely slow function on the backend's cold path.
+`inline` and `noinline` together are an error; recursive `inline` warns
+with `W0631` because it cannot be honored everywhere. The older `@fusible`
+means `//iron:fusible` and is accepted while code migrates (section 1.2).
+
+The compiler hint `//iron:fusible` on the line directly above a `func` or
+a method is a checked claim: the function can run inside a fused list loop
+(section 9.3.2), which means that it has no observable effect and cannot
+panic. The compiler verifies the claim when it builds the program and
+reports warning W0618, with the reason, for a function that does not keep
+it. The hint changes nothing else: fusion is decided by the same proof for
+every callback, hinted or not, and a program prints the same with its hints
+removed. The older `@fusible` before `func` means the same and is accepted
+while code migrates (section 1.2).
 
 ### 5.3 Objects
 
@@ -1534,6 +1695,15 @@ partially built `self` (`E0249`), return early (`E0250`), delegate to
 another `init` (`E0251`) or return a value (`E0252`). An object has at
 most one anonymous `init` (`E0201`). `Name.init(args)` is an explicit
 spelling of `Name(args)`.
+
+`//iron:align=N` directly above an object, field, local `val` or local
+`var` raises its alignment to a power of two from 1 through 4096.
+`//iron:align=cacheline` means 64 bytes, or 128 on Apple arm64. An alignment
+below the natural alignment is `E0368`. Stack values, fields, fixed arrays
+and list element storage honor over-alignment. Over-aligned heap, rc, arena,
+interface, closure and spawned-task storage is not implemented yet and is
+also `E0368`; it is deferred until the generation-table allocator work is
+merged.
 
 **Methods** are declared inside the object body with `func`, take an
 implicit receiver `self` of the object type, and are called as
@@ -2014,10 +2184,12 @@ is available without an import.
 
 ### 5.10 Visibility
 
-Every top-level declaration is private to its file unless marked `pub`.
-`pub` may prefix a function, object, patch, interface, enum or global
-binding (`pub val`, `pub var`). Using a private declaration from another file of the
-package is an error (`E0320`). Object members are private to the declaring
+Functions, objects, patches, enums and global bindings are private to their
+file unless marked `pub`; global bindings use `pub val` and `pub var`.
+Interfaces are currently visible package-wide even without `pub`, while an
+extern function stays file-private even when written `pub extern func`
+([#842](https://github.com/victorl2/iron-lang/issues/842)). Using any other
+private declaration from another file of the package is an error (`E0320`). Object members are private to the declaring
 file unless marked `pub` (section 5.3). The word `private` is not accepted
 (`E0101`). Visibility does not make names local: all files of a package
 share one namespace, so two files may not declare the same top-level name,
@@ -2037,8 +2209,10 @@ value, dereferencing a stale checked pointer.
 ### 6.1 Stack values
 
 A binding initialized with a plain expression holds its value directly.
-Objects are copied on assignment, when passed by value and when stored in
-lists or fields; each copy is destroyed independently. A value is destroyed
+Objects are copied on assignment and when stored in lists or fields; each
+copy is destroyed independently. Passing an object to an ordinary parameter
+lends it for the call, while a `var` parameter writes back to its original
+place (section 5.2). A value is destroyed
 when its block exits (in reverse declaration order) or, for a temporary,
 as soon as the expression that used it is done: a field read off a
 temporary (`make().name`) copies the field out and then drops the
@@ -2441,6 +2615,10 @@ pointers are distinct types (`E0289`, `E0294`) and `&` never produces an
 unchecked pointer. `RawPtr.of(x)` produces a type-erased `RawPtr` and
 `Ptr.cast[T](raw)` turns it back into a `*unchecked T`.
 
+A pointer to a collection does not expose that collection's methods or
+indexing. Calling a list, map, set, channel or lock operation through a
+pointer is `E0220`; pass or retain the collection value itself instead.
+
 ```iron
 object Config {
     var width: Int
@@ -2538,9 +2716,34 @@ storing it is an error (`E0286`), which is how `Box`, `Channel`, `Mutex`,
 objects moves its elements (`take()`, `pop()`, `remove()`) and lends them
 (field reads, `for`, methods), but anything that would duplicate one is
 `E0286` too: `copy()`, a slice, `filter`, and binding an element or a
-field (`val p = ps[i]`). Each object has at most
+field (`val p = ps[i]`).
+
+A closure or a thread can only borrow a `nocopy` value, as it borrows a
+list (6.8): a lambda passed directly as an argument to a callee that only
+calls it (3.7), or a `spawn` surely awaited in the block that starts it
+(7.1), reads the value through its binding and never copies or drops it.
+Any other capture, by a lambda bound to a `val` or `var`, returned, stored
+in a field, list or map, passed to a callee that keeps it, or by a spawn
+that is not surely awaited, is `E0286`. The rule covers a `val` binding or
+parameter whose type is a `nocopy` object or holds one by value (in a
+field, a fixed array, an optional, a tuple or an enum payload). It does not
+cover a `var` binding, which a closure shares through its counted cell
+(3.7), a `heap` binding, `rc` values and pointers, or `Mutex`, `Channel`,
+`RWLock` and `Arena`: these are reference counted handles, and a closure or
+thread holds its own reference to them (7.1). To share a `nocopy` value
+with a closure that is stored or returned, or with a thread that may
+outlive the block, make it reference counted, `val h = rc FileHandle.open(p)`:
+each closure then holds its own reference and the value is dropped once,
+when the last holder is gone. Two threads that both use it guard the
+reference with a lock, `Mutex(rc Hasher.new(alg))`. Each object has at most
 one `drop` and one `copy` block (`E0284`, `E0285`); `drop` may not be
 `readonly` (`E0287`) and may not `return` early (`E0288`).
+
+A closure may capture a `nocopy` value only as a borrow: the lambda must be
+passed directly as a call argument and the callee must not keep it. A spawn
+may borrow one only when it is awaited in the same block. Binding, returning
+or storing such a closure, passing it to a callee that keeps it, or letting
+the spawn escape is `E0286`; the diagnostic names `rc` as the ownership fix.
 
 ```iron
 object Point {
@@ -2584,6 +2787,56 @@ func main() {
 }
 ```
 
+```iron
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+
+func twice(f: func() -> Int) -> Int {
+    return f() + f()
+}
+
+func reader(r: rc Res) -> func() -> Int {
+    return func() -> Int { return r.id }
+}
+
+func main() {
+    val a = Res(1)
+    println("{twice(func() -> Int { return a.id })}")
+    val t = spawn("t") {
+        return a.id * 10
+    }
+    println("{await t}")
+    val b = rc Res(2)
+    val get = reader(b)
+    println("{get()}")
+}
+```
+
+```output
+2
+10
+2
+drop 2
+drop 1
+```
+
+<!-- doctest-expect-error: E0286 -->
+```iron
+nocopy object Res {
+    val id: Int
+}
+
+func main() {
+    val a = Res(1)
+    val get = func() -> Int { return a.id }
+    println("{get()}")
+}
+```
+
 ### 6.8 List ownership
 
 Lists are the one kind of value that is never copied implicitly. The
@@ -2600,9 +2853,12 @@ rules, all enforced at compile time with `E0328`:
   callee may move its elements while the other parameter refers to them);
   pass `xs.copy()` for the other one.
 - A lambda may capture a list only when the lambda is passed directly as a
-  call argument; a lambda that is bound, returned or stored cannot capture a
-  list. A `spawn` body that captures a list must be awaited in the block
-  that started it.
+  call argument to a callee that only calls it (3.7); a lambda that is
+  bound, returned or stored, or given to a callee that keeps it, cannot
+  capture a list. A `spawn` body that captures a list must be awaited in the
+  block that started it, by a later statement that always runs (no
+  `return`, `break` or `continue` before it). `nocopy` values follow the
+  same rules (6.7).
 - To share a list, use `rc [T]`.
 
 <!-- doctest-expect-error: E0328 -->
@@ -2633,15 +2889,23 @@ until it returns, and tasks beyond the pool's size wait their turn. Run
 long-lived loops as bound spawns, and see `Http.poller` (networking guide)
 for servers that keep many idle connections. The body may read `val` bindings of the enclosing
 function and use `Mutex`, `Channel` and `rc` values; a list captured by a
-spawn must be awaited in the same block (`E0328`). Writing a captured
+spawn must be awaited in the same block (`E0328`), and so must a `nocopy`
+value (or a value holding one), which the thread borrows from its binding
+without copying or dropping it (`E0286`, 6.7). For a `nocopy` value the
+await must be sure: a later statement of the same block that always runs,
+with no `return`, `break` or `continue` before it that could leave the
+block; to hand one to a thread that may outlive the block, make it `rc`
+(and guard it with a `Mutex` when both threads use it). Writing a captured
 `var` from a thread is a data race and warns (`W0604`). A thread keeps what
 it captured alive until it finishes, even when the block that declared it
 ends first (always possible for a spawn that is never awaited): it holds its
 own reference to each captured `Mutex`, `Channel`, `RWLock`, `Arena`, `rc`
-value and `var`, and its own copy of the other values. A checked pointer a
-thread reads is checked like on the thread that took it (section 6.4): a
-pointer to a local of a function that has returned dangles. A thread that
-is still running when the program ends is stopped with it. Named thread pools
+value and `var`, borrows a captured list or `nocopy` value (which is why
+such a spawn must be awaited), and keeps its own copy of the other values. A
+checked pointer a thread reads is checked like on the thread that took it
+(section 6.4): a pointer to a local of a function that has returned
+dangles. A thread that is still running when the program ends is stopped
+with it. Named thread pools
 are not implemented: `spawn("name", pool)` is rejected (`E0326`).
 
 ```iron
@@ -2674,7 +2938,9 @@ func main() {
 
 `Channel[T](capacity)` creates a bounded queue of `T`; the element type
 is written as the type argument (`val ch = Channel[Int](4)`), since no
-argument carries it.
+argument carries it. `T` may be any type, a function type included, so a
+channel can carry closures between tasks (`Channel[func(Int) -> Int](4)`)
+and `rc` handles (`Channel[rc Job](8)`).
 `ch.send(v)` blocks while the channel is full and `ch.recv()` blocks while
 it is empty. Channels are `nocopy` and are closed when their
 owner goes out of scope; there is no explicit close and no non-blocking
@@ -2746,14 +3012,44 @@ func main() {
 5
 ```
 
+A channel of closures hands work to another task; each closure keeps what
+it captured alive until it has run:
+
+```iron
+func main() {
+    val jobs = Channel[func(Int) -> Int](4)
+    val base = 100
+    val producer = spawn("producer") {
+        for i in range(3) {
+            val k = i * 10
+            jobs.send(func(x: Int) -> Int { return x + k + base })
+        }
+        return 0
+    }
+    var total = 0
+    for i in range(3) {
+        val job: func(Int) -> Int = jobs.recv()
+        total += job(i)
+    }
+    await producer
+    println("{total}")
+}
+```
+
+```output
+333
+```
+
 ### 7.4 Parallel `for`
 
 `for x in xs parallel { ... }` runs the iterations of the loop on several
 threads and waits for all of them. The body must not write bindings of the
 enclosing scope (`E0208`); use a `Mutex` to accumulate. `range(n)` and lists
 may be iterated in parallel; a list is iterated through a binding
-(`for x in xs parallel`), not a list expression. The `parallel(pool)` form parses but pools are
-not implemented (`E0326`).
+(`for x in xs parallel`), not a list expression. A parallel body cannot
+capture a `nocopy` value (`E0286`): share it as `rc` and guard it with a
+`Mutex`, since several worker threads may use it. The `parallel(pool)` form
+parses but pools are not implemented (`E0326`).
 
 ```iron
 func main() {
@@ -2780,23 +3076,33 @@ func main() {
 `comptime expr` evaluates `expr` while compiling and replaces it with the
 resulting constant. The evaluator handles integer, float and boolean
 literals and arithmetic (`+ - * / %`, comparisons, `==` and `!=`, unary
-`-` and `not`), string literals, list literals and indexing, object
+`-` and `not`), the bitwise operators and shifts (`& | ^ ~ << >>`), the
+numeric conversions (`UInt64(x)`, `Int8(x)`, `Float(n)`, ...), string
+literals, list literals and indexing, object
 construction, the built-ins `len`, `range`, `fill` and `read_file(path)`
 (which reads a file relative to the source file and yields its contents),
 and calls to top-level functions whose bodies use only `val`, `var`,
 assignment, `if`, `while`, `for` and `return` over those values. The
-evaluation computes what the same call computes at run time: Int
-arithmetic wraps, and `fill` makes independent copies. An object is
+evaluation computes what the same call computes at run time: integer
+arithmetic wraps at the width of its type, unsigned values compare and
+divide as unsigned, a shift by the width or more gives 0 (or the sign for
+`>>` of a signed value), a float converted to an integer saturates, and
+`fill` makes independent copies. An object is
 built at compile time only when it has no `init` (positional
 construction). Method calls, field access, string concatenation,
-interpolation, bitwise operators and shifts, conversions such as
-`Float(n)`, reading a global, `break` and `continue`, lambdas, `match`,
+interpolation, reading a global, `break` and `continue`, lambdas, `match`,
 enum values, and `heap` or `rc` allocation are not available at compile
 time (`E0231`); an error while evaluating, such as an integer division by
-zero or an index out of range, is `E0232` (a float divided by zero is an
-infinity or NaN, as at run time). Evaluation is limited to one million
+zero, a shift by a negative count or an index out of range, is `E0232` (a float divided by zero is an
+infinity or NaN, as at run time, and `%` on floats is the exact remainder
+`fmod` with the sign of the dividend: `5.5 % 2.0` is `1.5`, `-5.5 % 2.0`
+is `-1.5`, and a zero divisor gives NaN). Evaluation is limited to one million
 steps and to calls nested 256 deep (`E0230`). The result is typically
-bound to a global `val`.
+bound to a global `val`. A `comptime` expression that sizes a fixed array
+or bounded vector (`[Int; N]` with `val N = comptime f(3)`, or `[Int;
+comptime f(3)]`) is evaluated while that type is checked, before the other
+compile-time evaluations; it must produce an `Int`, and does not read
+files.
 
 ```iron
 val TABLE_SIZE = comptime (64 * 4)
@@ -2838,7 +3144,10 @@ The standard library is a set of Iron declarations (in `src/stdlib/`)
 whose bodies are provided by the C runtime. Modules marked *import* must be
 imported by name (section 5.9); the rest is always available. Functions on a
 module object are called as `Module.function(args)`; methods are called on
-values.
+values. A module function may be generic, like a top-level function
+(section 5.2): its type arguments are inferred from the arguments, as in
+`Json.encode_list(points)` (`func Json.encode_list[T: JsonEncodable](xs:
+[T]) -> String`).
 
 ### 9.1 Built-in functions
 
@@ -2917,6 +3226,28 @@ for any other value.
 `Int`, `Int32` and `Float` have a `to_string() -> String` method. `s[i]`
 is `s.char_at(i)` and `s[a..b]` is `s.substring(a, b)`.
 
+#### 9.2.1 Scalar bit and overflow operations
+
+Every integer type has `leading_zeros()`, `trailing_zeros()` (both return
+the bit width for zero), `count_ones()`, `clear_lowest_bit()`,
+`lowest_bit()`, `rotate_left(k)`, `rotate_right(k)`, `byte_swap()` and
+`prefix_xor()`. Rotations reduce `k` modulo the width, including negative
+counts. Arithmetic methods return wrapped results together with a flag:
+
+```text
+a.add_overflow(b) -> (T, Bool)
+a.sub_overflow(b) -> (T, Bool)
+a.mul_overflow(b) -> (T, Bool)
+a.add_carry(b, carry: Bool) -> (T, Bool)
+```
+
+`mul_wide` returns the full product as `(high: T, low: U)`, where `U` is
+the unsigned type of the same width; `mul_high` returns only the high half.
+They are available on all integer widths. Signed integers have
+`to_bits() -> U` and `T.from_bits(U)`. `Float` and `Float64` use `UInt64`,
+and `Float32` uses `UInt32`, with the same `to_bits` and `from_bits` names.
+These are bit casts, not numeric conversions.
+
 ```iron
 func main() {
     val s = "Hello, Wörld"
@@ -2957,14 +3288,22 @@ Methods on `[T]` (and, where noted, on fixed arrays, bounded vectors and
 | `reduce(init: U, f: func(U, T) -> U) -> U` | fold |
 | `forEach(f: func(T))` | call `f` on each element |
 | `sum() -> T` | sum of an `[Int]` or `[Float]` |
+| `view() -> View[T]`, `view_mut() -> ViewMut[T]` | borrow the elements; the mutable form needs a `var` list |
+| `spare(n) -> ViewMut[T]`, `commit(k)` | reserve and zero `n` scalar elements, then append the first `k` written elements (`k <= n`) |
 
 A slice `xs[a..b]` must lie within the list with `a <= b`; anything else
 is an index out of bounds panic, like `xs[i]`. `contains` compares with
 `==`, so a list never contains NaN.
 
+`pop()` on an empty list panics ("pop from an empty list"), and `get`,
+`set`, `remove`, `insert` and `xs[i]` with an index out of range panic
+("index out of bounds"), naming the Iron line of the call; this holds for
+every element type, lists of interface values included.
+
 The lambdas passed to `map`, `filter`, `reduce` and `forEach` must write
-their parameter types. Chains of `map`/`filter`/`reduce` calls are fused
-into one loop by the optimizer.
+their parameter types. `map` cannot produce tuples (a list cannot hold
+them, E0202). A chain of these calls may be fused into one loop (section
+9.3.2); that never changes what the program does.
 
 ```iron
 func main() {
@@ -2993,6 +3332,161 @@ func main() {
 1,2,3,4,5,
 5 60 8 2
 abc
+```
+
+#### 9.3.1 `StringBuilder`
+
+`StringBuilder` is a `nocopy` byte builder. `new()` starts empty and
+`with_capacity(n)` reserves bytes. `push_byte`, `push_bytes`, `push_str`,
+`push_int` and `push_uint` append without temporary Strings. `reserve(n)`
+makes room for the next `n` bytes. `spare(n) -> ViewMut[UInt8]` returns
+zeroed writable bytes after the current end; after writing them,
+`commit(k)` appends the first `k` (`k <= n`). `bytes()` borrows the built
+prefix, `len()` reports its byte length, `clear()` keeps the allocation,
+and `finish()` moves the buffer into a String and leaves the builder empty.
+
+```iron
+func main() {
+    var out = StringBuilder.with_capacity(32)
+    out.push_str("count=")
+    out.push_int(12)
+    val tail = out.spare(1)
+    tail[0] = UInt8(33)
+    out.commit(1)
+    println(out.finish())
+}
+```
+
+```output
+count=12!
+```
+
+#### 9.3.2 Loop fusion
+
+`map`, `filter`, `reduce`, `forEach` and `sum` each run one loop over their
+list, and `map` and `filter` allocate the list they return. Written as a
+chain, `xs.map(f).filter(g).sum()` is three loops and two intermediate
+lists. The optimizer may *fuse* such a chain into one loop that takes one
+element of `xs` through every stage before it reads the next, and builds
+no intermediate list.
+
+The fused loop calls the callbacks in a different order (`f`, `g`, `f`,
+`g`, ... instead of every `f` and then every `g`). Fusion is therefore done
+only where no program can tell the difference. All of the following must
+hold; where one does not, the calls run as written.
+
+**The stages.** A chain is two or more of the five methods, each called on
+the result of the one before. `map` and `filter` may be anywhere; `reduce`,
+`sum` and `forEach` return no list and can only be last. Any other method
+(`copy`, `len`, a slice, an index, ...) is not a stage: the chain ends
+before it and a new one may start after it. A chain is split wherever a
+rule below fails, and each part of two or more stages is fused on its own.
+
+**The callbacks.** Each callback must be a named function or a lambda the
+compiler can see at the call: written there, or a `val` bound to one. A
+callback received as a parameter, read from a field or stored in a `var`
+is unknown. A lambda may capture `val` bindings (it gets a copy); one that
+captures a `var` shares it with the enclosing function and is not fused.
+The body, and the body of every function it calls, must be proven free of
+effects and of anything that can panic. What is allowed is:
+
+- arithmetic, comparison, logic and bit operations on numbers and `Bool`,
+  and conversions between numeric types;
+- integer `/` and `%` by a constant other than zero, and shifts by a
+  constant count (float division never panics);
+- `if`, `while`, `match`, local `val` and `var`, `return`;
+- reading a field of an object, tuple or enum value held directly, and
+  constructing an object or tuple;
+- reading a global;
+- calling a function or method of the program that itself passes, generic
+  or not. A recursive function does not pass.
+
+Everything else keeps the stage out of a fused loop: any I/O, writing a
+global, a field, a list element or through a pointer, a `var` parameter,
+indexing a list, integer division or modulo by a value that is not a
+constant, a shift by a count that is not a constant, anything that builds
+a String or a list, allocation, reading through an rc, heap or pointer
+value, optionals, closures, tasks, and every function implemented outside
+Iron (the String and list methods among them).
+
+**The values between stages.** The values one stage hands to the next must
+be numbers, `Bool`, or objects made only of those with no `copy` or `drop`
+hook and not `nocopy`. So must the accumulator of a `reduce`. A `map` that
+produces Strings, lists, rc handles, optionals, enums or objects that own
+any of them really builds its list, and every such value is created,
+copied and dropped exactly as written. The stage that reads that list may
+start a new chain. The source list of a chain may hold anything; it is
+read in place.
+
+**The source.** A list of an interface type is never read by a fused loop
+(it keeps its elements per implementing type, and a loop over it must
+still visit them in list order). Every other list can be: a binding, a
+parameter, a global, a literal or call result (kept alive until the loop
+is done), an `rc [T]`, a fixed-size array, a bounded vector, a slice, a
+list of either layout. A `map` or `filter` at the end of a chain makes a
+list of the layout its type asks for.
+
+**Bindings.** The stages need not be in one expression. `val a = xs.map(f)`
+followed by `a.filter(g).sum()` is one chain when `a` has no other reader
+and nothing but argument setup stands between the two calls: constants,
+arithmetic, building the callbacks, constructing an object. Any call or
+other statement in between could change what the earlier stage reads (the
+source list, a global), so it ends the chain there, as does a branch or a
+loop between the two calls. The arguments of a later stage count as "in
+between": in `xs.map(f).reduce(next_id(), g)` the call of `next_id` runs
+after `map` has finished, as written.
+
+**What a fused loop does.** It visits the source in list order. For each
+element it applies the stages in order: `map` replaces the value, `filter`
+drops the element when its callback returns false, `reduce` updates the
+accumulator (starting from its first argument), `sum` adds to a total that
+starts at zero, `forEach` calls its callback. A `map` or `filter` in last
+position appends to the new list. An empty source calls nothing: the
+result is zero, the initial value of `reduce`, or an empty list. The loop
+runs where the last stage is written, once each time that point is
+reached.
+
+Fusion is local to one function body and to the stages that pass; a
+pipeline inside a callback is a list method call like any other (the outer
+stage is not fused, the inner pipeline is, on its own). It adds and removes
+no synchronization: a pipeline in a `spawn` or `parallel` body is fused by
+the same rules. Only an optimizing build fuses: with `--no-optimize` or
+`--debug` every call runs as written, so the two builds of a program must
+print the same, and that is how the test suite checks fusion.
+
+`iron build --warn-fusion-break` prints, for every list method call that
+was left out of a fused loop, the rule that stopped it:
+
+```text
+note: --warn-fusion-break: main.iron:12: .map() is not fused: its callback calls 'println', whose effects the compiler cannot rule out
+note: --warn-fusion-break: main.iron:20: .sum() is not fused with the .map() before it: the intermediate list has another reader
+```
+
+```iron
+var calls = 0
+
+//iron:fusible
+func double(x: Int) -> Int {
+    return x * 2
+}
+
+func counted(x: Int) -> Int {
+    calls += 1
+    return x + 1
+}
+
+func main() {
+    val xs = [1, 2, 3, 4]
+    // one loop, no intermediate list
+    println("{xs.map(double).filter(func(x: Int) -> Bool { return x > 2 }).sum()}")
+    // counted writes a global: map runs first, then filter and sum in one loop
+    println("{xs.map(counted).filter(func(x: Int) -> Bool { return x > calls }).sum()}")
+}
+```
+
+```output
+18
+5
 ```
 
 ### 9.4 `math` (import)
@@ -3219,6 +3713,8 @@ a new line); a line from one task is never mixed with another's.
 
 `Hint.black_box(x: Int) -> Int` returns its argument while preventing the
 C optimizer from reasoning about it; it exists for benchmarks.
+`Hint.likely(c)` and `Hint.unlikely(c)` return the Bool unchanged and tell
+the optimizer which outcome is expected.
 
 ### 9.9 Memory and concurrency types
 
@@ -3250,8 +3746,11 @@ integer types, `Bool` and `String` do, and an object does when it declares
 `impl Hashable` with `pure func hash() -> Int` and `pure func
 equals(other: Hashable) -> Bool` (section 5.5); two keys are the same
 entry when their hashes agree and `equals` is true. The value type may be
-anything that can be stored in a list, including lists, `rc` handles and
-other maps.
+anything that can be stored in a list, including lists, `rc` handles,
+closures and other maps; function, `rc` and pointer types are written as
+type arguments like any other (`Map[String, func(Int) -> Int]()`,
+`Map[Int, rc Node]()`). A function type, an `rc` handle or a pointer is
+not `Hashable`, so it cannot be a key or a set item.
 
 | Method | Meaning |
 |---|---|
@@ -3522,7 +4021,8 @@ a filter that starts with `-`); any other argument is an error, as is a
 second file given to `ironc`. Builds and checks of the same package may run
 at the same time. All files of a package share one namespace: a
 `pub` declaration in one file is visible in every other file, and a
-private one only in its own (`E0320`). `import` of a package file is
+private one only in its own (`E0320`), subject to the interface and extern
+exceptions in section 5.10. `import` of a package file is
 optional and documents the dependency. The files are compiled in this
 order, which is the order of their globals' initialization where those do
 not depend on each other (section 5.7): the vendored files, `src/lib.iron`,
@@ -3602,6 +4102,7 @@ without optimization or inlining, for gdb, lldb or the Visual Studio
 debugger), `--debug-build` (keep the generated C under
 `.iron-build/`), `--emit-c` (`build` only: write the C file and stop
 before the C compiler), `--dump-ir-passes`, `--report-compression`,
+`--report-bounds-checks`,
 `--warn-fusion-break`, `--force-comptime` (ignore the comptime cache),
 `--target=web` (section 10.5) and `--target=<os>-<arch>` (cross
 compilation, section 10.6). `--no-strict-v3` accepts a few removed syntax forms for
@@ -3612,6 +4113,11 @@ compiler flags (separated by spaces, at most 16) to the compilation of the
 program and of the runtime built into it, for example
 `IRON_CFLAGS="-g -fsanitize=address,undefined" iron build` for a sanitizer
 build.
+
+`--report-bounds-checks` prints the source line, function and access kind
+for each checked list, array or view access left after Iron optimization,
+then a total. It does not weaken a check and omits checks in the prepended
+standard library.
 
 ### 10.5 The web target
 
@@ -3757,7 +4263,7 @@ codes cited in this manual:
 | E0268, E0270, E0271, E0294, E0295, E0296 | pointer arithmetic; address of a temporary; escaping stack reference; regime errors; `&` on an `rc` |
 | E0273, E0274, E0297, E0298 | `heap`/`rc`/`pool` in an invalid position |
 | E0278 | I/O in a `readonly` method |
-| E0284 to E0288 | duplicate `drop`/`copy`; copy of a `nocopy` value; `readonly drop`; early return in `drop` |
+| E0284 to E0288 | duplicate `drop`/`copy`; copy of a `nocopy` value (also a capture that is not a borrow, 6.7); `readonly drop`; early return in `drop` |
 | E0289 | checked/unchecked pointer mismatch |
 | E0293 | missing return |
 | E0299, E0301 | dereferencing a `weak rc`; `rc` inside an arena block |
@@ -3766,6 +4272,9 @@ codes cited in this manual:
 | E0320, E0321 | private declaration used from another file; standalone `func Type.method` form |
 | E0322, E0323, E0324, E0325, E0326 | unsupported `is`; unsupported match subject; lambda parameter type; awaited twice; thread pools |
 | E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element or of a field inside one |
+| E0368 | invalid `//iron:align`, or over-aligned storage not supported yet |
+| E0369 | a view escapes its source or a returned view has no unique source parameter |
+| E0370 | a view source is not borrowable or is changed while the view is live |
 | E0335 | `break` / `continue` outside a loop, in a lambda, `defer` or `spawn` body inside one, or in a `parallel` loop |
 | E0336 | `return` inside a `defer` body |
 | E0346 | a `for` loop body adds to, removes from or replaces the list it iterates |
@@ -3781,6 +4290,8 @@ codes cited in this manual:
 | W0601, W0604, W0605, W0606 | narrowing cast; spawn data race; arena skips `drop`; heap value never freed |
 | W0611, W0613, W0614 | unused import; `var` never reassigned; `var` parameter never reassigned |
 | W0617 | unknown `//iron:` compiler hint, or one on a declaration it does not apply to |
+| W0618 | `//iron:fusible` on a function that has an effect or can panic (reported by `build` and `run`) |
+| W0631 | `//iron:inline` cannot be honored because the function is recursive |
 
 `docs/dev/diagnostic-codes.md` lists every code with its message.
 
@@ -3795,8 +4306,11 @@ so that older material is not mistaken for the current language:
 - Reading and writing a primitive through a pointer (`*p`).
 - Lambda parameter inference outside a function-typed parameter position.
 - `String`, `Bool` and `Float` subjects in `match`.
+- A `nocopy object` cannot currently also be `pub` ([#840](https://github.com/victorl2/iron-lang/issues/840)).
 - raylib in Linux cross builds: it needs the system's OpenGL, which a
   static musl executable cannot load.
+- over-aligned heap, rc, arena, interface, closure and spawned-task storage;
+  stack, field, fixed-array and list storage already honor `//iron:align`.
 
 ---
 
@@ -3824,6 +4338,12 @@ doc_run        ::= { own-line comment, one per line, no blank line between }
                     interface method on the next line)
 ```
 
+The `iron` directive values implemented here are `fusible`, `inline`,
+`noinline`, `cold`, and `align=N|cacheline`. Function directives attach to
+the following declaration. `align` may also precede an object, field or
+local binding. Directives are lexical comments, so they add no grammar
+production.
+
 `--` and `///` are transitional spellings of `//`, and `@fusible` of the
 directive `//iron:fusible` (section 1.2).
 
@@ -3833,7 +4353,7 @@ program        ::= { decl }
 decl           ::= import_decl
                  | val_decl
                  | var_decl
-                 | [ 'nocopy' ] [ 'pub' ] object_decl
+                 | [ ( 'nocopy' | 'pub' ) ] object_decl
                  | [ 'pub' ] ( func_decl | extern_decl | patch_decl | interface_decl | enum_decl | array_ext_decl
                              | type_method_decl )
                  | test_decl
@@ -3906,16 +4426,16 @@ heap_opts      ::= '(' heap_opt { ',' heap_opt } ')'
 heap_opt       ::= 'in' ':' expr | 'allow_drop_skip' ':' ( 'true' | 'false' )
 postfix        ::= primary { '.' NAME [ type_args ] [ call_args ]
                            | '[' expr [ '..' [ expr ] ] ']'
-                           | '[' type { ',' type } ']'
+                           | '[' elem { ',' elem } ']'
                            | call_args }
+elem           ::= expr | type
 call_args      ::= '(' [ expr { ',' expr } [ ',' ] ] ')'
 type_args      ::= '[' type { ',' type } ']'
 primary        ::= INT | FLOAT | STRING | 'true' | 'false' | 'null' | IDENT | 'self'
                  | '(' expr ')'
-                 | '(' expr ',' expr { ',' expr } [ ',' ] ')'
+                 | '(' elem ',' elem { ',' elem } [ ',' ] ')'
                  | '[' type ';' expr ']'
-                 | '[' [ expr { ',' expr } [ ',' ] ] ']'
-                 | '[' type ']'
+                 | '[' [ elem { ',' elem } [ ',' ] ] ']'
                  | lambda
 lambda         ::= 'func' param_list [ '->' type ] block
 
@@ -3943,10 +4463,32 @@ operators, with every binary operator left associative and `is` binding
 loosest of all. In `postfix`, `X.Y(args)` and `X.Y` where `X` and `Y` both
 start with an uppercase letter denote an enum variant construction, and
 `x.m[T](args)` is only read as a generic method call when the token after
-`[` is a type name starting with an uppercase letter or `[`. Between the
-brackets of `postfix` and of a list `primary`, an element containing `?`
-(outside parentheses) is read as a `type` (`Map[String, Int?]()`,
-`Map[String, [Int?]]()`), every other element as an `expr`. In `pattern`,
+`[` is a type name starting with an uppercase letter, `[`, or a token that
+starts a `type` by the rule below, and a `(` follows the `]`. Between the
+brackets of `postfix` and of a list `primary`, and between the parentheses
+of a tuple `primary`, an element is read as a `type` when
+
+- it starts with `?` or `*`: no expression does (there is no prefix `*`
+  operator), so `Set[*Node]()` and `Channel[?*Node](1)` hold types;
+- it starts with `func` and its signature is not followed by `{`: a
+  `lambda` always has a block, so `Channel[func(Int) -> Int](4)` and
+  `Map[String, func(func(Int) -> Int) -> Int]()` hold function types while
+  `[func(x: Int) -> Int { return x }]`, `[func(x) { return x }]` and
+  `[func() { }]` are lists of lambdas;
+- it starts with `rc` or `weak rc` (other than the expression
+  `weak rc null`) between the brackets of `postfix`, where nothing is
+  indexed by a handle (`Box[rc Node](n)`, `Channel[weak rc Node](8)`). In
+  a list or a tuple `rc x` is an element (`[rc p, rc Node(1)]`), so there
+  such an element is a `type` only when what follows the `rc` is one by
+  this rule (`[rc func(Int) -> Int]`, `[rc *Node]`, `[rc Node?]`); `[rc
+  Node]` stays an `rc` expression and reads as the list type where a type
+  is expected (`Map[String, [rc Node]]()`);
+- it contains `?` outside parentheses (`Map[String, Int?]()`,
+  `Map[String, [Int?]]()`).
+
+Every other element is an `expr`; one that names a type (`Int`,
+`Map[String, Int]`, `[Int]`, `(Int, String)`) is taken as that type where
+a type argument is expected. In `pattern`,
 the first alternative is used when the arm starts with `IDENT '.'` or with
 an uppercase identifier followed by `(`, and `expr` otherwise. The
 standalone form `func (r: T) method()` is recognized only to report

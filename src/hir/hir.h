@@ -224,6 +224,11 @@ typedef struct {
     bool        is_mutable;  /* var vs val */
     bool        has_init;    /* false for a bare `var g: T` declaration */
     Iron_Span   span;        /* declaration site */
+    /* A `val` whose initializer is constant data (a scalar literal, or a
+     * list / fixed array / bounded vector literal of them): the literal,
+     * emitted as the static's `const` initializer instead of an assignment
+     * in __iron_module_init. NULL otherwise. */
+    struct IronHIR_Expr *const_init;
 } IronHIR_Global;
 
 /* Match arm: pattern + guard + body block */
@@ -255,6 +260,9 @@ struct IronHIR_Stmt {
             /* A match pattern's payload binding: a view of the subject's
              * payload, which the subject keeps owning. */
             bool           borrows;
+            /* `//iron:align=N` on the binding (IRON_ALIGN_CACHELINE for
+             * cacheline); 0 = natural. The binding gets a stack slot. */
+            uint16_t       align;
         } let;
 
         /* IRON_HIR_STMT_ASSIGN */
@@ -357,7 +365,7 @@ struct IronHIR_Expr {
         struct { double value; } float_lit;
 
         /* IRON_HIR_EXPR_STRING_LIT */
-        struct { const char *value; } string_lit;
+        struct { const char *value; size_t len; } string_lit;   /* len 0: strlen(value) */
 
         /* IRON_HIR_EXPR_INTERP_STRING */
         struct {
@@ -403,6 +411,7 @@ struct IronHIR_Expr {
             const char    *method;
             IronHIR_Expr **args;       /* stb_ds array */
             int            arg_count;
+            int            intrinsic;  /* Iron_Intrinsic (analyzer/intrinsics.h), 0 = none */
         } method_call;
 
         /* IRON_HIR_EXPR_FIELD_ACCESS */
@@ -573,6 +582,12 @@ struct IronHIR_Expr {
 
 struct IronHIR_Func {
     const char        *name;
+    /* A spawned task's body: the `spawn("name")` name, given to its thread. */
+    const char        *task_name;
+    /* ...and where it was spawned: the spawn statement and the function
+     * around it (the debugger shows them under the task's stack). */
+    Iron_Span          spawn_span;
+    const char        *spawn_parent;
     Iron_Type         *return_type;
     IronHIR_Param     *params;         /* stb_ds array */
     int                param_count;
@@ -585,6 +600,10 @@ struct IronHIR_Func {
     /* A free function of the program (not the standard library, not
      * extern): its C name avoids the runtime's symbols (#524). */
     bool               is_user_func;
+    /* The declaration carries `//iron:fusible`; see IronLIR_Func. */
+    bool               is_fusible_hint;
+    Iron_Span          fusible_hint_span;
+    const char        *fusible_hint_name;
     bool               is_runtime_stub;
     Iron_CaptureEntry *captures;       /* from capture analysis; NULL for non-capturing */
     int                capture_count;
@@ -606,6 +625,8 @@ struct IronHIR_Func {
      * `iron_stack_gen += 1;` prologue/epilogue. Default false via
      * iron_hir_func_create memset. OQ-E lock: per-call bump semantics. */
     bool               takes_local_addr;
+    /* IRON_HINT_* (parser/ast.h) from `//iron:inline` / `noinline` / `cold`. */
+    uint8_t            hints;
     /* Phase 22 READ-08: true when lowered from a readonly FuncDecl/MethodDecl.
      * Consumed by hir_to_lir.c to propagate to IronLIR_Func for sret codegen.
      * Consumes Plan 22-02 LiftPending.is_readonly_context for lifted lambdas.

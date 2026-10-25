@@ -1,0 +1,5 @@
+```iron
+func rotate_left(k: Int) -> UInt32
+```
+
+The bits rotated left by k modulo the bit width.

@@ -1,9 +1,0 @@
--- Negative test: a \u{0} escape in a string literal is rejected. Literals
--- travel as C strings up to the emitter, so the zero byte used to end the
--- value there and the rest of the literal was silently dropped ("a\u{0}b"
--- had byte_len 1). Build such values with String.from_byte(0) instead.
-
-func main() {
-    val s = "a\u{0}b"
-    println("{s.byte_len()}")
-}

@@ -1,0 +1,13 @@
+-- @expect-panic: stale pointer dereference
+object Number { val value: Int }
+
+func make_reader() -> func() -> Int {
+    val number = heap Number(7)
+    defer free number
+    return func() -> Int { return number.value }
+}
+
+func main() {
+    val read = make_reader()
+    println("{read()}")
+}

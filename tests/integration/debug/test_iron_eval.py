@@ -52,7 +52,7 @@ CASES = [
     ("p.x > 2 and flag", "true"), ("not flag", "false"), ("flag or 1 / 0 == 1", "true"),
     ("p.x > 2 && !flag", "false"), ("-7 / 2", "-3"), ("-7 % 2", "-1"), ("7 % -2", "1"),
     ("maybe != null", "true"), ("none == null", "true"), ("1 < 2 == true", "true"),
-    ("2.5 * 2.0", "5.0"),
+    ("2.5 * 2.0", "5"),
     # gdb's list form [3]: length and elements from the children.
     ("gl.len()", "3"), ("gl[1]", '"bb"'),
     # A list kept as a C array: a pointer and carr_len.
@@ -61,8 +61,8 @@ CASES = [
     ("count + 1", "42"), ("count * 2 > 80", "true"),
 ]
 ERRORS = [("nosuch", "no variable `nosuch` here"), ("p.z", "`p.z` has no value here"),
-          ("xs[5]", "out of range"), ("1 / 0", "division by zero"), ("not 3", "expected a Bool"),
-          ("p.x +", "expected more"), ("ages.get(\"zed\")", "no entry")]
+          ("xs[5]", "index out of bounds (index 5, bound 3)"), ("1 / 0", "integer division by zero"), ("not 3", "expected a Bool"),
+          ("p.x +", "expected more"), ("ages.get(\"zed\")", "key not found in map")]
 
 failed = 0
 for expr, want in CASES:
@@ -98,6 +98,44 @@ for (c_name, test), want in FRAMES:
     if got != want:
         failed += 1
         print("FAIL: iron_function_name(%r, %r) = %r, want %r" % (c_name, test, got, want))
+
+# The DAP proxy presents the generated C view struct as indexed Iron data.
+proxy = dap.Proxy(None, None)
+def view_request(command, args, timeout=10):
+    if command == "variables" and args.get("variablesReference") == 9:
+        return {"success": True, "body": {"variables": [
+            {"name": "ptr", "value": "0x1234"}, {"name": "len", "value": "2"}]}}
+    if command == "evaluate":
+        values = {"(bytes).ptr[0]": "65", "(bytes).ptr[1]": "66"}
+        value = values.get(args.get("expression"))
+        return {"success": value is not None,
+                "body": {"result": value, "variablesReference": 0} if value is not None else {}}
+    return {"success": False}
+proxy.request = view_request
+shown = proxy.join_array_lengths([{"name": "bytes", "value": "", "variablesReference": 9,
+                                    "type": "struct Iron_View_uint8_t"}], 1)[0]
+if shown.get("value") != "View[size=2] [65, 66]" or shown.get("indexedVariables") != 2:
+    failed += 1
+    print("FAIL: view debugger display is %r" % shown)
+
+class FakeGdbProxy:
+    kind = "gdb"
+
+    def request(self, command, args, timeout=10):
+        if command == "variables" and args.get("variablesReference") == 6:
+            return {"success": True, "body": {"variables": [
+                {"name": "x", "value": "3"}, {"name": "y", "value": "4"}
+            ]}}
+        return {"success": False}
+
+
+# GDB DAP turns a pretty-printer's Python None summary into the text "None".
+# The proxy must recover the object summary without changing native GDB's
+# nested struct formatting.
+got = dap.Proxy.struct_text(FakeGdbProxy(), "None", 6, "Iron_Point")
+if got != "Point {x = 3, y = 4}":
+    failed += 1
+    print("FAIL: GDB DAP object summary is %r" % got)
 if failed:
     sys.exit(1)
 print("iron eval: %d expressions, %d errors: PASS" % (len(CASES), len(ERRORS)))

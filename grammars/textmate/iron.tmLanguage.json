@@ -90,7 +90,7 @@
         },
         "string-escape": {
             "name": "constant.character.escape.iron",
-            "match": "\\\\(?:u\\{[0-9a-fA-F]{1,6}\\}|[nrt\"\\\\{}])"
+            "match": "\\\\(?:u\\{[0-9a-fA-F]{1,6}\\}|x[0-9a-fA-F]{2}|[nrt0\"\\\\{}])"
         },
         "string-interpolation": {
             "name": "meta.interpolation.iron",

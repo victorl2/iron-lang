@@ -162,6 +162,7 @@ static void test_hover_binding_doc_directives(void) { test_hover_fixture("hover_
 static void test_hover_body_param(void)           { test_hover_fixture("hover_body_param"); }
 static void test_hover_body_stdlib_method(void)   { test_hover_fixture("hover_body_stdlib_method"); }
 static void test_hover_body_builtin_method(void)  { test_hover_fixture("hover_body_builtin_method"); }
+static void test_hover_body_intrinsic_method(void) { test_hover_fixture("hover_body_intrinsic_method"); }
 static void test_hover_static_call(void)          { test_hover_fixture("hover_static_call"); }
 
 int main(void) {
@@ -179,6 +180,7 @@ int main(void) {
     RUN_TEST(test_hover_body_param);
     RUN_TEST(test_hover_body_stdlib_method);
     RUN_TEST(test_hover_body_builtin_method);
+    RUN_TEST(test_hover_body_intrinsic_method);
     RUN_TEST(test_hover_static_call);
     return UNITY_END();
 }

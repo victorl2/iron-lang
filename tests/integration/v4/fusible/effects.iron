@@ -1,0 +1,80 @@
+// A callback with an observable effect keeps its stage whole: every call of
+// one stage happens before the first call of the next. The lines below are
+// printed in that order with and without optimization.
+
+object Cell {
+    var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
+}
+
+var seen = 0
+
+func announce(x: Int) -> Int {
+    println("map {x}")
+    return x * 2
+}
+
+func accept(x: Int) -> Bool {
+    println("filter {x}")
+    return x > 2
+}
+
+func remember(x: Int) -> Int {
+    seen = seen * 10 + x
+    return x
+}
+
+func after_all(x: Int) -> Bool {
+    return seen >= 123
+}
+
+func inc(x: Int) -> Int {
+    return x + 1
+}
+
+func pos(x: Int) -> Bool {
+    return x > 0
+}
+
+func main() {
+    val xs = [1, 2, 3]
+
+    // I/O in two stages.
+    println("sum {xs.map(announce).filter(accept).sum()}")
+
+    // I/O in one stage only: the effect-free stages around it still fuse.
+    println("sum {xs.map(inc).filter(pos).map(announce).filter(pos).sum()}")  // @fused: map filter; filter sum
+
+    // A global written by one stage and read by the next. The filter and
+    // the sum fuse; the map that writes runs first, as written.
+    val total = xs.map(remember).filter(after_all).sum()  // @fused: filter sum
+    println("seen {seen} sum {total}")
+
+    // A captured var written by forEach.
+    var side = 0
+    xs.map(inc).forEach(func(x: Int) { side += x })
+    println("side {side}")
+
+    // A write through an rc handle, read by the next stage.
+    val cell = rc Cell(0)
+    val kept = xs.map(func(x: Int) -> Int {
+        cell.n = cell.n * 10 + x
+        return x
+    }).filter(func(x: Int) -> Bool { return cell.n >= 123 })
+    println("cell {cell.n} kept {kept.len()}")
+
+    // A write through a pointer.
+    var plain = Cell(0)
+    val p = &plain
+    val kept2 = xs.map(func(x: Int) -> Int {
+        p.n = p.n + x
+        return x
+    }).filter(func(x: Int) -> Bool { return p.n >= 6 })
+    println("plain {plain.n} kept {kept2.len()}")
+
+    // forEach that prints after an effect-free map.
+    xs.map(inc).forEach(func(x: Int) { println("each {x}") })
+}

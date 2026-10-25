@@ -46,6 +46,14 @@ typedef struct {
     Iron_Span       span;
     const char     *message;     /* arena-allocated */
     const char     *suggestion;  /* arena-allocated, NULL if none */
+    /* Optional richer form (iron_diag_emit_labeled), all NULL / zero in a
+     * plain diagnostic: a label under the primary caret, a second location
+     * with its own label (the declaration a use refers to; line 0 when
+     * absent), and a note printed before the help. */
+    const char     *label;
+    Iron_Span       related_span;
+    const char     *related_label;
+    const char     *note;
 } Iron_Diagnostic;
 
 /* ── Diagnostic list ─────────────────────────────────────────────────────── */
@@ -66,6 +74,26 @@ void iron_diag_emit(Iron_DiagList *list,
                     Iron_Span      span,
                     const char    *message,
                     const char    *suggestion);
+
+/* iron_diag_emit with a label under the caret, a related location with its
+ * own label (related_span.line == 0 for none) and a note. Any of the extra
+ * strings may be NULL. The help (suggestion) may span several lines. */
+void iron_diag_emit_labeled(Iron_DiagList *list,
+                            Iron_Arena    *arena,
+                            Iron_DiagLevel level,
+                            int            code,
+                            Iron_Span      span,
+                            const char    *message,
+                            const char    *label,
+                            Iron_Span      related_span,
+                            const char    *related_label,
+                            const char    *note,
+                            const char    *suggestion);
+
+/* The whole text of a diagnostic for a client that shows only one message
+ * (an editor): the message, then the labels, the note and the help, one per
+ * line. Arena-allocated. */
+const char *iron_diag_full_text(const Iron_Diagnostic *d, Iron_Arena *arena);
 
 /* Print a single diagnostic with optional source context.
  * source_text may be NULL; if non-NULL, a 3-line context window is shown.
@@ -652,6 +680,9 @@ void iron_diag_set_user_start_line(uint32_t line);
 #define IRON_ERR_LOOP_JUMP_OUTSIDE        335   /* `break` / `continue` outside a loop, in a lambda, defer or spawn body inside one, or in a parallel for */
 #define IRON_ERR_RETURN_IN_DEFER          336   /* `return` inside a defer body */
 #define IRON_ERR_LIST_CHANGED_IN_LOOP     346   /* a `for` loop body adds to, removes from or replaces the list it iterates (#734) */
+#define IRON_ERR_ALIGN_VALUE           368   /* `//iron:align=N`: N not a power of two from 1 to 4096 (or cacheline), below the natural alignment, or for storage that cannot honor it yet */
+#define IRON_ERR_VIEW_ESCAPE           369   /* a view stored in a field, list, global or other compound type, captured by a stored closure or unawaited spawn, or returned without the single source parameter */
+#define IRON_ERR_VIEW_SOURCE           370   /* the source of a live view is resized, reassigned, taken or passed to a var parameter, or is not borrowable (a temporary, a list behind a pointer) */
 #define IRON_ERR_GLOBAL_INIT_CYCLE        345   /* a global depends on itself through its initializer */
 #define IRON_ERR_NOT_STRINGABLE           334   /* `{x}` where x has no text form: not a number, Bool, String, enum, their nullable, or an object with to_string() */
 /* Static functions and `Self` in interfaces (#455). */
@@ -668,6 +699,12 @@ void iron_diag_set_user_start_line(uint32_t line);
 #define IRON_ERR_LOWER_UNRESOLVED_IDENT    401
 #define IRON_ERR_LOWER_INVALID_ASSIGN      402
 #define IRON_ERR_LOWER_INVALID_MATCH       403
+
+/* Web-target semantic checks.  Keep these in the central registry so code
+ * allocation and documentation checks see the same namespace as every other
+ * compiler diagnostic. */
+#define IRON_ERR_WEB_AWAIT                  501
+#define IRON_ERR_WEB_TOP_LEVEL_LOADER       502
 
 /* HIR verifier errors (500 range) */
 /* HIR verifier errors are compiler bugs, like the LIR verifier's 900s. They
@@ -707,6 +744,8 @@ void iron_diag_set_user_start_line(uint32_t line);
 #define IRON_WARN_CONSTANT_TYPE_TEST 615  /* `c is T` on a concrete value: known at compile time (#179) */
 #define IRON_WARN_NULL_COMPARE_NEVER 616  /* `x == null` where x is not nullable: always the same answer */
 #define IRON_WARN_UNKNOWN_IRON_HINT  617  /* `//iron:<hint>` names no compiler hint, or one that does not apply there */
+#define IRON_WARN_FUSIBLE_HINT_UNMET 618  /* `//iron:fusible` on a function that cannot run inside a fused loop */
+#define IRON_WARN_INLINE_NOT_HONORED   631   /* `//iron:inline` on a function that calls itself: clang cannot inline it everywhere */
 
 /* Phase 28 ARENA-09 (Plan 28-03): arena-allocated type with a transitive
  * non-trivial destructor. A type warns if it (or a field whose type

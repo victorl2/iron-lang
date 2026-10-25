@@ -53,8 +53,14 @@ static bool object_holds_list(const Iron_Type *t, int depth) {
 
 static bool tuple_owns_list(const Iron_Type *t);
 
+/* A nullable list or object (`[T]?`, #452) owns its payload the same way. */
+static const Iron_Type *strip_nullable(const Iron_Type *t) {
+    return t && t->kind == IRON_TYPE_NULLABLE ? t->nullable.inner : t;
+}
+
 /* (A tuple holding a list is copied by copying the list too.) */
 static bool owns_list(const Iron_Type *t) {
+    t = strip_nullable(t);
     return is_dynamic_list(t) || object_holds_list(t, 0) || tuple_owns_list(t);
 }
 
@@ -104,14 +110,98 @@ static const char *place_text(Iron_Node *n) {
     return NULL;
 }
 
-static void require_fresh(ListOwnCtx *c, Iron_Node *value) {
+static Iron_Symbol *place_root_symbol(Iron_Node *n) {
+    while (n && (n->kind == IRON_NODE_FIELD_ACCESS || n->kind == IRON_NODE_INDEX)) {
+        if (n->kind == IRON_NODE_FIELD_ACCESS) n = ((Iron_FieldAccess *)n)->object;
+        else n = ((Iron_IndexExpr *)n)->object;
+    }
+    return n && n->kind == IRON_NODE_IDENT ? ((Iron_Ident *)n)->resolved_sym : NULL;
+}
+
+static bool place_is_inside_dynamic_list(Iron_Node *n) {
+    if (!n) return false;
+    if (n->kind == IRON_NODE_INDEX) {
+        Iron_Node *object = ((Iron_IndexExpr *)n)->object;
+        if (is_dynamic_list(node_type(object))) return true;
+        return place_is_inside_dynamic_list(object);
+    }
+    if (n->kind == IRON_NODE_FIELD_ACCESS)
+        return place_is_inside_dynamic_list(((Iron_FieldAccess *)n)->object);
+    return false;
+}
+
+static Iron_Node *addressed_list_place(Iron_Node *n) {
+    if (!n || n->kind != IRON_NODE_UNARY ||
+        ((Iron_UnaryExpr *)n)->op != (Iron_OpKind)IRON_TOK_AMP)
+        return NULL;
+    Iron_Node *place = ((Iron_UnaryExpr *)n)->operand;
+    return place_is_inside_dynamic_list(place) ? place : NULL;
+}
+
+static void report_reallocating_list_borrow(ListOwnCtx *c, Iron_Node *address,
+                                             const char *owner) {
+    char msg[384];
+    snprintf(msg, sizeof(msg),
+             "cannot borrow an address inside '%s' while the same call may grow it",
+             owner ? owner : "a list");
+    iron_diag_emit(c->diags, c->arena, IRON_DIAG_ERROR,
+                   IRON_ERR_PTR_INTO_LIST, address->span,
+                   iron_arena_strdup(c->arena, msg, strlen(msg)),
+                   "growing a list can move its buffer and invalidate the pointer; "
+                   "pass a copy of the list or copy the element into a binding first");
+}
+
+/* A nocopy value (or one holding a nocopy field) that already has an
+ * owner, given a second one: its drop would run for each (#512). `val b =
+ * a` and `return a` of a nocopy object itself are reported by the type
+ * checker; `tc_covers` skips those. */
+static void require_fresh_nocopy(ListOwnCtx *c, Iron_Node *value, bool tc_covers) {
+    if (!value) return;
+    const Iron_Type *t = node_type(value);
+    const Iron_Type *nc = iron_type_nocopy_part(t);
+    if (!nc) return;
+    if (value->kind == IRON_NODE_IDENT) {
+        Iron_Symbol *sym = ((Iron_Ident *)value)->resolved_sym;
+        if (!sym || !(sym->sym_kind == IRON_SYM_VARIABLE || sym->sym_kind == IRON_SYM_PARAM ||
+                      sym->sym_kind == IRON_SYM_FIELD))
+            return;
+        if (tc_covers && t == nc) return;
+    } else if (value->kind != IRON_NODE_FIELD_ACCESS && value->kind != IRON_NODE_INDEX) {
+        return;
+    }
+    const char *name = place_text(value);
+    const char *tn = nc->object.decl->name ? nc->object.decl->name : "?";
+    char msg[320], help[400];
+    if (t == nc)
+        snprintf(msg, sizeof(msg), "'%s' is a nocopy %s and cannot be copied",
+                 name ? name : "this element", tn);
+    else
+        snprintf(msg, sizeof(msg), "'%s' holds a nocopy %s and cannot be copied",
+                 name ? name : "this element", tn);
+    snprintf(help, sizeof(help),
+             "a nocopy value has a single owner, and a copy would drop it a second time: "
+             "pass a pointer (`*T`) to read it, or create it as `rc %s(...)` to share it", tn);
+    iron_diag_emit(c->diags, c->arena, IRON_DIAG_ERROR,
+                   IRON_ERR_COPY_OF_NOCOPY_TYPE, value->span, msg, help);
+}
+
+static void require_fresh_list_only(ListOwnCtx *c, Iron_Node *value) {
     if (!is_list_place(value)) return;
     const char *name = place_text(value);
     char msg[320], help[320];
-    bool is_hash = is_hash_container(node_type(value));
-    bool is_obj = !is_dynamic_list(node_type(value));
-    if (name && is_hash) {
-        const char *what = strcmp(node_type(value)->object.decl->name, "Map") == 0 ? "map" : "set";
+    const Iron_Type *vt = strip_nullable(node_type(value));
+    bool nullable = vt != node_type(value);
+    bool is_hash = is_hash_container(vt);
+    bool is_obj = !is_dynamic_list(vt);
+    if (name && nullable) {
+        /* copy() and take() are reached through a null check. */
+        snprintf(msg, sizeof(msg), "%s '%s' cannot be duplicated implicitly",
+                 is_obj && !is_hash ? "nullable value" : "nullable collection", name);
+        snprintf(help, sizeof(help),
+                 "check '%s' for null, then use %s.copy() for an independent copy%s",
+                 name, name, is_obj && !is_hash ? "" : " or .take() to move its contents out");
+    } else if (name && is_hash) {
+        const char *what = strcmp(vt->object.decl->name, "Map") == 0 ? "map" : "set";
         snprintf(msg, sizeof(msg),
                  "%s '%s' cannot be duplicated implicitly", what, name);
         snprintf(help, sizeof(help),
@@ -140,6 +230,19 @@ static void require_fresh(ListOwnCtx *c, Iron_Node *value) {
                    iron_arena_strdup(c->arena, help, strlen(help)));
 }
 
+/* A new owner receives `value`: it must be a fresh value. */
+static void require_fresh(ListOwnCtx *c, Iron_Node *value) {
+    require_fresh_nocopy(c, value, false);
+    require_fresh_list_only(c, value);
+}
+
+/* A binding initializer: the type checker reports `val b = a` of a nocopy
+ * object itself. */
+static void require_fresh_list(ListOwnCtx *c, Iron_Node *value) {
+    require_fresh_nocopy(c, value, true);
+    require_fresh_list_only(c, value);
+}
+
 /* A top-level declaration (module global) is not an owned local. */
 static bool is_top_level_decl(ListOwnCtx *c, Iron_Node *decl) {
     for (int i = 0; i < c->program->decl_count; i++)
@@ -151,6 +254,9 @@ static bool is_top_level_decl(ListOwnCtx *c, Iron_Node *decl) {
  * else (a parameter, which is borrowed, a global, a field, an element or a
  * loop variable) is still owned elsewhere. */
 static void check_return(ListOwnCtx *c, Iron_Node *value) {
+    /* a local moves out; a field or element is still owned (a nocopy
+     * binding itself is the type checker's E0286) */
+    if (value && value->kind != IRON_NODE_IDENT) require_fresh_nocopy(c, value, false);
     if (!is_list_place(value)) return;
     if (value->kind == IRON_NODE_IDENT) {
         Iron_Symbol *sym = ((Iron_Ident *)value)->resolved_sym;
@@ -207,6 +313,11 @@ static void check_var_list_alias(ListOwnCtx *c, Iron_FuncDecl *fd, Iron_CallExpr
         if (!sym) continue;
         for (int j = 0; j < ce->arg_count; j++) {
             Iron_Node *b = ce->args[j];
+            Iron_Node *borrowed = addressed_list_place(b);
+            if (j != i && borrowed && place_root_symbol(borrowed) == sym) {
+                report_reallocating_list_borrow(c, b, ((Iron_Ident *)a)->name);
+                return;
+            }
             if (j == i || !b || b->kind != IRON_NODE_IDENT ||
                 ((Iron_Ident *)b)->resolved_sym != sym)
                 continue;
@@ -274,6 +385,24 @@ static void check_var_list_alias(ListOwnCtx *c, Iron_FuncDecl *fd, Iron_CallExpr
     }
 }
 
+static bool method_may_mutate_receiver(ListOwnCtx *c, Iron_MethodCallExpr *mc) {
+    Iron_Type *t = mc->object ? node_type(mc->object) : NULL;
+    if (t && t->kind == IRON_TYPE_RC) t = t->rc.inner;
+    if (t && t->kind == IRON_TYPE_PTR) t = t->ptr.pointee;
+    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || !mc->method)
+        return false;
+    const char *tn = t->object.decl->name;
+    for (int i = 0; i < c->program->decl_count; i++) {
+        Iron_Node *d = c->program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (tn && md->type_name && md->method_name &&
+            strcmp(tn, md->type_name) == 0 && strcmp(mc->method, md->method_name) == 0)
+            return !md->is_readonly && !md->is_pure;
+    }
+    return false;
+}
+
 static bool visit(Iron_Visitor *v, Iron_Node *n) {
     ListOwnCtx *c = (ListOwnCtx *)v->ctx;
     if (!n) return false;
@@ -289,7 +418,7 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)n;
             if (declared_primitive(vd->declared_type)) break;
-            if (vd->binding_count == 0) require_fresh(c, vd->init);
+            if (vd->binding_count == 0) require_fresh_list(c, vd->init);
             /* `val (a, b) = t` with t a binding, parameter, field or element
              * holding a list: the bindings would own the list t owns (a
              * parameter's list was freed by the callee, #670). */
@@ -313,7 +442,7 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
         case IRON_NODE_VAR_DECL: {
             Iron_VarDecl *vd = (Iron_VarDecl *)n;
             if (declared_primitive(vd->declared_type)) break;
-            require_fresh(c, vd->init);
+            require_fresh_list(c, vd->init);
             break;
         }
         case IRON_NODE_ASSIGN: {
@@ -366,6 +495,17 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
                 break;
             }
             Iron_Type *rt = mc->object ? node_type(mc->object) : NULL;
+            if (method_may_mutate_receiver(c, mc)) {
+                Iron_Symbol *receiver = place_root_symbol(mc->object);
+                for (int i = 0; receiver && i < mc->arg_count; i++) {
+                    Iron_Node *borrowed = addressed_list_place(mc->args[i]);
+                    if (borrowed && place_root_symbol(borrowed) == receiver) {
+                        report_reallocating_list_borrow(c, mc->args[i],
+                                                       receiver->name);
+                        break;
+                    }
+                }
+            }
             if (!rt && mc->object)
                 rt = ((Iron_ExprNode *)mc->object)->resolved_type;
             if (rt && rt->kind == IRON_TYPE_ARRAY && mc->method && mc->arg_count > 0 &&

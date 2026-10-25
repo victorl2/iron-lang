@@ -164,6 +164,7 @@ static int ironc_main(int argc, char **argv) {
     bool no_optimize = false;
     bool warn_fusion_break = false;
     bool report_compression = false;
+    bool report_bounds_checks = false;
     bool strict_v3 = true;
     IronBuildTarget target = IRON_TARGET_NATIVE;
     const IronCrossTarget *cross_target = NULL;
@@ -220,6 +221,8 @@ static int ironc_main(int argc, char **argv) {
             warn_fusion_break = true;
         } else if (strcmp(argv[i], "--report-compression") == 0) {
             report_compression = true;
+        } else if (strcmp(argv[i], "--report-bounds-checks") == 0) {
+            report_bounds_checks = true;
         } else if (strcmp(argv[i], "--output") == 0 || strcmp(argv[i], "-o") == 0) {
             if (i + 1 < argc) {
                 output_file = argv[++i];
@@ -385,6 +388,7 @@ static int ironc_main(int argc, char **argv) {
             .no_optimize    = no_optimize,
             .warn_fusion_break = warn_fusion_break,
             .report_compression = report_compression,
+            .report_bounds_checks = report_bounds_checks,
             .target         = target,
             .cross_target   = cross_target,
             .release        = release,
@@ -424,6 +428,7 @@ static int ironc_main(int argc, char **argv) {
             .no_optimize    = no_optimize,
             .warn_fusion_break = warn_fusion_break,
             .report_compression = report_compression,
+            .report_bounds_checks = report_bounds_checks,
             .target         = target,
             .cross_target   = cross_target,
             .release        = release,

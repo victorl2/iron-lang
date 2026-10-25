@@ -1,0 +1,10 @@
+-- @expected-error: E0330
+func grow(pointer: *Int, var values: [Int]) {
+    values.push(3)
+    println("{pointer}")
+}
+
+func main() {
+    var values = [1, 2]
+    grow(&values[0], values)
+}

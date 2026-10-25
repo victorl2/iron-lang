@@ -26,7 +26,12 @@
 /* ── List implementations ─────────────────────────────────────────────────── */
 
 IRON_LIST_IMPL(int64_t,     int64_t)
+IRON_LIST_IMPL(int8_t,      int8_t)
+IRON_LIST_IMPL(int16_t,     int16_t)
 IRON_LIST_IMPL(int32_t,     int32_t)
+IRON_LIST_IMPL(uint16_t,    uint16_t)
+IRON_LIST_IMPL(uint32_t,    uint32_t)
+IRON_LIST_IMPL(uint64_t,    uint64_t)
 IRON_LIST_IMPL(double,      double)
 IRON_LIST_IMPL(bool,        bool)
 /* A list of strings owns its elements' shares of their characters (#182):
@@ -46,6 +51,7 @@ Iron_List_Iron_String Iron_List_Iron_String_clone(const Iron_List_Iron_String *s
     return dst;
 }
 void Iron_List_Iron_String_clear(Iron_List_Iron_String *self) {
+    IRON_LIST_CANCEL_SPARE(self);
     for (int64_t i = 0; i < self->count; i++) iron_string_release(&self->items[i]);
     self->count = 0;
 }
@@ -207,6 +213,7 @@ Iron_List_Iron_Closure Iron_List_Iron_Closure_clone(const Iron_List_Iron_Closure
     return dst;
 }
 void Iron_List_Iron_Closure_clear(Iron_List_Iron_Closure *self) {
+    IRON_LIST_CANCEL_SPARE(self);
     for (int64_t i = 0; i < self->count; i++) iron_closure_release(self->items[i]);
     self->count = 0;
 }
@@ -232,6 +239,11 @@ IRON_LIST_COLL_IMPL(double,  double,  0.0)
  * surprise if users do. */
 IRON_LIST_COLL_IMPL(float,   float,   0.0f)
 IRON_LIST_COLL_IMPL(uint8_t, uint8_t, 0)
+IRON_LIST_COLL_IMPL(int8_t,   int8_t,   0)
+IRON_LIST_COLL_IMPL(int16_t,  int16_t,  0)
+IRON_LIST_COLL_IMPL(uint16_t, uint16_t, 0)
+IRON_LIST_COLL_IMPL(uint32_t, uint32_t, 0)
+IRON_LIST_COLL_IMPL(uint64_t, uint64_t, 0)
 
 /* ── Map[K, V] / Set[T] ──────────────────────────────────────────────────────
  * The hash tables are instantiated per concrete key/value type by the

@@ -1,0 +1,20 @@
+-- @expect-panic: pop from an empty list
+-- pop() on an empty list of interface values panics as other lists do; it
+-- read a garbage element (issue 418).
+interface Shape {
+    readonly func area() -> Int
+}
+
+object Sq impl Shape {
+    val s: Int
+    readonly func area() -> Int { return self.s * self.s }
+}
+
+func main() {
+    var shapes: [Shape] = []
+    shapes.push(Sq(2))
+    val first = shapes.pop()
+    println("{first.area()}")
+    val s = shapes.pop()
+    println("not reached {s.area()}")
+}

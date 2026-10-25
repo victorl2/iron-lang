@@ -1,0 +1,14 @@
+// @expect-panic: generic_panic_site.iron:9
+// A panic inside a generic function reports the line of the statement. It
+// reported the line of the declaration (#859): the instance takes its spans
+// from the template node by node, and the template's type parameter nodes,
+// which the instance does not have, made the two trees look different.
+func pick[T](xs: [T], i: Int) -> T {
+    val a = 1
+    val b = 2
+    return xs[i + a + b]
+}
+
+func main() {
+    println("{pick([1, 2, 3], 5)}")
+}

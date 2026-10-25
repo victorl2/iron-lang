@@ -93,7 +93,7 @@ static void *serve_tls_once(void *pointer) {
     Iron_HttpsConnectionResult accepted = Iron_httpsserver_accept(test->server, 5000);
     if (accepted.error != 0) {
         test->error = accepted.error;
-        Iron_httpsconnectionresult_release(accepted);
+        Iron_httpsconnectionresult_dispose(accepted);
         return NULL;
     }
     if (test->expect_http) {
@@ -107,11 +107,11 @@ static void *serve_tls_once(void *pointer) {
                 200, istr("secure iron"));
             test->error = Iron_httpsconnection_send_response(
                 accepted.connection, response, 5000);
-            Iron_httpresponse_release(response);
+            Iron_httpresponse_dispose(response);
         }
     }
     Iron_httpsconnection_close(accepted.connection);
-    Iron_httpsconnectionresult_release(accepted);
+    Iron_httpsconnectionresult_dispose(accepted);
     return NULL;
 }
 
@@ -120,16 +120,16 @@ static void *serve_wss_once(void *pointer) {
     Iron_HttpsConnectionResult accepted = Iron_httpsserver_accept(test->server, 5000);
     if (accepted.error != 0) {
         test->error = accepted.error;
-        Iron_httpsconnectionresult_release(accepted);
+        Iron_httpsconnectionresult_dispose(accepted);
         return NULL;
     }
     Iron_HttpRequest request = Iron_httpsconnection_read_request(
         accepted.connection, 16384, 1024, 5000);
     if (request.error != 0) {
         test->error = request.error;
-        Iron_httprequest_release(request);
+        Iron_httprequest_dispose(request);
         Iron_httpsconnection_close(accepted.connection);
-        Iron_httpsconnectionresult_release(accepted);
+        Iron_httpsconnectionresult_dispose(accepted);
         return NULL;
     }
     Iron_WebSocketResult upgraded = Iron_httpsconnection_upgrade_websocket(
@@ -137,13 +137,13 @@ static void *serve_wss_once(void *pointer) {
     if (upgraded.error != 0) {
         test->error = upgraded.error;
         Iron_websocketresult_release(upgraded);
-        Iron_httprequest_release(request);
+        Iron_httprequest_dispose(request);
         Iron_httpsconnection_close(accepted.connection);
-        Iron_httpsconnectionresult_release(accepted);
+        Iron_httpsconnectionresult_dispose(accepted);
         return NULL;
     }
-    Iron_httprequest_release(request);
-    Iron_httpsconnectionresult_release(accepted);
+    Iron_httprequest_dispose(request);
+    Iron_httpsconnectionresult_dispose(accepted);
     Iron_WebSocketMessage message = Iron_websocket_receive(upgraded.socket, 5000);
     if (message.error != 0 || message.kind != IRON_WEBSOCKET_TEXT) {
         test->error = message.error ? message.error : -1;
@@ -167,16 +167,16 @@ static void *serve_wss_concurrent(void *pointer) {
     Iron_HttpsConnectionResult accepted = Iron_httpsserver_accept(test->server, 5000);
     if (accepted.error != 0) {
         test->error = accepted.error;
-        Iron_httpsconnectionresult_release(accepted);
+        Iron_httpsconnectionresult_dispose(accepted);
         return NULL;
     }
     Iron_HttpRequest request = Iron_httpsconnection_read_request(
         accepted.connection, 16384, 1024, 5000);
     if (request.error != 0) {
         test->error = request.error;
-        Iron_httprequest_release(request);
+        Iron_httprequest_dispose(request);
         Iron_httpsconnection_close(accepted.connection);
-        Iron_httpsconnectionresult_release(accepted);
+        Iron_httpsconnectionresult_dispose(accepted);
         return NULL;
     }
     Iron_WebSocketResult upgraded = Iron_httpsconnection_upgrade_websocket(
@@ -184,13 +184,13 @@ static void *serve_wss_concurrent(void *pointer) {
     if (upgraded.error != 0) {
         test->error = upgraded.error;
         Iron_websocketresult_release(upgraded);
-        Iron_httprequest_release(request);
+        Iron_httprequest_dispose(request);
         Iron_httpsconnection_close(accepted.connection);
-        Iron_httpsconnectionresult_release(accepted);
+        Iron_httpsconnectionresult_dispose(accepted);
         return NULL;
     }
-    Iron_httprequest_release(request);
-    Iron_httpsconnectionresult_release(accepted);
+    Iron_httprequest_dispose(request);
+    Iron_httpsconnectionresult_dispose(accepted);
     for (int i = 0; i < WSS_WRITERS && test->error == 0; i++) {
         Iron_WebSocketMessage message = Iron_websocket_receive(upgraded.socket, 5000);
         if (message.error != 0 || message.kind != IRON_WEBSOCKET_TEXT) {
@@ -251,7 +251,7 @@ static Iron_HttpsServer make_tls_server(int64_t *port) {
     *port = Iron_httpsserver_port(result.server);
     TEST_ASSERT_GREATER_THAN_INT64(0, *port);
     Iron_HttpsServer server = result.server;
-    Iron_httpsserverresult_release(result);
+    Iron_httpsserverresult_dispose(result);
     return server;
 }
 
@@ -282,8 +282,8 @@ void test_https_verified_custom_ca_roundtrip(void) {
     TEST_ASSERT_EQUAL_STRING("POST", iron_string_cstr(&server.request.method));
     TEST_ASSERT_EQUAL_STRING("{\"secure\":true}",
                              iron_string_cstr(&server.request.body));
-    Iron_httpresponse_release(response);
-    Iron_httprequest_release(server.request);
+    Iron_httpresponse_dispose(response);
+    Iron_httprequest_dispose(server.request);
     Iron_httpsserver_close(server.server);
 }
 
@@ -300,7 +300,7 @@ void test_https_default_rejects_untrusted_certificate(void) {
     TEST_ASSERT_TRUE(server.error == IRON_ERR_TLS_HANDSHAKE ||
                      server.error == IRON_ERR_TLS_CLOSED ||
                      server.error == IRON_ERR_TLS_IO);
-    Iron_httpresponse_release(response);
+    Iron_httpresponse_dispose(response);
     Iron_httpsserver_close(server.server);
 }
 
@@ -315,7 +315,7 @@ void test_https_rejects_hostname_mismatch(void) {
         istr(url), istr(certificate_path), 5000);
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_TLS_VERIFY, response.error);
     TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
-    Iron_httpresponse_release(response);
+    Iron_httpresponse_dispose(response);
     Iron_httpsserver_close(server.server);
 }
 
@@ -331,8 +331,8 @@ void test_https_explicit_insecure_mode_roundtrip(void) {
     TEST_ASSERT_EQUAL_INT64(200, response.status);
     TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
     TEST_ASSERT_EQUAL_INT64(0, server.error);
-    Iron_httpresponse_release(response);
-    Iron_httprequest_release(server.request);
+    Iron_httpresponse_dispose(response);
+    Iron_httprequest_dispose(server.request);
     Iron_httpsserver_close(server.server);
 }
 
@@ -342,7 +342,7 @@ void test_https_server_rejects_missing_certificate(void) {
         istr("/definitely/missing/key.pem"));
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_TLS_CERTIFICATE, result.error);
     TEST_ASSERT_EQUAL_INT64(-1, result.server.fd);
-    Iron_httpsserverresult_release(result);
+    Iron_httpsserverresult_dispose(result);
 }
 
 void test_https_stalled_tcp_does_not_block_next_client(void) {
@@ -363,7 +363,7 @@ void test_https_stalled_tcp_does_not_block_next_client(void) {
     TLS_THREAD slow_thread;
     TEST_ASSERT_EQUAL_INT(0, thread_start(
         &slow_thread, handshake_pending, &slow));
-    Iron_httpspendingconnectionresult_release(stalled);
+    Iron_httpspendingconnectionresult_dispose(stalled);
 
     char url[128];
     snprintf(url, sizeof(url), "https://localhost:%lld/admitted",
@@ -390,23 +390,23 @@ void test_https_stalled_tcp_does_not_block_next_client(void) {
     Iron_HttpResponse response = Iron_http_text_response(200, istr("admitted"));
     TEST_ASSERT_EQUAL_INT64(0, Iron_httpsconnection_send_response(
         connection.connection, response, 3000));
-    Iron_httpresponse_release(response);
-    Iron_httprequest_release(request);
+    Iron_httpresponse_dispose(response);
+    Iron_httprequest_dispose(request);
     Iron_httpsconnection_close(connection.connection);
-    Iron_httpsconnectionresult_release(connection);
-    Iron_httpspendingconnectionresult_release(admitted);
+    Iron_httpsconnectionresult_dispose(connection);
+    Iron_httpspendingconnectionresult_dispose(admitted);
 
     TEST_ASSERT_EQUAL_INT(0, thread_join(client_thread));
     TEST_ASSERT_EQUAL_INT64(0, client.response.error);
     TEST_ASSERT_EQUAL_INT64(200, client.response.status);
     TEST_ASSERT_EQUAL_STRING("admitted",
                              iron_string_cstr(&client.response.body));
-    Iron_httpresponse_release(client.response);
+    Iron_httpresponse_dispose(client.response);
 
     Iron_tcpsocket_close(raw.v0);
     TEST_ASSERT_EQUAL_INT(0, thread_join(slow_thread));
     TEST_ASSERT_NOT_EQUAL(0, slow.result.error);
-    Iron_httpsconnectionresult_release(slow.result);
+    Iron_httpsconnectionresult_dispose(slow.result);
 }
 
 void test_wss_verified_upgrade_and_message_roundtrip(void) {

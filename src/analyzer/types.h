@@ -47,6 +47,7 @@ typedef enum {
     IRON_TYPE_RC,            /* rc T       */
     IRON_TYPE_WEAK_RC,       /* weak rc T  (Phase 27 POL-08 — non-owning ref; implicitly nullable) */
     IRON_TYPE_PTR,           /* Phase 20 — *T or *var T (PTR-01) */
+    IRON_TYPE_VIEW,          /* View[T], ViewMut[T], Bytes (= View[UInt8]): a borrowed window */
 
     /* Meta types */
     IRON_TYPE_GENERIC_PARAM, /* generic type parameter */
@@ -151,6 +152,16 @@ typedef struct Iron_Type {
             bool                       is_bounded;
         } array;
 
+        /* IRON_TYPE_VIEW: a borrowed window onto contiguous elements (a
+         * list, a fixed array or a string's bytes), lowered to the value
+         * struct Iron_View_<elem> { ptr, len }. It never owns its elements;
+         * the view rules (manual 2.15, analyzer/view_check.c) keep it from
+         * outliving or resizing its source. */
+        struct {
+            struct Iron_Type          *elem;
+            bool                       is_mut;   /* ViewMut[T] */
+        } view;
+
         /* IRON_TYPE_GENERIC_PARAM */
         struct {
             const char                *name;
@@ -211,6 +222,12 @@ Iron_Type *iron_type_make_weak_rc(Iron_Arena *a, Iron_Type *inner);
  * IRON_TYPE_ERROR poison per the established convention). */
 Iron_Type *iron_type_make_ptr(Iron_Arena *a, Iron_Type *pointee, bool is_var, bool is_unchecked);
 
+/* Construct a view type: View[elem] (is_mut false) or ViewMut[elem]. */
+Iron_Type *iron_type_make_view(Iron_Arena *a, Iron_Type *elem, bool is_mut);
+
+/* True for View[UInt8] (Bytes); ViewMut[UInt8] is not Bytes. */
+bool iron_type_is_bytes(const Iron_Type *t);
+
 /* Construct a function type func(params...) -> ret */
 Iron_Type *iron_type_make_func(Iron_Arena *a, Iron_Type **params, int count, Iron_Type *ret);
 
@@ -259,6 +276,15 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a);
 
 /* Type category predicates */
 bool iron_type_is_numeric(const Iron_Type *t);
+
+/* Mutex, Channel, RWLock or Arena: a reference counted runtime handle that a
+ * closure or thread holds its own reference to (manual 7.1). */
+bool iron_type_is_shared_handle(const Iron_Type *t);
+
+/* The nocopy object type `t` is or holds by value (through fields, fixed
+ * arrays, optionals, tuples and enum payloads), or NULL. Dynamic lists,
+ * rc, weak rc, pointers and the shared handles do not count (#512). */
+const Iron_Type *iron_type_nocopy_part(const Iron_Type *t);
 bool iron_type_is_integer(const Iron_Type *t);
 bool iron_type_is_float(const Iron_Type *t);
 

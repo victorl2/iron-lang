@@ -196,6 +196,27 @@ static void test_drop_for_entry_idempotent(void) {
     ilsp_workspace_index_destroy(wi);
 }
 
+/* Cross-file navigation uses the workspace entry's line index rather than
+ * ilsp_span_to_lsp_range.  Its end position must still follow LSP's
+ * half-open convention, or rename leaves the identifier's final byte behind. */
+static void test_external_span_range_has_exclusive_end(void) {
+    const char *src = "val area = 1\n";
+    IronLsp_Document *doc = ilsp_document_create("/tmp/t_range.iron",
+                                                  src, strlen(src), 1);
+    TEST_ASSERT_NOT_NULL(doc);
+
+    Iron_Span span = {0};
+    span.line = span.end_line = 1;
+    span.col = 5;
+    span.end_col = 8;
+    IronLsp_Range range = ilsp_nav_span_to_range_via_lineidx(
+        span, doc->text, doc->text_len, &doc->line_idx, ILSP_ENC_UTF16);
+
+    TEST_ASSERT_EQUAL_UINT32(4, range.start.character);
+    TEST_ASSERT_EQUAL_UINT32(8, range.end.character);
+    ilsp_document_destroy(doc);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_same_file_with_decl);
@@ -204,5 +225,6 @@ int main(void) {
     RUN_TEST(test_query_filters_stdlib_paths);
     RUN_TEST(test_error_node_returns_empty);
     RUN_TEST(test_drop_for_entry_idempotent);
+    RUN_TEST(test_external_span_range_has_exclusive_end);
     return UNITY_END();
 }

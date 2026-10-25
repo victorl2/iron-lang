@@ -8,6 +8,7 @@
 #include "analyzer/init_check.h"
 #include "analyzer/global_order.h"
 #include "analyzer/list_ownership.h"
+#include "analyzer/view_check.h"
 #include "analyzer/effects.h"
 #include "analyzer/unused_var.h"
 #include "analyzer/escape.h"
@@ -304,6 +305,14 @@ static Iron_AnalyzeResult analyze_late_passes(Iron_Program *program,
 
     /* Step 3.55: lists get new owners only as fresh values (#174). */
     iron_list_ownership_check(program, arena, diags, cancel_flag);
+
+    if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
+
+    /* Step 3.56: views never escape their block nor outlive a change of
+     * their source (manual 2.15). */
+    iron_view_check(program, arena, diags, cancel_flag);
+    iron_hint_check(program, arena, diags);
+    iron_align_check(program, arena, diags);
 
     if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
 

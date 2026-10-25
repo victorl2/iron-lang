@@ -163,6 +163,9 @@ typedef struct {
     uint32_t        line;
     uint32_t        col;
     uint32_t        len;
+    /* Byte length of value for string literals, which may hold zero bytes
+     * (`\0`, `\x00`, #453); 0 means strlen(value). */
+    uint32_t        value_len;
     const char     *filename;  /* NULL = inherit from parser */
     bool            from_stdlib_prepend; /* token lies in a stdlib prepend region */
     /* Comments. Iron has one comment form, `//` to the end of the line

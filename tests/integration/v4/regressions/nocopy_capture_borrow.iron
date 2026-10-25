@@ -1,0 +1,103 @@
+-- A closure or a spawn borrows a nocopy value (#512): a lambda passed
+-- directly to a callee that only calls it, and a spawn awaited in the block
+-- that starts it, read the binding and never copy or drop it. Each value
+-- below is dropped exactly once, by its binding.
+nocopy object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+
+object Holder {
+    val r: Res
+    val name: String
+}
+
+enum Slot {
+    Empty,
+    Full(Res)
+}
+
+func twice(f: func() -> Int) -> Int {
+    return f() + f()
+}
+
+func sees_same_binding(f: func(*Res) -> Bool, p: *Res) -> Bool {
+    return f(p)
+}
+
+-- hands its parameter on to a callee that only calls it: still a borrow
+func relay(f: func() -> Int) -> Int {
+    return twice(f)
+}
+
+func apply_all(xs: [Int], f: func(Int) -> Int) -> Int {
+    var total = 0
+    for x in xs {
+        total += f(x)
+    }
+    return total
+}
+
+func run(r: Res) -> Int {
+    -- a parameter is borrowed the same way
+    return twice(func() -> Int { return r.id })
+}
+
+func main() {
+    val a = Res(1)
+    println("{twice(func() -> Int { return a.id })}")
+    -- The borrowed environment points at a itself, not at a bytewise copy.
+    println("{sees_same_binding(func(p: *Res) -> Bool { return &a == p }, &a)}")
+    println("{relay(func() -> Int { return a.id * 10 })}")
+    println("{apply_all([1, 2, 3], func(x: Int) -> Int { return x * a.id })}")
+    val ys = [1, 2, 3].map(func(x: Int) -> Int { return x + a.id })
+    println("{ys[2]}")
+    val zs = [1, 2, 3].filter(func(x: Int) -> Bool { return x > a.id })
+    println("{zs.len()}")
+    -- nested lambdas, both passed directly
+    val n = twice(func() -> Int {
+        return twice(func() -> Int { return a.id })
+    })
+    println("{n}")
+
+    val h = Holder(Res(2), "two")
+    println("{twice(func() -> Int { return h.r.id })} {h.name}")
+    val o: Res? = Res(3)
+    val on = twice(func() -> Int {
+        if o != null {
+            return o.id
+        }
+        return 0
+    })
+    println("{on}")
+    val s = Slot.Full(Res(4))
+    val sn = twice(func() -> Int {
+        match s {
+            Slot.Full(x) -> return x.id
+            Slot.Empty -> return 0
+        }
+    })
+    println("{sn}")
+    println("{run(Res(5))}")
+
+    -- awaited spawns borrow
+    val t = spawn("t") {
+        return a.id + h.r.id
+    }
+    println("{await t}")
+    val u = spawn("u") {
+        return a.id * 100
+    }
+    val got_u = await u
+    println("{got_u}")
+    for i in range(2) {
+        val w = spawn("w") {
+            return a.id + i
+        }
+        val got = await w
+        println("loop {got}")
+    }
+    println("end")
+}

@@ -22,6 +22,16 @@ CASES = [
     ('object Q {\n    val name: String\n}\nobject P {\n    val q: Q\n}\nfunc f(p: P) {\n    println(p.q.name.|)\n}\n', {"upper"}, set()),
     ('func g() -> [Int] { return [1] }\nfunc main() {\n    val n = g().|\n}\n', {"len", "push"}, set()),
     ('func main() {\n    println("x".|)\n}\n', {"upper", "len"}, set()),
+    ('func main() {\n    val x = UInt32(7)\n    val y = x.|\n}\n',
+     {"leading_zeros", "rotate_left", "mul_wide", "add_overflow"}, {"from_bits"}),
+    ('func f(v: View[Int]) -> Int {\n    return v.|\n}\n',
+     {"len", "slice", "index_of", "to_list"}, {"fill"}),
+    ('func f(v: ViewMut[Int]) {\n    v.|\n}\n',
+     {"len", "slice", "fill", "copy_from", "as_view"}, set()),
+    ('func main() {\n    val x = Float.|\n}\n', {"from_bits"}, {"to_bits"}),
+    ('func main() {\n    val x = Hint.|\n}\n', {"likely", "unlikely"}, set()),
+    ('func main() {\n    var b = StringBuilder.new()\n    b.|\n}\n',
+     {"push_byte", "push_str", "spare", "commit", "finish", "bytes"}, set()),
 ]
 
 

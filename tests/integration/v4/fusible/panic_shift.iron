@@ -1,0 +1,17 @@
+// @expect-panic: count: -1
+// A shift by a count that is not a constant can panic. The first stage
+// panics on its second element (count -1); a fused loop would have reached
+// the second stage first, which panics on the first element (count -8).
+
+func first(x: Int) -> Int {
+    return 1 << x
+}
+
+func second(x: Int) -> Bool {
+    return (1 << (x - 10)) > 0
+}
+
+func main() {
+    println("before")
+    println("{[1, -1].map(first).filter(second).sum()}")
+}

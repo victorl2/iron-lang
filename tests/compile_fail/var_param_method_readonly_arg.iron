@@ -1,0 +1,15 @@
+-- Negative test: a `var` parameter of a method or init takes its argument
+-- by reference (issue 433), so the argument must be a mutable binding.
+
+object Bag {
+    var items: [String]
+    init with(var xs: [String]) {
+        self.items = xs.take()
+    }
+}
+
+func main() {
+    val a: [String] = ["one", "two"]
+    val b = Bag.with(a)
+    println("{b.items.len()}")
+}

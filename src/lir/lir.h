@@ -230,7 +230,7 @@ struct IronLIR_Instr {
         /* IRON_LIR_CONST_BOOL */
         struct { bool value; } const_bool;
         /* IRON_LIR_CONST_STRING */
-        struct { const char *value; } const_str;
+        struct { const char *value; size_t len; } const_str;   /* len 0: strlen(value) */
         /* IRON_LIR_CONST_NULL */
         struct { int _pad; } const_null;
 
@@ -279,6 +279,9 @@ struct IronLIR_Instr {
              * function's own scope, otherwise the id of the inner block
              * scope (IRON_LIR_SCOPE_ENTER) a `&` of it names. */
             int         scope_id;
+            /* `//iron:align=N` on the binding (IRON_ALIGN_CACHELINE =
+             * cacheline); emitted as _Alignas. 0 = natural alignment. */
+            uint16_t    align;
         } alloca;
 
         /* IRON_LIR_LOAD */
@@ -712,8 +715,16 @@ struct IronLIR_Func {
      * elided because none of them escapes (emit_scope_gen falls back to
      * the generation live at entry, _iron_fg). */
     bool               has_addr_of;
+    /* IRON_HINT_* (parser/ast.h): `//iron:inline` emits always_inline,
+     * `noinline` noinline (and keeps the LIR inliner away), `cold` cold. */
+    uint8_t            hints;
     /* From IronHIR_Func.is_user_func (#524). */
     bool               is_user_func;
+    /* The declaration carries `//iron:fusible` (or `@fusible`): the hint's
+     * location and the source name, for W0618 (fusion_safety.c). */
+    bool               is_fusible_hint;
+    Iron_Span          fusible_hint_span;
+    const char        *fusible_hint_name;
 
     /* PARM-02: see the block comment above web_frame_captures. */
     bool              *param_is_var;
@@ -779,6 +790,14 @@ struct IronLIR_Func {
      * with only destructors running after them, so for code of the function
      * itself their locals live as long as the function's own. */
     struct { int key; bool value; } *flat_scopes;
+    /* The Iron function's closing `}` (0 when unknown), from IronHIR_Func:
+     * --debug puts the C function's closing brace, where clang places the
+     * shared return, on it. */
+    const char        *end_file;
+    uint32_t           end_line;
+    const char        *task_name;  /* IronHIR_Func.task_name */
+    Iron_Span          spawn_span;  /* IronHIR_Func.spawn_span */
+    const char        *spawn_parent;
 };
 
 /* ── Module-level global binding (2026-07 remediation) ────────────────────
@@ -787,10 +806,31 @@ struct IronLIR_Func {
  * emits one file-scope `static <ctype> Iron_g_<name>;` per entry (zero-
  * initialized; real initializers run in `__iron_module_init`, called from
  * the main() wrapper before Iron_main()). Arena-owned plain array. */
+/* One element of a constant global initializer (see IronLIR_Global). */
+typedef enum {
+    IRON_LIR_GCONST_INT,
+    IRON_LIR_GCONST_FLOAT,
+    IRON_LIR_GCONST_BOOL,
+    IRON_LIR_GCONST_STRING
+} IronLIR_GConstKind;
+
+typedef struct {
+    IronLIR_GConstKind kind;
+    int64_t            i;   /* INT (bit pattern for UInt64), BOOL */
+    double             f;   /* FLOAT */
+    const char        *s;   /* STRING, NUL-terminated UTF-8 */
+} IronLIR_GConst;
+
 typedef struct {
     const char *name;
     Iron_Type  *type;
     bool        is_mutable;
+    /* A `val` of constant data: emitted `static const` with its initializer
+     * (const_vals: one scalar, or the elements of a list / fixed array /
+     * bounded vector) and no code in __iron_module_init or the deinit. */
+    bool            is_const;
+    IronLIR_GConst *const_vals;
+    int             const_count;
 } IronLIR_Global;
 
 /* ── Module ───────────────────────────────────────────────────────────────── */

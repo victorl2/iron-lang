@@ -34,6 +34,11 @@ target_link_libraries(test_lexer_v4_keywords iron_compiler unity)
 add_test(NAME test_lexer_v4_keywords COMMAND test_lexer_v4_keywords)
 set_tests_properties(test_lexer_v4_keywords PROPERTIES LABELS "unit")
 
+add_executable(test_c_name_mangling test_c_name_mangling.c)
+target_link_libraries(test_c_name_mangling iron_compiler unity)
+add_test(NAME test_c_name_mangling COMMAND test_c_name_mangling)
+set_tests_properties(test_c_name_mangling PROPERTIES LABELS "unit")
+
 # Phase 16 Wave 0: v4 keyword binding-position rejection (RED until Plan 16-02 lands parser helper).
 add_executable(test_parser_v4_keyword_rejection test_parser_v4_keyword_rejection.c)
 target_link_libraries(test_parser_v4_keyword_rejection iron_compiler unity)
@@ -157,6 +162,16 @@ add_executable(test_comptime test_comptime.c)
 target_link_libraries(test_comptime iron_compiler unity)
 add_test(NAME test_comptime COMMAND test_comptime)
 set_tests_properties(test_comptime PROPERTIES LABELS "unit")
+
+# The comptime fmod (#505) against the C library's: this test, unlike the
+# compiler, links libm.
+add_executable(test_comptime_fmod test_comptime_fmod.c)
+target_link_libraries(test_comptime_fmod iron_compiler unity)
+if(NOT WIN32)
+    target_link_libraries(test_comptime_fmod m)
+endif()
+add_test(NAME test_comptime_fmod COMMAND test_comptime_fmod)
+set_tests_properties(test_comptime_fmod PROPERTIES LABELS "unit")
 
 # Arena cleanup hooks: scopes and the interface registry release their
 # heap maps with the arena. Leak detection is on for this test in Linux
@@ -387,6 +402,17 @@ if(NOT WIN32)
     set_tests_properties(test_inventory_service PROPERTIES
         LABELS "integration;networking;mysql" TIMEOUT 1200 SKIP_RETURN_CODE 77
         ENVIRONMENT "${_inventory_env}")
+
+    # A sustained mixed workload must settle after warmup. RSS is a Linux
+    # interface, and sanitizer allocators deliberately retain quarantine
+    # memory, so this is a Release allocator check.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT IRON_ENABLE_SANITIZERS)
+        add_test(NAME test_inventory_memory_bound
+            COMMAND ${CMAKE_SOURCE_DIR}/apps/inventory/bench/memory_bound.sh ${CMAKE_BINARY_DIR}/iron
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+        set_tests_properties(test_inventory_memory_bound PROPERTIES
+            LABELS "integration;networking;mysql;memory" TIMEOUT 300 SKIP_RETURN_CODE 77)
+    endif()
 endif()
 
 add_executable(test_stdlib_websocket test_stdlib_websocket.c)
@@ -424,7 +450,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_http_iron_concurrency PROPERTIES
-        LABELS "integration;networking;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 60 PROCESSORS 4)
 
     add_test(
         NAME test_websocket_iron_roundtrip
@@ -432,7 +458,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_websocket_iron_roundtrip PROPERTIES
-        LABELS "integration;networking;websocket;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;websocket;v4-acceptance" TIMEOUT 60 PROCESSORS 4)
 
     add_test(
         NAME test_file_operations_iron_roundtrip
@@ -440,7 +466,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_file_operations_iron_roundtrip PROPERTIES
-        LABELS "integration;file-io;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;file-io;v4-acceptance" TIMEOUT 60 PROCESSORS 4)
 
     add_test(
         NAME test_http_example_check
@@ -455,7 +481,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_udp_iron_payload_roundtrip PROPERTIES
-        LABELS "integration;networking;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 60 PROCESSORS 4)
 endif()
 
 # ── Phase 2 (CLI + TOML scaffold) tests ──────────────────────────────────────
@@ -1489,6 +1515,11 @@ add_executable(test_bvec_oob_panic test_bvec_oob_panic.c)
 target_link_libraries(test_bvec_oob_panic iron_compiler iron_runtime unity)
 add_test(NAME test_bvec_oob_panic COMMAND test_bvec_oob_panic)
 set_tests_properties(test_bvec_oob_panic PROPERTIES LABELS "unit;phase23-invariant" TIMEOUT 30)
+
+add_executable(test_codegen_byte_loops test_codegen_byte_loops.c)
+target_link_libraries(test_codegen_byte_loops iron_compiler iron_runtime unity)
+add_test(NAME test_codegen_byte_loops COMMAND test_codegen_byte_loops)
+set_tests_properties(test_codegen_byte_loops PROPERTIES LABELS "unit" TIMEOUT 30)
 
 # ── Phase 26 POL-06: rc policy refcount substrate (Plan 26-01) ───────────────
 # Wave 0 RED → GREEN after Task 2 lands the iron_rc_alloc / iron_rc_retain /

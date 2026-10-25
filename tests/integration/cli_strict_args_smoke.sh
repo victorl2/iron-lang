@@ -45,6 +45,10 @@ expect_fail "unknown target" "${IRON}" build --target=../escape
 "${IRON}" build -o "${WORK}/custom bin" --no-optimize --debug-build --force-comptime >/dev/null 2>&1 || fail "documented flags"
 [ "$("${WORK}/custom bin")" = ok ] || fail "-o in a package"
 "${IRON}" build --target native >/dev/null 2>&1 || fail "--target with a separate value"
+out="$("${IRON}" build --report-bounds-checks 2>&1)" || { echo "${out}"; fail "build --report-bounds-checks"; }
+grep -q "bounds check" <<< "${out}" || { echo "${out}"; fail "build did not forward --report-bounds-checks"; }
+out="$("${IRON}" run --report-bounds-checks 2>&1)" || { echo "${out}"; fail "run --report-bounds-checks"; }
+grep -q "bounds check" <<< "${out}" || { echo "${out}"; fail "run did not forward --report-bounds-checks"; }
 out="$("${IRON}" test -- -dash 2>&1)"; grep -q "1 passed, 0 failed, 1 filtered out" <<< "${out}" || { echo "${out}"; fail "iron test -- filter"; }
 
 # manifests

@@ -1,0 +1,20 @@
+-- Two methods of distinct types can share a generated name (issue 699):
+-- Ab.m and AB.m both lowered to ab_m, losing one body. Report the conflict
+-- at the declarations before HIR lowering.
+object Ab {
+    val x: Int
+    readonly func m() -> Int {
+        return 1
+    }
+}
+
+object AB {
+    val x: Int
+    readonly func m() -> Int {
+        return 2
+    }
+}
+
+func main() {
+    println("{Ab(0).m()} {AB(0).m()}")
+}

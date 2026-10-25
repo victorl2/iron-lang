@@ -42,6 +42,7 @@
 #include "lir/emit_c.h"
 #include "lir/emit_web.h"
 #include "lir/lir_optimize.h"
+#include "lir/fusion_safety.h"
 #include "lir/web_main_loop_split.h"
 #include "lir/print.h"
 #include "diagnostics/diagnostics.h"
@@ -893,6 +894,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     if (opts.debug_info && !opts.release) {
         argv_buf[ai++] = "/Od";
         argv_buf[ai++] = "/Z7";
+        argv_buf[ai++] = "/clang:-fno-eliminate-unused-debug-types";
     }
 #else
     argv_buf[ai++] = clang_path;
@@ -930,6 +932,9 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     if (opts.debug_info && !opts.release) {
         argv_buf[ai++] = "-O0";
         argv_buf[ai++] = "-g";
+        /* Keep the types only sizeof names (a heap value's object), which
+         * the formatters look up to show what a pointer points at. */
+        argv_buf[ai++] = "-fno-eliminate-unused-debug-types";
         argv_buf[ai++] = "-fno-omit-frame-pointer";
     }
     /* IRON_CC_FLAGS: extra C compiler flags, after the ones above (so an
@@ -2299,6 +2304,9 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 6b. Lower HIR to LIR */
     Iron_Arena ir_arena = iron_arena_create(1024 * 1024);
+    /* --debug: set before lowering too, which names more bindings then. */
+    iron_lir_emit_set_line_directives(opts.target != IRON_TARGET_WEB && opts.debug_info &&
+                                      !opts.release);
     IronLIR_Module *ir_module = iron_hir_to_lir(hir_module, (Iron_Program *)ast,
                                                analysis.global_scope,
                                                &ir_arena, &diags);
@@ -2330,6 +2338,10 @@ int iron_build(const char *source_path, const char *output_path,
         }
     }
 
+    /* W0618: `//iron:fusible` on a function that cannot be fused. Checked
+     * before optimization so the answer is the same in every build mode. */
+    iron_lir_check_fusible_hints(ir_module, &diags, &arena);
+
     /* 7a. IR optimization passes */
     IronLIR_OptimizeInfo optimize_info;
     /* --debug keeps every function and binding where the source has it. */
@@ -2338,6 +2350,8 @@ int iron_build(const char *source_path, const char *output_path,
     iron_lir_optimize(ir_module, &optimize_info, &arena,
                      opts.dump_ir_passes, no_optimize,
                      /*elision_enabled=*/ !no_optimize && !opts.debug_build);
+    if (opts.report_bounds_checks)
+        iron_lir_report_bounds_checks(ir_module, stderr, false);
 
     /* 7b. Phase 5: LIR main-loop split pass (WEB-EMIT-01..04).
      *
@@ -2490,6 +2504,8 @@ int iron_build(const char *source_path, const char *output_path,
     /* --emit-c: the generated C is the product; nothing is compiled. */
     if (opts.emit_c) {
         if (opts.verbose) fprintf(stderr, "Emitted: %s\n", c_file_path);
+        /* (Warnings are part of every build, also one that stops at C.) */
+        if (diags.warning_count > 0) iron_diag_print_all(&diags, source);
         free(c_file_path);
         free(derived_output);
         iron_diaglist_free(&diags);

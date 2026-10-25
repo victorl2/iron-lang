@@ -36,8 +36,6 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 
-#define IRON_DIAG_E0502_TOP_LEVEL_LOADER_ON_WEB 502
-
 /* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
 static inline bool iron_cancel_requested(const _Atomic bool *flag) {
     return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
@@ -90,7 +88,7 @@ static void emit_loader_error(WebLoaderCtx *ctx, const char *callee_name,
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
     if (!msg_copy) { /* HARD-09 REPLACE (web_top_level_loader_check.c:emit_loader_error msg) */ msg_copy = "analyzer error"; }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
-                   IRON_DIAG_E0502_TOP_LEVEL_LOADER_ON_WEB, span,
+                   IRON_ERR_WEB_TOP_LEVEL_LOADER, span,
                    msg_copy, NULL);
 }
 

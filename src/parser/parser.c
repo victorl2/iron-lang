@@ -186,7 +186,8 @@ static Iron_Node *iron_parse_while_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_for_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_match_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_spawn_stmt(Iron_Parser *p);
-static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value, Iron_Span span);
+static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value,
+                                           size_t raw_len, Iron_Span span);
 
 /* ── Parser creation ─────────────────────────────────────────────────────── */
 
@@ -436,13 +437,77 @@ static void iron_apply_iron_hints(Iron_Parser *p, Iron_Node *n,
                            "move it directly above the `func` it is for");
             continue;
         }
+        uint8_t fhint = (vl == 6 && memcmp(v, "inline", 6) == 0) ? IRON_HINT_INLINE
+                      : (vl == 8 && memcmp(v, "noinline", 8) == 0) ? IRON_HINT_NOINLINE
+                      : (vl == 4 && memcmp(v, "cold", 4) == 0) ? IRON_HINT_COLD : 0;
+        if (fhint) {
+            uint8_t *hp = n->kind == IRON_NODE_FUNC_DECL ? &((Iron_FuncDecl *)n)->hints
+                        : n->kind == IRON_NODE_METHOD_DECL ? &((Iron_MethodDecl *)n)->hints
+                        : NULL;
+            if (hp && !dirs[i].trailing) {
+                *hp |= fhint;
+                if ((*hp & IRON_HINT_INLINE) && (*hp & IRON_HINT_NOINLINE) && !p->quiet_hints)
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_WARNING,
+                                   IRON_WARN_UNKNOWN_IRON_HINT, sp,
+                                   "`//iron:inline` and `//iron:noinline` contradict each other",
+                                   "keep one of them");
+                continue;
+            }
+            if (p->quiet_hints) continue;
+            snprintf(msg, sizeof(msg), "`//iron:%.*s` applies to a function or method",
+                     (int)vl, v);
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_WARNING,
+                           IRON_WARN_UNKNOWN_IRON_HINT, sp,
+                           iron_arena_strdup(p->arena, msg, strlen(msg)),
+                           "move it directly above the `func` it is for");
+            continue;
+        }
+        if (vl > 6 && memcmp(v, "align=", 6) == 0) {
+            const char *av = v + 6;
+            size_t al = vl - 6;
+            uint16_t *ap = n->kind == IRON_NODE_OBJECT_DECL ? &((Iron_ObjectDecl *)n)->align
+                         : n->kind == IRON_NODE_FIELD ? &((Iron_Field *)n)->align
+                         : n->kind == IRON_NODE_VAL_DECL ? &((Iron_ValDecl *)n)->align
+                         : n->kind == IRON_NODE_VAR_DECL ? &((Iron_VarDecl *)n)->align
+                         : NULL;
+            unsigned long val = 0;
+            bool ok = true;
+            if (al == 9 && memcmp(av, "cacheline", 9) == 0) {
+                val = IRON_ALIGN_CACHELINE;
+            } else {
+                for (size_t k = 0; k < al; k++) {
+                    if (av[k] < '0' || av[k] > '9' || val > 100000) { ok = false; break; }
+                    val = val * 10 + (unsigned long)(av[k] - '0');
+                }
+                ok = ok && al > 0 && val >= 1 && val <= 4096 && (val & (val - 1)) == 0;
+            }
+            if (!ok) {
+                snprintf(msg, sizeof(msg),
+                         "invalid alignment `//iron:%.*s`: use a power of two from 1 to 4096, "
+                         "or cacheline", (int)(vl > 120 ? 120 : vl), v);
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, IRON_ERR_ALIGN_VALUE, sp,
+                               iron_arena_strdup(p->arena, msg, strlen(msg)),
+                               "for example //iron:align=64 or //iron:align=cacheline");
+                continue;
+            }
+            if (ap && (!dirs[i].trailing || n->kind == IRON_NODE_FIELD)) {
+                *ap = (uint16_t)val;
+                continue;
+            }
+            if (p->quiet_hints) continue;
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_WARNING,
+                           IRON_WARN_UNKNOWN_IRON_HINT, sp,
+                           "`//iron:align` applies to an object, a field or a val / var binding",
+                           "move it directly above the declaration it is for");
+            continue;
+        }
         if (p->quiet_hints) continue;
         snprintf(msg, sizeof(msg), "unknown compiler hint `//iron:%.*s`",
                  (int)(vl > 120 ? 120 : vl), v);
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_WARNING,
                        IRON_WARN_UNKNOWN_IRON_HINT, sp,
                        iron_arena_strdup(p->arena, msg, strlen(msg)),
-                       "the known hints are: fusible");
+                       "the known hints are: fusible, inline, noinline, cold, align=N");
     }
 }
 
@@ -1110,9 +1175,31 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         }
 
         iron_expect(p, IRON_TOK_RBRACKET);
-        /* `[T]?`: a nullable list (manual 2.2: `T?` for any non-pointer
-         * type); the `?` was left unparsed. */
-        if (!ann->is_nullable) ann->is_nullable = iron_match(p, IRON_TOK_QUESTION);
+        /* `[T]?`: a nullable list (#452), section 2.2. The element moves to
+         * array_elem_ann first: on an annotation that names its element
+         * directly, is_nullable is read as the element's (`[Int?]`). */
+        if (iron_check(p, IRON_TOK_QUESTION)) {
+            iron_advance(p);
+            if (!ann->array_elem_ann) {
+                Iron_TypeAnnotation *elem = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+                if (!elem) { p->in_error_recovery = true; return iron_make_error(p); }
+                memset(elem, 0, sizeof(*elem));
+                elem->kind             = IRON_NODE_TYPE_ANNOTATION;
+                elem->span             = iron_token_span(p, start);
+                elem->name             = ann->name;
+                elem->is_func          = ann->is_func;
+                elem->func_params      = ann->func_params;
+                elem->func_param_count = ann->func_param_count;
+                elem->func_return      = ann->func_return;
+                ann->array_elem_ann    = (Iron_Node *)elem;
+                ann->name              = NULL;
+                ann->is_func           = false;
+                ann->func_params       = NULL;
+                ann->func_param_count  = 0;
+                ann->func_return       = NULL;
+            }
+            ann->is_nullable = true;
+        }
         ann->span = iron_span_merge(iron_token_span(p, start),
                                     iron_prev_token_span(p, iron_token_span(p, start)));
         return (Iron_Node *)ann;
@@ -1475,7 +1562,11 @@ static Iron_Node *iron_parse_block_impl(Iron_Parser *p) {
         if (iron_check(p, IRON_TOK_RBRACE)) break;
         bool outer_errored = p->stmt_errored;
         p->stmt_errored = false;
+        /* `//iron:` hints above a statement (`//iron:align=32` on a local). */
+        Iron_DocRun stmt_doc = iron_collect_doc_run(p, p->arena);
         Iron_Node *s = iron_parse_stmt(p);
+        if (s && s->kind != IRON_NODE_ERROR && stmt_doc.dir_count > 0)
+            iron_apply_doc_run(p, s, stmt_doc);
         if (p->stmt_errored) {
             iron_skip_rest_of_stmt(p);
             /* The error is reported; checking what was parsed of the broken
@@ -1691,6 +1782,25 @@ static bool iron_elem_is_nullable_type(Iron_Parser *p) {
     return false;
 }
 
+/* Whether the `func` at token `j` starts a function type rather than a
+ * lambda. A lambda always has a body, so its signature is followed by `{`;
+ * a type never contains a brace. The scan stops at the end of the element:
+ * a `,`, `;` or closing bracket at its own nesting level. */
+static bool iron_func_is_type_at(Iron_Parser *p, int j) {
+    int depth = 0;
+    for (; j < p->token_count; j++) {
+        Iron_TokenKind k = p->tokens[j].kind;
+        if (k == IRON_TOK_EOF || k == IRON_TOK_LBRACE) return false;
+        if (k == IRON_TOK_LPAREN || k == IRON_TOK_LBRACKET) depth++;
+        else if (k == IRON_TOK_RPAREN || k == IRON_TOK_RBRACKET) {
+            if (depth == 0) return true;
+            depth--;
+        } else if (depth == 0 && (k == IRON_TOK_COMMA || k == IRON_TOK_SEMICOLON))
+            return true;
+    }
+    return false;
+}
+
 /* A parenthesized element holding a `?` and ending the element (`,` or
  * `]` after its `)`, or a `?` of its own) is a tuple type in expression
  * position: `Gp[Int, (Bool, Int?)](...)`. */
@@ -1714,9 +1824,50 @@ static bool iron_elem_is_nullable_tuple_type(Iron_Parser *p) {
     return false;
 }
 
-static Iron_Node *iron_parse_expr_or_nullable_type(Iron_Parser *p) {
-    if ((iron_check(p, IRON_TOK_IDENTIFIER) || iron_check(p, IRON_TOK_LBRACKET)) &&
-        iron_elem_is_nullable_type(p))
+/* Whether the element of a bracketed list that starts at the current token
+ * is a type written in expression position (manual section 13). No
+ * expression starts with `?` or `*` (there is no prefix `*` operator), a
+ * `func` is a lambda only when a body follows its signature. `rc x` is an
+ * expression (and `weak rc x` parses as one, to be rejected by the type
+ * checker), so in a list literal (`postfix == false`) an element starting
+ * with `rc` or `weak rc` is a type only when what follows cannot start an
+ * expression (`[rc func(Int) -> Int]`, `[rc *T]`, `[rc T?]`); `[rc T]`
+ * stays an `rc` expression, which reads as the list type where a type is
+ * expected. In the brackets of a postfix (`X[...]`) nothing indexes by a
+ * handle, so `rc` and `weak rc` always start a type there, except the
+ * expression `weak rc null`. */
+static bool iron_elem_is_type(Iron_Parser *p, bool postfix) {
+    int j = p->pos;
+    if (j >= p->token_count) return false;
+    Iron_TokenKind k = p->tokens[j].kind;
+    if (k == IRON_TOK_QUESTION || k == IRON_TOK_STAR) return true;
+    if (k == IRON_TOK_FUNC) return iron_func_is_type_at(p, j);
+    bool weak_rc = k == IRON_TOK_WEAK && j + 1 < p->token_count &&
+                   p->tokens[j + 1].kind == IRON_TOK_RC;
+    if (weak_rc && j + 2 < p->token_count && p->tokens[j + 2].kind == IRON_TOK_NULL_KW)
+        return false;
+    if (k == IRON_TOK_RC || weak_rc) {
+        if (postfix) return true;
+        int m = j;
+        while (m < p->token_count) {
+            if (p->tokens[m].kind == IRON_TOK_RC) m++;
+            else if (p->tokens[m].kind == IRON_TOK_WEAK && m + 1 < p->token_count &&
+                     p->tokens[m + 1].kind == IRON_TOK_RC) m += 2;
+            else break;
+        }
+        if (m >= p->token_count) return false;
+        Iron_TokenKind km = p->tokens[m].kind;
+        if (km == IRON_TOK_STAR || km == IRON_TOK_QUESTION) return true;
+        if (km == IRON_TOK_FUNC) return iron_func_is_type_at(p, m);
+        return iron_elem_is_nullable_type(p);
+    }
+    if (k == IRON_TOK_IDENTIFIER || k == IRON_TOK_LBRACKET)
+        return iron_elem_is_nullable_type(p);
+    return false;
+}
+
+static Iron_Node *iron_parse_bracket_elem(Iron_Parser *p, bool postfix) {
+    if (iron_elem_is_type(p, postfix))
         return iron_parse_type_annotation(p);
     if (iron_elem_is_nullable_tuple_type(p))
         return iron_parse_type_annotation(p);
@@ -1757,14 +1908,15 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             if (!n) { /* HARD-09 REPLACE (iron_parse_primary StringLit) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind  = IRON_NODE_STRING_LIT;
             n->span  = iron_token_span(p, t);
-            n->value = iron_arena_strdup(p->arena, t->value, strlen(t->value));
-            if (!n->value) { /* HARD-09 REPLACE (iron_parse_primary StringLit value) */ n->value = ""; }
+            n->len   = t->value_len ? t->value_len : strlen(t->value);
+            n->value = iron_arena_strdup(p->arena, t->value, n->len);
+            if (!n->value) { /* HARD-09 REPLACE (iron_parse_primary StringLit value) */ n->value = ""; n->len = 0; }
             return (Iron_Node *)n;
         }
         /* Interpolated string — parse into alternating literal/expr segments */
         case IRON_TOK_INTERP_STRING: {
             iron_advance(p);
-            return iron_parse_interp_string(p, t->value, iron_token_span(p, t));
+            return iron_parse_interp_string(p, t->value, t->value_len, iron_token_span(p, t));
         }
         /* true */
         case IRON_TOK_TRUE: {
@@ -1853,7 +2005,9 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             Iron_Span lparen_span = iron_token_span(p, iron_current(p));
             iron_advance(p);
             iron_skip_newlines(p);
-            Iron_Node *first = iron_parse_expr(p);
+            /* A tuple element may be a type (`Channel[(Int, func(Int) -> Int)]`):
+             * the list literal rules decide, and keep every expression. */
+            Iron_Node *first = iron_parse_bracket_elem(p, false);
             iron_skip_newlines(p);
             if (iron_check(p, IRON_TOK_COMMA)) {
                 /* Tuple literal: (e0, e1, ...) — arity >= 2 enforced. The
@@ -1867,7 +2021,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                     iron_advance(p);  /* consume , */
                     iron_skip_newlines(p);
                     if (iron_check(p, IRON_TOK_RPAREN)) break;  /* trailing comma */
-                    Iron_Node *e = iron_parse_expr(p);
+                    Iron_Node *e = iron_parse_bracket_elem(p, false);
                     arrput(elems, e);
                     iron_skip_newlines(p);
                 }
@@ -2192,7 +2346,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             while (!iron_check(p, IRON_TOK_RBRACKET) && !iron_check(p, IRON_TOK_EOF)) {
                 iron_skip_newlines(p);
                 if (iron_check(p, IRON_TOK_RBRACKET)) break;
-                Iron_Node *elem = iron_parse_expr_or_nullable_type(p);
+                Iron_Node *elem = iron_parse_bracket_elem(p, false);
                 arrput(elems, elem);
                 elem_count++;
                 iron_skip_newlines(p);
@@ -2472,8 +2626,10 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
 
             /* `x.m[Type, ...](args)`: explicit type arguments of a generic
              * method. Told apart from indexing a field (`x.fs[i](a)`) by the
-             * first token inside the brackets (a capitalised type name or a
-             * `[` of a list type) and the `(` right after the `]`. */
+             * first token inside the brackets (a capitalised type name, a
+             * `[` of a list type, or a token that starts only a type: `rc`,
+             * `weak`, `*`, `?`, or a `func` with no body) and the `(` right
+             * after the `]`. */
             Iron_Node **m_type_args = NULL;
             int m_type_arg_count = 0;
             bool type_namespace = left->kind == IRON_NODE_IDENT &&
@@ -2486,6 +2642,12 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                 iron_check(p, IRON_TOK_LBRACKET) && p->pos + 1 < p->token_count) {
                 Iron_Token *first = &p->tokens[p->pos + 1];
                 bool typeish = first->kind == IRON_TOK_LBRACKET ||
+                               first->kind == IRON_TOK_RC ||
+                               first->kind == IRON_TOK_WEAK ||
+                               first->kind == IRON_TOK_STAR ||
+                               first->kind == IRON_TOK_QUESTION ||
+                               (first->kind == IRON_TOK_FUNC &&
+                                iron_func_is_type_at(p, p->pos + 1)) ||
                                (first->kind == IRON_TOK_IDENTIFIER && first->value &&
                                 first->value[0] >= 'A' && first->value[0] <= 'Z');
                 int depth = 0, j = p->pos;
@@ -2510,9 +2672,11 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
             }
 
             if (iron_check(p, IRON_TOK_LPAREN)) {
-                /* Heuristic: if the LHS is a simple identifier starting with
-                 * an uppercase letter, treat as enum construction:
-                 *   EnumType.Variant(args) -> IRON_NODE_ENUM_CONSTRUCT
+                /* Heuristic: if the LHS and member both start uppercase,
+                 * treat as enum construction. Lowercase enum variants are
+                 * initially method calls and the resolver reclassifies them
+                 * once it knows the receiver is an enum.
+                 *   EnumType.variant(args) -> IRON_NODE_ENUM_CONSTRUCT
                  * Otherwise treat as method call:
                  *   variable.method(args) -> IRON_NODE_METHOD_CALL
                  * The resolver in Phase 33 will reclassify if needed. */
@@ -2535,6 +2699,10 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                         ec->variant_name  = name;
                         ec->args          = args;
                         ec->arg_count     = arg_count;
+                        ec->reserved_flags[0] = true; /* source had call parentheses */
+                        ec->reserved_flags[1] = p->generated;
+                        ec->reserved_generic_args = NULL;
+                        ec->reserved_generic_arg_count = 0;
                         left = (Iron_Node *)ec;
                     } else {
                         int arg_count = 0;
@@ -2576,7 +2744,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                     left = (Iron_Node *)mc;
                 }
             } else {
-                /* Check for unit enum variant: UppercaseType.UppercaseVariant (no parens) */
+                /* Check for a unit enum variant: UppercaseType.UppercaseVariant. */
                 if (left->kind == IRON_NODE_IDENT) {
                     Iron_Ident *ident_node = (Iron_Ident *)left;
                     bool looks_like_type    = (ident_node->name[0] >= 'A' && ident_node->name[0] <= 'Z');
@@ -2592,12 +2760,25 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                         ec->variant_name  = name;
                         ec->args          = NULL;
                         ec->arg_count     = 0;
+                        ec->reserved_flags[0] = false;
+                        ec->reserved_flags[1] = false;
+                        ec->reserved_generic_args = NULL;
+                        ec->reserved_generic_arg_count = 0;
                         left = (Iron_Node *)ec;
                         continue;
                     }
                 }
                 /* Field access: obj.field */
-                Iron_FieldAccess *fa = ARENA_ALLOC(p->arena, Iron_FieldAccess);
+                bool enum_candidate = left->kind == IRON_NODE_IDENT &&
+                                      ((Iron_Ident *)left)->name[0] >= 'A' &&
+                                      ((Iron_Ident *)left)->name[0] <= 'Z';
+                /* A lowercase enum variant is represented as FieldAccess
+                 * until name resolution. Reserve enough storage for the
+                 * in-place EnumConstruct rewrite used there. */
+                Iron_FieldAccess *fa = enum_candidate
+                    ? (Iron_FieldAccess *)iron_arena_alloc(
+                          p->arena, sizeof(Iron_EnumConstruct), _Alignof(Iron_EnumConstruct))
+                    : ARENA_ALLOC(p->arena, Iron_FieldAccess);
                 if (!fa) { /* HARD-09 REPLACE (iron_parse_expr_prec FieldAccess) */ p->in_error_recovery = true; return iron_make_error(p); }
                 fa->kind          = IRON_NODE_FIELD_ACCESS;
                 fa->span          = iron_span_merge(left->span,
@@ -2608,6 +2789,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                  * pub-field reads so HIR routes through synthesized getter. */
                 fa->is_pub_access = false;
                 fa->is_generated  = p->generated;
+                fa->is_enum_candidate = enum_candidate;
                 left = (Iron_Node *)fa;
             }
             continue;
@@ -2617,7 +2799,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
         if (cur == IRON_TOK_LBRACKET) {
             iron_advance(p);
             iron_skip_newlines(p);
-            Iron_Node *idx = iron_parse_expr_or_nullable_type(p);
+            Iron_Node *idx = iron_parse_bracket_elem(p, true);
             iron_skip_newlines(p);
 
             /* `X[A, B]`: several type arguments of a generic. */
@@ -2626,7 +2808,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                 arrput(targs, idx);
                 while (iron_match(p, IRON_TOK_COMMA)) {
                     iron_skip_newlines(p);
-                    Iron_Node *more = iron_parse_expr_or_nullable_type(p);
+                    Iron_Node *more = iron_parse_bracket_elem(p, true);
                     arrput(targs, more);
                     iron_skip_newlines(p);
                 }
@@ -3349,7 +3531,7 @@ static size_t interp_skip_expr(const char *s, size_t len, size_t i, int lvl) {
  *   {expr}       → re-lex and parse as expression
  */
 static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value,
-                                            Iron_Span span) {
+                                            size_t raw_len, Iron_Span span) {
     Iron_InterpString *n = ARENA_ALLOC(p->arena, Iron_InterpString);
     if (!n) { /* HARD-09 REPLACE (iron_parse_interp_string) */ p->in_error_recovery = true; return iron_make_error(p); }
     n->kind       = IRON_NODE_INTERP_STRING;
@@ -3361,8 +3543,9 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
         return (Iron_Node *)n;
     }
 
+    /* raw_len counts zero bytes in the literal text (#453). */
     const char *s   = raw_value;
-    size_t      len = strlen(s);
+    size_t      len = raw_len ? raw_len : strlen(s);
 
     /* Temporary buffer for accumulating literal segments */
     char *lit_buf = (char *)malloc(len + 1);
@@ -3381,7 +3564,8 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                 sl->kind  = IRON_NODE_STRING_LIT;
                 sl->span  = span;
                 sl->value = iron_arena_strdup(p->arena, lit_buf, lit_len);
-                if (!sl->value) { /* HARD-09 REPLACE (iron_parse_interp_string StringLit segment value) */ sl->value = ""; }
+                sl->len   = lit_len;
+                if (!sl->value) { /* HARD-09 REPLACE (iron_parse_interp_string StringLit segment value) */ sl->value = ""; sl->len = 0; }
                 arrput(n->parts, (Iron_Node *)sl);
                 n->part_count++;
                 lit_len = 0;
@@ -3511,7 +3695,7 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
         } else {
             /* Escaped braces arrive as lexer marker bytes. */
             char ch = s[i++];
-            if (ch == IRON_LEX_LITERAL_ESC && s[i]) ch = s[i++];
+            if (ch == IRON_LEX_LITERAL_ESC && i < len) ch = s[i++];
             else if (ch == IRON_LEX_LITERAL_LBRACE) ch = '{';
             else if (ch == IRON_LEX_LITERAL_RBRACE) ch = '}';
             lit_buf[lit_len++] = ch;
@@ -3526,7 +3710,8 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
         sl->kind  = IRON_NODE_STRING_LIT;
         sl->span  = span;
         sl->value = iron_arena_strdup(p->arena, lit_buf, lit_len);
-        if (!sl->value) { /* HARD-09 REPLACE (iron_parse_interp_string StringLit tail value) */ sl->value = ""; }
+        sl->len   = lit_len;
+        if (!sl->value) { /* HARD-09 REPLACE (iron_parse_interp_string StringLit tail value) */ sl->value = ""; sl->len = 0; }
         arrput(n->parts, (Iron_Node *)sl);
         n->part_count++;
         lit_len = 0;

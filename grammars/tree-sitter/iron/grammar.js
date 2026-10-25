@@ -79,6 +79,10 @@ module.exports = grammar({
   // rather than hidden here.
   conflicts: $ => [
     [$._expression, $.generic_expression],
+    [$._expression, $.type_identifier],
+    [$._expression, $.generic_expression, $.type_identifier],
+    [$.parameter, $.type_identifier],
+    [$._handle_type_arguments, $._type],
   ],
 
   // Tokens that look like keywords (`self`, `super`, `true`, `false`, `null`)
@@ -138,14 +142,17 @@ module.exports = grammar({
     import_path: $ => seq($.identifier, repeat(seq('.', $.identifier))),
 
     // object Name[<GenericParams>] [extends Parent] [impl I1, I2] { val name: T, var name: T }
-    // Phase 35 GRM-06 (Plan 35-01): optional `nocopy` prefix modifier
-    // (`nocopy object FileHandle { ... }`) via $.nocopy_modifier named child.
+    // A declaration may have `pub` or `nocopy`, but the compiler does not yet
+    // accept both together (#840).
     object_declaration: $ => seq(
-      optional($.visibility_modifier),
-      optional(field('marker', $.nocopy_modifier)),
+      optional(choice(
+        $.visibility_modifier,
+        field('marker', $.nocopy_modifier),
+      )),
       'object',
       field('name', $.identifier),
       optional($.generic_params),
+      // Retained as an error form so editors can parse the source for E0101.
       optional(seq('extends', field('parent', $.identifier))),
       optional(seq('impl', field('implements',
           seq($.identifier, repeat(seq(',', $.identifier)))))),
@@ -184,7 +191,6 @@ module.exports = grammar({
       optional($.visibility_modifier),
       'interface',
       field('name', $.identifier),
-      optional($.generic_params),
       '{',
       repeat($.method_signature),
       '}',
@@ -199,8 +205,7 @@ module.exports = grammar({
     // skip list. Mirrors the modifier-prefix discipline applied to
     // func_declaration (D-13) and block_method_declaration (D-11).
     method_signature: $ => seq(
-      optional($.static_modifier),
-      repeat($.mutation_tier_modifier),
+      optional(choice($.static_modifier, $.mutation_tier_modifier)),
       'func',
       field('name', $.identifier),
       field('parameters', $.parameter_list),
@@ -225,12 +230,14 @@ module.exports = grammar({
 
     enum_variant: $ => seq(
       field('name', $.identifier),
-      optional(seq(
-        '(',
-        optional(seq($._type, repeat(seq(',', $._type)), optional(','))),
-        ')',
+      optional(choice(
+        seq(
+          '(',
+          optional(seq($._type, repeat(seq(',', $._type)), optional(','))),
+          ')',
+        ),
+        seq('=', field('ordinal', $.integer_literal)),
       )),
-      optional(seq('=', field('ordinal', $.integer_literal))),
     ),
 
     // func [fusible] name[<G>](params) [-> T] { body }
@@ -241,9 +248,8 @@ module.exports = grammar({
     // `pub readonly func` at top level — needed by v3 fixtures like
     // v3_pure_method.iron and v3_pub_field_synthesis.iron).
     func_declaration: $ => seq(
-      optional(seq('@', 'fusible')),
       optional($.visibility_modifier),
-      repeat($.mutation_tier_modifier),
+      optional(seq('@', 'fusible')),
       'func',
       field('name', $.identifier),
       optional($.generic_params),
@@ -253,6 +259,7 @@ module.exports = grammar({
     ),
 
     method_declaration: $ => seq(
+      optional($.visibility_modifier),
       optional(seq('@', 'fusible')),
       'func',
       choice(
@@ -281,7 +288,7 @@ module.exports = grammar({
     var_declaration: $ => seq(
       optional($.visibility_modifier),
       'var',
-      field('binding', choice($.identifier, $.tuple_binding, '_')),
+      field('binding', choice($.identifier, '_')),
       optional(seq(':', field('type', $._type))),
       optional(seq('=', field('value', $._expression))),
     ),
@@ -299,6 +306,7 @@ module.exports = grammar({
 
     // extern func puts(s: String) -> Int   — no body
     extern_func_declaration: $ => seq(
+      optional($.visibility_modifier),
       'extern',
       'func',
       field('name', $.identifier),
@@ -315,10 +323,6 @@ module.exports = grammar({
     ),
 
     parameter_list: $ => seq('(', optional(seq(commaSep1($.parameter), optional(','))), ')'),
-    // D-04: optional `mut` modifier prefix on parameter (legacy v2 receiver-
-    // form tolerance — semantically rejected by parser as IRON_ERR_V3_MUT_*
-    // but syntactically tolerated to avoid ERROR nodes on v2 code mid-
-    // migration; LSP-side QF-01 surfaces the codemod).
     parameter: $ => seq(
       optional(field('modifier', $.param_mut_modifier)),
       field('name', $.identifier),
@@ -336,7 +340,7 @@ module.exports = grammar({
     // `static func` in an object, patch or interface body: a function of
     // the type, called as `Type.f()`, with no receiver.
     static_modifier:        $ => 'static',
-    param_mut_modifier:     $ => choice('mut', 'var', 'val'),
+    param_mut_modifier:     $ => choice('var', 'val'),
 
     // ── v3 init declaration (D-05) ─────────────────────────────────────
     // init [name](params) { body }   |  pub init(params) { body }
@@ -351,27 +355,17 @@ module.exports = grammar({
     ),
 
     // ── v3 patch declaration (D-08) ────────────────────────────────────
-    // patch object T [<G>] [(impl|implements) I, J] { members }
-    // Mirrors object_declaration shape minus the extends clause; `target:`
+    // [pub] patch object T [impl I, J] { members }
+    // Mirrors object_declaration shape; `target:`
     // field name (not `name:`) because semantically it points at an
     // existing type, not declaring a new one.
     //
-    // Phase 87-02 PATCH-08 (Plan 13-03 deviation): the implements-clause
-    // keyword is `implements` (long form, contextual-keyword via parser.c:4128
-    // string compare) for `patch` declarations, NOT `impl` like for
-    // `object`. Both are accepted here so Plan 13-02's corpus (which uses
-    // the `impl` short form to mirror object_declaration) AND
-    // tests/integration/v3_patch_implements.iron (which uses `implements`,
-    // matching the Iron parser's contract) parse cleanly. Surfaced by Plan
-    // 13-03's KNOWN_SKIPS trim — the integration fixture's `implements`
-    // keyword was previously masked by the Phase-8 v3 skip list.
     patch_declaration: $ => seq(
-      optional(field('marker', $.nocopy_modifier)),
+      optional($.visibility_modifier),
       'patch',
       'object',
       field('target', $.identifier),
-      optional($.generic_params),
-      optional(seq(choice('impl', 'implements'), field('implements',
+      optional(seq('impl', field('implements',
           seq($.identifier, repeat(seq(',', $.identifier)))))),
       '{',
       repeat($._object_member),
@@ -384,10 +378,8 @@ module.exports = grammar({
     // carries a `TypeName.` prefix per legacy v2 receiver form): the
     // enclosing object/patch context provides the receiver here.
     block_method_declaration: $ => seq(
-      optional(seq('@', 'fusible')),
       optional($.visibility_modifier),
-      optional($.static_modifier),
-      repeat($.mutation_tier_modifier),
+      optional(choice($.static_modifier, $.mutation_tier_modifier)),
       'func',
       field('name', $.identifier),
       optional($.generic_params),
@@ -451,7 +443,10 @@ module.exports = grammar({
       'in',
       field('iterable', $._expression),
       // `parallel` modifier: `for i in n parallel { ... }` (Phase 49 pfor)
-      optional(field('modifier', 'parallel')),
+      optional(seq(
+        field('modifier', 'parallel'),
+        optional(seq('(', field('pool', $._expression), ')')),
+      )),
       field('body', $.block),
     ),
 
@@ -553,6 +548,7 @@ module.exports = grammar({
       $.parenthesized_expression,
       $.tuple_expression,
       $.array_literal,
+      $.fill_expression,
       $.lambda_expression,
       $.heap_expression,
       $.rc_expression,
@@ -570,8 +566,8 @@ module.exports = grammar({
     ),
 
     binary_expression: $ => choice(
-      prec.left(3,  seq($._expression, field('op', choice('or', '||')),  $._expression)),
-      prec.left(4,  seq($._expression, field('op', choice('and', '&&')), $._expression)),
+      prec.left(3,  seq($._expression, field('op', 'or'),                $._expression)),
+      prec.left(4,  seq($._expression, field('op', 'and'),               $._expression)),
       prec.left(5,  seq($._expression, field('op', '|'),                 $._expression)),
       prec.left(6,  seq($._expression, field('op', '^'),                 $._expression)),
       prec.left(7,  seq($._expression, field('op', '&'),                 $._expression)),
@@ -583,7 +579,7 @@ module.exports = grammar({
     ),
 
     unary_expression: $ => prec.right(13, seq(
-      field('op', choice('-', '!', '~', 'not', '&')),
+      field('op', choice('-', '~', 'not', '&')),
       $._expression,
     )),
 
@@ -611,14 +607,27 @@ module.exports = grammar({
       ']',
     )),
 
-    // Type arguments on a name: `Map[String, Int]()`, `List[Int?]()`.
+    // Type arguments on a name or a method: `Map[String, Int]()`,
+    // `List[Int?]()`, `Channel[func(Int) -> Int](4)`, `x.m[*T](p)`.
     // `xs[i]` parses both ways; the index reading wins (dynamic precedence),
     // so this node appears only when the brackets hold something an index
-    // cannot (a comma, `?`, an array type).
-    generic_expression: $ => prec.dynamic(-1, seq(
-      field('name', $.identifier),
-      field('type_arguments', $.type_arguments),
-    )),
+    // cannot (a comma, `?`, an array type, a function type without a body,
+    // a pointer type), matching manual section 13.
+    generic_expression: $ => choice(
+      prec.dynamic(-1, seq(
+        field('name', choice($.identifier, $.member_expression)),
+        field('type_arguments', $.type_arguments),
+      )),
+      // Nothing is indexed by an rc or weak rc handle, so brackets that
+      // start with one hold a type (`Box[rc T](v)`), not an rc expression.
+      prec.dynamic(1, seq(
+        field('name', choice($.identifier, $.member_expression)),
+        field('type_arguments', alias($._handle_type_arguments, $.type_arguments)),
+      )),
+    ),
+    _handle_type_arguments: $ => seq(
+      '[', choice($.rc_type, $.weak_rc_type), repeat(seq(',', $._type)), ']',
+    ),
     type_arguments: $ => seq('[', commaSep1($._type), ']'),
 
     slice_expression: $ => prec.left(14, seq(
@@ -646,6 +655,11 @@ module.exports = grammar({
       ']',
     ),
 
+    // A fixed-size fill expression: `[T; n]`.
+    fill_expression: $ => seq(
+      '[', field('element_type', $._type), ';', field('size', $._expression), ']'
+    ),
+
     lambda_expression: $ => seq(
       'func',
       field('parameters', $.parameter_list),
@@ -671,10 +685,10 @@ module.exports = grammar({
       repeat(seq(',', $.heap_option)),
       ')',
     ),
-    heap_option: $ => seq(
-      field('key', choice('in', $.identifier)),
-      ':',
-      field('value', $._expression),
+    heap_option: $ => choice(
+      seq(field('key', 'in'), ':', field('value', $._expression)),
+      seq(field('key', 'allow_drop_skip'), ':',
+          field('value', $.boolean_literal)),
     ),
     rc_expression:       $ => prec.right(13, seq('rc',       $._expression)),
     // Phase 35 GRM-06 (Plan 35-01): weak_rc_expression covers both the
@@ -785,12 +799,12 @@ module.exports = grammar({
     array_type: $ => prec(3, seq(
       '[',
       $._type,
-      optional(seq(';', $._expression)),
       // Phase 48 layout hints: , layout: soa / , unordered — tolerated.
       repeat(seq(',', choice(
-        seq('layout', ':', $.identifier),
+        seq('layout', ':', choice('soa', 'aos')),
         'unordered',
       ))),
+      optional(seq(';', $._expression)),
       ']',
       optional(field('nullable', '?')),
     )),
@@ -800,7 +814,12 @@ module.exports = grammar({
     // and the size expression — tree-sitter's GLR picks the right form by
     // lookahead. Strict form `[T; N]` stays in array_type.
     bounded_vector_type: $ => prec(3, seq(
-      '[', $._type, ';', '<=', $._expression, ']',
+      '[', $._type,
+      repeat(seq(',', choice(
+        seq('layout', ':', choice('soa', 'aos')),
+        'unordered',
+      ))),
+      ';', '<=', $._expression, ']',
       optional(field('nullable', '?')),
     )),
 
@@ -846,10 +865,10 @@ module.exports = grammar({
     copy_block: $ => seq('copy', field('body', $.block)),
 
     // func(T, U) -> R
-    function_type: $ => prec(4, seq(
-      'func', '(',
-      optional(seq($._type, repeat(seq(',', $._type)))),
-      ')',
+    function_type: $ => prec.right(4, seq(
+      'func', optional(seq('(',
+        optional(seq($._type, repeat(seq(',', $._type)))),
+      ')')),
       optional(seq('->', $._type)),
     )),
 
@@ -863,14 +882,14 @@ module.exports = grammar({
     // ── Literals ───────────────────────────────────────────────────────
 
     integer_literal: $ => token(choice(
-      /0[xX][0-9a-fA-F_]+/,  // hex
-      /0[bB][01_]+/,         // binary
-      /[0-9][0-9_]*/,        // decimal
+      /0[xX][0-9a-fA-F]+/,  // hex
+      /0[bB][01]+/,         // binary
+      /[0-9][0-9]*/,        // decimal
     )),
 
     float_literal: $ => token(choice(
-      /[0-9][0-9_]*\.[0-9][0-9_]*[eE][+-]?[0-9]+/,
-      /[0-9][0-9_]*\.[0-9][0-9_]*/,
+      /[0-9][0-9]*\.[0-9][0-9]*[eE][+-]?[0-9]+/,
+      /[0-9][0-9]*\.[0-9][0-9]*/,
     )),
 
     boolean_literal: $ => choice('true', 'false'),
@@ -902,7 +921,7 @@ module.exports = grammar({
 
     // Iron's lexer decodes \n \t \\ \" \{ \} \u{HEX} and keeps any other
     // backslash pair as written (`"\0"`), so every pair is one token here.
-    escape_sequence: $ => token.immediate(/\\(u\{[0-9a-fA-F]{1,6}\}|[0-9A-Za-z"\\{}])/),
+    escape_sequence: $ => token.immediate(/\\(u\{[0-9a-fA-F]{1,6}\}|x[0-9a-fA-F]{2}|[0-9A-Za-z"\\{}])/),
 
     // NOTE: interpolated strings appear in the parse tree as
     // (string_literal (interpolation ...)) — queries/highlights.scm + folds.scm

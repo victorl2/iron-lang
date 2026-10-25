@@ -23,6 +23,22 @@ import gdb
 import gdb.printing
 
 
+_ENCODED_IRON_NAME = re.compile(r"Iron__id_([0-9a-f]+)")
+
+
+def _iron_name(name):
+    """Decode a target-reserved C identifier back to its Iron spelling."""
+    def decode(match):
+        digits = match.group(1)
+        if len(digits) % 2:
+            return match.group(0)
+        try:
+            return bytes.fromhex(digits).decode("ascii")
+        except (ValueError, UnicodeDecodeError):
+            return match.group(0)
+    return _ENCODED_IRON_NAME.sub(decode, name or "")
+
+
 # Break on panic: every Iron panic (a failed assert, an index out of
 # bounds, a missing map key, out of memory) prints its message and ends in
 # the C library's abort(). With `break abort` (iron debug and iron dap set
@@ -134,18 +150,153 @@ def _string(val):
     return sso["data"].string(encoding="utf-8", errors="replace", length=n)
 
 
+def iron_quote(s):
+    """A string as an Iron literal: the escapes of the manual (\\n, \\t,
+    \\\\, \\"), any other control character (a zero byte too) as \\u{H}."""
+    out = []
+    for ch in s:
+        o = ord(ch)
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\t":
+            out.append("\\t")
+        elif o < 0x20 or o == 0x7f:
+            out.append("\\u{%x}" % o)
+        else:
+            out.append(ch)
+    return '"%s"' % "".join(out)
+
+
+def float_text(v, is_f32=False):
+    """A float as Iron prints it (src/runtime/iron_fmt.c): the shortest
+    digits that read back to the value, no trailing .0, inf / -inf / NaN."""
+    import math
+    import struct
+    if math.isnan(v):
+        return "NaN"
+    if math.isinf(v):
+        return "inf" if v > 0 else "-inf"
+    if v == 0:
+        return "0"
+
+    def f32(x):
+        return struct.unpack("f", struct.pack("f", x))[0]
+    for p in range(1, 10 if is_f32 else 18):
+        sci = "%.*e" % (p - 1, v)
+        if (f32(float(sci)) == f32(v)) if is_f32 else float(sci) == v:
+            break
+    neg = sci.startswith("-")
+    mant, e = sci.lstrip("-").split("e")
+    e = int(e)
+    digits = mant.replace(".", "").rstrip("0") or "0"
+    n = len(digits)
+    out = "-" if neg else ""
+    if -6 <= e < 21:
+        if e >= 0:
+            out += "".join(digits[i] if i < n else "0" for i in range(e + 1))
+            if n > e + 1:
+                out += "." + digits[e + 1:]
+        else:
+            out += "0." + "0" * (-e - 1) + digits
+    else:
+        out += digits[0] + ("." + digits[1:] if n > 1 else "")
+        out += "e%s%d" % ("-" if e < 0 else "+", abs(e))
+    return out
+
+
+def _dap():
+    """True inside gdb's DAP server (gdb -i=dap): a value there shows its
+    summary and is expanded through its children; on the command line
+    the summary alone is printed, as LLDB does."""
+    import sys
+    return "gdb.dap" in sys.modules
+
+
 class StringPrinter:
     def __init__(self, val):
         self.val = val
 
     def to_string(self):
         try:
-            return '"%s"' % _string(self.val).replace('"', '\\"')
+            return iron_quote(_string(self.val))
         except gdb.error:
-            return "<invalid string>"
+            return NOT_ASSIGNED
+
+
+class FloatPrinter:
+    def __init__(self, val):
+        self.val = val
+
+    def to_string(self):
+        return float_text(float(self.val), self.val.type.strip_typedefs().sizeof == 4)
+
+
+class SmallIntPrinter:
+    """Int8 and UInt8: numbers, not characters."""
+
+    def __init__(self, val):
+        self.val = val
+
+    def to_string(self):
+        return str(int(self.val))
 
     def display_hint(self):
         return None
+
+
+NOT_ASSIGNED = "<not assigned yet>"
+
+
+def _list_count(val):
+    """A list's element count, or None when the struct holds no list yet
+    (a binding read before the statement that assigns it)."""
+    try:
+        count, cap, items = int(val["count"]), int(val["capacity"]), int(val["items"])
+    except gdb.error:
+        return None
+    if count < 0 or count > (1 << 40) or cap < count or (count and not items):
+        return None
+    return count
+
+
+def _table_count(val):
+    try:
+        count, cap, st = int(val["count"]), int(val["cap"]), int(val["st"])
+    except gdb.error:
+        return None
+    if count < 0 or cap < 0 or cap > (1 << 30) or count > cap or (cap and not st):
+        return None
+    return count
+
+
+def _text(v, depth=0):
+    """A value's text as the printers write it, without its children
+    (format_string adds ` = {...}` after a summary that has children)."""
+    try:
+        p = gdb.default_visualizer(v)
+        if p is not None and hasattr(p, "to_string") and depth < 8:
+            s = p.to_string()
+            if isinstance(s, gdb.Value):
+                return _text(s, depth + 1)
+            if s is not None:
+                return str(s)
+        return v.format_string()
+    except gdb.error as e:
+        return "<%s>" % e
+
+
+def _list_text(val):
+    """A list as LLDB shows it: [1, 2, 3] (the first 20 elements)."""
+    n = _list_count(val)
+    if n is None:
+        return NOT_ASSIGNED
+    items = val["items"]
+    shown = [_text(items[i]) for i in range(min(n, 20))]
+    return "[%s%s]" % (", ".join(shown), ", ..." if n > 20 else "")
 
 
 def _align(t):
@@ -184,7 +335,20 @@ class ListPrinter:
         self.val = val
 
     def to_string(self):
-        return "[%d]" % int(self.val["count"])
+        n = _list_count(self.val)
+        if n is None:
+            return NOT_ASSIGNED
+        if _dap():
+            if self._is_soa():
+                # Elements are gathered from the columns (see children).
+                shown = []
+                for _name, v in self.children():
+                    if len(shown) == 20:
+                        break
+                    shown.append(_text(v))
+                return "[%s%s]" % (", ".join(shown), ", ..." if n > 20 else "")
+            return _list_text(self.val)
+        return "[%d]" % n
 
     def _is_soa(self):
         # A list of an element type used with layout: soa has a `soa` flag;
@@ -194,7 +358,7 @@ class ListPrinter:
 
     def children(self):
         items = self.val["items"]
-        n = min(int(self.val["count"]), 10000)
+        n = min(_list_count(self.val) or 0, 10000)
         if not self._is_soa():
             for i in range(n):
                 yield "[%d]" % i, items[i]
@@ -220,19 +384,17 @@ class MapPrinter:
         self.val = val
 
     def to_string(self):
-        return "Map[%d]" % int(self.val["count"])
+        n = _table_count(self.val)
+        return NOT_ASSIGNED if n is None else "Map[%d]" % n
 
     def children(self):
+        # Each entry as [key] = value, as LLDB shows it.
         st, keys, vals = self.val["st"], self.val["keys"], self.val["vals"]
-        n = 0
+        if _table_count(self.val) is None:
+            return
         for i in range(int(self.val["cap"])):
             if int(st[i]) == 1:
-                yield "key%d" % n, keys[i]
-                yield "val%d" % n, vals[i]
-                n += 1
-
-    def display_hint(self):
-        return "map"
+                yield "[%s]" % _text(keys[i]), vals[i]
 
 
 class SetPrinter:
@@ -240,11 +402,14 @@ class SetPrinter:
         self.val = val
 
     def to_string(self):
-        return "Set[%d]" % int(self.val["count"])
+        n = _table_count(self.val)
+        return NOT_ASSIGNED if n is None else "Set[%d]" % n
 
     def children(self):
         st, items = self.val["st"], self.val["items"]
         n = 0
+        if _table_count(self.val) is None:
+            return
         for i in range(int(self.val["cap"])):
             if int(st[i]) == 1:
                 yield "[%d]" % n, items[i]
@@ -268,8 +433,131 @@ class OptionalPrinter:
 
 
 def _short(name):
-    """An Iron type's C name as Iron writes it: Iron_Point is Point."""
-    return name[5:] if name.startswith("Iron_") else name
+    """An Iron type's C name as Iron writes it: Iron_Point is Point, and a
+    generic instance Iron_Box__Int is Box[Int] (arguments that are plain
+    type names; others keep the compiler's spelling)."""
+    name = _iron_name(name[5:] if name.startswith("Iron_") else name)
+    parts = name.split("__")
+    if len(parts) > 1 and all(p and p[0].isalpha() and p.isalnum() for p in parts):
+        return "%s[%s]" % (parts[0], ", ".join(parts[1:]))
+    return name
+
+
+RUNTIME_TYPES = ("Iron_String", "Iron_RcHeader", "Iron_Closure", "Iron_Arena_RT",
+                 "Iron_FatPtr", "Iron_Mutex", "Iron_Channel")
+
+
+def _is_object(t, name):
+    if t.code != gdb.TYPE_CODE_STRUCT or not name.startswith("Iron_") or name in RUNTIME_TYPES:
+        return False
+    if name.startswith(("Iron_List_", "Iron_Map_", "Iron_Set_", "Iron_Optional_",
+                        "Iron_SplitList_", "Iron_Tuple_")):
+        return False
+    return not _is_tagged(t) and len(_fields(t)) > 0
+
+
+# Objects that hold only a native handle, and the runtime call that
+# describes what the handle holds.
+HANDLE_TEXT = {"MysqlResult": "iron_mysql_debug_text(%d, 0)",
+               "MysqlConn": "iron_mysql_debug_text(%d, 1)",
+               "MysqlPool": "iron_mysql_debug_text(%d, 2)",
+               "HttpClient": "iron_http_debug_text(%d)"}
+
+
+def _json_text(v, budget):
+    """A Json value as JSON text (at most about budget[0] characters)."""
+    if budget[0] <= 0:
+        return "..."
+    node = v["node"]
+    tag = str(node["tag"])
+    i = tag.find("_TAG_")
+    variant = tag[i + 5:] if i >= 0 else tag
+    data = node["data"]
+    names = [f.name for f in _fields(data.type.strip_typedefs())]
+    inner = data[variant]["_0"] if variant in names and \
+        [f.name for f in _fields(data[variant].type.strip_typedefs())][:1] == ["_0"] else None
+    if variant == "Null" or inner is None:
+        out = "null"
+    elif variant in ("Bool", "Int", "Float", "Str"):
+        out = _text(inner)
+    elif variant == "Arr":
+        items = inner.dereference()["items"]
+        n = _list_count(items) or 0
+        parts = []
+        for k in range(min(n, 50)):
+            if budget[0] <= 0:
+                parts.append("...")
+                break
+            parts.append(_json_text(items["items"][k], budget))
+        out = "[%s]" % ", ".join(parts)
+    elif variant == "Obj":
+        obj = inner.dereference()
+        keys, vals = obj["keys"], obj["values"]
+        n = _list_count(keys) or 0
+        parts = []
+        for k in range(min(n, 50)):
+            if budget[0] <= 0:
+                parts.append("...")
+                break
+            parts.append("%s: %s" % (_text(keys["items"][k]), _json_text(vals["items"][k], budget)))
+        out = "{%s}" % ", ".join(parts)
+    else:
+        out = variant
+    budget[0] -= len(out)
+    return out
+
+
+class ObjectPrinter:
+    """An object: Point {x = 3, y = 4}, as LLDB and rc values show it. A
+    Json value shows as its JSON text, a MySQL result, connection or pool
+    and an HttpClient as what its handle holds."""
+
+    def __init__(self, val, name):
+        self.val, self.name = val, _short(name)
+
+    def to_string(self):
+        if self.name == "Json":
+            return "Json " + _json_text(self.val, [400])
+        if self.name.startswith("MutexGuard"):
+            try:
+                p = self.val["valptr"]
+                return "MutexGuard(%s)" % (_text(p.dereference()) if int(p) else "null")
+            except (gdb.error, gdb.MemoryError):
+                pass
+        if self.name in HANDLE_TEXT:
+            try:
+                text = gdb.parse_and_eval("(const char *)" + HANDLE_TEXT[self.name] % int(
+                    self.val["handle"])).string()
+                return "%s %s" % (self.name, text)
+            except (gdb.error, UnicodeDecodeError):
+                pass
+        if self.name in ("JsonBuffer", "JsonWriter"):
+            # What a JsonWriter wrote so far: its native buffer (iron_json.c).
+            try:
+                buf = self.val if self.name == "JsonBuffer" else self.val["buf"].dereference()
+                w = gdb.Value(int(buf["handle"])).cast(
+                    gdb.lookup_type("JsonWriter").pointer()).dereference()
+                n = int(w["n"])
+                if 0 <= n < (1 << 30):
+                    raw = bytes(gdb.selected_inferior().read_memory(int(w["d"]), min(n, 300))) \
+                        if n else b""
+                    return "%s %s%s" % (self.name, iron_quote(raw.decode("utf-8", "replace")),
+                                                " ..." if n > 300 else "")
+            except (gdb.error, gdb.MemoryError):
+                pass
+        return self.fields_text()
+
+    def fields_text(self):
+        f = [x for x in _fields(self.val.type.strip_typedefs()) if x.name]
+        parts = ["%s = %s" % (_iron_name(x.name), _text(self.val[x.name])) for x in f[:8]]
+        return "%s {%s%s}" % (self.name, ", ".join(parts), ", ..." if len(f) > 8 else "")
+
+    def children(self):
+        if not _dap():
+            return
+        for x in _fields(self.val.type.strip_typedefs()):
+            if x.name:
+                yield _iron_name(x.name), self.val[x.name]
 
 
 def _fields(t):
@@ -292,10 +580,11 @@ class TaggedPrinter:
         self.val = val
         tag = str(val["tag"])
         i = tag.find("_TAG_")
-        self.variant = tag[i + 5:] if i >= 0 else tag
+        raw_variant = tag[i + 5:] if i >= 0 else tag
+        self.variant = _iron_name(raw_variant)
         data = val["data"]
         names = [f.name for f in _fields(data.type.strip_typedefs())]
-        self.payload = data[self.variant] if self.variant in names else None
+        self.payload = data[raw_variant] if raw_variant in names else None
 
     def to_string(self):
         p = self.payload
@@ -305,8 +594,19 @@ class TaggedPrinter:
         # A variant's payload struct names its fields _0, _1, ...; an
         # interface value holds the implementing object itself.
         if f[0].name == "_0":
-            return "%s(%s)" % (self.variant, ", ".join(p[x.name].format_string() for x in f))
-        return "%s %s" % (self.variant, p.format_string())
+            return "%s(%s)" % (self.variant, ", ".join(_text(p[x.name]) for x in f))
+        text = _text(p)
+        t = p.type.strip_typedefs()
+        if text.startswith(_short(t.tag or t.name or str(p.type)) + " {"):
+            return text
+        return "%s %s" % (self.variant, text)
+
+    def children(self):
+        if not _dap() or self.payload is None:
+            return
+        for x in _fields(self.payload.type.strip_typedefs()):
+            if x.name:
+                yield x.name, self.payload[x.name]
 
 
 class EnumPrinter:
@@ -318,7 +618,7 @@ class EnumPrinter:
     def to_string(self):
         text = str(self.val.cast(self.val.type.strip_typedefs()))
         prefix = str(self.val.type) + "_"
-        return text[len(prefix):] if text.startswith(prefix) else text
+        return _iron_name(text[len(prefix):] if text.startswith(prefix) else text)
 
 
 def _rc_counts(val):
@@ -386,13 +686,31 @@ class RcPrinter:
             try:
                 # rc [T] holds the list in `items`.
                 if len(f) == 1 and f[0].name == "items":
-                    body = obj["items"].format_string()
+                    body = _list_text(obj["items"])
                 else:
-                    body = "%s %s" % (_short(t.tag or t.name or str(obj.type)), obj.format_string())
+                    body = _text(obj)
+                    name = _short(t.tag or t.name or str(obj.type))
+                    if not body.startswith(name + " "):
+                        body = "%s %s" % (name, body)
             finally:
                 _rc_depth[0] -= 1
         # weak counts one extra reference shared by the strong ones.
         return "rc %s (strong=%d, weak=%d)" % (body, strong, weak - 1)
+
+    def children(self):
+        # The object's fields (an rc [T]: its elements), as LLDB shows them.
+        if not _dap() or self.counts[0] == 0:
+            return
+        obj = self.val.dereference()
+        f = [x for x in _fields(obj.type.strip_typedefs()) if x.name]
+        if len(f) == 1 and f[0].name == "items":
+            p = gdb.default_visualizer(obj["items"])
+            if p is not None and hasattr(p, "children"):
+                for c in p.children():
+                    yield c
+            return
+        for x in f:
+            yield x.name, obj[x.name]
 
 
 class ClosurePrinter:
@@ -431,7 +749,13 @@ class ClosurePrinter:
             return
         e = gdb.Value(env).cast(t.pointer()).dereference()
         for f in _fields(t.strip_typedefs()):
-            yield f.name, e[f.name]
+            v = e[f.name]
+            # A captured var: a pointer to its cell (<env>_cell_<name>),
+            # shown as the value it holds.
+            if f.type.code == gdb.TYPE_CODE_PTR and "_cell_" in str(f.type.target().name or "") \
+                    and int(v):
+                v = v.dereference()
+            yield _iron_name(f.name), v
 
 
 def _lookup_values(val):
@@ -452,11 +776,147 @@ def _lookup_values(val):
     return None
 
 
+class SafePrinter:
+    """A printer that never fails: a binding read before the statement
+    that assigns it holds whatever its memory held, and one printer that
+    raised made gdb's DAP server fail the whole Locals scope."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        if hasattr(inner, "display_hint"):
+            self.display_hint = inner.display_hint
+        if hasattr(inner, "children"):
+            self.children = self._children
+
+    def to_string(self):
+        try:
+            return self.inner.to_string()
+        except (gdb.error, RuntimeError, ValueError, OverflowError, UnicodeError):
+            return NOT_ASSIGNED
+
+    def _children(self):
+        out = []
+        try:
+            for name, v in self.inner.children():
+                if isinstance(v, gdb.Value):
+                    v.fetch_lazy()      # unreadable memory raises here, not in gdb
+                out.append((name, v))
+                if len(out) >= 10000:
+                    break
+        except (gdb.error, RuntimeError, ValueError, OverflowError, UnicodeError):
+            pass
+        return out
+
+
+class MutexPrinter:
+    """A Mutex[T] of a --debug build (Iron_Mutex__T *): the value it holds
+    and which thread holds the lock."""
+
+    def __init__(self, val, vtype):
+        self.val, self.vtype = val, vtype
+
+    def value(self):
+        m = self.val.dereference()
+        p = int(m["value"])
+        return gdb.Value(p).cast(self.vtype.pointer()).dereference() if p else None
+
+    def to_string(self):
+        if not int(self.val):
+            return "null"
+        v = self.value()
+        holder = int(self.val.dereference()["holder"])
+        return "Mutex(%s)%s" % (_text(v) if v is not None else "?",
+                                " locked by thread %d (0x%x)" % (holder, holder) if holder
+                                else " unlocked")
+
+    def children(self):
+        if not _dap() or not int(self.val):
+            return
+        v = self.value()
+        if v is not None:
+            yield "value", v
+
+
+class FatPtrPrinter:
+    """A checked pointer or heap value of a --debug build (a typedef of
+    Iron_FatPtr named after the pointee, Iron_FatPtr__Iron_Worker): the
+    value it points at."""
+
+    def __init__(self, val, pointee):
+        self.val, self.pointee = val, pointee
+        self.obj, self.state = None, ""
+        addr, gen = int(val["addr"]), int(val["gen"])
+        if not addr:
+            self.state = "null"
+            return
+        try:
+            hdr = gdb.lookup_type("IronAllocHdr")
+            u64 = gdb.lookup_type("unsigned long long").pointer()
+            base = addr - hdr.sizeof
+            hgen = int(gdb.Value(base).cast(u64).dereference())
+            size = int(gdb.Value(base + 8).cast(u64).dereference())
+            if size == pointee.sizeof and hgen != gen:
+                self.state = "freed"
+                return
+        except gdb.error:
+            pass
+        self.obj = gdb.Value(addr).cast(pointee.pointer()).dereference()
+
+    def to_string(self):
+        if self.state == "null":
+            return "null"
+        if self.state == "freed":
+            return "freed (a stale pointer)"
+        return _text(self.obj)
+
+    def children(self):
+        if not _dap() or self.obj is None:
+            return
+        p = gdb.default_visualizer(self.obj)
+        if p is not None and hasattr(p, "children"):
+            for c in p.children():
+                yield c
+            return
+        t = self.obj.type.strip_typedefs()
+        if t.code == gdb.TYPE_CODE_STRUCT:
+            for x in _fields(t):
+                if x.name:
+                    yield x.name, self.obj[x.name]
+
+
 def _lookup(val):
+    try:
+        p = _lookup_printer(val)
+    except (gdb.error, RuntimeError, ValueError, OverflowError):
+        return None
+    return SafePrinter(p) if p is not None else None
+
+
+def _lookup_printer(val):
     # Anonymous structs (`typedef struct { ... } Iron_Optional_Int64;`)
     # carry their name on the typedef, not on the stripped type.
     t = val.type.strip_typedefs()
     name = t.tag or t.name or val.type.name or str(val.type)
+    if t.code == gdb.TYPE_CODE_FLT:
+        return FloatPrinter(val)
+    if t.code == gdb.TYPE_CODE_PTR and (val.type.strip_typedefs().target().name or
+                                        str(val.type.target())).startswith("Iron_Mutex__"):
+        tn = str(val.type.target())
+        try:
+            return MutexPrinter(val, gdb.lookup_type(tn[len("Iron_Mutex__"):]))
+        except gdb.error:
+            pass
+    if (val.type.name or "").startswith("Iron_FatPtr__"):
+        try:
+            pointee = gdb.lookup_type(val.type.name[len("Iron_FatPtr__"):])
+        except gdb.error:
+            pointee = None
+        if pointee is not None:
+            return FatPtrPrinter(val, pointee)
+    if val.type.name in ("int8_t", "uint8_t"):
+        return SmallIntPrinter(val)
+    if _is_object(t, name):
+        return ObjectPrinter(val, name)
     if name == "Iron_String":
         return StringPrinter(val)
     if name.startswith("Iron_List_"):
@@ -499,7 +959,7 @@ def iron_variables(frame):
                 except gdb.error:
                     pass
             elif not name.startswith("_"):
-                out.append((name, frame.read_var(sym, block)))
+                out.append((_iron_name(name), frame.read_var(sym, block)))
         if block.function is not None:
             break
         block = block.superblock

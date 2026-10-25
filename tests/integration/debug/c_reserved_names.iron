@@ -1,0 +1,20 @@
+object DebugReserved {
+    val default: Int
+}
+
+enum DebugChoice {
+    default,
+    register(Int),
+}
+
+func inspect(default: Int) {
+    val register = default + 1
+    val item = DebugReserved(default + 2)
+    val choice = DebugChoice.default
+    val payload = DebugChoice.register(default + 4)
+    println("{register} {item.default} {choice} {payload}")
+}
+
+func main() {
+    inspect(3)
+}
