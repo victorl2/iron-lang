@@ -190,7 +190,7 @@ void test_stack_cross_thread(void) {
 }
 
 void test_list_pins(void) {
-    int buf[4];
+    int buf[4] = {0};
     TEST_ASSERT_FALSE(iron_list_is_pinned(buf));
     uint64_t g1 = iron_list_pin(buf);
     uint64_t g2 = iron_list_pin(buf);                /* a nested borrow */
