@@ -615,14 +615,19 @@ class ElemWrite(Stmt):
 
 
 class ElemGrow(Stmt):
-    """grow(&xs[j], xs): the callee grows the list the pointer points into
-    while the call runs: the borrow panics at the growth (#543)."""
+    """grow(&xs[j], g): a closure the callee runs grows the list the
+    pointer points into while the call runs: the borrow panics at the growth
+    (#543). (`grow(&xs[j], xs)` with a `var` list parameter is E0330.)"""
 
     def __init__(self, j):
         self.j = j
 
     def lines(self, ind):
-        return [f'{ind}grow(&xs[{self.j}], xs)']
+        return [f'{ind}grow(&xs[{self.j}], func() {{',
+                f'{ind}    for k in range(1000) {{',
+                f'{ind}        xs.push(Cell(k))',
+                f'{ind}    }}',
+                f'{ind}}})']
 
     def run(self, m, sc):
         raise Panic('list changed while a pointer to one of its elements is in use')
@@ -790,10 +795,8 @@ func pinvia(p: *var Cell, h: *var Hub, k: Int) {
     p.pin(h, k)
 }
 
-func grow(p: *Cell, var ys: [Cell]) {
-    for k in range(1000) {
-        ys.push(Cell(k))
-    }
+func grow(p: *Cell, g: func()) {
+    g()
     println("grown {p.v}")
 }
 

@@ -514,28 +514,6 @@ static Iron_Symbol *tc_lookup(TypeCtx *ctx, const char *name) {
     return iron_scope_lookup(ctx->current_scope, name);
 }
 
-/* Number of lexical scopes between the current point and the binding named
- * `name` (0 means the current block). Used to reject storing a pointer to an
- * inner stack binding in an outer holder. */
-static int tc_scope_distance(TypeCtx *ctx, const char *name) {
-    int distance = 0;
-    if (!name) return -1;
-    for (Iron_Scope *s = ctx->current_scope; s; s = s->parent, distance++) {
-        if (iron_scope_lookup_local(s, name)) return distance;
-    }
-    return -1;
-}
-
-static bool sym_is_heap_binding(const Iron_Symbol *sym) {
-    if (!sym || !sym->decl_node) return false;
-    Iron_Node *init = NULL;
-    if (sym->decl_node->kind == IRON_NODE_VAL_DECL)
-        init = ((Iron_ValDecl *)sym->decl_node)->init;
-    else if (sym->decl_node->kind == IRON_NODE_VAR_DECL)
-        init = ((Iron_VarDecl *)sym->decl_node)->init;
-    return init && init->kind == IRON_NODE_HEAP;
-}
-
 /* A type name where a value goes (`a * Int`, `val t = Int`, `"{String}"`):
  * it has no value, and the C read an undeclared Iron_Int. A local named
  * like a type shadows it. */
@@ -11520,34 +11498,6 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (narrowed_to) narrowing_set(ctx, narrowed_name, narrowed_to);
             Iron_Type *value_type  = check_expr_with_expected(ctx, as->value, target_type);
 
-            /* `outer = &inner` must not let a pointer outlive the inner
-             * block. The return-site E0271 check only covered frame escape;
-             * a pointer stored in an outer local survived block exit and read
-             * destroyed stack objects. Heap-rooted addresses are exempt: the
-             * allocation lifetime is checked by its generation metadata. */
-            if (as->value && as->value->kind == IRON_NODE_UNARY && as->target) {
-                Iron_UnaryExpr *ue = (Iron_UnaryExpr *)as->value;
-                if (ue->op == (Iron_OpKind)IRON_TOK_AMP) {
-                    Iron_Symbol *source_sym = iron_walk_to_root_binding(ue->operand);
-                    Iron_Symbol *holder_sym = iron_walk_to_root_binding(as->target);
-                    int source_distance = source_sym
-                        ? tc_scope_distance(ctx, source_sym->name) : -1;
-                    int holder_distance = holder_sym
-                        ? tc_scope_distance(ctx, holder_sym->name) : -1;
-                    if (source_sym && holder_sym && sym_is_stack_local(source_sym) &&
-                        !sym_is_heap_binding(source_sym) && source_distance >= 0 &&
-                        holder_distance > source_distance) {
-                        char msg[256];
-                        snprintf(msg, sizeof(msg),
-                                 "cannot store reference to stack-local variable '%s' "
-                                 "in an outer scope; the binding does not outlive the pointer",
-                                 source_sym->name ? source_sym->name : "?");
-                        emit_error(ctx, IRON_ERR_PTR_ESCAPE_STACK_REF,
-                                   ue->span, msg,
-                                   "copy the value into the outer scope or allocate it on the heap");
-                    }
-                }
-            }
             if (narrowed_to) {
                 if (value_type && value_type->kind != IRON_TYPE_NULLABLE &&
                     value_type->kind != IRON_TYPE_NULL && value_type->kind != IRON_TYPE_ERROR &&

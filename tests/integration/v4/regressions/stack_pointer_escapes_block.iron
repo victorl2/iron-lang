@@ -1,0 +1,16 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A pointer to a local of an inner block stored in an outer binding: the
+-- block's scope ends with it, so reading the pointer after the block panics
+-- instead of reading the destroyed object.
+object Item { val value: Int }
+
+func main() {
+    var pointer: ?*Item = null
+    {
+        val inner = Item(5)
+        pointer = &inner
+    }
+    if pointer != null {
+        println("{pointer.value}")
+    }
+}
