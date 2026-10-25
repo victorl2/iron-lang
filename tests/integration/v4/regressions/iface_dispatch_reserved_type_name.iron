@@ -1,0 +1,43 @@
+// Types whose names are C keywords. Interface dispatch must call the method
+// of `_Alignas` by its encoded name (the whole `_Alignas_size` is encoded),
+// and `self` in a method of `void` is that object, not Void.
+interface Measure {
+    readonly func size() -> Int
+    readonly func twice() -> Int {
+        return self.size() * 2
+    }
+}
+
+object _Alignas impl Measure {
+    val a: Int
+    readonly func size() -> Int {
+        return self.a
+    }
+}
+
+object int impl Measure {
+    val b: Int
+    readonly func size() -> Int {
+        return self.b + 10
+    }
+}
+
+object void impl Measure {
+    val c: Int
+    readonly func size() -> Int {
+        return self.c * 100
+    }
+}
+
+func total(items: [Measure]) -> Int {
+    var sum = 0
+    for m in items {
+        sum = sum + m.size() + m.twice()
+    }
+    return sum
+}
+
+func main() {
+    val items: [Measure] = [_Alignas(1), int(2), void(3)]
+    println("{total(items)}")
+}

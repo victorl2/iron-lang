@@ -2678,7 +2678,11 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     else if (strcmp(name, "Float64") == 0) base = iron_type_make_primitive(IRON_TYPE_FLOAT64);
     else if (strcmp(name, "Bool")    == 0) base = iron_type_make_primitive(IRON_TYPE_BOOL);
     else if (strcmp(name, "String")  == 0) base = iron_type_make_primitive(IRON_TYPE_STRING);
-    else if (strcmp(name, "void")    == 0) base = iron_type_make_primitive(IRON_TYPE_VOID);
+    /* A user type named `void` (legal: only C reserves the word) wins over
+     * the lowercase spelling of Void. */
+    else if (strcmp(name, "void")    == 0 &&
+             !iron_scope_lookup(ctx->global_scope, name))
+        base = iron_type_make_primitive(IRON_TYPE_VOID);
     else if (strcmp(name, "Void")    == 0) base = iron_type_make_primitive(IRON_TYPE_VOID);
     /* Views (manual 2.15): `Bytes` is View[UInt8]. A user type of the same
      * name wins. */
