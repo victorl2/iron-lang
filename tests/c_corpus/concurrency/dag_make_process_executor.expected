@@ -1,0 +1,14 @@
+cyclic graph (3-cycle plus one free node): ordered 1 of 4 nodes, refusing to run
+lex      level 0  built   value=838684800
+parse    level 1  built   value=453675490
+types    level 2  built   value=909869927
+codegen  level 3  built   value=333668232
+runtime  level 0  built   value=641655601
+stdlib   level 1  built   value=750248897
+link     level 4  built   value=245090684
+docs     level 2  FAILED 
+tests    level 5  built   value=903748349
+package  level 5  skipped
+lint     level 2  built   value=481440840
+all      level 6  skipped
+built=9 of 12, at most 3 jobs at once

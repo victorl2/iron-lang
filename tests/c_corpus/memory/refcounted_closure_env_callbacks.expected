@@ -1,0 +1,9 @@
+envs live: 2 closures live: 3
+fire 5: 5 501 10
+fire 7: 12 1202 21
+fire 10: 22 2203 40
+after removing accumulator: envs live=2
+fire 1: 2203 5
+  env 'acc' freed (counter=3 total=22)
+  env 'scale' freed (counter=4 total=0)
+envs live: 0 closures live: 0

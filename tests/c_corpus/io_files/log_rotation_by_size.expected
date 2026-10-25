@@ -1,0 +1,8 @@
+rotations performed: 5
+app.log    128 bytes,  7 lines, seq 53..59
+app.log.1  193 bytes, 11 lines, seq 42..52
+app.log.2  195 bytes, 10 lines, seq 32..41
+app.log.3  196 bytes, 11 lines, seq 21..31
+app.log.4  missing
+retained 39 lines, sequence 21..59 contiguous: yes
+dropped 21 oldest lines

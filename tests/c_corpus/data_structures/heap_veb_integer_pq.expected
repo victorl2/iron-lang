@@ -1,0 +1,2 @@
+universe 2^12: pushes=4381 pops=1598 succ=1002 pred=1019 popsum=1233232 size=2783
+universe 2^16: nodes=92007 distinct=2937 min=15 max=65528 key_sum=96640523

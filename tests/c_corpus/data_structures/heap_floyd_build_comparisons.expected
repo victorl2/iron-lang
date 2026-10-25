@@ -1,0 +1,27 @@
+random
+  n=1     floyd=0      insert=0     
+  n=2     floyd=1      insert=1     
+  n=3     floyd=2      insert=2     
+  n=7     floyd=8      insert=7     
+  n=15    floyd=22     insert=22    
+  n=100   floyd=171    insert=189   
+  n=1000  floyd=1900   insert=2250  
+  n=4095  floyd=7700   insert=9377  
+ascending
+  n=1     floyd=0      insert=0     
+  n=2     floyd=1      insert=1     
+  n=3     floyd=2      insert=2     
+  n=7     floyd=6      insert=6     
+  n=15    floyd=14     insert=14    
+  n=100   floyd=99     insert=99    
+  n=1000  floyd=999    insert=999   
+  n=4095  floyd=4094   insert=4094  
+descending
+  n=1     floyd=0      insert=0     
+  n=2     floyd=1      insert=1     
+  n=3     floyd=2      insert=2     
+  n=7     floyd=8      insert=10    
+  n=15    floyd=22     insert=34    
+  n=100   floyd=190    insert=480   
+  n=1000  floyd=1982   insert=7987  
+  n=4095  floyd=8166   insert=40962 

@@ -1,0 +1,3 @@
+demo: signaller stole 111, woken consumer ended up with 222, rechecked at least once: yes
+stress: consumed 1200 items, sum 1439400 (expected 1439400)
+monitor totals: puts=1205 gets=1205 (includes demo and 3 poison items)

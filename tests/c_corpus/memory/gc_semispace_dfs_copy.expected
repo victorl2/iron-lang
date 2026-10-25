@@ -1,0 +1,5 @@
+objects allocated: 728
+flips: 21, objects copied: 259
+adjacent parent-child edges, depth-first layout: 156
+adjacent parent-child edges, breadth-first layout: 40
+oracle checks: 21

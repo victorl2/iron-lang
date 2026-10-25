@@ -1,0 +1,6 @@
+gen 0 pop 454
+gen 20 pop 263
+gen 40 pop 272
+gen 60 pop 250
+gen 80 pop 209
+glider period on 48x32 torus: 384

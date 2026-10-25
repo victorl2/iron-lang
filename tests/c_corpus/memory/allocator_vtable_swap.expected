@@ -1,0 +1,7 @@
+workload: 8000 ops (4081 allocs), 8 epochs
+bump                 ok=1403 refused=2678 peak live=11319 footprint=16384 epochs=8
+pool64               ok=2108 refused=1973 peak live= 1575 footprint= 2560 epochs=8
+pow2-recycler        ok=2456 refused=1625 peak live= 4611 footprint= 6144 epochs=8
+pool64+pow2          ok=3042 refused=1039 peak live= 6063 footprint= 8704 epochs=8
+tracked(pow2)        ok=2611 refused=1470 peak live= 4933 footprint= 8192 epochs=8
+tracker: blocks handed out=2611 peak requested bytes=4933 live at end=0

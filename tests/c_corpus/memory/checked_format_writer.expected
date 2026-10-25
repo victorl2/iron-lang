@@ -1,0 +1,11 @@
+measured: 219 bytes needed, truncated=1
+[report 6 rows]
+  0 | even   |    0.000 | 000000
+  1 | odd    |    1.500 | 0x0101
+  2 | even   |    3.000 | 0x0202
+  3 | odd    |    4.500 | 0x0303
+  4 | even   |    6.000 | 0x0404
+  5 | odd    |    7.500 | 0x0505
+[end]
+validated 222 capacities from 0 to 221
+small buffer: stored=39 wanted=219 truncated=1 first line="[report 6 rows]"

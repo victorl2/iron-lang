@@ -1,0 +1,3 @@
+push_back=9564 push_front=7145 move=4837 pop_front=11387 pop_back=7076 remove_kth=3581
+rejected_full=12723 compactions=410 peak_used=256 used=256 cell_bytes=8
+list sizes: 53 46 58 99

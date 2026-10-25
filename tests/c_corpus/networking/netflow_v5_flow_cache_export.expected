@@ -1,0 +1,13 @@
+input: 2626 packets, 1320392 bytes; exported 214 flow records in 8 datagrams
+datagram 0: version=5 count=30 uptime=39112ms flow_sequence=0 bytes=1464
+datagram 1: version=5 count=30 uptime=61405ms flow_sequence=30 bytes=1464
+datagram 2: version=5 count=30 uptime=74198ms flow_sequence=60 bytes=1464
+datagram 7: version=5 count=4 uptime=277992ms flow_sequence=210 bytes=216
+collector totals match input: 2626 packets, 1320392 bytes, longest flow 18157ms
+by protocol: tcp=934038 udp=303148 icmp=83206 bytes
+top talkers (17 sources):
+  10.20.0.4         333733 bytes   375 pkts  34 flows
+  10.20.0.1         274822 bytes   327 pkts  21 flows
+  10.20.0.5         243591 bytes   286 pkts  28 flows
+  10.20.0.3         211378 bytes   238 pkts  17 flows
+  10.20.0.2          74191 bytes    87 pkts   7 flows

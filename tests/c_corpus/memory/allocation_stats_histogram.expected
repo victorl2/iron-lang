@@ -1,0 +1,17 @@
+allocs=2511 frees=2489 live_blocks=22 live_bytes=12000
+peak_blocks=44 peak_bytes=21726 total_bytes=798602
+class   range        allocated  live
+    0   1                  43     1
+    1   2-2                32     0
+    2   3-4                85     1
+    3   5-8               142     1
+    4   9-16              324     3
+    5   17-32             564     2
+    6   33-64             589     3
+    7   65-128             86     2
+    8   129-256           173     2
+    9   257-512           221     3
+   10   513-1024            1     0
+   11   >1024             251     4
+free of stomped header accepted: 0
+remaining freed: 22, final live=0 audit=1

@@ -1,0 +1,10 @@
+abcabcabcab  period=3  borders: 8 5 2
+aabaaab      period=4  borders: 3
+abababab     period=2 (perfect power) borders: 6 4 2
+abcdef       period=6  borders:
+aaaaaa       period=1 (perfect power) borders: 5 4 3 2 1
+abaabaabaab  period=3  borders: 8 5 2
+xyxyxyxyxy   period=2 (perfect power) borders: 8 6 4 2
+a            period=1  borders:
+occurrences of prefixes of abababa: 4 3 3 2 2 1 1
+Fine-Wilf instances verified: 3716

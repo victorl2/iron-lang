@@ -1,0 +1,12 @@
+[1 2 3] * [4 5 6 7] = 4 13 28 34 32 21
+sizes  16 x  79: exact match, checksum -865314112
+sizes 115 x 107: exact match, checksum 905237539
+sizes  45 x  14: exact match, checksum -44868332
+sizes  52 x  49: exact match, checksum 282541099
+sizes  49 x  85: exact match, checksum 63731727
+sizes  68 x   1: exact match, checksum 718247276
+Parseval: time energy 63716.00, freq energy 63716.00, equal: 1
+conjugate symmetry of real spectrum: 1
+tone spectrum peaks: bin5=32.0 bin59=32.0
+round trip error below 1e-9: 1
+cross-correlation peak index 4 (shift 5)

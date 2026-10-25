@@ -1,0 +1,15 @@
+2^x = 3 (mod 5): x = 3
+3^x = 13 (mod 17): x = 4
+5^x = 8 (mod 23): x = 6
+2^x = 1 (mod 11): x = 0
+2^x = 0 (mod 7): no solution
+4^x = 3 (mod 7): no solution
+2^x = 5 (mod 1000000007): no solution
+5^x = 123456789 (mod 998244353): x = 79876338
+3^x = 7 (mod 1000003): no solution
+6^x = 4 (mod 10): no solution
+6^x = 5 (mod 10): no solution
+2^x = 16 (mod 24): x = 4
+10^x = 2 (mod 1000): no solution
+cross-checked 71980 triples, 20361 solvable
+public value 295069866 recovered exponent congruent to secret: yes

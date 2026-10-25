@@ -1,0 +1,6 @@
+image bytes used: 256, relocations: 18
+link-time first pointer minus base: 72
+copy A: entries=6 value-sum=73 weighted=460 name-bytes=30 order=abgdez
+copy B: entries=6 value-sum=73 weighted=460 name-bytes=30 order=abgdez
+after edit A value-sum=1070, B value-sum=73
+pointer fields holding link-time addresses in the raw image: 18 of 18

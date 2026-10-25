@@ -1,0 +1,4 @@
+signal handoff trace: aWS
+consumed 600 items, sum 6060300 (produced sum 6060300)
+predicate violations after wakeup: 0
+buffer empty at end: yes, urgent queue empty: yes

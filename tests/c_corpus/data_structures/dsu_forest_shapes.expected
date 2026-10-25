@@ -1,0 +1,15 @@
+graph: 4096 vertices, 2799 edges, 1321 components (reference relabelling)
+link=arbitrary find=naive    : height  10, mean depth 1.94, pointer hops during build 35360
+link=arbitrary find=compress : height   5, mean depth 1.16, pointer hops during build 21775
+link=arbitrary find=halving  : height   5, mean depth 1.26, pointer hops during build 23088
+link=arbitrary find=splitting: height   5, mean depth 1.19, pointer hops during build 22369
+link=by-size   find=naive    : height   5, mean depth 1.18, pointer hops during build 21906
+link=by-size   find=compress : height   4, mean depth 0.99, pointer hops during build 18660
+link=by-size   find=halving  : height   5, mean depth 1.04, pointer hops during build 19100
+link=by-size   find=splitting: height   4, mean depth 1.00, pointer hops during build 18817
+link=by-rank   find=naive    : height   5, mean depth 1.26, pointer hops during build 23177
+link=by-rank   find=compress : height   4, mean depth 1.00, pointer hops during build 19066
+link=by-rank   find=halving  : height   5, mean depth 1.07, pointer hops during build 19643
+link=by-rank   find=splitting: height   4, mean depth 1.02, pointer hops during build 19204
+small forest (by size, no compression), parent of 1..10: 1 1 1 3 1 5 5 7 9 9
+after compressing every find:                         1 1 1 1 1 1 1 1 9 9

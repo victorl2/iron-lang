@@ -1,0 +1,5 @@
+de Bruijn tables valid; first row of ctz32 table: 0 1 28 2 29 14 24 3
+ctz histogram (first 8 buckets): 11748 5931 3018 1705 1032 672 495 431
+log2 histogram (buckets 0,8,16,...,56): 410 396 435 465 472 435 495 483
+clz(0)=64 ctz-based lowbit(0b101000)=3 next_pow2(1000)=1024 next_pow2(1024)=1024
+set bit positions of 8000000100200010: 4 21 32 63

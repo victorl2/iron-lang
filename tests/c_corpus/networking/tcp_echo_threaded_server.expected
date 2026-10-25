@@ -1,0 +1,12 @@
+text 0: 5 bytes echoed, fnv=4f9f2cab
+text 1: 1 bytes echoed, fnv=fd0c5087
+text 2: 43 bytes echoed, fnv=048fff90
+text 3: 18 bytes echoed, fnv=558f297f
+text 4: 5 bytes echoed, fnv=c8048c66
+blob 8 bytes: fnv=0cba4033
+blob 16 bytes: fnv=95503c35
+blob 32 bytes: fnv=0272162c
+blob 64 bytes: fnv=0fefac0e
+blob 128 bytes: fnv=eb177cbd
+blob 256 bytes: fnv=940d35b4
+server echoed 576 bytes in total

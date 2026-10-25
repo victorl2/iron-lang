@@ -1,0 +1,9 @@
+after 1 count-downs: 2 waiters released
+after 2 count-downs: 3 waiters released
+after 3 count-downs: 4 waiters released
+after 4 count-downs: 5 waiters released
+after 5 count-downs: 6 waiters released
+after 6 count-downs: 7 waiters released
+threshold release order non-increasing: yes
+extra count-down underflows recorded: 1
+concurrent: count=0 zero waiters released=3 underflows=0

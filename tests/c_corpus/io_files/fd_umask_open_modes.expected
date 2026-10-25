@@ -1,0 +1,15 @@
+umask 022: open(0666)->644 open(0755)->755
+umask 077: open(0666)->600 open(0755)->700
+umask 000: open(0666)->666 open(0755)->755
+umask 027: open(0666)->640 open(0755)->750
+umask 007: open(0666)->660 open(0755)->750
+umask 777: open(0666)->000 open(0755)->000
+open modes verified: 30
+mkdir 0777 under umask 027: 750
+mkdir 0777 under umask 000: 777
+created under umask 077: 600
+after fchmod 0666: 666
+existing file reopened with O_CREAT 0600: 755
+umask() returned the previous mask: 022
+parent mask after child changed its own: 123
+file created by /bin/sh under umask 027: 640

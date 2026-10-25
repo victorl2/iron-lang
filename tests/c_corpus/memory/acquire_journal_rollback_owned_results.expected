@@ -1,0 +1,17 @@
+baseline: 15 acquisitions, summary="4 pairs", mode=fast
+fail_at= 0: aborted after  1 acquisitions, live=0
+fail_at= 1: aborted after  2 acquisitions, live=0
+fail_at= 2: aborted after  3 acquisitions, live=0
+fail_at= 3: aborted after  4 acquisitions, live=0
+fail_at= 4: aborted after  5 acquisitions, live=0
+fail_at= 5: aborted after  6 acquisitions, live=0
+fail_at= 6: aborted after  7 acquisitions, live=0
+fail_at= 7: aborted after  8 acquisitions, live=0
+fail_at= 8: aborted after  9 acquisitions, live=0
+fail_at= 9: aborted after 10 acquisitions, live=0
+fail_at=10: aborted after 11 acquisitions, live=0
+fail_at=11: aborted after 12 acquisitions, live=0
+fail_at=12: aborted after 13 acquisitions, live=0
+fail_at=13: aborted after 14 acquisitions, live=0
+fail_at=14: aborted after 15 acquisitions, live=0
+fail_at=15: success (fault never reached)

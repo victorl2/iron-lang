@@ -1,0 +1,11 @@
+GET / -> 200 OK cl=8 allow=- body=[welcome]
+HEAD / -> 200 OK cl=8 allow=- body=[]
+GET /hello?name=iron -> 200 OK cl=13 allow=- body=[hello, iron!]
+GET /nothing -> 404 Not Found cl=23 allow=- body=[no such path: /nothing]
+DELETE / -> 405 Method Not Allowed cl=0 allow=GET, HEAD body=[]
+GET /echo -> 405 Method Not Allowed cl=0 allow=POST body=[]
+POST /echo -> 200 OK cl=18 allow=- body=[len=10 ua=probe/1]
+GET /hello -> 200 OK cl=14 allow=- body=[hello, world!]
+HTTP/1.0 close: 12 body bytes, connection closed by server
+malformed -> 400 Bad Request
+server: conns=3 requests=9 keepalive_reuse=7

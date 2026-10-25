@@ -1,0 +1,7 @@
+points 1200, max depth 10, root children 3
+nodes per level: L11:1 L10:3 L9:10 L8:29 L7:104 L6:223 L5:295 L4:270 L3:211 L2:50 L1:4
+200 nearest queries: avg distance calls 180 (brute 1200), sum of distances 4622
+L1 radius  20: total hits over 60 queries 40
+L1 radius  40: total hits over 60 queries 201
+L1 radius  80: total hits over 60 queries 756
+L1 radius 160: total hits over 60 queries 3328

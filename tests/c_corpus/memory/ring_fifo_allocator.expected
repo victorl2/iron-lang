@@ -1,0 +1,8 @@
+step     0: in flight=  1 used= 192 head=   0 tail= 192
+step  5000: in flight=  1 used=  64 head=  24 tail=  88
+step 10000: in flight= 13 used=1960 head= 376 tail= 288
+step 15000: in flight=  3 used= 360 head= 864 tail=1224
+step 20000: in flight=  3 used= 448 head= 248 tail= 696
+allocs=12509 refused=626 wraps=358 padding=27152 bytes
+out-of-order frees=1910 blocks reclaimed=12845 peak used=2048 of 2048
+all completed: used=0

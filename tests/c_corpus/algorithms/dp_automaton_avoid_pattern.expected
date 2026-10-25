@@ -1,0 +1,7 @@
+avoid "ab" over 2 letters: len5=6 len10=11 len1000=1001 len10^15=993000008
+avoid "aa" over 2 letters: len5=13 len10=144 len1000=625271546 len10^15=781620682
+avoid "aba" over 2 letters: len5=21 len10=351 len1000=84136861 len10^15=873920868
+avoid "abab" over 2 letters: len5=28 len10=667 len1000=239001466 len10^15=13866556
+avoid "aab" over 2 letters: len5=20 len10=232 len1000=732851484 len10^15=914916226
+avoid "abc" over 3 letters: len5=216 len10=42756 len1000=983856009 len10^15=794023135
+avoid "aabaa" over 2 letters: len5=31 len10=849 len1000=41007449 len10^15=325416907

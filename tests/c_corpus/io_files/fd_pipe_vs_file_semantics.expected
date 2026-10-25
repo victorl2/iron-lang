@@ -1,0 +1,15 @@
+file lseek: 2
+pipe lseek: -1 ESPIPE
+pipe pread: -1 ESPIPE
+pipe pwrite: -1 ESPIPE
+file: regular=1 fifo=0
+pipe: regular=0 fifo=1
+pipe read asked 10 with 3 available: 3
+file read asked 10 with 10 available: 10
+file read at end: 0
+file read after growth: 3
+empty pipe with a writer still open: -1 EAGAIN
+empty pipe with no writers: 0
+pipe EOF is repeatable
+write with no reader: -1 EPIPE
+records by writer: A=100 B=100 C=100 corrupt=0 leftover=0

@@ -1,0 +1,12 @@
+file  userland=file     hops=0 stat=OK open=OK open_nofollow=OK
+c1    userland=file     hops=3 stat=OK open=OK open_nofollow=ELOOP
+x     userland=loop     hops=3 stat=ELOOP open=ELOOP open_nofollow=ELOOP
+s     userland=loop     hops=1 stat=ELOOP open=ELOOP open_nofollow=ELOOP
+tail  userland=loop     hops=4 stat=ELOOP open=ELOOP open_nofollow=ELOOP
+d1    userland=dangling hops=2 stat=ENOENT open=ENOENT open_nofollow=ELOOP
+dl    userland=dir      hops=1 stat=OK open=OK open_nofollow=ELOOP
+stat(l/x/child): ELOOP
+stat(l/dl/nothing): ENOENT
+lstat(self loop): link of length 1
+chain depth 3 opens: yes; depth 100: ELOOP
+manual walk of the long chain: 100 hops to end

@@ -1,0 +1,5 @@
+priority picks: q0=10 q0=11 q0=12 q1=100 q1=101 q1=102 q2=200 q2=201
+queue 0: received 150 sum 11175
+queue 1: received 250 sum 2531125
+queue 2: received 350 sum 7061075
+select after all closed and drained: closed

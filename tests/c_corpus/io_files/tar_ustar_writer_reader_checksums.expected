@@ -1,0 +1,17 @@
+archive 10240 bytes (20 blocks), 9 entries
+5 0755     0 docs/
+0 0644     0 docs/blob0.bin
+0 0644     1 docs/blob1.bin
+0 0644   511 docs/blob2.bin
+0 0644   512 docs/blob3.bin
+0 0644   513 docs/blob4.bin
+0 0644  1500 docs/blob5.bin
+2 0777     0 docs/link
+0 0600     6 ...ull/path/past/one/hundred/bytes/file.txt
+flip byte   0: checksum mismatch
+flip byte 100: checksum mismatch
+flip byte 148: checksum mismatch
+flip byte 257: checksum mismatch
+flip byte 522: checksum mismatch
+one end block missing: missing end-of-archive
+cut mid-archive: truncated data

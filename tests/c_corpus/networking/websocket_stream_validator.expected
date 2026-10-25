@@ -1,0 +1,59 @@
+unmasked text Hello (server to client)
+    TEXT [Hello]
+masked text Hello (client to server)
+    TEXT [Hello]
+fragmented Hel + lo
+    TEXT [Hello]
+unmasked ping Hello
+    PING [Hello]
+masked pong Hello
+    PONG [Hello]
+    BINARY (125 bytes)
+payload   125 -> header 2 bytes
+    BINARY (126 bytes)
+payload   126 -> header 4 bytes
+    BINARY (256 bytes)
+payload   256 -> header 4 bytes
+    BINARY (65535 bytes)
+payload 65535 -> header 4 bytes
+    BINARY (65536 bytes)
+payload 65536 -> header 10 bytes
+    BINARY (69000 bytes)
+payload 69000 -> header 10 bytes
+unmasked frame from client
+    -> protocol error: unmasked-client-frame
+masked frame from server
+    -> protocol error: masked-server-frame
+RSV1 set
+    -> protocol error: reserved-bits-set
+reserved opcode 3
+    -> protocol error: reserved-opcode
+fragmented ping
+    -> protocol error: bad-control-frame
+ping with 126 byte length
+    -> protocol error: bad-control-frame
+non-minimal 16-bit length
+    -> protocol error: non-minimal-length
+continuation with nothing open
+    -> protocol error: unexpected-continuation
+data frame inside fragmented msg
+    -> protocol error: new-data-frame-inside-fragmented-message
+invalid UTF-8 byte
+    -> protocol error: invalid-utf8
+euro sign split across fragments
+    TEXT [€]
+    -> no error, closed=0 pending bytes=0
+lead byte then ASCII in next fragment
+    -> protocol error: invalid-utf8
+truncated UTF-8 at fin
+    -> protocol error: truncated-utf8
+surrogate encoded in UTF-8
+    -> protocol error: invalid-utf8
+close with 1 byte payload
+    -> protocol error: close-payload-1-byte
+close code 1005 on wire
+    -> protocol error: bad-close-code
+close code 1000 with reason
+    CLOSE code=1000 [bye!]
+    -> no error, closed=1 pending bytes=0
+random streams: 158 messages, 453 interleaved pings, 1665076 wire bytes decoded

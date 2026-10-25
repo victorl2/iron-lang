@@ -1,0 +1,9 @@
+image bytes: 448 (44 per person)
+people=10 age-sum=335 links=28
+ed.best -> ed (self loop kept: yes)
+second save identical: yes
+chain from ada: ada end
+chain from di: di end
+chain from gus: gus end
+chain from jo: jo end
+damaged images rejected: 3

@@ -1,0 +1,5 @@
+frames=80 frame allocs=3638 dropped over budget=223
+previous-frame records verified=3522
+frame usage min=346 max=2048 (budget 2048), frames above 75%: 5
+buffer peaks: A=1090 B=2048
+persistent: 16 blocks kept, 241 bytes used, 0 refused

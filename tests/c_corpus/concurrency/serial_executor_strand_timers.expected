@@ -1,0 +1,8 @@
+histogram total 180600 over 16 keys, key 0 = 11362 key 5 = 11438
+timer firings (tick:timer): 1:5 2:2 3:0 5:1 5:3 6:2 8:5 9:4 10:1 10:2 12:4 14:2 15:1 15:4 15:5 18:2 18:4 20:1
+timer 0 fired 1 times, one-shot done
+timer 1 fired 4 times, still armed
+timer 2 fired 5 times, still armed
+timer 3 fired 1 times, one-shot done
+timer 4 fired 4 times, still armed
+timer 5 fired 3 times, still armed

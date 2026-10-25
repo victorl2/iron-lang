@@ -1,0 +1,6 @@
+try_acquire on exhausted pool: none
+after freeing ids 0 and 2, try_acquire got id 0
+targeted borrower got id 1
+leases in contention phase: 960
+accumulated value 3417127 across 3 resources
+never more than 3 leases at once: yes

@@ -1,0 +1,4 @@
+items 600 window 8 workers 4
+first commits: 365378934 1715492533 192401980 1523894582 996865400 656127121
+commit chain 5349758093819219142
+buffer bound respected: yes, commits strictly in order: yes

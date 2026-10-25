@@ -1,0 +1,3 @@
+nodes 400, chains 177, longest chain 28, max light edges to root 4
+updates 1500, sum of query answers 747445
+path(399, 0)=198 path(200, 300)=226

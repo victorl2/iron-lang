@@ -1,0 +1,3 @@
+versions=61 max_chain=5 comps_range=[59,64] connected_pair_total=222
+nodes initially=42, total allocated=396, avg new nodes per union=5
+sample: v0:64 v12:61 v24:62 v36:60 v48:59 v60:61 

@@ -1,0 +1,5 @@
+allocs=5880 frees=5815 failed=305 live=65
+search steps=46667 (7.55 per alloc) wrapped allocs=224
+consecutive allocation direction: forward=5491 backward=388
+splits=5197 merges=5111 final blocks=87 free blocks=22 largest free=336
+drained; rover back at 0

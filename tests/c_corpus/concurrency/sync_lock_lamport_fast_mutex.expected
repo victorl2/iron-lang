@@ -1,0 +1,7 @@
+uncontended: fast=10 slow=0
+thread 1 entered 300 times
+thread 2 entered 300 times
+thread 3 entered 300 times
+thread 4 entered 300 times
+counter=1200 violations=0
+every entry took the fast or slow path exactly once: yes

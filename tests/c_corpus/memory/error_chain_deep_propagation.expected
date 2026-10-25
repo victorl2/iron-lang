@@ -1,0 +1,9 @@
+good input: OK sum=49 allocs=13 live=0
+bad format: FORMAT trace=parse_one<load_all<summarize<run live=0
+bad range : RANGE trace=record_new<parse_one<load_all<summarize<run live=0
+inject #1: NOMEM trace=summarize<run
+inject #2: NOMEM trace=record_new<parse_one<load_all<summarize<run
+inject #3: NOMEM trace=series_new<record_new<parse_one<load_all<summarize<run
+inject #4: NOMEM trace=series_new<record_new<parse_one<load_all<summarize<run
+inject #13: NOMEM trace=record_new<parse_one<load_all<summarize<run
+swept 13 failure points, 5 shown, no leaks

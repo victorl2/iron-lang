@@ -1,0 +1,7 @@
+allocs=3072 frees=2928 failures=0 live=144
+class  16: carved=20 reused=186
+class  32: carved=17 reused=180
+class  64: carved=29 reused=362
+class 128: carved=49 reused=699
+class 256: carved=90 reused=1440
+bytes carved=32032 of 262144

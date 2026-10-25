@@ -1,0 +1,3 @@
+puts 14972 (updates 8455) deletes 9015 gets 6013, live keys 1471, max depth 7, collision nodes 91
+6 persistent snapshots verified, nodes allocated 72702
+500 keys in two insertion orders: 458 distinct keys, depth 7 and 7, collision nodes 29 and 29

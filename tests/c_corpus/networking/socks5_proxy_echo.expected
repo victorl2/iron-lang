@@ -1,0 +1,13 @@
+case 1: method 0 selected
+  CONNECT ipv4 -> succeeded
+  echoed through proxy: "hello socks five" -> "HELLO SOCKS FIVE"
+case 2: method 2 selected (auth wins over none)
+  auth status 0
+  CONNECT domain -> succeeded
+  echoed through proxy: "via domain name" -> "VIA DOMAIN NAME"
+case 3: auth status 1, then connection closed
+case 4: method 0xFF selected
+case 5: CONNECT to closed port -> connection refused
+case 6: BIND -> command not supported
+case 7: CONNECT unknown domain -> host unreachable
+proxy: ok=2 fail=5 relayed>0=1 echo sessions=2

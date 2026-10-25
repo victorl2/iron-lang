@@ -1,0 +1,8 @@
+pattern    hits    bc+gs  bc only  gs only    naive
+abcabc       23    11727    23120    12569    29827
+aabaa       588    20774    28614    20774    38524
+dcbadcba      0     8194    15419    10019    26543
+eeee         30     6690     6690     6690    24935
+abcdefgh      0     3021     3047    16397    20778
+baab       1255    21281    37483    21281    37483
+gs(abbabab): 5 5 5 5 2 5 4 1

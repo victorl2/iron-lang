@@ -1,0 +1,6 @@
+one choice  n=6547 buckets=2048 max chain=12 avg probes/op=2.1970
+  chain length histogram: 0:77 1:273 2:424 3:453 4:382 5:228 6:126 7+:85
+two choices n=6547 buckets=2048 max chain=6 avg probes/op=3.4150
+  chain length histogram: 0:4 1:86 2:367 3:756 4:717 5:117 6:1 7+:0
+4 keys per bucket, one choice : max chain=13 (mean 4)
+4 keys per bucket, two choices: max chain=6 (mean 4)

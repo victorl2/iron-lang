@@ -1,0 +1,5 @@
+allocs=7755 frees=7674 failed=571 live=81
+best-fit searches=8326, avg steps=4.13, exact fits=3059
+splits=2645 merges=2550 rotations=14366
+free blocks=15 bytes=2200 largest=680 height=7 (max sampled 10)
+drained: one free block, tree height 1

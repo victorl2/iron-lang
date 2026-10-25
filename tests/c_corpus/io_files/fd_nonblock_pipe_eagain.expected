@@ -1,0 +1,6 @@
+read from empty pipe: -1 EAGAIN
+write eventually refused with EAGAIN or a short write: 1
+pipe accepted at least PIPE_BUF (512) bytes: 1
+drained everything written: 1, corrupt bytes: 0
+pipe usable again after drain
+consumer received 300000 bytes, checksum match

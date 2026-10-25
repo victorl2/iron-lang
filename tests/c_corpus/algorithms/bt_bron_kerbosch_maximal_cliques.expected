@@ -1,0 +1,7 @@
+small graph: 5 maximal cliques, largest size 3, {0,1,4}
+Moon-Moser n= 6: cliques=   9 calls pivot=   13 plain=   16
+Moon-Moser n= 9: cliques=  27 calls pivot=   40 plain=   64
+Moon-Moser n=12: cliques=  81 calls pivot=  121 plain=  256
+Moon-Moser n=15: cliques= 243 calls pivot=  364 plain= 1024
+Moon-Moser n=18: cliques= 729 calls pivot= 1093 plain= 4096
+40 random graphs: maximal cliques=1069, calls with pivot=2268, without=11529

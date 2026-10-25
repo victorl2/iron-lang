@@ -1,0 +1,14 @@
+events 4000 keys 23 workers 4
+worker 0 owns 6 keys
+worker 1 owns 6 keys
+worker 2 owns 6 keys
+worker 3 owns 5 keys
+key  0 count 173 sum 85523 max 993
+key  1 count 180 sum 92066 max 999
+key  2 count 184 sum 90177 max 991
+key  3 count 154 sum 83262 max 994
+key  4 count 179 sum 81809 max 992
+key  5 count 179 sum 87388 max 993
+key  6 count 189 sum 89906 max 999
+key  7 count 187 sum 95403 max 999
+total count 4000 total sum 1981420

@@ -1,0 +1,34 @@
+d=2
+  k=1     frontier_peak=2      frontier_ops=1
+  k=2     frontier_peak=3      frontier_ops=3
+  k=10    frontier_peak=11     frontier_ops=38
+  k=100   frontier_peak=101    frontier_ops=766
+  k=1000  frontier_peak=981    frontier_ops=11328
+  k=5000  frontier_peak=1711   frontier_ops=52485
+  count(<0)=0 visits=1
+  count(<500)=25 visits=51
+  count(<20000)=972 visits=1927
+  count(<100001)=5000 visits=5000
+d=3
+  k=1     frontier_peak=3      frontier_ops=2
+  k=2     frontier_peak=5      frontier_ops=7
+  k=10    frontier_peak=21     frontier_ops=64
+  k=100   frontier_peak=201    frontier_ops=1041
+  k=1000  frontier_peak=1724   frontier_ops=13553
+  k=5000  frontier_peak=2298   frontier_ops=54326
+  count(<0)=0 visits=1
+  count(<500)=25 visits=76
+  count(<20000)=972 visits=2665
+  count(<100001)=5000 visits=5000
+d=4
+  k=1     frontier_peak=4      frontier_ops=3
+  k=2     frontier_peak=7      frontier_ops=8
+  k=10    frontier_peak=31     frontier_ops=93
+  k=100   frontier_peak=301    frontier_ops=1301
+  k=1000  frontier_peak=2233   frontier_ops=15084
+  k=5000  frontier_peak=2668   frontier_ops=55646
+  count(<0)=0 visits=1
+  count(<500)=25 visits=101
+  count(<20000)=972 visits=3169
+  count(<100001)=5000 visits=5000
+leftist: 200 smallest verified, sum of npl values=755

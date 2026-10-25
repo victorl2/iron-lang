@@ -1,0 +1,5 @@
+k=2 n=1000: height 10, internal nodes 500, leaves 500, swaps 725, link fields: implicit 0 vs pointer 1999, lca checksum 876
+k=3 n=1037: height 7, internal nodes 346, leaves 691, swaps 407, link fields: implicit 0 vs pointer 2073, lca checksum 530
+k=4 n=1074: height 6, internal nodes 269, leaves 805, swaps 297, link fields: implicit 0 vs pointer 2147, lca checksum 400
+k=8 n=1111: height 5, internal nodes 139, leaves 972, swaps 142, link fields: implicit 0 vs pointer 2221, lca checksum 161
+level sizes k=3 n=100: 1 3 9 27 60 0

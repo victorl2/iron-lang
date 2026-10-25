@@ -1,0 +1,5 @@
+primary load per node: 2022 1940 2074 1961 1941 2034 2057 1998 2057 1916
+min=1916 max=2074 ratio=1.082
+replica load per node: 6032 5941 6086 5974 5997 5959 5980 5997 6054 5980
+fail node 4: keys with node 4 in replica set=5997 changed sets=5997 primaries moved=1941 promoted replicas=1941
+recovery differences=0

@@ -1,0 +1,10 @@
+bca      booth=2 two_pointer=2 -> abc
+cabcab   booth=1 two_pointer=1 -> abcabc
+aaaa     booth=0 two_pointer=0 -> aaaa
+dcbabcd  booth=3 two_pointer=3 -> abcddcb
+abab     booth=0 two_pointer=0 -> abab
+zyxwv    booth=4 two_pointer=4 -> vzyxw
+baabaa   booth=1 two_pointer=1 -> aabaab
+x        booth=0 two_pointer=0 -> x
+random mismatches: 0
+binary necklaces of length 8: 36

@@ -1,0 +1,3 @@
+droptail  util= 99% avg queue=18.33 drops= 8986 (early    0 forced    0 tail 8986) loss rounds=1196 synchronized=   4 fairness=994/1000
+RED fast  util= 93% avg queue= 1.72 drops= 6495 (early 6486 forced    9 tail    0) loss rounds=2518 synchronized=  18 fairness=999/1000
+RED slow  util= 98% avg queue= 9.96 drops= 8249 (early 4111 forced    0 tail 4138) loss rounds=2220 synchronized= 130 fairness=999/1000

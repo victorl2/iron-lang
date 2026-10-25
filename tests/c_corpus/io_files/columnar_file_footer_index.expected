@@ -1,0 +1,6 @@
+file 1503 bytes; column chunk sizes (id/city/temp): [101 136 182] [101 136 183] [101 136 200] 
+plain row-oriented size would be 7200 bytes
+temp>=400: 79 rows, sum 44811; row groups read=2 pruned=1
+group 1 dictionary (7 entries): Oslo=18 Lima=13 Baku=19 Rome=18 Kyiv=12 Nuuk=8 Doha=12
+id 1749 found in row group 2 at row 250
+footer corruption detected

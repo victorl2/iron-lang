@@ -1,0 +1,6 @@
+attempt 0: ECONNREFUSED
+attempt 1: ECONNREFUSED
+attempt 2: ECONNREFUSED
+attempt 3: ECONNREFUSED
+live listener: connected
+udp to closed port: ECONNREFUSED

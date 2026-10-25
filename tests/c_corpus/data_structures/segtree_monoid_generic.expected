@@ -1,0 +1,6 @@
+sum     queries=1183 checksum=501807018
+min     queries=1208 checksum=9097228
+max     queries=1183 checksum=-494777667
+xor     queries=1163 checksum=998263708
+gcd     queries=1207 checksum=538339091
+mulmod  queries=1193 checksum=263300710

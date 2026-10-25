@@ -1,0 +1,18 @@
+function 1 body with live-slot masks (slot 0 is the argument; bit s set = slot s live before the instruction):
+   0 new  1 0           1.111
+   1 nil  1 2           1.111
+   2 call f2(slot 0)     1.111
+   3 use  0 4           1.111
+   4 link 3 4           1.111
+   5 call f4(slot 3)     1.111
+   6 call f4(slot 3)     1.111
+   7 copy 3 4           1.1.1
+   8 new  4 2           1.11.
+   9 link 3 2           1.11.
+  10 new  1 2           1....
+  11 call f2(slot 0)     11...
+  12 link 1 0           11...
+instructions: 774, allocations: 350, collections: 8
+survivors summed over collections: masks 19, all slots scanned 38
+garbage a slot-conservative scan would retain: 19
+oracle checks: 8

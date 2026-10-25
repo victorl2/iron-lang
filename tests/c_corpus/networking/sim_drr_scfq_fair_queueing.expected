@@ -1,0 +1,6 @@
+FIFO shares of 250195 bytes: f0=52% f1=17% f2=26% f3= 3%  max deviation from weighted share=106981 B
+DRR  shares of 250681 bytes: f0=10% f1=20% f2=29% f3=39%  max deviation from weighted share=1272 B
+SCFQ shares of 250065 bytes: f0= 9% f1=19% f2=30% f3=40%  max deviation from weighted share=1006 B
+FIFO interactive 64B flow queueing delay: mean=22026 ticks worst=24092 ticks
+DRR  interactive 64B flow queueing delay: mean=3493 ticks worst=7257 ticks
+SCFQ interactive 64B flow queueing delay: mean=1139 ticks worst=2451 ticks

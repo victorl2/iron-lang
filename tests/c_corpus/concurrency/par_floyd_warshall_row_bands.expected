@@ -1,0 +1,3 @@
+density 4%: reachable pairs=2825 sum=304554 diameter=322 d[0][59]=99
+density 10%: reachable pairs=3541 sum=141464 diameter=129 d[0][59]=31
+density 35%: reachable pairs=3600 sum=45965 diameter=33 d[0][59]=10

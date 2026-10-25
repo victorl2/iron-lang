@@ -1,0 +1,8 @@
+case 0: n=40 m=63 alpha=2 lcs=37 calls=77
+case 1: n=18 m=12 alpha=3 lcs=8 calls=31
+case 2: n=24 m=15 alpha=5 lcs=10 calls=35
+case 3: n=60 m=59 alpha=5 lcs=34 calls=105
+case 4: n=37 m=52 alpha=5 lcs=26 calls=71
+case 5: n=51 m=35 alpha=4 lcs=22 calls=83
+case 6: n=50 m=58 alpha=4 lcs=30 calls=83
+case 7: n=11 m=18 alpha=5 lcs=8 calls=21

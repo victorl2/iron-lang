@@ -1,0 +1,12 @@
+a=gear b=cog live=2
+swapped: a=cog b=gear
+sink(a) -> 40
+live after sink: 1
+use after move: detected
+put 0 at slot 0
+put 1 at slot 1
+put 2 at slot 2
+took y (id 4), slot1 now moved-out
+reput at 1
+released gear, unique now empty
+shelf total 6, misuse caught 2, live 0

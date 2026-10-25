@@ -1,0 +1,3 @@
+destructors run=6
+uses=210 total=4655
+main context freed manually, count=7

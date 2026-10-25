@@ -1,0 +1,32 @@
+example.com                ok                    
+www.Example.COM            ok                    
+a.b.c.d.e.f.example.org    ok                    
+localhost                  ok                    
+my-host-1.example.net      ok                    
+xn--bcher-kva.example      ok                    
+example.com.               ok                    
+1.example.com              ok                    
+3com.com                   ok                    
+-bad.example.com           hyphen-at-label-edge  
+bad-.example.com           hyphen-at-label-edge  
+a..b.com                   empty-label           
+.example.com               empty-label           
+exa_mple.com               underscore-not-allowed  (ok with underscore/wildcard policy)
+_dmarc.example.com         underscore-not-allowed  (ok with underscore/wildcard policy)
+ex ample.com               bad-character         
+example.123                all-numeric-tld       
+192.168.1.1                looks-like-ipv4       
+*.example.com              bad-character           (ok with underscore/wildcard policy)
+host*.example.com          bad-character         
+(empty)                    empty                 
+.                          empty-label           
+underé.com                bad-character         
+a-b.c-d.e-f                ok                    
+10 valid hostnames
+253 char name: ok (len 253)
+254 char name: too-long (len 254)
+64 char label: label-too-long
+certificate matching: 12 cases verified, 5 matches
+192.0.2.1 -> 1.2.0.192.in-addr.arpa
+2001:db8::1 -> 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa
+1000 random IPv4 and IPv6 reverse names round-trip; ip6.arpa names are 72 characters

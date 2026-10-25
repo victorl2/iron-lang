@@ -1,0 +1,6 @@
+trials=300 with_intersection=69 disjoint_sets=231
+active-set scan steps=824 checksum=3511201016
+parallel stack: 0
+cross: 1
+endpoint touch: 1
+vertical crossing: 1

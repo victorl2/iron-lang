@@ -1,0 +1,2 @@
+versions=500 inserts=348 pops=60 melds=91
+largest=219 total_items_over_versions=12867 max_fresh_nodes_per_op=8

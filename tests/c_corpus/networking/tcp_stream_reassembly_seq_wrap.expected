@@ -1,0 +1,15 @@
+isn=0xfffffe00 first expected seq=0xfffffe01
+seg seq=0xfffffe01 len=100 -> ack=0xfffffe65
+seg seq=0xfffffec9 len=100 -> ack=0xfffffe65 sack[0xfffffec9,0xffffff2d)
+seg seq=0xfffffe65 len=100 -> ack=0xffffff2d
+seg seq=0x00000059 len=100 -> ack=0xffffff2d sack[0x00000059,0x000000bd)
+seg seq=0xffffff2d len= 50 -> ack=0xffffff5f sack[0x00000059,0x000000bd)
+seg seq=0xffffff5f len=250 -> ack=0x000000bd
+seg seq=0xffffff2d len= 50 -> ack=0x000000bd
+seg seq=0xfffffefb len=200 -> ack=0x000000bd
+seg seq=0x0000008b len=100 -> ack=0x000000ef
+seg seq=0x000000bd len=100 -> ack=0x00000121
+delivered 800 bytes, dups=2 trimmed_head=2
+conflicting overlap: delivered [BBBBBAAAAAAAAAA] (first arrival kept bytes 5..9 as A)
+40 transfers reassembled exactly (mix of wrapping and non-wrapping ISNs)
+retransmission rounds=197 duplicates=618 out-of-window drops=0 delivery bursts=320 peak out-of-order bytes=3883

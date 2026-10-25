@@ -1,0 +1,16 @@
+step  400: length  257 spine depth  5 nodes allocated 5618
+step  800: length  135 spine depth  4 nodes allocated 10909
+step 1200: length   88 spine depth  4 nodes allocated 17186
+step 1600: length    8 spine depth  2 nodes allocated 22646
+step 2000: length  128 spine depth  4 nodes allocated 27401
+step 2400: length   98 spine depth  4 nodes allocated 32170
+step 2800: length  165 spine depth  4 nodes allocated 36629
+step 3200: length  210 spine depth  4 nodes allocated 41006
+step 3600: length   25 spine depth  2 nodes allocated 46447
+step 4000: length   89 spine depth  4 nodes allocated 49751
+step 4400: length  240 spine depth  5 nodes allocated 55470
+step 4800: length   21 spine depth  2 nodes allocated 59274
+step 5200: length   62 spine depth  4 nodes allocated 64231
+step 5600: length  131 spine depth  4 nodes allocated 70582
+step 6000: length  371 spine depth  5 nodes allocated 76776
+ops: push_front 1538 push_back 1490 pop_front 742 pop_back 769 concat 365 split 339 index 754; 12 old versions intact

@@ -1,0 +1,16 @@
+task  0: fails 5 attempts 5 gave up at t=30
+task  1: fails 1 attempts 2 done    at t=2
+task  2: fails 1 attempts 2 done    at t=2
+task  3: fails 3 attempts 4 done    at t=14
+task  4: fails 2 attempts 3 done    at t=6
+task  5: fails 6 attempts 5 gave up at t=30
+task  6: fails 0 attempts 1 done    at t=0
+task  7: fails 2 attempts 3 done    at t=6
+task  8: fails 1 attempts 2 done    at t=2
+task  9: fails 4 attempts 5 done    at t=30
+task 10: fails 1 attempts 2 done    at t=2
+task 11: fails 3 attempts 4 done    at t=14
+task 12: fails 2 attempts 3 done    at t=6
+task 13: fails 3 attempts 4 done    at t=14
+done 12, gave up 2, total attempts 45
+clock jumps 4, final logical time 30, makespan 30

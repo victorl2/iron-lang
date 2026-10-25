@@ -1,0 +1,5 @@
+step  1: total=1560892 max=73327 min=0 center=0
+step 15: total=1560892 max=9686 min=0 center=4881
+step 30: total=1560892 max=6229 min=4 center=3591
+step 45: total=1560892 max=4596 min=54 center=2993
+step 60: total=1560892 max=3678 min=142 center=2632

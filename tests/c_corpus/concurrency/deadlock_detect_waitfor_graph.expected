@@ -1,0 +1,9 @@
+scenario 'ring of four': edges T0->T1 T1->T2 T2->T3 T3->T0
+  deadlock cycle: T0 T1 T2 T3 (stuck or blocked set mask=0x0f)
+scenario 'chain, no cycle': edges T0->T1 T1->T2 T2->T3
+  no deadlock
+scenario 'two cycles': edges T0->T1 T1->T0 T2->T3 T3->T2 T4->T0 T5->T4
+  deadlock cycle: T0 T1 (stuck or blocked set mask=0x3f)
+scenario 'tail into cycle': edges T0->T1 T1->T2 T2->T1 T3->T0 T4->T0
+  deadlock cycle: T1 T2 (stuck or blocked set mask=0x1f)
+random graphs: 91 with cycles, 309 acyclic

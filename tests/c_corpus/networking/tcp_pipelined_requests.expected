@@ -1,0 +1,4 @@
+batch of 100 requests answered in order, digest e05c021b
+window phase max in flight: 16
+final digest 4a43da1b
+server processed 300 requests, final accumulator f9a2b209, max arg 98896

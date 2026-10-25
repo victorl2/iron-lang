@@ -1,0 +1,11 @@
+CLRS example: cost=275 root=2 height=4 shape=((.1.)2(((.3.)4.)5.))
+n=2 dp=54 brute=54
+n=5 dp=340 brute=340
+n=2 dp=53 brute=53
+n=5 dp=208 brute=208
+n=14 optimal=862 balanced=997 greedy=885 weight-median=865
+n=26 optimal=2248 balanced=3519 greedy=2649 weight-median=2250
+n=24 optimal=2248 balanced=3454 greedy=2264 weight-median=2357
+n=12 optimal=544 balanced=1054 greedy=612 weight-median=545
+20 instances: optimal=27581 balanced=41876 greedy=30080 weight-median=27914
+uniform 15 keys: cost=490 height=4 root=8

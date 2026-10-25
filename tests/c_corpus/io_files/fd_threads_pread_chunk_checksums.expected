@@ -1,0 +1,6 @@
+file size=251090 chunks=62 (last chunk 1234 bytes)
+reference combined checksum: f85cf2dcd94455f2
+dynamic scheduling: chunks processed=62 failed=0 combined=f85cf2dcd94455f2 match
+strided scheduling: chunks processed=62 failed=0 combined=f85cf2dcd94455f2 match
+strided scheduling gives each thread its exact share
+shared descriptor offset still at end of the initial write

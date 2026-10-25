@@ -1,0 +1,4 @@
+edges 183, max flow 108
+phases 5, augmenting paths 56
+source side size 49, cut capacity 108
+edges carrying flow 118, saturated 70

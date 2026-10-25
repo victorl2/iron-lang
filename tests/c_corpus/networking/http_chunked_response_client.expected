@@ -1,0 +1,4 @@
+response 1: 3000 bytes decoded, chunks=8, crc=c3915e2c trailer_ok=yes
+response 2: 1500 bytes decoded, chunks=6, crc=03a2da13 trailer_ok=yes
+response 3: 40 bytes decoded, chunks=40, crc=3192bbeb trailer_ok=yes
+server sent 4540 bytes in 54 chunks

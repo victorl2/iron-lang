@@ -1,0 +1,2 @@
+hits=9656 misses=8250 hit_ratio=53.92% evictions=10846 puts=17444 deletes=1583
+size=32 LRU key=67; MRU 8 keys: 82 16 9 92 2 12 10 15

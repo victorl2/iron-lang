@@ -1,0 +1,9 @@
+modulus bits: 60
+p*q = n check: 1, e = 65537
+300 random messages round-trip (direct and CRT), ciphertext xor 934351725324680696
+plaintext: Attack at dawn! Bring the modular inverse.
+decrypted: Attack at dawn! Bring the modular inverse. (14 blocks)
+signature verifies: 1
+tampered digest verifies: 0
+multiplicative homomorphism holds: 1
+Fermat factoring found both primes: 1 after 3 steps

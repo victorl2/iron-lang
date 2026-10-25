@@ -1,0 +1,8 @@
+case 0: length=415 cuts=4 cost=901 first_cut=77
+case 1: length=203 cuts=3 cost=374 first_cut=93
+case 2: length=135 cuts=6 cost=372 first_cut=80
+case 3: length=173 cuts=11 cost=564 first_cut=77
+case 4: length=150 cuts=7 cost=416 first_cut=86
+case 5: length=423 cuts=2 cost=602 first_cut=244
+case 6: length=320 cuts=11 cost=1099 first_cut=163
+case 7: length=440 cuts=8 cost=1354 first_cut=154

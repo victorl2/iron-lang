@@ -1,0 +1,10 @@
+abcbc      states= 8 distinct=12
+aaaa       states= 5 distinct= 4
+banana     states=10 distinct=15
+abcabcabc  states=10 distinct=24
+n=445 alpha=2 states=873 distinct=95842 occ(40 queries)=4195 lcsub=18
+n=427 alpha=3 states=746 distinct=89370 occ(40 queries)=1953 lcsub=9
+n=314 alpha=4 states=500 distinct=48416 occ(40 queries)=1094 lcsub=7
+n=341 alpha=2 states=663 distinct=55862 occ(40 queries)=3340 lcsub=13
+n=224 alpha=3 states=384 distinct=24267 occ(40 queries)=1275 lcsub=10
+n=462 alpha=4 states=749 distinct=105280 occ(40 queries)=1783 lcsub=8

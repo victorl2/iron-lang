@@ -1,0 +1,8 @@
+points 2000, nodes 511, root radius 734, root center (467,496,580)
+k=1: avg nodes visited 47, avg distance evals 142 (brute 2000), sum of squared distances 4084602
+k=4: avg nodes visited 52, avg distance evals 172 (brute 2000), sum of squared distances 13294003
+k=8: avg nodes visited 58, avg distance evals 201 (brute 2000), sum of squared distances 25018767
+radius 10: total hits over 100 queries 247
+radius 20: total hits over 100 queries 997
+radius 40: total hits over 100 queries 5905
+radius 80: total hits over 100 queries 19161

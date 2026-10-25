@@ -1,0 +1,15 @@
+no locks                                       [..........]
+write [20,70)                                  [..WWWWW...]
+unlock [40,50) splits the lock                 [..WW.WW...]
+downgrade [20,40) to read                      [..rr.WW...]
+read-lock the rest: one shared region          [..rrrrr...]
+upgrade [30,50) to write                       [..rWWrr...]
+child asks about [32,36): write
+child asks read about [32,36): write
+child asks read about [55,59): none
+before closing an unrelated descriptor         [..rWWrr...]
+after closing a second descriptor of the file  [..........]
+after closing a dup of the locking descriptor  [..........]
+re-locked [90,100)                             [.........W]
+probe child exited
+a forked child cannot take the parent's locked range

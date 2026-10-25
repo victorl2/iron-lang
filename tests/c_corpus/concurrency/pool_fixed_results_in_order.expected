@@ -1,0 +1,13 @@
+ticket  0 collatz ( 27) = 111
+ticket  1 digitsq ( 40) = 16
+ticket  2 tri1009 ( 53) = 422
+ticket  3 popcnt  ( 66) = 2
+ticket  4 collatz ( 79) = 35
+ticket  5 digitsq ( 92) = 85
+ticket  6 tri1009 (105) = 520
+ticket  7 popcnt  (118) = 5
+ticket  8 collatz (131) = 28
+ticket  9 digitsq (144) = 33
+ticket 10 tri1009 (157) = 295
+ticket 11 popcnt  (170) = 4
+tickets 60 total 11213

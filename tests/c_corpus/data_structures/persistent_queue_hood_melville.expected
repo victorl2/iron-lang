@@ -1,0 +1,4 @@
+snoc=4063 tail=3937
+states after ops: idle=5136 reversing=1544 appending=1320
+drained 556 elements, checksum 762585537
+worst-case incremental steps in one operation: 2

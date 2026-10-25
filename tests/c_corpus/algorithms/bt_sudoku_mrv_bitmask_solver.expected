@@ -1,0 +1,17 @@
+wikipedia      clues=30 solutions(<=2)=1 nodes=51
+hard           clues=21 solutions(<=2)=1 nodes=24880
+almost-empty   clues= 2 solutions(<=2)=2 nodes=106
+two-solutions  clues= 0 solutions(<=2)=2 nodes=91
+contradiction  invalid clues
+no-solution    clues= 9 solutions(<=2)=0 nodes=0
+wikipedia solution:
+534678912
+672195348
+198342567
+859761423
+426853791
+713924856
+961537284
+287419635
+345286179
+hard solution row 1: 812753649

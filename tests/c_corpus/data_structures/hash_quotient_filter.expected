@@ -1,0 +1,3 @@
+adds=4430 duplicate fingerprints=829 deletes=3612 positive lookups=1908
+stored=818 slots=1024 load=0.7988 runs=571 clusters=222 longest cluster=176 shifts=35301
+false positive rate for unseen keys=0.0038

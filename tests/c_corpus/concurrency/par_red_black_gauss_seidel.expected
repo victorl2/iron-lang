@@ -1,0 +1,10 @@
+sweep   1: total change 2050025 center=0
+sweep  10: total change 664830 center=1
+sweep 100: total change 107597 center=28258
+converged at sweep 698, last change 0
+row  0: 100000 100000 100000
+row  5:  83896  80699  48264
+row 10:  67837  62965  37028
+row 15:  51839  47233  27989
+row 20:  35899  33142  19868
+row 25:  20000  20000  20000

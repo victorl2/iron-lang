@@ -1,0 +1,8 @@
+round 0: pushed 16 until full, popped 16 in order 1
+round 1: pushed 16 until full, popped 16 in order 1
+round 2: pushed 16 until full, popped 16 in order 1
+producer 0: 700 items consumed
+producer 1: 700 items consumed
+producer 2: 700 items consumed
+producer 3: 700 items consumed
+total 2800 sum 276229800 xor 744c0000

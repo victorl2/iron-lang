@@ -1,0 +1,14 @@
+writer 0: blocks=40 failed=0
+writer 1: blocks=40 failed=0
+writer 2: blocks=40 failed=0
+writer 3: blocks=40 failed=0
+writer 4: blocks=40 failed=0
+writer 5: blocks=40 failed=0
+reader 0: verified=40 failed=0
+reader 1: verified=40 failed=0
+reader 2: verified=40 failed=0
+reader 3: verified=40 failed=0
+reader 4: verified=40 failed=0
+reader 5: verified=40 failed=0
+shared offset untouched: 0
+file size=122880 checksum=8fd3c9000271c93f

@@ -1,0 +1,9 @@
+round  0 buffer 0 checksum ac67aeeb
+round  1 buffer 1 checksum d4a133f0
+round  2 buffer 0 checksum 8283e679
+round  3 buffer 1 checksum 033d060d
+round  4 buffer 0 checksum 54fbb99a
+round  5 buffer 1 checksum a38ee858
+round 39 buffer 1 checksum 3edd13c7
+rounds 40, each buffer used 20 times by each side
+combined checksum fa57d91c

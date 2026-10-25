@@ -1,0 +1,18 @@
+line 15: expected key=value
+line 16: empty key
+line 18: bad section header
+9 entries, 3 errors
+  [] name = "iron-reference"
+  [] verbose = "true"
+  [server] host = "127.0.0.1"
+  [server] port = "8080"
+  [server] banner = "  hello ; world  "
+  [server] path = "/usr/local/share/data"
+  [client] retries = "5"
+  [client] timeout = "2.5"
+  [server] port = "9090"
+server.port (last wins) = 9090
+server.path = /usr/local/share/data
+client.retries + 1 = 6
+client.timeout * 2 = 5.0
+missing.key default = (default)

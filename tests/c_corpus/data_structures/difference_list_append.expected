@@ -1,0 +1,9 @@
+left-nested snoc chain: 20000 appends, 40000 nodes, flattened in order
+mixed build: 1308 elements, 2806 nodes
+tree 0: 310 values
+tree 1: 2 values
+tree 2: 139 values
+tree 3: 53 values
+tree 4: 153 values
+tree 5: 277 values
+flatten totals: 934 values, naive copies=13273, difference-list nodes=1862

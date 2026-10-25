@@ -1,0 +1,4 @@
+side A sent 300000 received 300000
+side B sent 300000 received 300000
+A->B hash f1c1b4b2, B->A hash 9681b2d5
+streams verified against generators while in flight: yes

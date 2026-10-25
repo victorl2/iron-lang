@@ -1,0 +1,6 @@
+step    0: edges=  1 comps=23 freehead_set=0
+step  500: edges=  9 comps=13 freehead_set=1
+step 1000: edges= 26 comps= 3 freehead_set=1
+step 1500: edges=  2 comps=18 freehead_set=1
+step 2500: edges= 59 comps= 1 freehead_set=1
+adds=1289 dels=1177 vertex_deletes=32 revived=28 slot_reuse=1201 alive=20 edges=54 comps=2

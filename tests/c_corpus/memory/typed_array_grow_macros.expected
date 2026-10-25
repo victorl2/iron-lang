@@ -1,0 +1,7 @@
+ints: n=100 cap=128 last=9801
+items: n=37 cap=64 sizeof(Item)=16 id36=36 w=18.0
+bytes with 100-byte ceiling: pushed=100 refused=50 n=100 cap=100
+contents intact after refusals: 1
+Item array with 512-byte ceiling: accepted=32 (of 40), cap=32
+absurd grow requests: 0 0 cap unchanged=1 n=100
+freed: 1

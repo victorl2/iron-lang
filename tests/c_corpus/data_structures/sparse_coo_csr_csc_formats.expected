@@ -1,0 +1,4 @@
+raw= 30 merged_dups=  0 nnz= 30 max_row= 3 empty_rows=18 hits= 16 chk=580313 csr_bytes=512/8584
+raw=180 merged_dups= 23 nnz=157 max_row= 9 empty_rows= 1 hits= 58 chk=730997 csr_bytes=2036/8584
+raw=330 merged_dups= 71 nnz=259 max_row=13 empty_rows= 0 hits=106 chk=703641 csr_bytes=3260/8584
+raw=480 merged_dups=105 nnz=375 max_row=16 empty_rows= 0 hits=179 chk=985084 csr_bytes=4652/8584

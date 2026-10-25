@@ -1,0 +1,34 @@
+session 1 (empty start)
+  SET alpha one          -> OK
+  SET beta two words     -> OK
+  SET gamma 3            -> OK
+  SET alpha uno          -> OK
+  DEL beta               -> 1
+  DEL beta               -> 0
+  COUNT                  -> 2
+  QUIT                   -> BYE
+  replayed=0 appended=5 log_lines=5
+session 2 (restart after torn write)
+  GET alpha              -> VAL uno
+  GET beta               -> NIL
+  GET gamma              -> VAL 3
+  SET delta 4            -> OK
+  COUNT                  -> 3
+  COMPACT                -> OK
+  SET epsilon 5          -> OK
+  QUIT                   -> BYE
+  replayed=5 dropped_tail=1 appended=2 log_lines=4
+session 3 (clean restart)
+  GET alpha              -> VAL uno
+  GET delta              -> VAL 4
+  GET epsilon            -> VAL 5
+  COUNT                  -> 4
+  QUIT                   -> BYE
+  replayed=4 dropped_tail=0 log_lines=4
+session 4 (corrupted first record)
+  GET alpha              -> NIL
+  GET delta              -> NIL
+  GET epsilon            -> NIL
+  COUNT                  -> 0
+  QUIT                   -> BYE
+  replayed=0 dropped_tail=1 log_lines=0

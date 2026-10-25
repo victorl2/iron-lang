@@ -1,0 +1,29 @@
+== grep:ERROR|nl|head:4 (in=67 out=4)
+     1  00 ERROR delete user2
+     2  01 ERROR upload user2
+     3  02 ERROR delete user2
+     4  04 ERROR delete user1
+== vgrep:DEBUG|field:3|count (in=67 out=6)
+   15 delete
+   10 login
+   9 logout
+   6 sync
+   7 timeout
+   5 upload
+== field:2|count (in=67 out=4)
+   15 DEBUG
+   18 ERROR
+   13 INFO
+   21 WARN
+== grep:user1|uniq|tr:0=_|head:3 (in=67 out=3)
+   __ INFO delete user1
+   _4 ERROR delete user1
+   _5 WARN timeout user1
+== grep:WARN|field:3|upper|uniq|nl (in=67 out=16)
+     1  DELETE
+     2  LOGIN
+     3  DELETE
+     4  UPLOAD
+     5  TIMEOUT
+     6  LOGOUT
+== grep:zzz|nl (in=67 out=0)

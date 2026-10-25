@@ -1,0 +1,19 @@
+small.iron.test    A   udp= 65B complete  answers=2 final=65B rcode=0
+    first: small.iron.test A 192.0.2.1
+    last:  small.iron.test A 192.0.2.2
+big.iron.test      A   udp= 31B TC -> tcp answers=40 final=671B rcode=0
+    first: big.iron.test A 198.51.100.1
+    last:  big.iron.test A 198.51.100.40
+txt.iron.test      TXT udp= 31B TC -> tcp answers=3 final=670B rcode=0
+    first: txt.iron.test TXT aaaaaaaaaaaaaaaaaaaaaaaa...
+    last:  txt.iron.test TXT cccccccccccccccccccccccc
+long.iron.test     TXT udp=305B complete  answers=1 final=305B rcode=0
+    first: long.iron.test TXT zzzzzzzzzzzzzzzzzzzzzzzz...
+alias.iron.test    A   udp= 33B TC -> tcp answers=41 final=691B rcode=0
+    first: alias.iron.test CNAME big.iron.test
+    last:  big.iron.test A 198.51.100.40
+nothing.iron.test  A   udp= 35B complete  answers=0 final=35B rcode=3
+tcp pipelined small.iron.test    id=3000 answers=2 size=65B tc=0
+tcp pipelined big.iron.test      id=3001 answers=40 size=671B tc=0
+tcp pipelined nothing.iron.test  id=3002 answers=0 size=35B tc=0
+server: udp=6 truncated=3 tcp_conns=4 tcp_queries=6

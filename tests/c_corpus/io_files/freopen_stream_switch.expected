@@ -1,0 +1,9 @@
+read via reopened stream: "second file, line 1"
+  one.txt[1] first file
+  one.txt[2] appended to first
+  two.txt[1] second file, line 1
+  two.txt[2] second file, line 2
+stdout is back
+  captured.txt[1] this line goes to the file
+  captured.txt[2] so does this one
+captured 44 bytes

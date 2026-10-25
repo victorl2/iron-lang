@@ -1,0 +1,7 @@
+ 1x1  max=4    hits=1   sum_row=0     sum_col=0
+ 1x9  max=23   hits=9   sum_row=0     sum_col=36
+ 9x1  max=26   hits=9   sum_row=36    sum_col=0
+ 4x4  max=37   hits=16  sum_row=24    sum_col=24
+ 3x7  max=52   hits=21  sum_row=21    sum_col=63
+ 7x3  max=62   hits=21  sum_row=63    sum_col=21
+16x25 max=1020 hits=400 sum_row=3000  sum_col=4800

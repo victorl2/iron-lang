@@ -1,0 +1,4 @@
+size=912 popsum=4964846
+n=100   weak: insert=161    total=687     binary heapsort total=1023
+n=1000  weak: insert=1739   total=10263   binary heapsort total=16848
+n=4000  weak: insert=7024   total=49073   binary heapsort total=83384

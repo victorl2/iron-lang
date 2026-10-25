@@ -1,0 +1,11 @@
+n=1    useful_rounds=0    bound=1   
+n=2    useful_rounds=0    bound=2   
+n=5    useful_rounds=3    bound=5   
+n=10   useful_rounds=5    bound=10  
+n=33   useful_rounds=27   bound=33  
+n=64   useful_rounds=58   bound=64  
+n=200  useful_rounds=189  bound=200 
+reversed n=4  rounds=4
+reversed n=8  rounds=8
+reversed n=16 rounds=16
+reversed n=32 rounds=32

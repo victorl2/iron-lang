@@ -1,0 +1,4 @@
+scripted: finalizers run=6 order: 6 5 4 3 2 1
+resources created=3173 finalized=3173 rollbacks=817 refused=0
+dtor calls: handle=1070 lock=1053 buf=1050
+arena peak=16143 of 16384, order hash=192276247

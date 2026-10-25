@@ -1,0 +1,5 @@
+resident  compulsory=512 capacity= 3924 | 1w:1456 2w:1508 4w:459 8w:354 64w:0 (conflict misses, may be negative)
+loop80    compulsory=507 capacity=39057 | 1w:-22092 2w:-15383 4w:-5152 8w:-1398 64w:0 (conflict misses, may be negative)
+stride64  compulsory= 32 capacity=    0 | 1w:34945 2w:29915 4w:20013 8w:0 64w:0 (conflict misses, may be negative)
+uniform   compulsory=512 capacity=34427 | 1w:41 2w:-42 4w:-14 8w:8 64w:0 (conflict misses, may be negative)
+address decomposition ok

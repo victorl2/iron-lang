@@ -1,0 +1,13 @@
+account 0: balance=2482 ops=235
+account 1: balance=98 ops=240
+account 2: balance=364 ops=279
+account 3: balance=-558 ops=263
+account 4: balance=1010 ops=253
+account 5: balance=1401 ops=227
+account 6: balance=1416 ops=245
+account 7: balance=1787 ops=258
+sum=8000 total record updates=2000 workers=4 transfers each=250
+worker 0 moved 12265
+worker 1 moved 12799
+worker 2 moved 13155
+worker 3 moved 12960

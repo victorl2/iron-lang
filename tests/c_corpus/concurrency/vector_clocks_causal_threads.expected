@@ -1,0 +1,6 @@
+process 0: events=16 final vector=[16,4,8,8]
+process 1: events=12 final vector=[5,12,9,6]
+process 2: events=11 final vector=[14,12,11,8]
+process 3: events=11 final vector=[15,2,0,11]
+events=50 pairs=1225 causally ordered=742 concurrent=483
+first concurrent pair: P0.e0 || P1.e0

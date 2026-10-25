@@ -1,0 +1,10 @@
+step 100: nodes  33 height  6 leaves  18 max-degree  5 root-degree 4
+  pre: 0 1 3 6 36 18 7 22 27 32 38 16 31 30 8 17 9 19 13 2
+  lvl: 0 1 2 10 11 3 6 7 17 19 39 12 15 4 25 36 22 8 9 13
+  post: 3 18 36 6 27 32 38 31 16 30 22 8 7 9 17 13 19 1 39 2
+step 200: nodes  58 height  6 leaves  30 max-degree  6 root-degree 4
+step 300: nodes  57 height  8 leaves  25 max-degree  4 root-degree 4
+step 400: nodes  33 height  7 leaves  16 max-degree  4 root-degree 4
+step 500: nodes  41 height  8 leaves  18 max-degree  5 root-degree 3
+step 600: nodes  45 height 12 leaves  21 max-degree  7 root-degree 2
+adds 404 deletes 196

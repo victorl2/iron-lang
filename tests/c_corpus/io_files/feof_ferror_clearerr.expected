@@ -1,0 +1,14 @@
+fresh reader           eof=0 error=0
+after two chars        eof=0 error=0
+after reading past end eof=1 error=0
+sticky eof read returns EOF
+after clearerr         eof=0 error=0
+after clearerr read 'c'
+follow: 4 rounds, 4 records seen
+read from w stream     eof=0 error=1
+after clearerr         eof=0 error=0
+write to r stream      eof=0 error=1
+fread asked 16 got 5, eof=1 error=0
+second fread got 0
+after fseek            eof=0 error=0
+empty file             eof=1 error=0

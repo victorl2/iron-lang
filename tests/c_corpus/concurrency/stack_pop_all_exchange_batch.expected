@@ -1,0 +1,3 @@
+reversal of newest-first chain 2,1,0 gives 0,1,2
+messages=20000 sum=30049990000
+per-producer order violations: 0

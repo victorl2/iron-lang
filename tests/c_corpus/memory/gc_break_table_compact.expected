@@ -1,0 +1,6 @@
+objects allocated: 736
+compactions: 16
+largest break table: 11 entries
+forwarding lookups: 259, binary search probes: 779
+words reclaimed: 3247, top at end: 65 of 320
+oracle checks: 16

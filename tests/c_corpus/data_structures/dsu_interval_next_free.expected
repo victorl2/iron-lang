@@ -1,0 +1,2 @@
+paint: queries=120 cells_painted=499 visible_layers=44 cell_visits=499 (naive would touch about 2400)
+allocator: allocs=1861 frees=1365 in_use=496 first_free=0

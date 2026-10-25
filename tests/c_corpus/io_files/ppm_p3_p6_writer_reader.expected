@@ -1,0 +1,13 @@
+7x5 maxv=255: p3=397 bytes, p6=116 bytes, fnv=9520eff1
+16x3 maxv=255: p3=537 bytes, p6=156 bytes, fnv=491144b6
+4x4 maxv=1023: p3=220 bytes, p6=108 bytes, fnv=3af407d3
+9x2 maxv=65535: p3=309 bytes, p6=121 bytes, fnv=c519be18
+1x1 maxv=255: p3=42 bytes, p6=14 bytes, fnv=9dafe760
+hand-written: 2x1 first=(255,0,0) second=(0,128,255)
+bad 0: bad magic
+bad 1: truncated samples
+bad 2: bad dimensions or maxval
+bad 3: sample above maxval
+bad 4: bad dimensions or maxval
+bad 5: trailing data
+bad 6: wrong payload size

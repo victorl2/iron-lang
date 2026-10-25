@@ -1,0 +1,6 @@
+words 338 duplicates skipped 12, tree height 8, distance calls while building 1286
+radius 0: 60 queries, 22 results (38 empty), tree distance calls 271 vs brute 20280 (1.3%)
+radius 1: 60 queries, 134 results (13 empty), tree distance calls 3618 vs brute 20280 (17.8%)
+radius 2: 60 queries, 636 results (7 empty), tree distance calls 10536 vs brute 20280 (52.0%)
+radius 3: 60 queries, 2628 results (1 empty), tree distance calls 15374 vs brute 20280 (75.8%)
+nearest-neighbour searches agreeing with brute force: 40

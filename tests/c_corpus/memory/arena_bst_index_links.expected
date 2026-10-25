@@ -1,0 +1,4 @@
+added=2182 removed=915 live=1267 height=12
+arena: 1268 slots used of 2048, grows=10, 16 bytes/node
+free list length: 1 (used - live = 1)
+copy walk: nodes=1267 mean depth x100=952

@@ -1,0 +1,47 @@
+simple@example.com                                         valid   simple@example.com
+very.common@example.com                                    valid   very.common@example.com
+disposable.style.email.with+symbol@example.com             valid   disposable.style.email.with+symbol@example.com
+other.email-with-hyphen@example.com                        valid   other.email-with-hyphen@example.com
+fully-qualified-domain@example.com                         valid   fully-qualified-domain@example.com
+user.name+tag+sorting@example.com                          valid   user.name+tag+sorting@example.com
+x@example.com                                              valid   x@example.com
+example-indeed@strange-example.com                         valid   example-indeed@strange-example.com
+test/test@test.com                                         valid   test/test@test.com
+admin@mailserver1                                          valid   admin@mailserver1
+"john..doe"@example.org                                    valid   "john..doe"@example.org [quoted]
+"very.(),:;<>[]\".VERY.\"very@\\ \"very\".unusual"@strange valid   "very.(),:;<>[]\".VERY.\"very@\\ \"very\".unusual"@strange.example.com [quoted]
+user@[192.168.2.1]                                         valid   user@[192.168.2.1] [literal]
+user@[IPv6:2001:db8::1]                                    valid   user@[IPv6:2001:db8::1] [literal]
+user@sub.Example.COM                                       valid   user@sub.example.com
+_______@example.com                                        valid   _______@example.com
+"a b"@example.com                                          valid   "a b"@example.com [quoted]
+Abc.example.com                                            INVALID missing-@
+A@b@c@example.com                                          INVALID multiple-@
+a"b(c)d,e:f;g<h>i[j\k]l@example.com                        INVALID bad-quoted-string
+just"not"right@example.com                                 INVALID bad-local-char
+this is"not\allowed@example.com                            INVALID bad-quoted-string
+.leading@example.com                                       INVALID bad-dot-placement
+trailing.@example.com                                      INVALID bad-dot-placement
+double..dot@example.com                                    INVALID bad-dot-placement
+@example.com                                               INVALID empty-local
+user@                                                      INVALID empty-domain
+user@.example.com                                          INVALID empty-label
+user@example..com                                          INVALID empty-label
+user@-example.com                                          INVALID label-hyphen
+user@example-.com                                          INVALID label-hyphen
+user@exa_mple.com                                          INVALID bad-domain-char
+user@example.123                                           INVALID numeric-tld
+user@[300.1.1.1]                                           INVALID bad-address-literal
+user@[1.2.3]                                               INVALID bad-address-literal
+user@[IPv6:zz::1]                                          INVALID bad-address-literal
+us er@example.com                                          INVALID bad-local-char
+user@exa mple.com                                          INVALID bad-domain-char
+"unterminated@example.com                                  INVALID bad-quoted-string
+café@example.com                                          INVALID non-ascii
+(empty)                                                    INVALID empty
+user@example.com.                                          INVALID empty-label
+17 of 42 valid
+4x63 char labels: address-too-long (address length 261)
+canonical: First.Last+news@mail.example.org
+plus-stripped: First.Last@mail.example.org
+fuzz: 30000 strings, 27 accepted, all canonical forms re-validate

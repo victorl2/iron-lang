@@ -1,0 +1,72 @@
+00                       0
+01                       1
+0a                       10
+17                       23
+1818                     24
+1819                     25
+1864                     100
+1903e8                   1000
+1a000f4240               1000000
+1b000000e8d4a51000       1000000000000
+1bffffffffffffffff       18446744073709551615
+3bffffffffffffffff       -18446744073709551616
+20                       -1
+29                       -10
+3863                     -100
+3903e7                   -1000
+f90000                   0.0
+f93c00                   1.0
+f93e00                   1.5
+f97bff                   65504.0
+fa47c35000               100000.0
+fa7f7fffff               3.4028234663852886e+38
+fb3ff199999999999a       1.1
+fb7e37e43c8800759c       1.0e+300
+f90400                   6.103515625e-05
+f9c400                   -4.0
+fbc010666666666666       -4.1
+f97c00                   Infinity
+f9fc00                   -Infinity
+f4                       false
+f5                       true
+f6                       null
+f7                       undefined
+f0                       simple(16)
+f8ff                     simple(255)
+c11a514b67b0             1(1363896240)
+d74401020304             23(h'01020304')
+40                       h''
+4401020304               h'01020304'
+60                       ""
+6161                     "a"
+6449455446               "IETF"
+62225c                   "\"\\"
+62c3bc                   "ü"
+63e6b0b4                 "水"
+80                       []
+83010203                 [1, 2, 3]
+8301820203820405         [1, [2, 3], [4, 5]]
+a0                       {}
+a201020304               {1: 2, 3: 4}
+a26161016162820203       {"a": 1, "b": [2, 3]}
+826161a161626163         ["a", {"b": "c"}]
+9f018202039f0405ffff     [_ 1, [2, 3], [_ 4, 5]]
+bf61610161629f0203ffff   {_ "a": 1, "b": [_ 2, 3]}
+5f42010243030405ff       (_ h'0102', h'030405')
+7f657374726561646d696e67ff (_ "strea", "ming")
+9f9f9f9fffffffff         [_ [_ [_ [_ ]]]]
+57 vectors decoded to diagnostic notation, 57 re-encoded byte for byte
+bad 18           -> truncated
+bad 1c           -> reserved-additional-info
+bad ff           -> unexpected-break
+bad 5f01ff       -> bad-string-chunk
+bad a1           -> truncated
+bad 62c328       -> invalid-utf8
+bad 7f4161ff     -> bad-string-chunk
+bad bf01ff       -> odd-map-items
+bad f818         -> invalid-simple-encoding
+bad 1f           -> indefinite-not-allowed
+bad 8201         -> truncated
+bad 62eda080     -> invalid-utf8
+0x1805 decodes as 5 but is not shortest form: 1
+400 random trees round-trip through bytes (4782 total)

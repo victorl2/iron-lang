@@ -1,0 +1,6 @@
+n=3 cap=4 version=2
+clean traversal sum=60, stale uses=0
+erased 20 during traversal
+naive traversal visited 2, stopped after 20 (stale uses=1)
+visited: 10 30 40 50
+final n=4 cap=4 version=3 stale uses=1

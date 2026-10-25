@@ -1,0 +1,7 @@
+4x4: cost 137, assignment 2 3 4 1
+6x6: cost 121, assignment 2 6 4 5 3 1
+7x7: cost 67, assignment 3 6 4 1 5 2 7
+8x8: cost 135, assignment 8 5 7 4 2 3 6 1
+5x8: cost 31, assignment 1 2 7 5 8
+3x9: cost 19, assignment 3 4 2
+diagonal-optimal 10x10: cost 0

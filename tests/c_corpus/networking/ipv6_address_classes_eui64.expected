@@ -1,0 +1,26 @@
+::                                       unspecified              
+::1                                      loopback                 
+::ffff:c000:280                          ipv4-mapped              v4=192.0.2.128
+64:ff9b::c633:6407                       nat64                    v4=198.51.100.7
+100::1                                   discard-only             
+2001:0:4136:e378:8000:63bf:3fff:fdd2     teredo                   server=65.54.227.120 client=192.0.2.45:40000
+2001:db8:1234::1                         documentation            
+2002:c000:204::1                         6to4                     gateway v4=192.0.2.4
+fd12:3456:789a::1                        unique-local             
+fe80::21b:63ff:fe84:45e6                 link-local               EUI-64 from mac 00:1b:63:84:45:e6
+ff02::1                                  multicast                flags=---- scope=link-local all-nodes
+ff02::2                                  multicast                flags=---- scope=link-local all-routers
+ff02::1:ff23:4567                        multicast                flags=---- scope=link-local solicited-node
+ff05::101                                multicast                flags=---- scope=site-local
+ff3e:40:2001:db8::1234                   multicast                flags=--PT scope=global
+2606:4700::6810:84e5                     global-unicast           
+4000::1                                  reserved                 
+fec0::1                                  reserved                 
+::2                                      reserved                 
+ffff::                                   multicast                flags=XRPT scope=reserved
+MAC 00:1b:63:84:45:e6 -> link-local fe80::21b:63ff:fe84:45e6
+solicited-node multicast: ff02::1:ff84:45e6
+multicast MAC for it: 33:33:ff:84:45:e6
+6to4 prefix for 192.0.2.4: 2002:c000:204::/48
+random addresses inside 2001:db8:abcd::/48: 3300 of 5000; /64 subnets in a /48: 65536
+prefix matching verified for lengths 0..128 in steps of 7

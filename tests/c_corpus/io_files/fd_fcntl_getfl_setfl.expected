@@ -1,0 +1,18 @@
+fresh O_RDWR           acc=rdwr   append=0 nonblock=0 cloexec=0
+set append+nonblock    acc=rdwr   append=1 nonblock=1 cloexec=0
+F_SETFL O_RDONLY       acc=rdwr   append=1 nonblock=0 cloexec=0
+write still allowed after attempted access change
+F_SETFL 0              acc=rdwr   append=0 nonblock=0 cloexec=0
+dup after setting on fd acc=rdwr   append=0 nonblock=1 cloexec=0
+fd with cloexec        acc=rdwr   append=0 nonblock=1 cloexec=1
+dup (not shared)       acc=rdwr   append=0 nonblock=1 cloexec=0
+dup of cloexec fd      acc=rdwr   append=0 nonblock=1 cloexec=0
+cloexec cleared        acc=rdwr   append=0 nonblock=1 cloexec=0
+O_RDONLY               acc=rdonly append=0 nonblock=0 cloexec=0
+O_WRONLY|O_APPEND      acc=wronly append=1 nonblock=0 cloexec=0
+write on rdonly: -1 EBADF
+read on wronly: -1 EBADF
+pipe read end          acc=rdonly append=0 nonblock=1 cloexec=0
+pipe write end         acc=wronly append=0 nonblock=0 cloexec=0
+F_GETFL on unused fd: -1 EBADF
+F_GETFD on closed fd: -1 EBADF

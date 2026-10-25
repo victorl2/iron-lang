@@ -1,0 +1,9 @@
+200 heartbeats before the crash at t=20000; congestion period 10000..12000
+detector       false alarms suspected (ms) detected after
+phi>=1                  3            324         228 ms
+phi>=3                  0              0         684 ms
+phi>=8                  0              0        1824 ms
+timeout 150ms           5            610         189 ms
+timeout 300ms           2            140         301 ms
+timeout 600ms           0              0         601 ms
+phi (x1000) after crash: +200ms=1267 +500ms=2583 +1000ms=4777; max phi seen while alive=1719

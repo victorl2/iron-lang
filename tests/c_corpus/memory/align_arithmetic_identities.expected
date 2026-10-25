@@ -1,0 +1,30 @@
+identities checked on 260000 (x, align) pairs
+alignment_of(1) = 1 (2^0)
+alignment_of(2) = 2 (2^1)
+alignment_of(3) = 1 (2^0)
+alignment_of(4) = 4 (2^2)
+alignment_of(12) = 4 (2^2)
+alignment_of(40) = 8 (2^3)
+alignment_of(96) = 32 (2^5)
+alignment_of(1000) = 8 (2^3)
+alignment_of(4096) = 4096 (2^12)
+alignment_of(4104) = 8 (2^3)
+alignment_of(65536) = 65536 (2^16)
+alignment_of(196608) = 65536 (2^16)
+item 0 size= 1 align= 1 at offset   0 (pad  0)
+item 1 size= 4 align= 4 at offset   4 (pad  3)
+item 2 size= 2 align= 2 at offset   8 (pad  0)
+item 3 size= 8 align= 8 at offset  16 (pad  6)
+item 4 size= 1 align= 1 at offset  24 (pad  0)
+item 5 size=16 align=16 at offset  32 (pad  7)
+item 6 size= 3 align= 1 at offset  48 (pad  0)
+item 7 size=24 align= 8 at offset  56 (pad  5)
+item 8 size= 5 align=32 at offset  96 (pad 16)
+item 9 size=12 align= 4 at offset 104 (pad  3)
+end=116 total=128 waste=40 tail=12
+align_up_div(1000, 3) = 1002
+align_up_div(1000, 5) = 1000
+align_up_div(1000, 6) = 1002
+align_up_div(1000, 10) = 1000
+align_up_div(1000, 12) = 1008
+align_up_div(1000, 100) = 1000

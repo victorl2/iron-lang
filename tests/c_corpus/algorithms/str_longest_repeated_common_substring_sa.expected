@@ -1,0 +1,23 @@
+lrs("banana") = 3 "ana"
+lrs("abcdefg") = 0
+lrs("aaaaa") = 4 "aaaa"
+lrs("to be or not to be, that is") = 5 "to be"
+random lrs n=245 alpha=2 -> 13
+random lrs n=172 alpha=3 -> 8
+random lrs n=218 alpha=4 -> 6
+random lrs n=208 alpha=2 -> 11
+random lrs n=144 alpha=3 -> 8
+random lrs n=211 alpha=4 -> 6
+random lrs n=119 alpha=2 -> 11
+random lrs n=230 alpha=3 -> 10
+common(xabcdy, zabcdw) = 4 "abcd" at 1/1
+common(abc, def) = 0
+common(GeeksforGeeks, GeeksQuiz) = 5 "Geeks" at 0/0
+random common 7
+random common 6
+random common 7
+random common 8
+random common 6
+random common 7
+random common 9
+random common 9

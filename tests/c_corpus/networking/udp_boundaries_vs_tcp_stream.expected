@@ -1,0 +1,3 @@
+udp receive sizes: 2 4 1 6 3 8 1
+tcp chunks of 5: [aabbb] [bcddd] [dddee] [effff] [ffffg]
+tcp stream (25 bytes in 5 reads): aabbbbcddddddeeeffffffffg

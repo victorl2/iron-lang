@@ -1,0 +1,11 @@
+inserts=3639 updates=6435 deletes=2576 hits=3783 misses=2147
+size=1063 buckets=2048 resizes=8 load=0.5190
+avg probes per lookup=0.9872 maxchain=5
+chain len 0: 1221 buckets
+chain len 1: 632 buckets
+chain len 2: 159 buckets
+chain len 3: 32 buckets
+chain len 4: 3 buckets
+chain len 5: 1 buckets
+chain len 6: 0 buckets
+chain len 7+: 0 buckets

@@ -1,0 +1,15 @@
+sizeof(IntList)=8 offsetof(items)=8
+sizeof(Str)=4 offsetof(text)=3
+list id=7 count=100 cap=128 grows=7 sum=323350
+copy last item: 9751
+packed 8 records into 67 bytes
+  kind=0 len= 5 'alpha'
+  kind=1 len= 1 'b'
+  kind=2 len= 9 'gamma-ray'
+  kind=0 len= 0 ''
+  kind=1 len=11 'delta force'
+  kind=2 len= 1 'e'
+  kind=0 len= 7 'ordinal'
+  kind=1 len= 4 'zeta'
+text bytes=38 overhead=29
+overflow refused

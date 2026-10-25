@@ -1,0 +1,30 @@
+a/b/c            => a/b/c
+a/./b//c/        => a/b/c
+a/b/../c         => a/c
+a/b/../../c      => c
+a/..             => .
+(empty)          => .
+.                => .
+./././           => .
+../a             => ../a
+../../a/../b     => ../../b
+a/../../b        => ../b
+/                => /
+/..              => /
+/../../x         => /x
+//x///y//        => /x/y
+/a/b/./../c/.    => /a/c
+a//b/.../c       => a/b/.../c
+..a/.b/b..       => ..a/.b/b..
+same file: r/a/./b//f       ~ r/a/b/f
+same file: r/a/b/../b/f     ~ r/a/b/f
+same file: r/a/b/../../top  ~ r/top
+same file: ./r//a/../top    ~ r/top
+r/ln/../marker: kernel finds it=1, lexical form r/marker finds it=0
+dirname/basename(a/b/c) = [a/b] [c]
+dirname/basename(a/b/) = [a] [b]
+dirname/basename(/a) = [/] [a]
+dirname/basename(/) = [/] [/]
+dirname/basename(file) = [.] [file]
+dirname/basename(a//b) = [a] [b]
+dirname/basename(./x) = [.] [x]

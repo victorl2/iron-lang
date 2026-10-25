@@ -1,0 +1,6 @@
+inv(2)=499122177 inv(3)=332748118 inv(10)=299473306 inv(100000)=179514282
+xor of 3000 inverses: 218433600
+batch inverse sum over 5000 values: 369979621
+mod 3600: 960 invertible residues, 2640 not (phi(3600)=960)
+inv(7) mod 3600 = 1543, inv(3600) mod 7 = 4, inv(6) mod 9 = -1
+inv(-5) mod 13 = 5

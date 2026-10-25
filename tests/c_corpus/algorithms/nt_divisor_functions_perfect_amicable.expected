@@ -1,0 +1,12 @@
+perfect numbers <= 100000: 6 28 496 8128
+abundant: 24795, deficient: 75200
+amicable pairs: (220,284) (1184,1210) (2620,2924) (5020,5564) (6232,6368) (10744,10856) (12285,14595) (17296,18416) (63020,76084) (66928,66992) (67095,71145) (69615,87633) (79750,88730)
+Mersenne exponent 2 gives perfect number 6
+Mersenne exponent 3 gives perfect number 28
+Mersenne exponent 5 gives perfect number 496
+Mersenne exponent 7 gives perfect number 8128
+Mersenne exponent 13 gives perfect number 33550336
+highly composite: 1(1) 2(2) 4(3) 6(4) 12(6) 24(8) 36(9) 48(10) 60(12) 120(16) 180(18) 240(20) 360(24) 720(30) 840(32) 1260(36) 1680(40) 2520(48) 5040(60) 7560(64) 10080(72) 15120(80) 20160(84) 25200(90) 27720(96) 45360(100) 50400(108) 55440(120) 83160(128)
+numbers with odd divisor count: 316 (squares up to 100000)
+sum tau(n) for n<=100000: 1166750
+sigma(60)=168 tau(60)=12 sigma(97)=98

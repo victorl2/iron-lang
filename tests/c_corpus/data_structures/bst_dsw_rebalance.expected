@@ -1,0 +1,9 @@
+n=  1 ascending: height   1 -> 1, last level holds 1
+n=  7 ascending: height   7 -> 3, last level holds 4
+n= 12 ascending: height  12 -> 4, last level holds 5
+n=100 ascending: height 100 -> 7, last level holds 37
+n=130 ascending: height 130 -> 8, last level holds 3
+390 trees rebalanced to minimum height
+rotations: to-vine=16193 compress=23533
+1000 ascending keys: vine rotations=0, height=10
+second pass on the balanced tree: vine rotations=991, height=10

@@ -1,0 +1,4 @@
+pushes=2036 pops=1964 final_size=72
+swap      comparisons=23421 pop_sum=959168
+hole      comparisons=23421 pop_sum=959168
+bottom_up comparisons=17892 pop_sum=959168

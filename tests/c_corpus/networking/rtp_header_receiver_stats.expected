@@ -1,0 +1,11 @@
+basic: 172 bytes, header 12, payload 160, pt=0 marker=1 seq=65530 ts=0xfffffe00 ssrc=0xdeadbeef
+csrc+ext+padding: 144 bytes, header 36, payload 100, cc=3 ext=0xbede/2 words, csrc[2]=3
+errors: too-short bad-version bad-padding bad-padding csrc-truncated extension-truncated
+interval reports (fraction is lost/256 for the interval):
+  after  600 pkts: ext_max= 66019 lost=  20 fraction=  8 jitter=43 ticks (5.38 ms)
+  after 1200 pkts: ext_max= 66632 lost=  33 fraction=  5 jitter=26 ticks (3.25 ms)
+  after 1800 pkts: ext_max= 67256 lost=  57 fraction=  9 jitter=40 ticks (5.00 ms)
+  after 2400 pkts: ext_max= 67872 lost=  73 fraction=  6 jitter=36 ticks (4.50 ms)
+final: received=2907 expected=2999 cumulative lost=92 cycles=1 (ext_max 0x00010b2f) resyncs=0
+packets sent 3000, dropped by network 149, arrivals incl. duplicates 2908, jitter estimate 27 ticks
+report block: deadbeef 0dfffffb 0001fffe 00000015 12345678 00010000

@@ -1,0 +1,7 @@
+class  16: served=  788 peak=35/64 fallbacks-from=0 in-use=15
+class  32: served=  788 peak=35/48 fallbacks-from=0 in-use=18
+class  64: served=  333 peak=18/32 fallbacks-from=0 in-use=3
+class 128: served=  582 peak=16/16 fallbacks-from=42 in-use=16
+class 256: served=  311 peak= 8/ 8 fallbacks-from=0 in-use=6
+refused=454 live=58 internal fragmentation now=1170 of 154588 requested
+drained

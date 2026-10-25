@@ -1,0 +1,10 @@
+babad              longest=3 "bab" palindromic substrings=7
+abaaba             longest=6 "abaaba" palindromic substrings=11
+forgeeksskeegfor   longest=10 "geeksskeeg" palindromic substrings=23
+aaaa               longest=4 "aaaa" palindromic substrings=10
+abcde              longest=1 "a" palindromic substrings=5
+random n=945 alphabet=1 longest=945 count=446985
+random n=1290 alphabet=2 longest=18 count=3863
+random n=497 alphabet=2 longest=20 count=1521
+random n=1143 alphabet=3 longest=19 count=2303
+random n=355 alphabet=26 longest=5 count=382

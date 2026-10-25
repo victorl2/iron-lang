@@ -1,0 +1,3 @@
+gate: set() results 1 0 0, waiters that saw the payload 6 of 6
+late waiter passed straight through: yes, total set calls 3
+relay: final value 664295 (expected 664295), completed in chain order: yes

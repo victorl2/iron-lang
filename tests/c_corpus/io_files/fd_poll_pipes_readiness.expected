@@ -1,0 +1,13 @@
+empty pipe, read end POLLIN: none
+empty pipe, write end POLLOUT: OUT 
+pipe with data, read end: IN 
+pipe drained, read end (10ms timeout): none
+writer closed with data pending: IN=1
+writer closed and drained: HUP=1
+closed descriptor: NVAL 
+negative fd ignored: ready=0 revents=0
+regular file IN|OUT: IN OUT 
+pipe 0: lines=1 bytes=13
+pipe 1: lines=2 bytes=26
+pipe 2: lines=3 bytes=39
+pipe 3: lines=4 bytes=52

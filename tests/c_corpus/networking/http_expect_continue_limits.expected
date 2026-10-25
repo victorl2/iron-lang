@@ -1,0 +1,8 @@
+interim status: 100 Continue
+final status: 201 Created (stored 50 bytes)
+interim without Expect: none
+final status: 201 (15 bytes reply)
+long uri: 414 URI Too Long
+many headers: 431 Request Header Fields Too Large
+oversize: 413 Payload Too Large, close=close
+server: continues=1 rejected=3 accepted=2

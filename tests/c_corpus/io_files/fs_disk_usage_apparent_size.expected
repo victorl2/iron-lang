@@ -1,0 +1,9 @@
+deduplicated rollup (hard links counted once):
+  2108536     3M proj
+     7127     7K proj/a
+     4350     5K proj/a/b
+  2101400     3M proj/c
+        0     0B proj/empty
+expected plain=11362 links=17 sparse=2097157 => 2108536
+naive total (links counted each time): 2115697, overcount = 7161
+flat sum over 8 distinct entries: 2108536

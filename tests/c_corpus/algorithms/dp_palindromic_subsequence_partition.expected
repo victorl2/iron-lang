@@ -1,0 +1,13 @@
+bbbab          lps= 4 insertions= 1 palin_substrings= 9 min_cuts=1
+cbbd           lps= 2 insertions= 2 palin_substrings= 5 min_cuts=2
+character      lps= 5 insertions= 4 palin_substrings=10 min_cuts=6
+abacdfgdcaba   lps=11 insertions= 1 palin_substrings=14 min_cuts=7
+a              lps= 1 insertions= 0 palin_substrings= 1 min_cuts=0
+abcde          lps= 1 insertions= 4 palin_substrings= 5 min_cuts=4
+racecar        lps= 7 insertions= 0 palin_substrings=10 min_cuts=0
+bbabcacacabcab lps=11 insertions= 3 palin_substrings=22 min_cuts=7
+aaaccbaccba    lps= 7 insertions= 4 palin_substrings=16 min_cuts=6
+abbbabaccbbbb  lps=10 insertions= 3 palin_substrings=26 min_cuts=4
+cccbcbabacaacacb lps=10 insertions= 6 palin_substrings=29 min_cuts=5
+bccbcbcaababab lps= 8 insertions= 6 palin_substrings=27 min_cuts=3
+aaccaa         lps= 6 insertions= 0 palin_substrings=11 min_cuts=0

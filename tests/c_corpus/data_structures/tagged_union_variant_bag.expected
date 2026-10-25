@@ -1,0 +1,9 @@
+generated 300 values: nil=48 bool=41 int=47 real=43 str=38 list=83, max depth 4
+copy, hash and print/parse round trip verified, 2319 characters printed
+sorted: 183 distinct of 300
+  #  0 nil
+  # 60 false
+  #120 281
+  #180 ""
+  #240 []
+no leaks: 0 live allocations

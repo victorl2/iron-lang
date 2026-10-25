@@ -1,0 +1,7 @@
+initial current -> r1
+after switch: current -> r2, tmp link left behind=0
+reader saw only complete releases during the flips: yes
+between the two renames, 'live' is missing: yes
+after the swap: live=new staging=old
+rename onto non-empty dir: ENOTEMPTY_OR_EEXIST
+pruned 1 release(s); kept: r2 r3

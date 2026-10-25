@@ -1,0 +1,22 @@
+n=10
+  shell  cmps=29      moves=11
+  knuth  cmps=28      moves=17
+  ciura  cmps=28      moves=17
+  pratt  cmps=41      moves=9
+n=100
+  shell  cmps=904     moves=439
+  knuth  cmps=684     moves=377
+  ciura  cmps=706     moves=343
+  pratt  cmps=1580    moves=259
+n=1000
+  shell  cmps=14699   moves=7262
+  knuth  cmps=14082   moves=9076
+  ciura  cmps=13367   moves=7052
+  pratt  cmps=34385   moves=4327
+n=5000
+  shell  cmps=114219  moves=61799
+  knuth  cmps=105533  moves=72582
+  ciura  cmps=85622   moves=45903
+  pratt  cmps=259031  moves=28585
+knuth(100): 40 13 4 1
+pratt(30): 27 24 18 16 12 9 8 6 4 3 2 1

@@ -1,0 +1,4 @@
+int vec: final len 23, inline capacity 16, steps inline=2243 heap=3757
+  spills=39 unspills=38 heap allocs=59 frees=58
+boundary: 16 elements stay inline, one more spills, shrink brings it back
+struct vec (inline capacity 2): 200 swap/move rounds consistent, allocs=333 frees=333

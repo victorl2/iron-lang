@@ -1,0 +1,12 @@
+"123456789": crc32 cbf43926 adler32 091e01de fletcher16 1ede
+fox: crc32 414fa339 adler32 5bdc0fda
+empty: crc32 00000000 adler32 00000001
+"abcde": fletcher16 c8f0
+"a": crc32 e8b7be43 adler32 00620062
+big file 100003 bytes: crc32 8b91915d adler32 83fc2ef3 fletcher16 627a
+chunk     1: same
+chunk     3: same
+chunk   255: same
+chunk  4096: same
+chunk 65521: same
+after one bit flip: crc32 dc8262f2 adler32 b9e02f03

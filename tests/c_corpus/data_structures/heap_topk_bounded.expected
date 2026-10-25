@@ -1,0 +1,10 @@
+n=1000  k=10    range=100000   kept=10    replacements=38    best=99813
+n=5000  k=25    range=1000000  kept=25    replacements=131   best=999590
+n=2000  k=100   range=50       kept=100   replacements=250   best=49
+n=30    k=50    range=1000     kept=30    replacements=0     best=941
+n=500   k=1     range=1000     kept=1     replacements=6     best=999
+n=400   k=0     range=1000     kept=0     replacements=0     best=0
+n=3000  k=3000  range=7        kept=3000  replacements=0     best=6
+sample n=1500 k=20 checksum=655759985 min_id=1
+sample n=1000 k=1 checksum=4010499553 min_id=817
+sample n=700 k=700 checksum=2925886464 min_id=0

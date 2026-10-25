@@ -1,0 +1,15 @@
+poll   error_us  drift_ppb survivors falsetickers
+   0      15465      45000        3 ...X
+   1       5820      40000        3 ...X
+   2        -30      35000        3 ...X
+   3      -3024      30000        3 ...X
+  11       4286      43211        3 ...X
+  23      -3033      16899        3 ...X
+  35      -1092       8209        3 ...X
+  47       1089       9709        3 ...X
+  59        788       5662        3 ...X
+  71        378       2846        3 ...X
+  83      -6526     -10527        3 ...X
+  95        692       6061        3 ...X
+falseticker (server 3, +180 ms) rejected in 56 of 56 polls after warmup
+final clock error 692 us

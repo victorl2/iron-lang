@@ -1,0 +1,5 @@
+int list: 253 even values, min=18 max=998, removed 247 odd
+double list: 88 non-negative (dropped 112), max=1216.500 total=58963.000
+point list: 97 within radius 50 (dropped 23), first x=-41 last x=43
+string list (3 removed as short): apple date kiwi lime pear plum quince sloe
+deque round trips ok on point, string and double lists

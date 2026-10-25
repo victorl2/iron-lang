@@ -1,0 +1,8 @@
+400 random cases verified, 371 had a covering window
+ADOBECODEBANC          need ABC  -> "BANC" (len 4 at 9)
+a                      need a    -> "a" (len 1 at 0)
+a                      need aa   -> none
+aaflslflsldkalskaaa    need aaa  -> "aaa" (len 3 at 16)
+ab                     need b    -> "b" (len 1 at 1)
+xyz                    need q    -> none
+bbaa                   need aba  -> "baa" (len 3 at 1)

@@ -1,0 +1,16 @@
+W=1 loss= 0% jitter=15: finish@ 2251 sent= 64 retx=  0 buffered_out_of_order=  0 wrong=0
+W=2 loss= 0% jitter=15: finish@ 1154 sent= 64 retx=  0 buffered_out_of_order= 10 wrong=0
+W=4 loss= 0% jitter=15: finish@  618 sent= 64 retx=  0 buffered_out_of_order= 18 wrong=0
+W=1 loss=10% jitter=15: finish@ 5026 sent= 87 retx= 23 buffered_out_of_order=  0 wrong=0
+W=2 loss=10% jitter=15: finish@ 2429 sent= 79 retx= 15 buffered_out_of_order= 13 wrong=0
+W=4 loss=10% jitter=15: finish@ 1675 sent= 78 retx= 14 buffered_out_of_order= 28 wrong=0
+W=1 loss=30% jitter=15: finish@ 9207 sent=122 retx= 58 buffered_out_of_order=  0 wrong=0
+W=2 loss=30% jitter=15: finish@ 6430 sent=124 retx= 60 buffered_out_of_order= 16 wrong=0
+W=4 loss=30% jitter=15: finish@ 4582 sent=121 retx= 57 buffered_out_of_order= 40 wrong=0
+W=4 loss= 0% jitter=40: finish@ 1012 sent= 64 retx=  0 buffered_out_of_order= 19 wrong=0
+unsafe windows (W > MOD/2):
+W=6 loss=30% jitter=30: finish@ 4434 sent=139 retx= 75 buffered_out_of_order= 42 wrong=17
+W=6 loss=40% jitter=30: finish@ 7149 sent=182 retx=118 buffered_out_of_order= 41 wrong=14
+W=6 loss=50% jitter=30: finish@10402 sent=288 retx=224 buffered_out_of_order= 41 wrong=15
+W=6 loss=60% jitter=30: finish@13386 sent=391 retx=327 buffered_out_of_order= 44 wrong=20
+misdelivered in unsafe runs: 66

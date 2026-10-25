@@ -1,0 +1,19 @@
+W=1 loss= 0% ackloss= 0%: finish@ 1000 sent= 50 resent=  0 timeouts= 0 delivered=50 wrong=0
+W=3 loss= 0% ackloss= 0%: finish@  340 sent= 50 resent=  0 timeouts= 0 delivered=50 wrong=0
+W=5 loss= 0% ackloss= 0%: finish@  200 sent= 50 resent=  0 timeouts= 0 delivered=50 wrong=0
+W=7 loss= 0% ackloss= 0%: finish@  160 sent= 50 resent=  0 timeouts= 0 delivered=50 wrong=0
+W=1 loss=10% ackloss=10%: finish@ 1585 sent= 63 resent= 13 timeouts=13 delivered=50 wrong=0
+W=3 loss=10% ackloss=10%: finish@  780 sent= 72 resent= 22 timeouts= 8 delivered=50 wrong=0
+W=5 loss=10% ackloss=10%: finish@  420 sent= 54 resent=  4 timeouts= 4 delivered=50 wrong=0
+W=7 loss=10% ackloss=10%: finish@  380 sent= 78 resent= 28 timeouts= 4 delivered=50 wrong=0
+W=1 loss=25% ackloss=25%: finish@ 2935 sent= 93 resent= 43 timeouts=43 delivered=50 wrong=0
+W=3 loss=25% ackloss=25%: finish@ 1695 sent=131 resent= 81 timeouts=27 delivered=50 wrong=0
+W=5 loss=25% ackloss=25%: finish@ 1150 sent=139 resent= 89 timeouts=18 delivered=50 wrong=0
+W=7 loss=25% ackloss=25%: finish@  670 sent=115 resent= 65 timeouts=10 delivered=50 wrong=0
+unsafe window W=8:
+W=8 loss= 0% ackloss=50%: finish@  140 sent= 50 resent=  0 timeouts= 0 delivered=50 wrong=0
+W=8 loss= 0% ackloss=60%: finish@  140 sent= 50 resent=  0 timeouts= 0 delivered=50 wrong=0
+W=8 loss= 0% ackloss=70%: finish@    0 sent= 62 resent= 16 timeouts= 2 delivered=58 wrong=36
+W=8 loss= 0% ackloss=80%: finish@    0 sent= 61 resent= 16 timeouts= 2 delivered=58 wrong=41
+W=8 loss= 0% ackloss=90%: finish@    0 sent= 61 resent= 32 timeouts= 4 delivered=58 wrong=32
+W=8 misdelivered 109 messages in total

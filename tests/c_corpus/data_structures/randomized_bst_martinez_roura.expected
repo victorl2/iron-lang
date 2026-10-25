@@ -1,0 +1,4 @@
+ascending 800: height=20
+random: inserts=859 deletes=1152 size=507 maxheight=24 finalheight=18
+split at 505: 254 low, 253 high
+drained

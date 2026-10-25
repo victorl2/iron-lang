@@ -1,0 +1,15 @@
+parsed 6 parts, preamble 43 bytes, epilogue 23 bytes
+  part 0 name=title  filename=-                      type=-                          len=15
+  part 1 name=tags   filename=-                      type=-                          len=1
+  part 2 name=tags   filename=-                      type=-                          len=3
+  part 3 name=note   filename=a "quoted" name.txt    type=text/plain                 len=58
+  part 4 name=empty  filename=-                      type=-                          len=0
+  part 5 name=blob   filename=data.bin               type=application/octet-stream   len=300
+  decoy part is 58 bytes, first line [line one]
+nested: outer part files holds 2 inner parts: one.txt(first) two.txt(second)
+random binary round trips: 200 messages parsed exactly
+bad 1: missing-closing-boundary
+bad 2: no-opening-boundary
+bad 3: bad-part-header
+bad 4: truncated-headers
+bad 5: bad-delimiter-line

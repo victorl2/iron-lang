@@ -1,0 +1,6 @@
+dijkstra (h=0)  cost  576 expanded 1272
+manhattan       cost  588 expanded   48
+chebyshev       cost  576 expanded  598
+octile          cost  576 expanded   91
+manhattan suboptimal: yes
+walls: 328 of 1600

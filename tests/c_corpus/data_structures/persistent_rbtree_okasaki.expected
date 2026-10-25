@@ -1,0 +1,15 @@
+version  0: 151 keys, height 10, black height 6
+version  1: 150 keys, height 10, black height 6
+version  2: 149 keys, height 10, black height 6
+version  3: 152 keys, height 9, black height 6
+version  4: 149 keys, height 9, black height 6
+version  5: 151 keys, height 9, black height 6
+version  6: 151 keys, height 9, black height 6
+version  7: 150 keys, height 10, black height 6
+version  8: 148 keys, height 9, black height 6
+version  9: 151 keys, height 9, black height 6
+version 10: 149 keys, height 9, black height 6
+version 11: 151 keys, height 10, black height 6
+inserts=2964 deletes=2036 total keys=1802 max height=10 nodes allocated=45938
+sequential 300: height 12 black height 8
+after erasing evens: 150 keys, height 8

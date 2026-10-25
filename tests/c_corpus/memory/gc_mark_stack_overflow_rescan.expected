@@ -1,0 +1,5 @@
+objects allocated: 850
+collections: 33, swept: 832
+mark stack capacity 2, high water 2
+overflow events: 15, rescan passes: 10
+oracle checks: 33

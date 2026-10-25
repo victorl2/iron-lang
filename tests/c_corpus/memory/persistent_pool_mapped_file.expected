@@ -1,0 +1,5 @@
+allocs=1514 frees=1486 stale-rejected=1486 full=0
+live=28 balance-sum=-487
+after reopen: 28 handles resolved, audit live=28
+max slot generation: 78
+drained: live=0

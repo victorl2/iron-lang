@@ -1,0 +1,6 @@
+n=1   range=5   LIS=1 count=1 best weight=49
+n=10  range=4   LIS=2 count=11 best weight=140
+n=60  range=8   LIS=7 count=408 best weight=466
+n=300 range=20  LIS=19 count=2356240 best weight=1388
+n=600 range=50  LIS=30 count=193032 best weight=2045
+n=800 range=800 LIS=47 count=2304 best weight=2957

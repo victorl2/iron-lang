@@ -1,0 +1,5 @@
+static           total_cost=746178   avg_x100=3730  front: 0 1 2 3 4
+move-to-front    total_cost=519271   avg_x100=2596  front: 80 60 39 0 69
+transpose        total_cost=439326   avg_x100=2196  front: 0 21 24 5 51
+frequency-count  total_cost=388830   avg_x100=1944  front: 0 21 5 51 38
+optimal static cost=379324 best heuristic=388830 ratio_x100=102

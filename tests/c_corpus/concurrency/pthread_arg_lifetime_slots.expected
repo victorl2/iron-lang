@@ -1,0 +1,11 @@
+slot 0 name=job-0-even result=10
+slot 1 name=job-1-odd result=109
+slot 2 name=job-2-even result=210
+slot 3 name=job-3-odd result=309
+slot 4 name=job-4-even result=410
+slot 5 name=job-5-odd result=509
+slot 6 name=job-6-even result=610
+slot 7 name=job-7-odd result=709
+heap results: 36 39 42 45 49 52 55 58
+value results: 41 43 45 47 49 51 53 55
+handoff copies: 1000 1007 1014 1021 1028 1035 1042 1049

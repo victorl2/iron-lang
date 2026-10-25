@@ -1,0 +1,5 @@
+counter with named mutex: 10000 (expected 10000)
+handshake child exit=7 log: ping0 pong0 ping1 pong1 ping2 pong2 ping3 pong3 ping4 pong4 ping5 pong5 ping6 pong6 ping7 pong7
+trywait x5 on value 3: 3 succeeded, first failure EAGAIN
+after two posts: 2 more succeeded
+O_EXCL on existing: EEXIST; plain reopen ok: 1; open after unlink: ENOENT

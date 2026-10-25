@@ -1,0 +1,5 @@
+classic EDD order: j1[0-3,due 6] j2[3-5,due 8] j3[5-6,due 9] j4[6-10,due 9] j5[10-13,due 14] j6[13-15,due 15]
+max lateness = 1
+250 instances: sum of optimal max lateness=32, on-time schedules=122
+EDD strictly beat shortest-first 208 times, slack-first 50 times, all tied 36 times
+SPT trap: lateness 1, EDD lateness 0

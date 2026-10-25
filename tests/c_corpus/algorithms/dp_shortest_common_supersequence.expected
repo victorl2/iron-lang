@@ -1,0 +1,13 @@
+"abac" + "cab" -> 5 "cabac"
+"geek" + "eke" -> 5 "geeke"
+"AGGTAB" + "GXTXAYB" -> 9 "AGGXTXAYB"
+"abc" + "abc" -> 3 "abc"
+"abc" + "def" -> 6 "abcdef"
+"" + "xyz" -> 3 "xyz"
+random 0: ba + bcaca -> 5 bcaca
+random 1: bca + bca -> 3 bca
+random 2: ccbac + cbaba -> 7 ccbacba
+random 3: ba + baccb -> 5 baccb
+random 4: bbccc + bcb -> 6 bbcccb
+random 5: acaac + acbcb -> 7 acaabcb
+three-string SCS of abcbdab, bdcaba, bcbad: 10

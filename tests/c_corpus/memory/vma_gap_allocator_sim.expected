@@ -1,0 +1,13 @@
+mapped at 16, 24, 40 (aligned to 8: yes)
+initial (2 areas): [16,24)r-x [24,44)rw-
+after adding rw neighbour (2 areas): [16,24)r-x [24,50)rw-
+punched hole [28,33): splits+2
+after hole (3 areas): [16,24)r-x [24,28)rw- [33,50)rw-
+after mprotect r over [a+2,b+2) (4 areas): [16,18)r-x [18,26)r-- [26,28)rw- [33,50)rw-
+after restoring rx on 2 pages (4 areas): [16,20)r-x [20,26)r-- [26,28)rw- [33,50)rw-
+hole filled at 28
+after hole fill (5 areas): [16,20)r-x [20,26)r-- [26,28)rw- [28,33)r-- [33,50)rw-
+stress: maps=1150 failed=290 unmaps=1045 protects=515
+final: 95 areas, 805 pages mapped, splits=1963 merges=685
+largest free gap: 11 pages
+largest gap allocatable: yes, one page larger: no

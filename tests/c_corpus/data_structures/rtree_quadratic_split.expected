@@ -1,0 +1,7 @@
+after  300 inserts: height 3 nodes 101 splits 97
+after  600 inserts: height 4 nodes 186 splits 181
+after  900 inserts: height 4 nodes 290 splits 285
+after 1200 inserts: height 4 nodes 399 splits 394
+after 1500 inserts: height 4 nodes 489 splits 484
+200 window queries: 1640 hits, avg nodes touched 13
+deleted 1028 entries: 472 remain, height 4 nodes 253, 200 window queries: 683 hits

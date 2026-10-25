@@ -1,0 +1,5 @@
+trial 0: edges=16 bipartite=yes first_odd_edge=-1 comps=34 largest=6
+trial 1: edges=22 bipartite=no first_odd_edge=22 comps=29 largest=9
+trial 2: edges=33 bipartite=yes first_odd_edge=-1 comps=18 largest=21
+trial 3: edges=32 bipartite=no first_odd_edge=32 comps=21 largest=15
+tree pairs on same side: 601 of 1225

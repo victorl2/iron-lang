@@ -1,0 +1,6 @@
+objects allocated: 705
+collections: 11, freed: 693, survivors: 12
+weak references examined: 16, cleared: 15, still set at end: 0
+finalizers run: 136, resurrected into graveyard: 43
+reference queue entries: 15
+finalization order hash: 630f1150

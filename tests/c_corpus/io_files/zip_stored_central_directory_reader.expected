@@ -1,0 +1,13 @@
+zip: 1570 bytes, 5 entries, EOCD at 1548
+  empty.txt             0 bytes crc=00000000
+  hello.txt            13 bytes crc=F4247453
+  dir/random.bin      700 bytes crc=180C56C2
+  dir/sub/ramp.bin    256 bytes crc=29058C73
+  README               91 bytes crc=C475A05C
+tamper payload byte       -> crc mismatch
+tamper central crc field  -> crc mismatch
+tamper central method     -> unsupported method
+tamper central name       -> local/central name mismatch
+tamper local signature    -> bad local header
+tamper cd offset field    -> bad central header
+truncated tail -> no end-of-central-directory

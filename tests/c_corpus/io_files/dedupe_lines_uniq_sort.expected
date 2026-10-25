@@ -1,0 +1,13 @@
+input lines 300, adjacent runs 132, longest run 6
+sorted unique: apple date fig grape kiwi lime pear plum quince
+first-seen order with counts:
+  apple    28
+  pear     23
+  date     27
+  fig      32
+  kiwi     37
+  quince   39
+  grape    40
+  plum     33
+  lime     41
+uniq output lines 132 (runs 132), distinct values 9

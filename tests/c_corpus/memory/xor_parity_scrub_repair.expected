@@ -1,0 +1,7 @@
+clean scrub: 0
+single-bit flips: 824 injected, 824 repaired exactly
+scribbled block 3: scrub=1 repaired=3 intact=1
+two damaged blocks: scrub=-1 repaired=-1
+after manual undo: scrub=0
+parity+block damage: scrub=-1 block2 restored=0
+crc32 of block 0: de013a19

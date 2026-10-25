@@ -1,0 +1,24 @@
+  time  cwnd phase
+   310     1 slow-start
+  1200     8 slow-start
+  2100    32 avoidance/recovery
+  3000    64 avoidance/recovery
+  3900    19 avoidance/recovery
+  4800    22 avoidance/recovery
+  5700    25 avoidance/recovery
+  6600    28 avoidance/recovery
+  7500    31 avoidance/recovery
+  8400    33 avoidance/recovery
+  9300    36 avoidance/recovery
+ 10200    38 avoidance/recovery
+ 11100    41 avoidance/recovery
+ 12000    43 avoidance/recovery
+ 12900    45 avoidance/recovery
+ 13800    43 avoidance/recovery
+ 14700    26 avoidance/recovery
+ 15600    29 avoidance/recovery
+ 16500    32 avoidance/recovery
+ 17400    35 avoidance/recovery
+finished at t=18460
+segments=1500 sent=1504 retransmitted=4 queue drops=4
+fast retransmits=2 timeouts=0 max cwnd=70 final ssthresh=23

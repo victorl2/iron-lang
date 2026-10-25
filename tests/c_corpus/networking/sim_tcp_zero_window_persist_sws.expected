@@ -1,0 +1,5 @@
+persist=off sws=off: done at t= 5120 segments=285 tiny=206 probes= 0 window updates 361 (lost 213) probe replies lost 0
+persist=off sws=on : DEADLOCK at t=60000 with 4608 of 16384 bytes acked (window updates sent 8, lost 6)
+persist=on  sws=off: done at t= 5130 segments=288 tiny=210 probes= 4 window updates 362 (lost 212) probe replies lost 4
+persist=on  sws=on : done at t= 5790 segments= 32 tiny=  0 probes=34 window updates 27 (lost 17) probe replies lost 20
+without SWS avoidance 288 segments (210 tiny), with it 32 (0 tiny); finish 5130 vs 5790

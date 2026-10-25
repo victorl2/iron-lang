@@ -1,0 +1,18 @@
+GET    /                        200 index
+GET    /users/42                200 user id=42
+POST   /users/42                200 user id=42 created with [name=ada]
+DELETE /users/7                 200 user id=7
+GET    /users/42/posts/9        200 post 9 of user 42
+GET    /users/                  404 not found
+POST   /                        405 Allow=GET 
+DELETE /users/42/posts/9        405 Allow=GET 
+GET    /files/docs/readme.txt   200 file path=docs/readme.txt
+GET    /files/a%20b/c%2Fd       200 file path=a b/c/d
+GET    /files/../secret         400 dot segments rejected
+GET    /nope/1?x=2              404 not found
+GET    /users/42?verbose=1      200 user id=42
+route 0 (/): 1 hits
+route 1 (/users/:id): 3 hits
+route 2 (/users/:id): 1 hits
+route 3 (/users/:id/posts/:pid): 1 hits
+route 4 (/files/*): 2 hits

@@ -1,0 +1,3 @@
+objects: 64, payloads destroyed: 64, control blocks freed: 64
+bad accesses through upgraded refs: 0
+upgrade attempts accounted: 1

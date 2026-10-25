@@ -1,0 +1,36 @@
+original with tabs shown as-is:
+  |a\tb\tc|
+  |\tindented|
+  |12345678\tx|
+  |1234567\ty|
+  |\t\t\tdeep|
+  |ab^Hc\td|
+  |end|
+original size 55
+expand -t 8:
+  |a       b       c|
+  |        indented|
+  |12345678        x|
+  |1234567 y|
+  |                        deep|
+  |ab^Hc      d|
+  |end|
+expand -t 4:
+  |a   b   c|
+  |    indented|
+  |12345678    x|
+  |1234567 y|
+  |            deep|
+  |ab^Hc  d|
+  |end|
+sizes: t8=107 t4=75
+tabstop 4: unexpanded size 55 (expanded 75), roundtrip ok
+tabstop 8: unexpanded size 55 (expanded 107), roundtrip ok
+unexpand -t 8 of the t8 file:
+  |a\tb\tc|
+  |\tindented|
+  |12345678\tx|
+  |1234567 y|
+  |\t\t\tdeep|
+  |ab^Hc\td|
+  |end|

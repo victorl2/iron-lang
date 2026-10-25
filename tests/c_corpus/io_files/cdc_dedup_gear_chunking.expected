@@ -1,0 +1,12 @@
+versions: 29996, 30033, 29533 bytes
+fixed-size chunking:
+  v1: chunks=118 new bytes stored=29996
+  v2: chunks=118 new bytes stored=29521
+  v3: chunks=116 new bytes stored=17757
+  input=89562 stored=77274 dedup ratio=1.16 duplicate chunks=48
+content-defined chunking:
+  v1: chunks=39 new bytes stored=29996
+  v2: chunks=39 new bytes stored=3352
+  v3: chunks=38 new bytes stored=2731
+  input=89562 stored=36079 dedup ratio=2.48 duplicate chunks=70
+  unique chunks=46 size range 143..1024

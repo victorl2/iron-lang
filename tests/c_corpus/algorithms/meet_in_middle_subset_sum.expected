@@ -1,0 +1,3 @@
+20 random instances verified against 2^n enumeration
+n=36 total=202657269 target=101328634 best=101328634 gap=0
+pairs tested: 262144 (vs 2^36 subsets)

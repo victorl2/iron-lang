@@ -1,0 +1,7 @@
+barrier ablation: objects lost with barrier 0, without 1
+objects allocated: 885
+cycles: 14, mark slices: 45, forced synchronous finishes: 0
+barrier shaded 6 objects, grey stack peak 8
+swept: 876, floating garbage over all cycles: 21
+live at end: 9
+oracle checks: 15

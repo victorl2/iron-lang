@@ -1,0 +1,7 @@
+heap      tournament   chain        script      
+leftist   24017        16795        10523       
+skew      24000        16843        10983       
+pairing   23303        16420        9179        
+binomial  24401        17675        9901        
+pop stream hashes: 5466447629248573472 11432549076096608711 9826792322388746244
+final sizes: 10 45 1350 9 2 1 17 91

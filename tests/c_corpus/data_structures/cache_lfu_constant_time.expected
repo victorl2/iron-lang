@@ -1,0 +1,3 @@
+phase1 hits=16719 misses=3281
+phase2 total hits=25222 misses=14778 evictions=14758
+hot keys resident=12/12 size=20 max freq=2150 (key 1) minf=1

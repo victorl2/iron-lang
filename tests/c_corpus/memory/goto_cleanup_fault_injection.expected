@@ -1,0 +1,11 @@
+fault injection over 9 acquisitions
+fail_at=0 -> failed (step 1), acquired=0, live=0
+fail_at=1 -> failed (step 2), acquired=1, live=0
+fail_at=2 -> failed (step 3), acquired=2, live=0
+fail_at=3 -> failed (step 4), acquired=3, live=0
+fail_at=4 -> failed (step 5), acquired=4, live=0
+fail_at=5 -> failed (step 6), acquired=5, live=0
+fail_at=6 -> failed (step 6), acquired=6, live=0
+fail_at=7 -> failed (step 6), acquired=7, live=0
+fail_at=8 -> failed (step 6), acquired=8, live=0
+fail_at=9 -> ok (step 0), acquired=9, live=9

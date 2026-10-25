@@ -1,0 +1,12 @@
+sqrt block size for n=10000: 100
+step=1     found=1429 total comparisons=28585714
+step=2     found=1429 total comparisons=14299999
+step=5     found=1429 total comparisons=5735430
+step=10    found=1429 total comparisons=2892010
+step=50    found=1429 total comparisons=720100
+step=100   found=1429 total comparisons=577129
+step=200   found=1429 total comparisons=719744
+step=1000  found=1429 total comparisons=2891434
+step=5000  found=1429 total comparisons=14293573
+step=10000 found=1429 total comparisons=28575715
+tiny: 0 2 -1 -1

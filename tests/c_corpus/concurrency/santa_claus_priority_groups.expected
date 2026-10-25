@@ -1,0 +1,6 @@
+1: help elves 0 1 2
+2: help elves 3 4 5
+3: deliver toys with reindeer
+4: help elves 6 7 8
+5: help elves 9 10 11
+deliveries=1 elf groups=4

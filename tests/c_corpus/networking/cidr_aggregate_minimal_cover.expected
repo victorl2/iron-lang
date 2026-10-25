@@ -1,0 +1,15 @@
+input 8 prefixes
+aggregated to 2:
+  192.0.2.0/23
+  192.0.4.0/24
+60 random trials: 6831 input prefixes -> 2248 aggregated, worst ratio 91%
+256 shuffled /24 -> 1 route:   172.16.0.0/16
+/16 minus one /24 -> 8 routes
+  172.16.0.0/18
+  172.16.64.0/21
+  172.16.72.0/22
+  172.16.76.0/24
+  172.16.78.0/23
+  172.16.80.0/20
+  172.16.96.0/19
+  172.16.128.0/17

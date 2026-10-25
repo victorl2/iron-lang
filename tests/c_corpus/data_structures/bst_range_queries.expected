@@ -1,0 +1,9 @@
+built tree: size=670 height=21 min=2 max=4999
+800 range queries: 31054 keys enumerated with 40138 node visits
+nearest-neighbour checksum=1137194
+delete [2376,2658]: removed 28, size now 642, height 22
+delete [4205,4664]: removed 57, size now 585, height 22
+delete [2309,2703]: removed 9, size now 576, height 21
+delete [4270,4664]: removed 0, size now 576, height 21
+delete [3287,3564]: removed 29, size now 547, height 29
+delete [493,768]: removed 37, size now 510, height 29

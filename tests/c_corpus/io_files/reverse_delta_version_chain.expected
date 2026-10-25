@@ -1,0 +1,16 @@
+revisions=14 head bytes=391 history bytes=714
+rev 12 <- rev 13: keep 30 delete 2 insert 3 (73 bytes)
+rev 11 <- rev 12: keep 30 delete 3 insert 3 (78 bytes)
+rev 10 <- rev 11: keep 32 delete 1 insert 1 (31 bytes)
+rev  9 <- rev 10: keep 30 delete 3 insert 2 (63 bytes)
+rev  8 <- rev  9: keep 30 delete 2 insert 0 (21 bytes)
+rev  7 <- rev  8: keep 27 delete 3 insert 2 (66 bytes)
+rev  6 <- rev  7: keep 26 delete 3 insert 2 (65 bytes)
+rev  5 <- rev  6: keep 26 delete 2 insert 2 (51 bytes)
+rev  4 <- rev  5: keep 27 delete 1 insert 4 (84 bytes)
+rev  3 <- rev  4: keep 27 delete 4 insert 2 (66 bytes)
+rev  2 <- rev  3: keep 29 delete 0 insert 1 (26 bytes)
+rev  1 <- rev  2: keep 29 delete 1 insert 1 (34 bytes)
+rev  0 <- rev  1: keep 28 delete 2 insert 2 (56 bytes)
+all 13 older revisions reproduced exactly from reverse deltas
+storing every full text would cost 5358 bytes; head+deltas cost 1105

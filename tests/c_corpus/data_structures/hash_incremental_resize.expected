@@ -1,0 +1,4 @@
+n=3712 buckets=4096 rehashing=0
+growth cycles started=10 nodes migrated=4037
+max work in one operation=11 (a full rehash would touch up to 7808)
+lookups served while two tables were live=462

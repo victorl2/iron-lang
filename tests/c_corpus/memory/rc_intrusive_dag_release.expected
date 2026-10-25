@@ -1,0 +1,7 @@
+live after build: 5
+rc: root=1 a=1 b=1 shared=2 leaf=1
+after root release: 5 3
+live: 3, b rc=1, shared rc=1
+after keep release: 4 2 1
+chain live: 40
+chain destroyed: 40 first=100 last=139

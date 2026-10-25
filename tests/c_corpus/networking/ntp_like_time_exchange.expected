@@ -1,0 +1,11 @@
+round 0: out=2420us back=4190us  offset=1749365us delay=6610us
+round 1: out=370us back=3320us  offset=1748775us delay=3690us
+round 2: out=7060us back=4840us  offset=1751360us delay=11900us
+round 3: out=3320us back=7410us  offset=1748205us delay=10730us
+round 4: out=8060us back=5390us  offset=1751585us delay=13450us
+round 5: out=5550us back=5550us  offset=1750250us delay=11100us
+round 6: out=7860us back=5130us  offset=1751615us delay=12990us
+round 7: out=5910us back=790us  offset=1752810us delay=6700us
+best sample: offset=1748775us delay=3690us (out=370 back=3320)
+true offset=1750250us, residual after correction=1475us, spoofed replies rejected=3
+client clock now within 1475us of server

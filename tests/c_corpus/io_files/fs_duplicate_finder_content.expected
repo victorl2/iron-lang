@@ -1,0 +1,27 @@
+regular files scanned: 21
+group size=3000 x2
+  pool/a/big1
+  pool/b/big1_copy
+group size=14 x5
+  pool/a/f05.dat
+  pool/b/c/f06.dat
+  pool/b/f00.dat
+  pool/f03.dat
+  pool/f04.dat
+group size=1 x3
+  pool/a/f07.dat
+  pool/b/c/f01.dat
+  pool/b/f12.dat
+group size=14 x6
+  pool/a/f10.dat
+  pool/b/c/f14.dat
+  pool/b/c/f15.dat
+  pool/b/f02.dat
+  pool/b/hard_of_keep
+  pool/keep.dat  (hard link)
+group size=0 x2
+  pool/b/c/f11.dat
+  pool/f09.dat
+duplicate groups: 5, wasted bytes: 3114
+near-miss big1/big2 kept apart: yes
+equal pairs by brute force: 30

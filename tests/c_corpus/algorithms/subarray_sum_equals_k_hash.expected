@@ -1,0 +1,8 @@
+trial 0: n=389 k=-4 matches=1149, divisible by 9: 8331
+trial 1: n=555 k=-3 matches=1267, divisible by 2: 77070
+trial 2: n=617 k=3 matches=926, divisible by 2: 95197
+trial 3: n=564 k=3 matches=1229, divisible by 10: 15850
+trial 4: n=630 k=2 matches=3505, divisible by 4: 49474
+[1,1,1] k=2 -> 2
+[0,0,0,0] k=0 -> 10
+[4,5,0,-2,-3,1] divisible by 5 -> 7

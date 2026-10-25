@@ -1,0 +1,8 @@
+pi(abacabab): 0 0 1 0 1 2 3 2
+pattern aa       alphabet 2:  986 matches, first at 2
+pattern abab     alphabet 2:  233 matches, first at 2
+pattern abaab    alphabet 3:   19 matches, first at 11
+pattern aaaaaa   alphabet 1: 3995 matches, first at 0
+pattern b        alphabet 4: 1009 matches, first at 5
+pattern abcabca  alphabet 3:    4 matches, first at 378
+aaaa in a^50: 47 overlapping matches, 96 steps

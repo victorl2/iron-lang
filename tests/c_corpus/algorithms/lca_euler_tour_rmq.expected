@@ -1,0 +1,4 @@
+nodes 300, leaves 157, max depth 9, tour length 599
+sparse table levels: 10
+distance sum over 30000 queries: 245331
+largest non-root subtree: node 2 with 179 nodes

@@ -1,0 +1,10 @@
+96 nodes, k=6 alpha=3: routing table size min=13 max=30 avg=20
+stable network: 200 lookups, exact k-closest sets 198, recall 1193/1200, avg RPCs per lookup 8.34
+sample lookup trace:
+  round 0: queried 3, best distance 00b0
+  round 1: queried 3, best distance 00b0
+  round 2: queried 1, best distance 00b0
+  round 3: queried 0, best distance 00b0
+  result ids: be5f bfbc b67b b7d4 b255 b132
+after 1/3 nodes died: 200 lookups, exact k-closest sets 162, recall 1141/1200, avg RPCs per lookup 13.89
+dead-contact pings=1473 evictions=130

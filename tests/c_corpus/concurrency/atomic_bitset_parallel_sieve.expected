@@ -1,0 +1,6 @@
+small primes used as sievers: 101
+pi(1000) = 168
+pi(10000) = 1229
+pi(100000) = 9592
+pi(300000) = 25997
+largest prime <= 300000: 299993, twin prime pairs: 2994

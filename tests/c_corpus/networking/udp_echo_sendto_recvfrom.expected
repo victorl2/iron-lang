@@ -1,0 +1,6 @@
+datagram 0: sent 4 bytes, reply 'gnip' (4 bytes)
+datagram 1: sent 25 bytes, reply 'daolyap margatad regnol a' (25 bytes)
+datagram 2: sent 0 bytes, reply '' (0 bytes)
+datagram 3: sent 1 bytes, reply 'z' (1 bytes)
+datagram 4: sent 10 bytes, reply '9876543210' (10 bytes)
+truncated read kept 4 bytes, following datagram intact

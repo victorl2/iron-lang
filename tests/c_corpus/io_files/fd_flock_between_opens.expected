@@ -1,0 +1,16 @@
+f1 LOCK_EX: granted
+f2 LOCK_EX: would block
+f2 LOCK_SH: would block
+f2 LOCK_EX after f1 unlock: granted
+f1 LOCK_SH while f2 is shared: granted
+f1 LOCK_EX upgrade while f2 shared: would block
+f1 LOCK_EX upgrade once alone: granted
+dup relocks (same description): granted
+f2 after closing f1 (dup alive): would block
+f2 after closing last alias: granted
+f2 while parent holds: would block
+f2 after the child's LOCK_UN: granted
+waiter acquired while held: no
+waiter acquired after release: yes
+f2 after waiter exit: granted
+counter after 5 x 40 locked increments: 200

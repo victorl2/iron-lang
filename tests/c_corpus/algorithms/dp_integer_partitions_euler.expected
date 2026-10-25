@@ -1,0 +1,7 @@
+p(n) for n = 0..12: 1 1 2 3 5 7 11 15 22 30 42 56 77
+p(20)=627 distinct=64
+p(50)=204226 distinct=3658
+p(80)=15796476 distinct=77312
+p(100)=190569292 distinct=444793
+p(120)=1844349560 distinct=2194432
+into exactly 3 parts, n=30: 75; exactly 5 parts, n=40: 1115

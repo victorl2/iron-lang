@@ -1,0 +1,3 @@
+x^2-4x+e^-x    argmin=2.06350 golden evals=45 ternary evals=102
+|x-.25|+.1x^2  argmin=0.25000 golden evals=46 ternary evals=104
+fibonacci integer search: x=616 cost=0 (brute x=616 cost=0) evals<200: yes

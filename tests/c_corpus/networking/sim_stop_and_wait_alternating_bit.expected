@@ -1,0 +1,7 @@
+loss= 0% corrupt= 0% tmo=30: finish@  800 data_tx= 40 ack_tx= 40 lost=  0 corrupt= 0 bad_csum= 0 dups=  0
+loss=10% corrupt= 0% tmo=30: finish@ 1010 data_tx= 47 ack_tx= 43 lost=  7 corrupt= 0 bad_csum= 0 dups=  3
+loss= 0% corrupt=15% tmo=30: finish@ 1280 data_tx= 56 ack_tx= 45 lost=  0 corrupt=16 bad_csum=16 dups=  5
+loss=20% corrupt=20% tmo=30: finish@ 1850 data_tx= 75 ack_tx= 56 lost= 14 corrupt=21 bad_csum=21 dups= 16
+loss=40% corrupt=10% tmo=30: finish@ 3740 data_tx=138 ack_tx= 68 lost= 88 corrupt=10 bad_csum=10 dups= 28
+loss= 0% corrupt= 0% tmo= 8: finish@  800 data_tx=120 ack_tx=119 lost=  0 corrupt= 0 bad_csum= 0 dups= 79
+loss=10% corrupt=10% tmo= 8: finish@  968 data_tx=141 ack_tx=112 lost= 23 corrupt=23 bad_csum=23 dups= 72

@@ -1,0 +1,5 @@
+removed: files=6 dirs=7 symlinks=3
+symlink targets outside the tree survived: yes
+removed via dir symlink: files=0 dirs=0 symlinks=1
+missing -> ENOENT, plain file -> files=1
+left in cwd: 1 (keep)

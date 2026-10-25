@@ -1,0 +1,10 @@
+stat by name after unlink: ENOENT
+fstat: nlink=0 size=10
+read after unlink: still here
+after write: still HERE
+new file with the same name is a different file: 1
+scratch file round trip: 200 values, sums equal: 1, size=800
+descriptor opened before rename sees: old contents
+fresh open sees: replacement
+via surviving link: linked data (nlink=1)
+shared unlinked file: from child;from parent

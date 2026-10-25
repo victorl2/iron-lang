@@ -1,0 +1,9 @@
+file bytes: 267, rows: 12, fields: 32, quoted: 20
+row 0 (2): [a,b\nc,d] [42]
+row 1 (2): [ padded ] ["quoted",and\nnewline]
+row 2 (3): [with,comma] [""] [42]
+row 3 (2): [a,b\nc,d] [line1\nline2]
+unterminated: -1
+stray quote: -1
+junk after quote: -1
+no final crlf: rows=2 second=[p\r\nq]

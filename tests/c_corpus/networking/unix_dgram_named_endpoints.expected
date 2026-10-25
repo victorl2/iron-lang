@@ -1,0 +1,9 @@
+round 0: count=1 received from iron_a.sock
+round 1: count=4 received from iron_b.sock
+round 2: count=13 received from iron_a.sock
+round 3: count=40 received from iron_b.sock
+round 4: count=121 received from iron_a.sock
+round 5: count=364 received from iron_b.sock
+final value 1093
+send to missing path: ENOENT
+drained: m0 m1 m2 m3

@@ -1,0 +1,13 @@
+ 1x1  stride= 4 pad=1 file= 58 bytes header: 42 4D 3A 00 00 00 00 00 00 00 36 00 00 00
+ 2x3  stride= 8 pad=2 file= 78 bytes header: 42 4D 4E 00 00 00 00 00 00 00 36 00 00 00
+ 3x2  stride=12 pad=3 file= 78 bytes header: 42 4D 4E 00 00 00 00 00 00 00 36 00 00 00
+ 4x4  stride=12 pad=0 file=102 bytes header: 42 4D 66 00 00 00 00 00 00 00 36 00 00 00
+ 5x7  stride=16 pad=1 file=166 bytes header: 42 4D A6 00 00 00 00 00 00 00 36 00 00 00
+13x6  stride=40 pad=1 file=294 bytes header: 42 4D 26 01 00 00 00 00 00 00 36 00 00 00
+top-down: (0,0)=255,0,0 (1,0)=0,255,0 (0,1)=0,0,255 (1,1)=255,255,255
+patch at 0: not a BMP
+patch at 2: file size mismatch
+patch at 28: unsupported format
+patch at 14: unsupported header
+patch at 18: bad dimensions
+truncated: file size mismatch

@@ -1,0 +1,7 @@
+response 1: [GET /a]
+response 2: [POST /b body=5 sum=532]
+response 3: [GET /c/d]
+response 4: [POST /e body=16 sum=930]
+response 5: [DELETE /f]
+response 6: [GET /last]
+server handled 6 requests in order

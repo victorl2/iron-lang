@@ -1,0 +1,3 @@
+p= 8% edges= 409 triangles=   91 k4=     1 greedy_clique=4
+p=20% edges= 976 triangles= 1227 k4=   243 greedy_clique=4
+p=45% edges=2186 triangles=14049 k4= 30308 greedy_clique=7

@@ -1,0 +1,9 @@
+samples=640000 hits=502403
+pi estimate: 3.1400
+block 0 hits 15690
+block 1 hits 15734
+block 2 hits 15732
+block 3 hits 15620
+block 4 hits 15685
+block 5 hits 15729
+blocks with distinct counts vs block 0: 31 of 31

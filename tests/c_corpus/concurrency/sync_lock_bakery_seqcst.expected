@@ -1,0 +1,7 @@
+(number,id) order is total and antisymmetric: yes
+tie: (2,1) before (2,3): 1, (2,3) before (2,1): 0
+thread 0 entered 250 times
+thread 1 entered 250 times
+thread 2 entered 250 times
+thread 3 entered 250 times
+counter=1000 shadow=3000 violations=0 bad tickets=0

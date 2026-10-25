@@ -1,0 +1,8 @@
+global min -4755 at 4985, global max 2499 at 581
+running-minimum records=7 running-maximum records=8
+chunk 1 starts at 1428: prefix min -2495 (idx 97) max 2499 (idx 581)
+chunk 2 starts at 2857: prefix min -4187 (idx 1994) max 2499 (idx 581)
+chunk 3 starts at 4285: prefix min -4187 (idx 1994) max 2499 (idx 581)
+chunk 4 starts at 5714: prefix min -4755 (idx 4985) max 2499 (idx 581)
+chunk 5 starts at 7142: prefix min -4755 (idx 4985) max 2499 (idx 581)
+chunk 6 starts at 8571: prefix min -4755 (idx 4985) max 2499 (idx 581)

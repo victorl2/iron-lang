@@ -1,0 +1,7 @@
+process 0: final balance 1016, sent 1558, received 1574, markers 4
+process 1: final balance 1384, sent 1395, received 1779, markers 4
+process 2: final balance 987, sent 1509, received 1496, markers 4
+process 3: final balance 998, sent 1477, received 1475, markers 4
+process 4: final balance 615, sent 1575, received 1190, markers 4
+total at end: 5000
+snapshot consistent: recorded states + in-transit money = 5000

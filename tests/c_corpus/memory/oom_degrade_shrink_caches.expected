@@ -1,0 +1,8 @@
+cap=6000 used=5856 retries=281 hard_fail=0
+  parse  entries=  1 bytes=  272 reclaimed=87
+  glyph  entries=  2 bytes=  445 reclaimed=105
+  route  entries= 16 bytes= 3507 reclaimed=89
+critical buffer intact: 40a20200
+5900-byte request: refused, used=2525, cache entries left=0/2/4
+7000-byte request: refused hard_fail=2
+final used=0

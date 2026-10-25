@@ -1,0 +1,3 @@
+adds=11974 removed=4961 |A|=3541 distinct=195 |B|=3472 distinct=197
+A|B=4638/200 A+B=7013/200 A&B=2375/192 A-B=1166/98 (total/distinct)
+mode(A)=43 x42 mode(B)=197 x46 median(A)=98 sub_bag(A,B)=0

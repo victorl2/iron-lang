@@ -1,0 +1,6 @@
+process 0 exit status 10
+process 1 exit status 11
+process 2 exit status 12
+process 3 exit status 13
+shared counter = 12000 (expected 12000)
+round robin log: 0 100 200 300 1 101 201 301 2 102 202 302 3 103 203 303 4 104 204 304 5 105 205 305

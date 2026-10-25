@@ -1,0 +1,5 @@
+ascending 250: height=250 root=249 zig=249 zigzig=0 zigzag=0
+splayed deepest key 0: height 250 -> 127
+random: inserts=692 deletes=690 hits=667 size=252 sampled maxheight=127
+rotation kinds zig=2600 zigzig=9944 zigzag=8248
+drained

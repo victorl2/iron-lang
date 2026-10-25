@@ -1,0 +1,12 @@
+loaded         owner=loader   len=6 sum=75
+a mutated      owner=loader   len=6 sum=1064
+snapshot       owner=loader   len=6 sum=75
+a after move   owner=nobody   len=0 sum=0
+b in parser    owner=parser   len=6 sum=1064
+c in renderer  owner=renderer len=6 sum=1075
+hop 0 -> parser
+hop 1 -> renderer
+hop 2 -> parser
+hop 3 -> loader
+chain end      owner=loader   len=3 sum=6
+allocs=3 frees=3

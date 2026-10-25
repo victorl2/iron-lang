@@ -1,0 +1,9 @@
+child 0 exit code 10
+child 1 exit code 11
+child 2 exit code 12
+child 3 exit code 13
+part 0: checksum=2215124414559 first=3983159819 last=3811096738
+part 1: checksum=2246972520458 first=3376628060 last=609441045
+part 2: checksum=2247540091691 first=1360009521 last=76542937
+part 3: checksum=2259732582555 first=2863525401 last=134263414
+grand total: 8969369609263

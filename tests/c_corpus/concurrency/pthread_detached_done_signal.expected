@@ -1,0 +1,10 @@
+attr detached: yes
+job 0: longest collatz run 118
+job 1: longest collatz run 124
+job 2: longest collatz run 127
+job 3: longest collatz run 143
+job 4: longest collatz run 141
+job 5: longest collatz run 136
+job 6: longest collatz run 144
+job 7: longest collatz run 170
+done=8

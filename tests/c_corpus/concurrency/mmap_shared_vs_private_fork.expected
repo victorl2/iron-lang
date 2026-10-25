@@ -1,0 +1,7 @@
+slice 0: partial sum 8667623985705
+slice 1: partial sum 8758839335780
+slice 2: partial sum 8779412381899
+slice 3: partial sum 8852033433022
+slice 4: partial sum 8746989260757
+total of all slices = 43804898397163
+private mapping still holds parent's value in 20480 of 20480 cells

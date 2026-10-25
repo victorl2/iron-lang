@@ -1,0 +1,9 @@
+push     ok=3161 full=11 empty=0 range=0
+pop      ok=2354 full=0 empty=90 range=0
+peek     ok=2287 full=0 empty=100 range=0
+peek_at  ok=1270 full=0 empty=0 range=1107
+dup      ok=2226 full=4 empty=77 range=0
+swap     ok=1836 full=0 empty=603 range=0
+roll     ok=1638 full=0 empty=0 range=814
+pop_n    ok=1636 full=0 empty=0 range=786
+final depth=5

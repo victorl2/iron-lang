@@ -1,0 +1,5 @@
+records verified via pread: 512 of 512
+low-byte checksum total: 65909
+pwrite visible in mapping: id=57005 sum=48879
+id sum after remap: 972528
+grown tail is zero: yes

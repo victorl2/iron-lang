@@ -1,0 +1,10 @@
+distinct words=804 root best weight=999
+complete 'dd' k=3: ddaeeb(928) ddeeb(924) ddac(868)
+complete 'cca' k=4: ccaa(857) ccada(784) cca(742) ccabcd(658)
+complete 'e' k=1: eaeaa(995)
+complete 'c' k=4: cabcec(986) ccbbb(975) cdca(973) cccc(973)
+complete 'cee' k=4: ceebbb(962) ceebec(957) ceeaa(631) cee(581)
+complete 'd' k=3: dadd(980) dceba(979) dacdcb(967)
+total results=2107 heap expansions=7274
+boosted eceda to weight 5000
+top after demotion: acbed(999)

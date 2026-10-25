@@ -1,0 +1,32 @@
+noise  0%: root gains outlook=0.1498 temp=0.0045 humidity=0.0185 wind=0.4783 season=0.0069
+  full tree: nodes 16 leaves 11 depth 3, train 100.0% test 100.0%; pruned(depth<=3,min 20): nodes 16, test 100.0%
+  wind=0?
+    outlook=0?
+      humidity=0?
+        -> class 1 (17/17)
+      humidity=1?
+        -> class 1 (9/9)
+      humidity=2?
+        -> class 0 (0/11)
+    outlook=1?
+      -> class 0 (0/33)
+    outlook=2?
+      -> class 0 (0/51)
+  wind=1?
+    -> class 1 (133/133)
+  wind=2?
+    outlook=0?
+      humidity=0?
+        -> class 1 (15/15)
+      humidity=1?
+        -> class 1 (21/21)
+      humidity=2?
+        -> class 0 (0/17)
+    outlook=1?
+      -> class 0 (0/51)
+    outlook=2?
+      -> class 0 (0/42)
+noise  5%: root gains outlook=0.1265 temp=0.0009 humidity=0.0316 wind=0.3316 season=0.0005
+  full tree: nodes 127 leaves 82 depth 5, train 96.0% test 96.5%; pruned(depth<=3,min 20): nodes 40, test 100.0%
+noise 15%: root gains outlook=0.0391 temp=0.0022 humidity=0.0115 wind=0.2297 season=0.0022
+  full tree: nodes 190 leaves 121 depth 5, train 89.2% test 89.8%; pruned(depth<=3,min 20): nodes 40, test 100.0%

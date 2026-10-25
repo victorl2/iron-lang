@@ -1,0 +1,4 @@
+random   rounds=250 swaps=16009 first=0 last=999
+reversed rounds=259 swaps=32896 first=1 last=257
+sorted   rounds=2 swaps=0 first=0 last=256
+ties     rounds=181 swaps=11322 first=0 last=2

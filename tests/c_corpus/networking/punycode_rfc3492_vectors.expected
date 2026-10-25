@@ -1,0 +1,31 @@
+(A) Arabic (Egyptian)            17 cps  34 utf8 bytes -> egbpdaj6bu4bxfgehfvwxn
+(B) Chinese (simplified)          9 cps  27 utf8 bytes -> ihqwcrb4cv8a8dqg056pqjye
+(C) Chinese (traditional)         9 cps  27 utf8 bytes -> ihqwctvzc91f659drss3x8bo0yb
+(D) Czech                        22 cps  26 utf8 bytes -> Proprostnemluvesky-uyb24dma41a
+(E) Hebrew                       22 cps  44 utf8 bytes -> 4dbcagdahymbxekheh6e0a7fei0b
+(F) Hindi                        30 cps  90 utf8 bytes -> i1baa7eci9glrd9b2ae1bj0hfcgg6iyaf8o0a1dig0cd
+(G) Japanese kanji+hiragana      18 cps  54 utf8 bytes -> n8jok5ay5dzabd5bym9f0cm5685rrjetr6pdxa
+(H) Korean                       24 cps  72 utf8 bytes -> 989aomsvi5e83db1d2a355cv1e0vak1dwrv93d5xbh15a0dt30a5jpsd879ccm6fea98c
+(I) Russian                      28 cps  56 utf8 bytes -> b1abfaaepdrnnbgefbadotcwatmq2g4l
+(J) Spanish                      40 cps  42 utf8 bytes -> PorqunopuedensimplementehablarenEspaol-fmd56a
+(K) Vietnamese                   31 cps  45 utf8 bytes -> TisaohkhngthchnitingVit-kjcr8268qyxafd2f1b9g
+(L) 3nen B-gumi                   8 cps  20 utf8 bytes -> 3B-ww4c5e180e575a65lsy2b
+(M) amuro namie                  24 cps  34 utf8 bytes -> -with-SUPER-MONKEYS-pc58ag80a8qai00g7n9n
+(N) Hello-Another-Way            25 cps  39 utf8 bytes -> Hello-Another-Way--fc4qua05auwb3674vfr0b
+(O) hitotsu yane no shita 2       8 cps  22 utf8 bytes -> 2-u9tlzr9756bt3uc0v
+(P) Maji de Koi suru 5 byou mae  13 cps  23 utf8 bytes -> MajiKoi5-783gue6qz075azm5e
+(Q) pafii de runba                9 cps  23 utf8 bytes -> de-jg4avhby1noc0d
+(R) sono supiido de               7 cps  21 utf8 bytes -> d9juau41awczczp
+(S) ASCII with delimiter         11 cps  11 utf8 bytes -> -> $1.00 <--
+label bücher      -> xn--bcher-kva
+label münchen     -> xn--mnchen-3ya
+label 日本語    -> xn--wgv71a119e
+label plain        -> plain
+label 😀         -> xn--e28h
+decode ab-é                -> bad-digit
+decode abc!                 -> bad-digit
+decode a-9                  -> truncated
+decode 99999999999          -> overflow
+decode u                    -> truncated
+decode de-jg4avhby1noc0     -> truncated
+3000 random strings round-trip: 46132 code points -> 117095 characters

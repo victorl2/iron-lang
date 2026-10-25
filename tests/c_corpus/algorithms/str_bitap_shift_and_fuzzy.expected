@@ -1,0 +1,4 @@
+shift-and abcab      exact hits=13 k=1:301 k=2:1834 k=3:2973
+shift-and aabba      exact hits=92 k=1:989 k=2:2749 k=3:2999
+shift-and cabcabcab  exact hits=0 k=1:5 k=2:100 k=3:805
+shift-and abcdefg    exact hits=0 k=1:0 k=2:0 k=3:0

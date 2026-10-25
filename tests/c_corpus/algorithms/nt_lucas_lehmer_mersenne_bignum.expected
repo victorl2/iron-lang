@@ -1,0 +1,17 @@
+Mersenne exponents found: 2 3 5 7 13 17 19 31 61 89 107 127
+count: 12
+M11 composite, smallest factor 23 = 2*k*11+1
+M23 composite, smallest factor 47 = 2*k*23+1
+M29 composite, smallest factor 233 = 2*k*29+1
+M37 composite, smallest factor 223 = 2*k*37+1
+M41 composite, smallest factor 13367 = 2*k*41+1
+M43 composite, smallest factor 431 = 2*k*43+1
+M47 composite, smallest factor 2351 = 2*k*47+1
+perfect number from p=2: 6
+perfect number from p=3: 28
+perfect number from p=5: 496
+perfect number from p=7: 8128
+perfect number from p=13: 33550336
+perfect number from p=17: 8589869056
+perfect number from p=19: 137438691328
+perfect number from p=31: 2305843008139952128

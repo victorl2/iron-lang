@@ -1,0 +1,10 @@
+banana    n=  6 nodes= 11 internal=  3 distinct=  15 longest-repeat=3 links=3 queries=28/60 hit
+mississ   n= 11 nodes= 19 internal=  6 distinct=  53 longest-repeat=4 links=6 queries=27/60 hit
+aaaaaa    n= 12 nodes= 25 internal= 11 distinct=  12 longest-repeat=11 links=11 queries=32/60 hit
+abab      n= 12 nodes= 24 internal= 10 distinct=  23 longest-repeat=10 links=10 queries=37/60 hit
+xabxac    n= 12 nodes= 22 internal=  8 distinct=  57 longest-repeat=5 links=8 queries=32/60 hit
+abcabx    n= 10 nodes= 17 internal=  5 distinct=  46 longest-repeat=3 links=5 queries=30/60 hit
+rand2     n= 20 nodes= 37 internal= 15 distinct= 153 longest-repeat=7 links=15 queries=37/60 hit
+rand3     n=110 nodes=185 internal= 73 distinct=5744 longest-repeat=7 links=73 queries=52/60 hit
+rand4     n=200 nodes=324 internal=122 distinct=19516 longest-repeat=6 links=122 queries=53/60 hit
+rand5     n=290 nodes=450 internal=158 distinct=41385 longest-repeat=6 links=158 queries=45/60 hit

@@ -1,0 +1,4 @@
+phase 0: 2Q=8092 LRU=8064  |A1in|= 9 |A1out|=16 |Am|=23
+phase 1: 2Q=4943 LRU=3298  |A1in|= 9 |A1out|=16 |Am|=23
+phase 2: 2Q=4744 LRU=4780  |A1in|= 8 |A1out|=11 |Am|=24
+total 2Q=17779 LRU=16142 of 27000

@@ -1,0 +1,4 @@
+unsignalled wait: ETIMEDOUT ready=0
+past deadline: ETIMEDOUT
+signalled wait: OK ready=1
+consecutive timeouts: 5

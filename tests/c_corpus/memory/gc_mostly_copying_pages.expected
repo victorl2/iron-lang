@@ -1,0 +1,6 @@
+objects allocated: 645
+collections: 27, objects copied: 211
+pages pinned by ambiguous words: 120, by true roots alone: 105
+dead objects retained (pinned pages and floating): 725
+fewest free pages after a collection: 31 of 40
+oracle checks: 27

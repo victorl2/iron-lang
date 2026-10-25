@@ -1,0 +1,7 @@
+pairs: K=500 sum=122347 kth=368 frontier_peak=44 (grid has 30000 cells)
+triples: K=1000 sum=259432 kth=343 frontier_peak=473
+matrix k=1     value=5
+matrix k=2     value=10
+matrix k=100   value=80
+matrix k=1000  value=291
+matrix k=2700  value=731

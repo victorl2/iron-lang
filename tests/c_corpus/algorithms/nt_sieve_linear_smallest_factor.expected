@@ -1,0 +1,17 @@
+primes up to 200000: 17984
+composites marked: 182015 (each exactly once)
+2 = 2^1  (omega=1, Omega=1)
+360 = 2^3 * 3^2 * 5^1  (omega=3, Omega=6)
+1001 = 7^1 * 11^1 * 13^1  (omega=3, Omega=3)
+65536 = 2^16  (omega=1, Omega=16)
+99991 = 99991^1  (omega=1, Omega=1)
+123456 = 2^6 * 3^1 * 643^1  (omega=3, Omega=8)
+199999 = 199999^1  (omega=1, Omega=1)
+200000 = 2^6 * 5^5  (omega=2, Omega=11)
+numbers with omega=1: 18120
+numbers with omega=2: 64191
+numbers with omega=3: 77458
+numbers with omega=4: 35147
+numbers with omega=5: 4966
+numbers with omega=6: 117
+sum of omega: 544996

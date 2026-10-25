@@ -1,0 +1,3 @@
+trials=60 checkpoints=3
+commits replayed=531 lost to tear=331 trials with torn tail=40
+state digest=4dfe8741

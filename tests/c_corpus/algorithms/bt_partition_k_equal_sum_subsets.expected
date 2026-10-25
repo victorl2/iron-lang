@@ -1,0 +1,8 @@
+classic {4,3,2,3,5,2,1} into 4: yes (nodes=8)
+  bucket 0: 5  (sum 5)
+  bucket 1: 4 1  (sum 5)
+  bucket 2: 3 2  (sum 5)
+  bucket 3: 3 2  (sum 5)
+{1,2,3,4} into 3: no
+250 random multisets: feasible=109 infeasible=141
+nodes without symmetry pruning=50195 with=2278

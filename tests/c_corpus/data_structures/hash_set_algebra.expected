@@ -1,0 +1,4 @@
+round 0: |A|=85 |B|=103 union=161 intersection=27 difference=58 xor=134 jaccard=0.1677
+round 1: |A|=114 |B|=92 union=173 intersection=33 difference=81 xor=140 jaccard=0.1908
+round 2: |A|=68 |B|=94 union=146 intersection=16 difference=52 xor=130 jaccard=0.1096
+round 3: |A|=102 |B|=111 union=175 intersection=38 difference=64 xor=137 jaccard=0.2171

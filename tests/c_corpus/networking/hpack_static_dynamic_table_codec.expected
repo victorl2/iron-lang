@@ -1,0 +1,24 @@
+10 in 5 bits: 0a
+1337 in 5 bits: 1f9a 0a
+42 in 8 bits: 2a
+integer round trips ok for prefixes 1..8 bits
+C.2.1 literal+index: 400a 6375 7374 6f6d 2d6b 6579 0d63 7573 746f 6d2d 6865 6164 6572
+C.2.3 never indexed: 1008 7061 7373 776f 7264 0673 6563 7265 74
+C.3.1 request (20 bytes): 828684410f7777772e6578616d706c652e636f6d
+  dynamic table (57 bytes, max 4096): [1]:authority
+C.3.2 request (14 bytes): 828684be58086e6f2d6361636865
+  dynamic table (110 bytes, max 4096): [1]cache-control [2]:authority
+C.3.3 request (29 bytes): 828785bf400a637573746f6d2d6b65790c637573746f6d2d76616c7565
+  dynamic table (164 bytes, max 4096): [1]custom-key [2]cache-control [3]:authority
+C.5.1 response: 70 bytes, first bytes 4803 3330 3258 0770
+  dynamic table (222 bytes, max 256): [1]location [2]date [3]cache-control [4]:status
+C.5.2 response: 8 bytes, first bytes 4803 3330 37c1 c0bf
+  dynamic table (222 bytes, max 256): [1]:status [2]location [3]date [4]cache-control
+C.5.3 response: 98 bytes, first bytes 88c1 611d 4d6f 6e2c
+  dynamic table (215 bytes, max 256): [1]set-cookie [2]content-encoding [3]date
+table max    0: 200 blocks, 5190 raw header bytes -> 3761 encoded
+table max   64: 200 blocks, 5599 raw header bytes -> 3809 encoded
+table max  256: 200 blocks, 5583 raw header bytes -> 3075 encoded
+table max 1024: 200 blocks, 5587 raw header bytes -> 1801 encoded
+table max 4096: 200 blocks, 5282 raw header bytes -> 966 encoded
+errors: truncated-int bad-index huffman-unsupported truncated-string table-size-too-large

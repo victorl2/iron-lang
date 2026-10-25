@@ -1,0 +1,10 @@
+first negative: 2
+log: E1 L1 
+nested: E1 E2 E3 in3 L3 L2 L1  (max depth 3)
+sum with skips: 9, depth after continue: 0
+log: E1 L1 E1 L1 E1 L1 E1 L1 E1 L1 
+depth leaked by direct break: 1
+buf=scoped live=1
+live after scope: 0
+two buffers live=2
+inner released, live=1

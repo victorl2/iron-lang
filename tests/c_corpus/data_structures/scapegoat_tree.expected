@@ -1,0 +1,4 @@
+ascending 500: height=20 (log2 bound 19) rebuilds=135 nodes rebuilt=3024
+after deleting 400: size=100 height=7 maxsz=117 rebuilds=140
+random: inserts=1369 deletes=1123 size=346 maxheight=18
+rebuilds=149 nodes rebuilt=4234

@@ -1,0 +1,3 @@
+interned 6000 strings into 1080 symbols; arena bytes=8984 vs 34745 requested
+keyword ids: let=9 fn=45 if=7 else=4 while=18 return=6 struct=51 enum=15 match=42 loop=0
+table=4096 slots load=0.2637 avg probes=1.2520

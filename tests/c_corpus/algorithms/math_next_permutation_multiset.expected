@@ -1,0 +1,9 @@
+perms of 123: 123 132 213 231 312 321
+after wrap: 123
+multiset 11223 first six: 11223 11232 11322 12123 12132 12213
+distinct arrangements of 11223: 30 (5!/(2!2!1!) = 30)
+multiset 001112: forward 60, backward 60, multinomial 60
+successors of 3142: 3214 3241 3412 3421
+predecessors of 3142: 3124 2431 2413 2341
+100000th successor of 012345678: 247815603
+Eulerian numbers n=8: 1 247 4293 15619 15619 4293 247 1 (total 40320)

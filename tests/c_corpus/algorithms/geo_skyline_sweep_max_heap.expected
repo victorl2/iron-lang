@@ -1,0 +1,8 @@
+classic: (2,10) (3,15) (7,12) (12,0) (15,10) (20,8) (24,0)
+equal heights merge: (0,3) (10,0)
+n=  3 keypoints=  3 peak=45 area=1489
+n=  8 keypoints= 14 peak=44 area=1923
+n= 20 keypoints= 26 peak=50 area=3995
+n= 60 keypoints= 26 peak=49 area=8753
+n=120 keypoints= 25 peak=50 area=10041
+total keypoints 94

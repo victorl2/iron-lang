@@ -1,0 +1,3 @@
+full mode: bytes=6887 write calls=115 explicit flushes=53 crc=7fb08f1b
+line mode: bytes=6887 write calls=133 explicit flushes=53 crc=7fb08f1b
+none mode: bytes=6887 write calls=247 explicit flushes=53 crc=7fb08f1b

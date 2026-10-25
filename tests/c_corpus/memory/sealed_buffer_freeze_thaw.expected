@@ -1,0 +1,15 @@
+write hello: 0
+write world at 5: 0
+write past cap: -2
+len=11 cap=32
+frozen hash=d58b3fa7 verify=1
+write while frozen: -1
+write while frozen again: -1 refused=2
+view read [4]: 0 'o'
+view read [50]: -2
+after stray write: verify=0
+after repair: verify=1
+view after thaw: -1 (stale)
+write after thaw: 0
+new view read [0]: 0 'J' gen=2
+generation=102 trail=a1368175 content=vlmnopqrstu

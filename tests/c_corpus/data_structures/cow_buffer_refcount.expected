@@ -1,0 +1,3 @@
+shares=1374 appends=1475 sets=1192 (no-op 62) truncates=406 concats=508
+detaches=757 in-place writes=2266 bytes copied by detach=34201
+handles=12 distinct representations=10 max sharing=2 total bytes=682

@@ -1,0 +1,9 @@
+no constraints, n=15: 1307674368000
+chain: 1
+two chains (8+7): 6435
+star: 87178291200 (expected 87178291200)
+random dag 0: edges 22, orders 4240082
+random dag 1: edges 27, orders 901380
+random dag 2: edges 36, orders 377601
+random dag 3: edges 29, orders 4684800
+random dag 4: edges 42, orders 1120

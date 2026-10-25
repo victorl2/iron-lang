@@ -1,0 +1,3 @@
+n=467 buckets=583 level=8 split=71
+splits=1826 merges=1245 peak buckets=1016 longest chain=5
+bucket count trace: 896 995 597 1016 790 819 1005 583

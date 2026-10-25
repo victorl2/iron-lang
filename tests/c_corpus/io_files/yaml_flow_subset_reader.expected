@@ -1,0 +1,10 @@
+doc 0 depth 1: [1, 2.5, -3, true, null, "hello world"]
+doc 1 depth 3: {"name": "Iron", "tags": ["a", "b", ["c", "d"]], "nested": {"x": 1, "y": {"z": "deep"}}}
+doc 2 depth 2: {"quoted key": "it's", "esc": "tab	here", "trailing": [1, 2], "empty": [], "e2": {}}
+doc 3 depth 3: [{"a": 1}, {"a": 2, "b": [true, false]}, "plain text with: no colon issue"]
+doc 4 error at offset 5: expected ',' or closing bracket
+doc 5 error at offset 4: expected ':' in mapping
+doc 6 error at offset 9: expected ',' or closing bracket
+doc 7 error at offset 10: unterminated quoted scalar
+doc 8 error at offset 1: empty scalar
+ok=4 failed=5

@@ -1,0 +1,17 @@
+vertices by label
+  person   n=17 age_sum= 811 top=fq24(947)
+  company  n=24 age_sum=1161 top=yh39(934)
+  city     n=11 age_sum= 591 top=bu12(938)
+  product  n= 8 age_sum= 382 top=cz03(951)
+edge label matrix
+  person    12  24   7   9
+  company   29  32  16   9
+  city       9  21   6   5
+  product    6   7   5   3
+weighted knows since 2010 (dst age): 8847
+rel knows      count=48 weight=433 since=[1990,2023]
+rel works_at   count=28 weight=307 since=[1990,2024]
+rel located_in count=37 weight=398 since=[1990,2023]
+rel makes      count=45 weight=479 since=[1990,2024]
+rel buys       count=42 weight=426 since=[1990,2021]
+top weighted out-degree: jr54=106 do06=103 bu12=88

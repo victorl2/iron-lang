@@ -1,0 +1,9 @@
+width  1: 3 words for 150 values, checksum 99
+width  7: 17 words for 150 values, checksum 10490
+width 13: 31 words for 150 values, checksum 631488
+width 32: 75 words for 150 values, checksum 848270
+width 33: 78 words for 150 values, checksum 198157
+width 64: 150 words for 150 values, checksum 152153
+all 64 widths verified: 35200 reads/writes, 4273 word-straddling elements
+frame of reference: 1000 values in 63 blocks, 2592 bytes vs 4000 raw
+  block widths: 6-bit x1 8-bit x59 17-bit x3

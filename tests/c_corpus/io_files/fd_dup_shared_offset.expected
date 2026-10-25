@@ -1,0 +1,12 @@
+fd read 3: ABC
+dup offset now: 3
+separate open offset: 0
+dup read 4: DEFG
+fd offset now: 7
+separate open read 2: AB
+fd after seek via dup: UVW
+after closing dup, fd reads: XY
+last byte after write via other open: z
+parent offset after child read 5: 5
+parent continues with: FGH
+interleaved via aliases: IJKL

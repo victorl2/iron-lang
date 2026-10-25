@@ -1,0 +1,51 @@
+match a/b/c    a/b/c            yes
+match a/b/c    a/b              no
+match a/+/c    a/x/c            yes
+match a/+/c    a/x/y/c          no
+match a/#      a/b/c/d          yes
+match #        anything/at/all  yes
+match +        one              yes
+match +        one/two          no
+match a/+      a                no
+match a/#      a                yes
+match a/b      a/bc             no
+match +/+      x/y              yes
+match a/+/#    a/b              yes
+matcher table: 13 checks
+pub   <- OK 0
+pub   <- OK 0
+pub   <- OK 0
+dash  <- OK SUB 1
+dash  <- RETAINED home/hall/temp 19.0
+dash  <- RETAINED home/kitchen/temp 21.5
+log   <- OK SUB 1
+log   <- RETAINED home/hall/temp 19.0
+log   <- RETAINED home/kitchen/door open
+log   <- RETAINED home/kitchen/temp 21.5
+alarm <- OK SUB 1
+alarm <- RETAINED home/kitchen/door open
+alarm <- RETAINED home/kitchen/temp 21.5
+dash  <- OK SUB 2
+dash  <- RETAINED home/hall/temp 19.0
+pub   <- OK 3
+dash  <- MSG home/kitchen/temp 22.0
+log   <- MSG home/kitchen/temp 22.0
+alarm <- MSG home/kitchen/temp 22.0
+pub   <- OK 2
+dash  <- MSG home/hall/temp 18.5
+log   <- MSG home/hall/temp 18.5
+pub   <- OK 2
+dash  <- MSG home/hall/light on
+log   <- MSG home/hall/light on
+pub   <- OK 1
+log   <- MSG garage/door closed
+pub   <- OK 2
+log   <- MSG home/kitchen/door closed
+alarm <- MSG home/kitchen/door closed
+dash  <- OK UNSUB
+dash  <- ERR not subscribed
+pub   <- OK 1
+log   <- MSG home/hall/light off
+pub   <- ERR bad topic
+pub   <- ERR unknown command
+broker: published=9 delivered=11 retained=3

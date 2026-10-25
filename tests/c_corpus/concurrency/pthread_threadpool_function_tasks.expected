@@ -1,0 +1,9 @@
+task  0 fib       (10) = 55
+task  1 tri       (13) = 91
+task  2 popcount  (16) = 1
+task  3 digits_rev(19) = 91
+task  4 fib       (22) = 17711
+task  5 tri       (25) = 325
+task  6 popcount  (28) = 3
+task  7 digits_rev(31) = 13
+tasks=40 total=4238212324

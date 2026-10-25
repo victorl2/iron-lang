@@ -1,0 +1,9 @@
+fixed: union=36 (sum of areas 16+16+4+8=44)
+rects=  1 sum_areas=  1083 union=  1083 overlap_saved=     0 distinct_y=2
+rects=  2 sum_areas=   412 union=   412 overlap_saved=     0 distinct_y=4
+rects=  5 sum_areas=   578 union=   578 overlap_saved=     0 distinct_y=10
+rects= 10 sum_areas=  1419 union=  1395 overlap_saved=    24 distinct_y=16
+rects= 25 sum_areas=  1766 union=  1734 overlap_saved=    32 distinct_y=46
+rects= 60 sum_areas=  3799 union=  3116 overlap_saved=   683 distinct_y=67
+rects=120 sum_areas=  6325 union=  4862 overlap_saved=  1463 distinct_y=95
+total=13180

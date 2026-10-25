@@ -1,0 +1,6 @@
+k=1    windows=6000 lower_sum=910207 upper_sum=910207 pruned=5999 max_physical=1
+k=2    windows=5999 lower_sum=680190 upper_sum=1140040 pruned=5973 max_physical=36
+k=3    windows=5998 lower_sum=910738 upper_sum=910738 pruned=5972 max_physical=41
+k=8    windows=5993 lower_sum=835214 upper_sum=976038 pruned=5335 max_physical=703
+k=25   windows=5976 lower_sum=904347 upper_sum=904347 pruned=3590 max_physical=2410
+k=100  windows=5901 lower_sum=890211 upper_sum=902206 pruned=1834 max_physical=4166

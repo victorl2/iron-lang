@@ -1,0 +1,6 @@
+cpu0: alloc hits= 3316 free hits= 3342 swaps= 220 depot exchanges= 65 backing allocs=788 frees=102
+cpu1: alloc hits= 3345 free hits= 3481 swaps= 218 depot exchanges= 72 backing allocs=731 frees= 78
+cpu2: alloc hits= 3260 free hits= 3262 swaps= 209 depot exchanges= 55 backing allocs=821 frees= 77
+cpu3: alloc hits= 3280 free hits= 3320 swaps= 202 depot exchanges= 66 backing allocs=664 frees=134
+totals: alloc hits=13201 free hits=13405 swaps=849 exchanges=258 backing=3004 refused=2409
+magazines created=30 depot full=22 empty=0 remote frees=10370

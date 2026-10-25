@@ -1,0 +1,5 @@
+after 400 ascending inserts: height=17 depth rebuilds=26
+mixed: inserts=1438 deletes=1544 live=294 dead=5
+max height=25 max tombstones=304 revived=631
+rebuilds: by tombstones=2, by depth=28, nodes moved=6391
+drained: live=0 dead=0

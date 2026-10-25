@@ -1,0 +1,7 @@
+waiter deadline  5: timed out (clock at finish >= 5: yes)
+waiter deadline 10: timed out (clock at finish >= 10: yes)
+waiter deadline 15: timed out (clock at finish >= 15: yes)
+waiter deadline 20: acquired (clock at finish >= 15: yes)
+waiter deadline 30: timed out (clock at finish >= 30: yes)
+expired deadline: free lock -> 1, held lock -> 0
+stress: attempts 1200, wins+timeouts 1200, counter equals wins: yes, violations 0

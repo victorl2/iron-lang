@@ -1,0 +1,12 @@
+account 0 balance 118
+account 1 balance 1451
+account 2 balance 778
+account 3 balance 709
+account 4 balance 1523
+account 5 balance 1084
+account 6 balance 1507
+account 7 balance 1025
+account 8 balance 1091
+account 9 balance 714
+total=10000 audits=1200 inconsistent audits=0
+no writer starved: 4 tellers finished 250 transfers each

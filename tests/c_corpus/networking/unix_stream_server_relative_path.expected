@@ -1,0 +1,7 @@
+path is socket: yes
+second bind: failed (EADDRINUSE)
+hello unix -> HELLO UNIX
+second message -> SECOND MESSAGE
+MiXeD 123 -> MIXED 123
+connect to stale socket file: ECONNREFUSED
+connect after unlink: ENOENT

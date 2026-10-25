@@ -1,0 +1,19 @@
+public/hello.txt               naive: reads jail data strict: ok     (public/hello.txt) chroot: ok(public/hello.txt)
+public/../public/hello.txt     naive: reads jail data strict: ok     (public/hello.txt) chroot: ok(public/hello.txt)
+../outside/secret.txt          naive: LEAKS SECRET    strict: ESCAPE  chroot: ok(outside/secret.txt)
+public/../../outside/secret.txt naive: LEAKS SECRET    strict: ESCAPE  chroot: ok(outside/secret.txt)
+/outside/secret.txt            naive: reads jail data strict: ESCAPE  chroot: ok(outside/secret.txt)
+/public/hello.txt              naive: reads jail data strict: ESCAPE  chroot: ok(public/hello.txt)
+up_link/secret.txt             naive: LEAKS SECRET    strict: ESCAPE  chroot: ok(outside/secret.txt)
+abs_link/secret.txt            naive: LEAKS SECRET    strict: ESCAPE  chroot: ENOENT
+root_abs/hello.txt             naive: fails           strict: ESCAPE  chroot: ok(public/hello.txt)
+pub_link/hello.txt             naive: reads jail data strict: ok     (public/hello.txt) chroot: ok(public/hello.txt)
+loop_a                         naive: fails           strict: LOOP    chroot: LOOP
+public/hello.txt/x             naive: fails           strict: ENOTDIR chroot: ENOTDIR
+public/missing.txt             naive: fails           strict: ENOENT  chroot: ENOENT
+outside/secret.txt             naive: reads jail data strict: ok     (outside/secret.txt) chroot: ok(outside/secret.txt)
+pub_link/../../outside/secret.txt naive: LEAKS SECRET    strict: ESCAPE  chroot: ok(outside/secret.txt)
+.                              naive: fails           strict: ok     (.) chroot: ok(.)
+..                             naive: fails           strict: ESCAPE  chroot: ok(.)
+naive joins that leaked the secret: 5
+guard results verified inside the jail by realpath: 18

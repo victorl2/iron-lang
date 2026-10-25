@@ -1,0 +1,7 @@
+n=   1 rounds= 0 additions=     0 (work-efficient ~2) total=825
+n=   2 rounds= 1 additions=     1 (work-efficient ~4) total=1613
+n=   3 rounds= 2 additions=     3 (work-efficient ~6) total=1783
+n=   8 rounds= 3 additions=    17 (work-efficient ~16) total=4214
+n= 100 rounds= 7 additions=   573 (work-efficient ~200) total=50652
+n=1000 rounds=10 additions=  8977 (work-efficient ~2000) total=516598
+n=4097 rounds=13 additions= 45070 (work-efficient ~8194) total=2025629

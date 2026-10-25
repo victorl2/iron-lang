@@ -1,0 +1,5 @@
+names: int long double bool str
+stack: int:7 long:9000000000L double:2.50 bool:true str:"literal" str:"gamma"
+typed pops matched; refused mismatched pop
+counts int=73 long=93 double=79 str=87 bool=68
+int/long sum=172474 double sum=-25812.625 max int=49900 max long=47798 max double=3108.500

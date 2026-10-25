@@ -1,0 +1,7 @@
+single-of-pairs checksum 9896717
+two singles: verified on 200 arrays
+single-of-triples: verified
+missing/duplicate pair: verified
+xor swap: x=12345678 y=deadbeef
+xor basis: max subset xor matches brute force, rank checksum 9898962
+fixed set {3,10,5,25,2,8}: rank=5 max subset xor=31

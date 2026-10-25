@@ -1,0 +1,3 @@
+n=1500 values=1..400 nodes=799
+kth digest=407311 rank digest=2589 count digest=516081
+global median=204 min=1 max=400

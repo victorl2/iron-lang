@@ -1,0 +1,7 @@
+case 0: n=4 cap=108 split=12 naive=30 best=170
+case 1: n=7 cap=149 split=24 naive=54 best=448
+case 2: n=5 cap=351 split=20 naive=54 best=1159
+case 3: n=7 cap=286 split=26 naive=76 best=1294
+case 4: n=7 cap=193 split=25 naive=69 best=705
+case 5: n=6 cap=368 split=24 naive=67 best=981
+multiplicity 13 splits into 1,2,4,6: all counts reachable

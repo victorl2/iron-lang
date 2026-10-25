@@ -1,0 +1,16 @@
+200 random cases match the DP
+ship 1..10 in 1 days: capacity 55
+ship 1..10 in 2 days: capacity 28
+ship 1..10 in 3 days: capacity 21
+ship 1..10 in 4 days: capacity 17
+ship 1..10 in 5 days: capacity 15
+ship 1..10 in 6 days: capacity 11
+painters 2: 60, 3: 40
+64 items total=31190
+k=1 -> 31190
+k=2 -> 15799
+k=4 -> 8158
+k=8 -> 4185
+k=16 -> 2269
+k=32 -> 1336
+k=64 -> 980

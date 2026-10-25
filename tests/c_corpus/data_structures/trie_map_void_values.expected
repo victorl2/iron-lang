@@ -1,0 +1,7 @@
+prefix "": 1203 keys, first .. last bbbbbb.
+prefix "a": 287 keys, first a last abbbb
+prefix "ab": 82 keys, first ab. last abbbb
+prefix "b/": 64 keys, first b/. last b/bb..
+prefix "a.b": 19 keys, first a.b last a.bbb.
+puts=2535 replaced=943 deletes=389 lookups=997 keys=1203 nodes=2062
+all keys deleted, trie pruned back to the root, live values=0

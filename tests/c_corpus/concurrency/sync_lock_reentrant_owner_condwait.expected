@@ -1,0 +1,4 @@
+leaves visited 7680 (expected 7680), counter 7680
+max nesting depth 6, violations 0
+unlock unheld: NOT_HELD; unlock from other thread: NOT_OWNER; nested depth seen 2; final unlocks: OK then NOT_HELD
+waiter depth before wait 3, after wait 3, resumed with value 42

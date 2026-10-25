@@ -1,0 +1,33 @@
+11 rules parsed
+  rule  1: *.o            neg=0 dir_only=0 anchored=0 slash=0
+  rule  2: keep.o         neg=1 dir_only=0 anchored=0 slash=0
+  rule  3: build          neg=0 dir_only=1 anchored=0 slash=0
+  rule  4: TODO           neg=0 dir_only=0 anchored=1 slash=0
+  rule  5: docs/*.tmp     neg=0 dir_only=0 anchored=0 slash=1
+  rule  6: *.tmp          neg=0 dir_only=0 anchored=0 slash=0
+  rule  7: docs/api/*.tmp neg=1 dir_only=0 anchored=0 slash=1
+  rule  8: logs/*.log     neg=0 dir_only=0 anchored=0 slash=1
+  rule  9: logs/keep.log  neg=1 dir_only=0 anchored=0 slash=1
+  rule 10: node_modules   neg=0 dir_only=1 anchored=0 slash=0
+  rule 11: keep.txt       neg=1 dir_only=0 anchored=0 slash=0
+walk:
+  ignore TODO
+  ignore build/
+  keep   docs/api/ref.md
+  keep   docs/api/wip.tmp
+  ignore docs/draft.tmp
+  keep   docs/guide.md
+  keep   keep.o
+  ignore logs/a.log
+  ignore logs/b.log
+  keep   logs/keep.log
+  keep   main.c
+  ignore main.o
+  ignore node_modules/
+  ignore notes.tmp
+  keep   src/TODO
+  ignore src/build/
+  keep   src/util.c
+  ignore src/util.o
+kept=8 ignored=10
+14 point checks of ignored() pass

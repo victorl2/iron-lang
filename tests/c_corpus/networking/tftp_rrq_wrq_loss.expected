@@ -1,0 +1,7 @@
+RRQ boot.img: 2600 bytes in 6 blocks, crc f6d07093, from new TID: yes
+WRQ upload.bin: 1024 bytes acked through block 3, client drops=1
+RRQ nofile.txt: ERROR code 1 "File not found"
+server stored 1024 bytes, crc 5d3de8ed
+loss injected: server data=2, server acks=2, client acks=1, client data=1
+retransmissions covered every drop: yes
+server handled 3 requests, 1 errors

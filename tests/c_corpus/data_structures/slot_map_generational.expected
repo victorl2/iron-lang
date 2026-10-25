@@ -1,0 +1,4 @@
+insert=15373 remove=13872 get=9495 stale_removes=11252
+live=1501 slots=1501 reused_slots=13872 max_generation=22 stale_lookups=15261
+total hp=73357
+after 4096 reuse cycles the first handle is valid again (gen wrapped)

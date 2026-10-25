@@ -1,0 +1,4 @@
+3-bit sequence: 000 001 011 010 110 111 101 100
+16-bit round trip and single-bit steps verified; highest flipped bit mask 65536
+Gray subset walk: 50 subsets of the 12 weights sum to 60 (best sum <= target 60 at step 42)
+encoder: true position 25, decoded 25, illegal transitions 0

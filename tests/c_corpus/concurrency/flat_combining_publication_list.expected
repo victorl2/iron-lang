@@ -1,0 +1,3 @@
+requests executed once each=15000, inserts=9945
+sum inserted=488020810, extracted+left=488020810
+heap drained in sorted order: yes

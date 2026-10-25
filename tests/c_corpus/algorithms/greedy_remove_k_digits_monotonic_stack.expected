@@ -1,0 +1,12 @@
+remove 3 from 1432219     -> 1219
+remove 1 from 10200       -> 200
+remove 2 from 10          -> 0
+remove 1 from 112         -> 11
+remove 1 from 9           -> 0
+remove 9 from 1234567890  -> 0
+remove 4 from 100200300   -> 0
+remove 2 from 54321       -> 321
+remove 3 from 1111111     -> 1111
+400 random strings verified: checksum small=45110 large=98215
+largest 2-digit subsequence of 9173: 97
+largest 6-digit subsequence of pi digits: 989793

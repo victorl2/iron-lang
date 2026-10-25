@@ -1,0 +1,3 @@
+points inserted=2452 live=1740 nodes=2013 rebuilds=3
+knn queries=1517 distance digest=5225534 id digest=4943864 visits=82260
+last pre-rebuild depth=19 final depth=16

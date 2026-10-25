@@ -1,0 +1,16 @@
+lines=206 parsed=200 rejected=6
+bytes served=394833, entries without size=46
+time span: 452933 s (first 1677451282, last 1677904215)
+status 200: 86
+status 500: 28
+status 304: 27
+status 404: 21
+status 301: 19
+status 403: 19
+top path 1: /api/users/42    hits=35 bytes=73599
+top path 2: /api/users       hits=34 bytes=54557
+top path 3: /login           hits=33 bytes=75214
+top host 1: example.org    hits=46
+top host 2: 10.0.0.7       hits=43
+top host 3: 192.168.1.20   hits=40
+busiest UTC hour: 10:00 with 13 requests

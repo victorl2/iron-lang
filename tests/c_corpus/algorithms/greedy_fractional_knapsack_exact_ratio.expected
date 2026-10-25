@@ -1,0 +1,8 @@
+classic (cap 50): value=240 takes: i0=1 i1=1 i2=2/3
+odd weights (cap 11): value=159/5
+n= 5 cap= 30 fractional=3079/25 zero-one=106
+n=11 cap= 67 fractional=543/2 zero-one=257
+n=17 cap=111 fractional=1952/3 zero-one=638
+n=23 cap=158 fractional=25989/35 zero-one=738
+n=29 cap=213 fractional=35502/35 zero-one=1002
+n=35 cap=267 fractional=1225 zero-one=1209

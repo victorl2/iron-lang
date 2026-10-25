@@ -1,0 +1,13 @@
+Record: size 104 align 8 lines 2
+Hot:    size 24 align 8
+Cold:   size 88 align 8
+hot fields of Record touch 2 lines (mask 0x3)
+hot struct touches 1 line per record when aligned
+scan of 1000 records: AoS-lines(with duplicates across records)=2500, split hot array lines=375
+Hot elements straddling lines in a 1000-array: 250
+Record elements straddling lines: 1000 of 1000
+straddlers for sizes 16/24/32/48/64: 0 250 0 500 0 (of 1000)
+PackedCounter size 8: neighbours sharing a line 7 of 7
+LineCounter   size 64 align 64: neighbours sharing a line 0 of 7
+manual padding size: 64
+Hot at 8 base offsets within a line: 1 line x6, 2 lines x2

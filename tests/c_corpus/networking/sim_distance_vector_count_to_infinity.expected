@@ -1,0 +1,24 @@
+chain A-B-C-D (cut C-D)
+    plain round dist to D: A= 3 B=16 C= 3
+    plain round dist to D: A=16 B= 4 C=16
+    plain round dist to D: A= 5 B=16 C= 5
+    plain round dist to D: A=16 B= 6 C=16
+ plain          initial rounds=3, rounds after failure=14, peak finite cost to D=15
+ split-horizon  initial rounds=3, rounds after failure= 2, peak finite cost to D=3
+ poison-reverse initial rounds=3, rounds after failure= 2, peak finite cost to D=3
+triangle ABC with D behind A (cut A-D)
+    plain round dist to D: A= 3 B= 3 C= 3
+    plain round dist to D: A= 4 B= 4 C= 4
+    plain round dist to D: A= 5 B= 5 C= 5
+    plain round dist to D: A= 6 B= 6 C= 6
+ plain          initial rounds=2, rounds after failure=14, peak finite cost to D=15
+ split-horizon  initial rounds=2, rounds after failure=14, peak finite cost to D=15
+ poison-reverse initial rounds=2, rounds after failure=14, peak finite cost to D=15
+ring of five (cut D-E)
+    plain round dist to E: A= 1 B= 2 C=16 D= 3
+    plain round dist to E: A= 1 B= 2 C= 3 D=16
+    plain round dist to E: A= 1 B= 2 C= 3 D= 4
+ plain          initial rounds=2, rounds after failure= 3, peak finite cost to E=4
+ split-horizon  initial rounds=2, rounds after failure= 3, peak finite cost to E=4
+ poison-reverse initial rounds=2, rounds after failure= 3, peak finite cost to E=4
+ring routing table at A: B via B (1) C via B (2) D via E (2) E via E (1)

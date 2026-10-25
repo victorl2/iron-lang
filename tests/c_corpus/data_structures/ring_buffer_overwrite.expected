@@ -1,0 +1,4 @@
+put=28356 get=21112 overwritten=7234
+peak_sum=8170 lowest_sum=-8690 final_count=10
+wr wrapped past 2^32: yes
+time at each fill level: 1111 1179 1189 1296 1517 1755 1976 2133 2274 2396 2624 2971 3234 3551 4234 5836 10724

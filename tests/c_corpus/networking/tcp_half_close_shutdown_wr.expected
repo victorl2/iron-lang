@@ -1,0 +1,3 @@
+send after SHUT_WR: EPIPE
+reply: got 1500 bytes hash c91b8124
+after reply recv returns 0 (EOF)

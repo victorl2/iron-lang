@@ -1,0 +1,6 @@
+round 0: n=38 height=8 preorder hash=3507802012 level hash=3325787132
+round 1: n=18 height=7 preorder hash=771883346 level hash=3026869800
+round 2: n=68 height=12 preorder hash=3910398351 level hash=3600386137
+reconstructed: 180 general, 180 BST, 60 full-tree cases
+example postorder: 9 15 7 20 3 height=3
+left-only and right-only chains share preorder and postorder: yes

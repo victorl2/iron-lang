@@ -1,0 +1,4 @@
+random                 runs=32 shortest=  56 longest= 147 avg=125.0 (memory 64)
+sorted                 runs= 1 shortest=4000 longest=4000 avg=4000.0 (memory 64)
+reverse sorted         runs=63 shortest=  32 longest=  64 avg=63.5 (memory 64)
+sawtooth (period 200)  runs=20 shortest= 200 longest= 200 avg=200.0 (memory 64)

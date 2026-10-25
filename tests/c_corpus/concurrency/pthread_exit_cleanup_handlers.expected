@@ -1,0 +1,5 @@
+thread 1 exit_at=-1 ret=10 handlers=cba
+thread 2 exit_at=1 ret=21 handlers=cba
+thread 3 exit_at=2 ret=32 handlers=cba
+thread 4 exit_at=3 ret=43 handlers=cba
+count=4 mutex free: yes

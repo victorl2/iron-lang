@@ -1,0 +1,5 @@
+adds=29893 deletes=14327 refused (absent)=3624 membership checks=12156
+live keys=2832 total multiplicity=15566 saturated increments=3352
+counters nonzero=9472/30000 max counter=15 false positives among 168 absent=0
+count estimates exact for 2806 of 2832 live keys (over-estimated: 26)
+unsafe deletes of absent keys that broke a member: 7

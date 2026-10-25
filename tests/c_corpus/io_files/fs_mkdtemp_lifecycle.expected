@@ -1,0 +1,8 @@
+mkdtemp returned its argument: yes, shape ok=1
+mode of new dir: 0700
+mkstemp file mode: 0600, size 0, shape ok=1
+64 mkdtemp calls: all distinct=1, well-formed=64
+same template twice gives different names: yes
+missing parent: ENOENT
+entries in scratch: 67
+removed 69 entries (dirs, files, root)

@@ -1,0 +1,3 @@
+nodes=60
+every node present once: yes
+hop count equals move count: yes

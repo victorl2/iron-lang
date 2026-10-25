@@ -1,0 +1,8 @@
+original: 10007 bytes, fnv1a 018948ae
+chunk  1000: 11 parts, last part     7 bytes, joined ok: yes
+chunk  4096:  3 parts, last part  1815 bytes, joined ok: yes
+chunk 10007:  1 parts, last part 10007 bytes, joined ok: yes
+chunk 10008:  1 parts, last part 10007 bytes, joined ok: yes
+chunk   333: 31 parts, last part    17 bytes, joined ok: yes
+chunk  5000:  3 parts, last part     7 bytes, joined ok: yes
+reversed part order: size 10007, checksum differs: yes

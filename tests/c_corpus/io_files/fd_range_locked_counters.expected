@@ -1,0 +1,9 @@
+slot 0: ops=215 value=1084 expected=1084
+slot 1: ops=186 value=877 expected=877
+slot 2: ops=185 value=896 expected=896
+slot 3: ops=186 value=914 expected=914
+slot 4: ops=226 value=1103 expected=1103
+slot 5: ops=192 value=884 expected=884
+slot 6: ops=210 value=1081 expected=1081
+slot 7: ops=200 value=1053 expected=1053
+total value=7892 over 1600 locked updates

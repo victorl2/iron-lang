@@ -1,0 +1,11 @@
+abcdefg vs cdefgab: shift 2
+abcdefg vs abcdefg: shift 0
+abcdefg vs gabcdef: shift 6
+abcdefg vs abcdegf: shift -1
+abcdefg vs abcdef: shift -1
+abab      distinct rotations=2 smallest at 0, largest at 3
+abcabc    distinct rotations=3 smallest at 0, largest at 5
+aaaa      distinct rotations=1 smallest at 0, largest at 3
+abcd      distinct rotations=4 smallest at 0, largest at 3
+abaabaab  distinct rotations=8 smallest at 2, largest at 7
+120 random binary words of length 6: 14 rotation classes (7140 pairs verified)

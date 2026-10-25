@@ -1,0 +1,34 @@
+message is 83 bytes
+1: varint 150 (zigzag 75)
+2: string "testing"
+3: message {
+  1: varint 150 (zigzag 75)
+}
+4: bytes(6) 03 8e 02 9e a7 05
+5: varint 1
+5: varint 4294967294 (zigzag 2147483647)
+6: varint 18446744073709551615 (as int64 -1) (zigzag -9223372036854775808)
+7: fixed32 0x3fc00000
+8: fixed64 0x400921fb54442d18
+9: bytes(6) de ad be ef 00 ff
+10: empty
+11: message {
+  1: message {
+    1: string "leaf"
+    2: varint 7 (zigzag -4)
+  }
+  3: varint 599 (zigzag -300)
+}
+dumped 17 fields
+fixed32 as float 1.5000, fixed64 as double 3.141593
+zigzag: 0->0 -1->1 1->2 -2->3 2147483647->4294967294 -2147483648->4294967295 9223372036854775807->18446744073709551614
+truncated varint value: truncated-varint
+varint too long (11 bytes): bad-varint
+10th byte overflow: bad-varint
+length past end: length-past-end
+field number zero: field-number-zero
+wire type 6: bad-wire-type
+truncated fixed32: truncated-fixed32
+non-canonical varint 1: 1: varint 1 [non-canonical]
+accepted
+300 random field lists round-trip (17854 bytes)

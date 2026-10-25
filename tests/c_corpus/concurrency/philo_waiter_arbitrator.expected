@@ -1,0 +1,7 @@
+philosopher 0 meals=400 checksum=d3bef0c8
+philosopher 1 meals=400 checksum=cb9d98c8
+philosopher 2 meals=400 checksum=c37c40c8
+philosopher 3 meals=400 checksum=bb5ae8c8
+philosopher 4 meals=400 checksum=b33990c8
+total meals=2000 fork uses=800
+simultaneous diners never exceeded 2: yes

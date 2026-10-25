@@ -1,0 +1,7 @@
+pass 0: 8 runs of up to 64 ints
+pass 1: 4 runs left
+pass 2: 2 runs left
+pass 3: 1 runs left
+merged 500 ints, mismatches 0, sum 253020, min 0 max 997
+top values: 997 996 994 993 992
+scratch size still 2000 bytes

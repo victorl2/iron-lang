@@ -1,0 +1,7 @@
+[7, "iron", (1 . "x"), [-5, "deep"]]
+built: int=3/0 str=3/0 list=2/0 pair=1/0
+[7, "iron", (1 . "x"), [-5, "deep"]]
+[70, "iron", (1 . "x"), [-5, "Deep"]]
+cloned: int=6/0 str=6/0 list=4/0 pair=2/0
+root freed: int=3/3 str=3/3 list=2/2 pair=1/1
+copy freed: int=0/6 str=0/6 list=0/4 pair=0/2

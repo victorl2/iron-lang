@@ -1,0 +1,6 @@
+objects allocated: 592, freed by counting: 488
+reconciliations: 35, zct peak: 24
+zero-count objects kept alive by the stack: 110
+heap-field count updates: 1280
+reachable at end: 12, present: 104, leaked cyclic garbage: 92
+oracle checks: 35

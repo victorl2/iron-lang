@@ -1,0 +1,32 @@
+{
+  "name": "iron",
+  "tags": [
+    "a",
+    "b\n",
+    []
+  ],
+  "n": -125,
+  "ok": true,
+  "nil": null,
+  "o": {}
+}
+{"name":"iron","tags":["a","b\n",[]],"n":-125,"ok":true,"nil":null,"o":{}}
+doc 0: [8334,"x y",{"k0":-1113},"be\"ta"]
+doc 1: [[null],[],-1773,false]
+doc 2: [[{"k0":true},false],[null,115,"line\nbreak"],[],null]
+round trips ok: nodes=354 compact bytes=1842
+reject  0: unexpected end
+reject  1: unexpected character
+reject  2: expected colon
+reject  3: leading zero
+reject  4: unterminated string
+reject  5: trailing garbage
+reject  6: expected comma or close
+reject  7: bad number
+reject  8: bad fraction
+reject  9: bad exponent
+reject 10: expected key
+reject 11: bad escape
+reject 12: control char in string
+reject 13: unexpected character
+reject 14: too deep

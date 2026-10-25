@@ -1,0 +1,18 @@
+distinct words=571
+pattern dc.    -> 3
+pattern .***d  -> 155
+pattern c.a    -> 4
+pattern .a.b   -> 11
+pattern c.cb   -> 2
+pattern a...   -> 25
+pattern d.     -> 4
+pattern .*.d.  -> 137
+total matches=31290 steps=592216
+fixed *     -> 571
+fixed .     -> 4
+fixed ..    -> 16
+fixed a*    -> 134
+fixed *a    -> 138
+fixed a*a   -> 33
+fixed *ab*  -> 118
+fixed ....  -> 108

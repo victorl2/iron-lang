@@ -1,0 +1,20 @@
+SYN options (20 bytes): 020405b4 0402080a 00c0ffee 00000000 01030307
+  mss=1460 ws=7 sack_perm=1 tsval=0xc0ffee nops=1 data offset would be 10 words
+0 SACK block(s) + timestamps: 12 bytes
+1 SACK block(s) + timestamps: 20 bytes
+2 SACK block(s) + timestamps: 28 bytes
+3 SACK block(s) + timestamps: 36 bytes
+4 SACK blocks with timestamps: does not fit in 40 bytes
+4 SACK blocks alone: 36 bytes
+skip unknown: unknown=1 kind=30, mss=536 (option after EOL ignored), nops=2
+length 1           -> length-below-2
+length 0           -> length-below-2
+runs past end      -> option-runs-past-end
+lone kind at end   -> option-runs-past-end
+MSS with length 3  -> bad-length-for-kind
+duplicate MSS      -> duplicate-option
+SACK with 9 bytes  -> bad-length-for-kind
+timestamp length 8 -> bad-length-for-kind
+seq compare: lt(0xfffffff0, 5)=1 lt(5, 0xfffffff0)=0
+PAWS: ts_recent=100: tsval 100 ok=1, 99 ok=0, wrapped recent=0xfffffffe: tsval 3 ok=1, tsval 0xfffffff0 ok=0
+bytes sacked above ack 0xffffffe0: 176

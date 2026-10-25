@@ -1,0 +1,4 @@
+inserted=363 updated=172 (moved with forwarding=99) deleted=115
+pages=46 slots=302 live tuples=248 dead slots=10 forwarding stubs=44
+final vacuum reclaimed 107 bytes
+page reads=3876 writes=3068

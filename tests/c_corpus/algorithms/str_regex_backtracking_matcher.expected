@@ -1,0 +1,28 @@
+abc            abc          yes   steps=8
+a.c            axc          yes   steps=8
+a*b            aaab         yes   steps=13
+a*b            aaa          no    steps=15
+(ab)+          ababab       yes   steps=26
+(ab)+          aba          no    steps=15
+colou?r        color        yes   steps=15
+colou?r        colour       yes   steps=15
+cat|dog        dog          yes   steps=14
+cat|dog        cow          no    steps=12
+[a-c]+x        abcabx       yes   steps=17
+[^a-c]+        xyz          yes   steps=11
+[^a-c]+        xaz          no    steps=7
+(a|b)*abb      babaabb      yes   steps=70
+(a*)*b         aaaaaaaaaab  yes   steps=35
+(a*)*b         aaaaaaaaaac  no    steps=8193
+\.             .            yes   steps=4
+(a|ab)(c|bcd)  abcd         yes   steps=19
+                            yes   steps=2
+x*                          yes   steps=5
+malformed (ab   rejected
+malformed *a    rejected
+malformed [abc  rejected
+malformed a)    rejected
+search "price 12.50 usd": at 6 "12.50"
+search "no digits": none
+search "v3 and 4.25.1": at 1 "3"
+fuzz: 3000 compared, 253 matched

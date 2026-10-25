@@ -1,0 +1,5 @@
+stress: writes=300/300 reads consistent=1000 of 1000
+violations 0, reader concurrency bounded: yes
+scenario 1 order: RRW
+scenario 2 order: WR
+read epochs advanced at least twice: yes

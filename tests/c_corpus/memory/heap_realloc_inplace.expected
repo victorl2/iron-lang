@@ -1,0 +1,10 @@
+same-size/noop   3059
+shrink in place  3542
+grow into next   1269
+grow into prev   887
+move             2241
+failed (kept)    1444
+realloc(NULL)    237
+realloc(p,0)     368
+live=95 free blocks=41 free bytes=2432 largest=280
+drained

@@ -1,0 +1,10 @@
+system {1,5,10,25} canonical up to 2000
+system {1,3,4} not canonical: smallest counterexample 6, greedy 3 coins vs optimal 2
+system {1,5,10,20,25} not canonical: smallest counterexample 40, greedy 3 coins vs optimal 2
+system {1,2,5,10,20,50} canonical up to 2000
+system {1,5,12,25} not canonical: smallest counterexample 15, greedy 4 coins vs optimal 3
+system {1,2,4,8,16} canonical up to 2000
+system {1,10,21,25} not canonical: smallest counterexample 30, greedy 6 coins vs optimal 3
+system {1,3,6,12,24,30} not canonical: smallest counterexample 48, greedy 3 coins vs optimal 2
+random systems: 32 of 300 canonical, largest smallest-counterexample 38
+{1,7,10,23}: greedy wrong for 129 of 500 amounts, total excess coins 324

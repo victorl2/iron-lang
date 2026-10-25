@@ -1,0 +1,7 @@
+rc after 2 retains: 3
+releases died: 0 0 1, live=0
+rc after 300 retains: 255 saturated events=1
+rc after 400 releases: 255 live=1 (leaked by design)
+release at zero: died=0 underflows=1
+fuzz: shadow total=702 mismatches=0
+after cleanup: live=2 freed=5

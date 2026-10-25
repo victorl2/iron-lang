@@ -1,0 +1,6 @@
+parties=6 rounds=200
+rounds without exactly one serial thread: 0
+serial elections total: 200
+early passes: 0
+generation wrapped: yes
+generation advanced by rounds: yes

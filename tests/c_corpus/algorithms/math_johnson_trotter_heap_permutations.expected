@@ -1,0 +1,16 @@
+SJT n=4 (24 perms): 1234 1243 1423 4123 4132 1432 1342 1324 3124 3142 3412 4312 4321 3421 3241 3214 2314 2341 2431 4231 4213 2413 2143 2134
+n=2: 2 perms, adjacent swaps only: yes, parity alternates: yes, all distinct: yes
+n=3: 6 perms, adjacent swaps only: yes, parity alternates: yes, all distinct: yes
+n=4: 24 perms, adjacent swaps only: yes, parity alternates: yes, all distinct: yes
+n=5: 120 perms, adjacent swaps only: yes, parity alternates: yes, all distinct: yes
+n=6: 720 perms, adjacent swaps only: yes, parity alternates: yes, all distinct: yes
+n=7: 5040 perms, adjacent swaps only: yes, parity alternates: yes, all distinct: yes
+n=8: 40320 perms, adjacent swaps only: yes, parity alternates: yes, all distinct: yes
+Heap n=4 (24 perms): 1234 2134 3124 1324 2314 3214 4213 2413 1423 4123 2143 1243 1342 3142 4132 1432 3412 4312 4321 3421 2431 4231 3241 2341
+Heap n=3: 6 perms, single swap each step: yes, steps that happen to be adjacent: 3
+Heap n=4: 24 perms, single swap each step: yes, steps that happen to be adjacent: 13
+Heap n=5: 120 perms, single swap each step: yes, steps that happen to be adjacent: 65
+Heap n=6: 720 perms, single swap each step: yes, steps that happen to be adjacent: 391
+Heap n=7: 5040 perms, single swap each step: yes, steps that happen to be adjacent: 2737
+Heap n=8: 40320 perms, single swap each step: yes, steps that happen to be adjacent: 21897
+total fixed points over all 7! permutations: 5040

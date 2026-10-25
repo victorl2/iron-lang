@@ -1,0 +1,8 @@
+cap1.txt (42 bytes):captured line 1 |captured line 2 |raw write |
+dup2(fd, fd) returns fd and leaves it open
+cap2.txt (10 bytes):new-target
+cap3.txt (7 bytes):victim-
+cap4.txt (11 bytes):via high fd
+dup2 from closed fd: -1 EBADF
+dup of closed fd: -1 EBADF
+cap5.txt (11 bytes):from child |

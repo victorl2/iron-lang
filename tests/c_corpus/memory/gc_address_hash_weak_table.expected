@@ -1,0 +1,7 @@
+objects allocated: 899, collections: 15
+puts: 304, gets: 610, probes: 1045
+entries dropped because the key died: 206, live entries at end: 4
+stale index before rehash: 7 entries found, 65 missed
+rehashes: 14
+table membership checks: 7687
+oracle checks: 15

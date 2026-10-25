@@ -1,0 +1,31 @@
+[hello world] -> hello%20world | form: hello+world
+[a+b=c&d] -> a%2Bb%3Dc%26d | form: a%2Bb%3Dc%26d
+[café €] -> caf%C3%A9%20%E2%82%AC | form: caf%C3%A9+%E2%82%AC
+[~-._ok] -> ~-._ok | form: ~-._ok
+[100% legit/path?x#y] -> 100%25%20legit%2Fpath%3Fx%23y | form: 100%25+legit%2Fpath%3Fx%23y
+[] -> (empty) | form: (empty)
+bad escapes: % %4 %zz abc%g0 %%41
+mixed-case decode: 5 bytes, '+' as space in form mode: [€ A]
+query 1: 7 pairs
+  q        = iron lang
+  page     = 2
+  tag      = c
+  tag      = net
+  flag     (no =)
+  empty    = 
+  x        = =&
+  canonical: empty=&flag&page=2&q=iron+lang&tag=c&tag=net&x=%3D%26
+query 2: 2 pairs
+  a        = 1
+  b        (no =)
+  canonical: a=1&b
+query 3: 2 pairs
+  name     = Jürgen
+  city     = Zürich
+  canonical: city=Z%C3%BCrich&name=J%C3%BCrgen
+query 4: 3 pairs
+  k        = v=w
+  (empty)  = novalue
+  A        = upper
+  canonical: =novalue&A=upper&k=v%3Dw
+fuzz round trips ok, 192472 encoded characters produced

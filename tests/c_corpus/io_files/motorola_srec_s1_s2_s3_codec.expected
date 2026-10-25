@@ -1,0 +1,16 @@
+S1/S9 (16-bit): addr width 2, 911 bytes, header "demo.s19", records=12 (S5=12) bytes=365 start=100
+  S1220100A71B74DB75455173A72E4CF43CA51F01CABEDF5B04FC701980D6E930D2FD317D
+  S9030100FB
+S2/S8 (24-bit): addr width 3, 927 bytes, header "demo.s19", records=12 (S5=12) bytes=360 start=10000
+  S2230100009CF4FB262660DFF2CA3EE48B4F6CC1046E155CC9435570AB332F0293A585332D
+  S804010000FA
+S3/S7 (32-bit): addr width 4, 943 bytes, header "demo.s19", records=12 (S5=12) bytes=355 start=100
+  S323000001001A852C63C3392AD579477D66D37B15DE754C88F677DE9FC48A15658D4E8672
+  S70500000100F9
+bad 0: accepted
+bad 1: line 2 checksum mismatch
+bad 2: line 1 checksum mismatch
+bad 3: line 1 byte count mismatch
+bad 4: line 0 no termination record
+bad 5: line 1 checksum mismatch
+bad 6: line 1 malformed record

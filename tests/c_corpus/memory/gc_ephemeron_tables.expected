@@ -1,0 +1,8 @@
+objects allocated: 686
+collections: 14, swept: 661
+ephemeron entries created: 293 (value refers to key: 144), broken: 275, live at end: 18
+objects kept only through ephemerons: 148
+fixed-point passes: 41 total, 5 max in one collection
+extra objects a strong-value table would have kept: 338
+live objects at end: 25
+oracle checks: 14

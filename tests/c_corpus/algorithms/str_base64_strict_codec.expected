@@ -1,0 +1,17 @@
+"" -> ""
+"f" -> "Zg=="
+"fo" -> "Zm8="
+"foo" -> "Zm9v"
+"foob" -> "Zm9vYg=="
+"fooba" -> "Zm9vYmE="
+"foobar" -> "Zm9vYmFy"
+std +/+//j4/ url -_-__j4_
+5 bytes unpadded url: -_-__j4 (len 7)
+reject "Zg="
+reject "Zg"
+reject "Zh=="
+reject "Z==="
+reject "Zm9v!A=="
+reject "Zm9vY"
+reject "Zg==Zg=="
+random roundtrips: 600 ok, 81013 chars total

@@ -1,0 +1,42 @@
+logical mtimes of sources: 10 20 30 40
+== clean tree: make all
+      build main.o   (missing)
+      build util.o   (missing)
+        build extra.o  (missing)
+      build lib.a    (missing)
+    build app      (missing)
+   -> ok, 5 rebuilt
+== nothing changed: make all
+   -> ok, 0 rebuilt
+== common.h touched: make all
+      build main.o   (older than common.h)
+      build util.o   (older than common.h)
+      build lib.a    (older than util.o)
+    build app      (older than main.o)
+   -> ok, 4 rebuilt
+== util.c touched: make all
+      build util.o   (older than util.c)
+      build lib.a    (older than util.o)
+    build app      (older than util.o)
+   -> ok, 3 rebuilt
+== main.o deleted: make all
+      build main.o   (missing)
+    build app      (older than main.o)
+   -> ok, 2 rebuilt
+== extra.c mtime == extra.o mtime: make all
+   -> ok, 0 rebuilt
+== extra.c one second newer: make all
+        build extra.o  (older than extra.c)
+      build lib.a    (older than extra.o)
+    build app      (older than lib.a)
+   -> ok, 3 rebuilt
+== common.h made ancient: make all
+   -> ok, 0 rebuilt
+common.h mtime is now 1600000000 (epoch seconds, set by us)
+== cycle: make cyc1
+      circular dependency detected at 'cyc1'
+   -> failed, 0 rebuilt
+== missing prerequisite: make broken
+    no rule to make target 'nothere.c'
+   -> failed, 0 rebuilt
+total build steps: 17

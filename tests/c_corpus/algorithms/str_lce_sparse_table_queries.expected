@@ -1,0 +1,8 @@
+n=1500 alpha=2: sum of 6000 LCEs=8693 max=1098
+  squares with half-length 1: 774
+  squares with half-length 2: 399
+  squares with half-length 3: 148
+  squares with half-length 4: 68
+n=1200 alpha=3: sum of 6000 LCEs=8554 max=1197
+n=300 alpha=1: sum of 6000 LCEs=601655 max=297
+n=2000 alpha=26: sum of 6000 LCEs=4035 max=1817

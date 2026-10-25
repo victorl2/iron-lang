@@ -1,0 +1,6 @@
+case 0: n=52 zero_penalty_segments=14 k=7 lambda=9 best=186
+case 1: n=55 zero_penalty_segments=15 k=14 lambda=1 best=245
+case 2: n=42 zero_penalty_segments=13 k=9 lambda=5 best=201
+case 3: n=23 zero_penalty_segments=4 k=2 lambda=10 best=168
+case 4: n=49 zero_penalty_segments=13 k=8 lambda=9 best=200
+case 5: n=29 zero_penalty_segments=6 k=4 lambda=6 best=173

@@ -1,0 +1,7 @@
+block 0 [0,1667) total=837311 offset=0
+block 1 [1667,3335) total=823797 offset=837311
+block 2 [3335,5003) total=819681 offset=1661108
+block 3 [5003,6671) total=810024 offset=2480789
+block 4 [6671,8339) total=823382 offset=3290813
+block 5 [8339,10007) total=842136 offset=4114195
+total=4956331 out[0]=603 out[5003]=2481664

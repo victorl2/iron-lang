@@ -1,0 +1,8 @@
+healthy allocator: passed after 400 steps
+buggy allocator seed 1: overlap at step 5
+buggy allocator seed 2: overlap at step 4
+buggy allocator seed 3: overlap at step 8
+buggy allocator seed 4: overlap at step 4
+buggy allocator seed 5: overlap at step 2
+buggy allocator seed 6: overlap at step 5
+caught 6 of 6 buggy runs

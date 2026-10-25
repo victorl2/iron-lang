@@ -1,0 +1,13 @@
+t=  176 node 2 becomes leader of term 1 (log length 0, commit 0)
+t= 2000 node 2 (leader) crashes
+t= 2172 node 1 becomes leader of term 2 (log length 19, commit 18)
+t= 3800 node 2 restarts (persistent log length 19, term 1)
+t= 4200 node 1 (leader) crashes
+t= 4589 node 4 becomes leader of term 5 (log length 43, commit 42)
+t= 5200 node 1 restarts (persistent log length 43, term 2)
+proposed=57 messages=1682 lost=165 elections started=6 leaders elected=3
+node 0: term=5 follower  log=60 commit=60 applied=57 state hash=c070707d
+node 1: term=5 follower  log=60 commit=60 applied=57 state hash=c070707d
+node 2: term=5 follower  log=60 commit=60 applied=57 state hash=c070707d
+node 3: term=5 follower  log=60 commit=60 applied=57 state hash=c070707d
+node 4: term=5 leader    log=60 commit=60 applied=57 state hash=c070707d

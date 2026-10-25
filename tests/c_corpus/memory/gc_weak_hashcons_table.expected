@@ -1,0 +1,6 @@
+terms built: 769, tree nodes visited: 12103
+intern lookups: 5362 shared, 305 created
+identity checks: 3747 equal-or-not comparisons (3552 distinct pairs)
+collections: 4, cells swept: 263, removed from weak table: 263
+peak live cells: 51, live at end: 42, table entries: 42
+oracle checks: 4

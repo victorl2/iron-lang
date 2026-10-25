@@ -1,0 +1,21 @@
+single loss
+  rto-only   single loss      done@ 180 sent=41 fast=0 partial=0 rto=1
+  fast-retx  single loss      done@  80 sent=41 fast=1 partial=0 rto=0
+  newreno    single loss      done@  80 sent=41 fast=1 partial=0 rto=0
+two losses
+  rto-only   two losses       done@ 300 sent=42 fast=0 partial=0 rto=2
+  fast-retx  two losses       done@ 200 sent=42 fast=1 partial=0 rto=1
+  newreno    two losses       done@ 100 sent=42 fast=1 partial=1 rto=0
+burst of three
+  rto-only   burst of three   done@ 420 sent=43 fast=0 partial=0 rto=3
+  fast-retx  burst of three   done@ 320 sent=43 fast=1 partial=0 rto=2
+  newreno    burst of three   done@ 120 sent=43 fast=1 partial=2 rto=0
+tail loss
+  rto-only   tail loss        done@ 200 sent=41 fast=0 partial=0 rto=1
+  fast-retx  tail loss        done@ 200 sent=41 fast=0 partial=0 rto=1
+  newreno    tail loss        done@ 200 sent=41 fast=0 partial=0 rto=1
+mixed
+  rto-only   mixed            done@ 660 sent=45 fast=0 partial=0 rto=5
+  fast-retx  mixed            done@ 460 sent=45 fast=2 partial=0 rto=3
+  newreno    mixed            done@ 360 sent=45 fast=2 partial=1 rto=2
+single-loss speedup: 100 ticks

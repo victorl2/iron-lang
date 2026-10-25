@@ -1,0 +1,6 @@
+distinct symbols: 8 of 15 words
+ids: if=1(rc3) else=2(rc2) while=3(rc1) return=4(rc2) x=5(rc3) y=6(rc2) count=7(rc1)
+after releasing x: live=7 evictions=1
+y still shared: rc=3
+x re-interned with id 9 (previous id 5)
+final live=0 evictions=9

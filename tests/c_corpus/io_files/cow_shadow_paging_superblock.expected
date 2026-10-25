@@ -1,0 +1,10 @@
+transactions=7 total page writes=34
+crash scenarios checked=70
+  recovered txn 0: 8 scenarios
+  recovered txn 1: 12 scenarios
+  recovered txn 2: 10 scenarios
+  recovered txn 3: 6 scenarios
+  recovered txn 4: 10 scenarios
+  recovered txn 5: 12 scenarios
+  recovered txn 6: 10 scenarios
+  recovered txn 7: 2 scenarios

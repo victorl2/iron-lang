@@ -1,0 +1,5 @@
+strlcpy: 205 cases, 52 truncated, canaries intact
+strlcat: 1240 cases, 260 truncated, canaries intact
+unterminated dst: ret=7 bytes=abcd
+path="/usr/local/shar" needed=20 truncated=1
+path="/usr/local/share/doc" needed=20 truncated=0

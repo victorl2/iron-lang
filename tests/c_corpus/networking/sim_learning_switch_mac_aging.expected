@@ -1,0 +1,5 @@
+cap=16 age= 300: unicast=279 flooded= 58 filtered= 34 bcast= 29 learned= 58 moved=1 aged= 48 evicted=  0 wasted_copies=820 stale_misdelivery=1
+cap=16 age=  50: unicast=103 flooded=257 filtered= 11 bcast= 29 learned=290 moved=0 aged=286 evicted=  0 wasted_copies=2420 stale_misdelivery=0
+cap= 6 age= 300: unicast=157 flooded=196 filtered= 18 bcast= 29 learned=211 moved=0 aged=  6 evicted=199 wasted_copies=1930 stale_misdelivery=0
+cap= 4 age= 300: unicast= 93 flooded=266 filtered= 12 bcast= 29 learned=265 moved=0 aged=  4 evicted=257 wasted_copies=2492 stale_misdelivery=0
+cap=16 age=100000: unicast=319 flooded= 14 filtered= 38 bcast= 29 learned= 12 moved=1 aged=  0 evicted=  0 wasted_copies=468 stale_misdelivery=1

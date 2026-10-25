@@ -1,0 +1,4 @@
+head density    2/1000: segments=  11 max_total=46484 min_total=-5 last=46484
+head density   30/1000: segments= 173 max_total=3490 min_total=-33 last=516
+head density  300/1000: segments=1756 max_total=635 min_total=-78 last=65
+head density 1000/1000: segments=6000 max_total=69 min_total=-30 last=-12

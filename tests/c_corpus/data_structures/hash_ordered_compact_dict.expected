@@ -1,0 +1,3 @@
+live=240 entries used=542/1365 index slots=2048
+compactions=14 index resizes=8 popitems=2998
+first entries in insertion order: key291=577 key531=311 key405=988 key456=458 key503=809 key203=646

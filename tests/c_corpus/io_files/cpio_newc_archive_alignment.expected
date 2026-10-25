@@ -1,0 +1,12 @@
+variant newc (070701): 908 bytes, 6 files
+  ino=100 mode=100644 len= 0 name-pad=0 data-pad=0 a
+  ino=101 mode=100644 len= 1 name-pad=3 data-pad=3 bb
+  ino=102 mode=100644 len= 2 name-pad=2 data-pad=2 ccc
+  ino=103 mode=100644 len= 3 name-pad=1 data-pad=1 dddd
+  ino=104 mode=100755 len= 4 name-pad=1 data-pad=0 usr/bin/tool
+  ino=105 mode=100644 len=37 name-pad=3 data-pad=3 etc/config/very/long/name.conf
+bad filesize digit: bad hex field
+bad magic: bad magic
+cut trailer: truncated header
+variant crc (070702): 908 bytes, 6 files
+corrupt payload: data checksum mismatch

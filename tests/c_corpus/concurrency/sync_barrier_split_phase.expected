@@ -1,0 +1,7 @@
+thread 0 slack work 9119
+thread 1 slack work 9598
+thread 2 slack work 10080
+thread 3 slack work 10565
+thread 4 slack work 11053
+total slack 50415 (expected 50415)
+generations 80, stale reads 0

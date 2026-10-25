@@ -1,0 +1,10 @@
+reader1 v0: (rc=1)
+reader2 v2: 10=100 20=200 (rc=1)
+reader3 v4: 10=111 20=200 30=300 (rc=2)
+live snapshots: 3 (v1 died, v3 died)
+destroyed so far: v1 v3
+key 10 across versions: r1=absent r2=100 r3=111
+after readers 1,2 done: live=1 destroyed count=4
+after churn: live=1 published=9 final v9
+final   v9: 10=111 20=200 30=300 40=4 41=3 (rc=1)
+total destroyed: 10

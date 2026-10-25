@@ -1,0 +1,4 @@
+phase 1: striped sum 150003, single atomic 150003, mutex counter 150003, expected 150003
+watcher saw regressions: 0, final snapshot equals total: yes
+phase 2: drained total 150003, left in stripes 0, expected 150003
+stripe count 8, per-stripe padding bytes 56

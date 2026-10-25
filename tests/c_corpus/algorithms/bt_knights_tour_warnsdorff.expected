@@ -1,0 +1,22 @@
+5x5 open, Warnsdorff           -> found, visits=25 dead_ends=0
+  1 12 25 18  3
+ 22 17  2 13 24
+ 11  8 23  4 19
+ 16 21  6  9 14
+  7 10 15 20  5
+6x6 open, Warnsdorff           -> found, visits=36 dead_ends=0
+6x6 open, fixed move order     -> found, visits=248169 dead_ends=89600
+8x8 open, Warnsdorff           -> found, visits=64 dead_ends=0
+  1  4 57 20 41  6 43 22
+ 34 19  2  5 58 21 40  7
+  3 56 35 60 37 42 23 44
+ 18 33 48 53 46 59  8 39
+ 49 14 55 36 61 38 45 24
+ 32 17 52 47 54 27 62  9
+ 13 50 15 30 11 64 25 28
+ 16 31 12 51 26 29 10 63
+8x8 closed from (2,3)          -> found, visits=177 dead_ends=30
+5x5 open from odd square       -> none, visits=1829421 dead_ends=727156
+4x4 open (no tour exists)      -> none, visits=2223 dead_ends=760
+3x3 open (no tour exists)      -> none, visits=15 dead_ends=2
+5x5 closed (parity forbids)    -> none, visits=1735079 dead_ends=625308

@@ -1,0 +1,3 @@
+nodes allocated=16000 freed=16000
+values delivered exactly once: 16000
+no use-after-free (checked by the sanitizer build): ok

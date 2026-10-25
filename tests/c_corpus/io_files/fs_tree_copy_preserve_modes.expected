@@ -1,0 +1,22 @@
+copied: 6 dirs, 10 files, 2 symlinks, 929 bytes
+differences after copy: 0
+d 0750 dst/bin
+l dst/bin/broken -> ../missing
+- 0600 131 dst/bin/file0.dat
+- 0640 6 dst/bin/file3.dat
+- 0640 88 dst/bin/file6.dat
+d 0755 dst/empty
+d 0755 dst/lib
+d 0700 dst/lib/deep
+- 0640 131 dst/lib/deep/file2.dat
+- 0444 100 dst/lib/deep/file5.dat
+- 0600 195 dst/lib/deep/file8.dat
+- 0644 103 dst/lib/file1.dat
+- 0640 134 dst/lib/file4.dat
+- 0600 26 dst/lib/file7.dat
+d 0555 dst/ro
+- 0444 15 dst/ro/config
+l dst/shortcut -> lib/deep
+after mode change: 1
+after retargeting a symlink: 1
+after removing a directory: detected=1

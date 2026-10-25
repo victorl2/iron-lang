@@ -1,0 +1,8 @@
+k= 1 (tree leaves  1) total=  40  cmps: winner=    0 loser=    0 linear=    0  first=4 last=111
+k= 2 (tree leaves  2) total=   4  cmps: winner=    5 loser=    5 linear=    0  first=4 last=12
+k= 3 (tree leaves  4) total=  39  cmps: winner=   73 loser=   81 linear=   13  first=1 last=90
+k= 5 (tree leaves  8) total= 136  cmps: winner=  332 loser=  415 linear=  331  first=1 last=127
+k= 8 (tree leaves  8) total= 145  cmps: winner=  442 loser=  442 linear=  353  first=0 last=138
+k=13 (tree leaves 16) total= 479  cmps: winner= 1812 loser= 1931 linear= 4333  first=0 last=166
+k=16 (tree leaves 16) total= 366  cmps: winner= 1479 loser= 1479 linear= 3425  first=1 last=136
+k=20 (tree leaves 32) total= 569  cmps: winner= 2714 loser= 2876 linear= 6689  first=1 last=157

@@ -1,0 +1,11 @@
+accept with empty queue: EAGAIN
+poll says listener readable: no
+wave 0: 1 clients connected, accept loop got 1
+wave 0: queue empty again: yes
+wave 1: 2 clients connected, accept loop got 2
+wave 1: queue empty again: yes
+wave 2: 3 clients connected, accept loop got 3
+wave 2: queue empty again: yes
+total accepted 6
+client that already closed was accepted: yes
+accepted socket reads EOF immediately: yes

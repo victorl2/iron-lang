@@ -1,0 +1,3 @@
+live=1688 dead=1039 cap=4096 load=0.4121
+grow rehashes=8 cleanup rehashes=0 max tombstones=1040
+avg probes=2.7565 longest occupied run=32

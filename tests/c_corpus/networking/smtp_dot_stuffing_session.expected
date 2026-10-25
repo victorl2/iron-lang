@@ -1,0 +1,27 @@
+S: 220 iron.test ESMTP ready
+C: MAIL FROM:<early@x.org>          S: 503 bad sequence of commands
+C: EHLO client.example              S: 250 SIZE 10000
+C: MAIL FROM:<alice@example.org>    S: 250 sender ok
+C: RCPT TO:<bob@iron.test>          S: 250 recipient ok
+C: RCPT TO:<eve@elsewhere.net>      S: 550 relay denied
+C: RCPT TO:<carol@iron.test>        S: 250 recipient ok
+C: DATA                             S: 354 end data with <CRLF>.<CRLF>
+end of data: 250 queued 8 lines as message 1
+C: DATA                             S: 503 need RCPT first
+C: MAIL FROM:<dave@example.org>     S: 250 sender ok
+C: RSET                             S: 250 reset
+C: RCPT TO:<bob@iron.test>          S: 503 need MAIL first
+C: MAIL FROM:<dave@example.org>     S: 250 sender ok
+C: RCPT TO:<bob@iron.test>          S: 250 recipient ok
+C: DATA                             S: 354 end data with <CRLF>.<CRLF>
+end of data: 250 queued 1 lines as message 2
+C: VRFY bob                         S: 500 unrecognized command
+C: NOOP                             S: 250 ok
+C: QUIT                             S: 221 bye
+server child exit: mails=2
+spool FROM alice@example.org
+spool TO bob@iron.test
+spool TO carol@iron.test
+spool FROM dave@example.org
+spool TO bob@iron.test
+first message round-trips through dot-stuffing: yes

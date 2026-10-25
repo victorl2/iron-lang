@@ -1,0 +1,14 @@
+fresh malloc: 8/8 bytes undefined; calloc: 0/8
+after init of even slots: undefined=4
+outputs:
+  a[2] = 20
+  report: undefined value output at a[3]
+  report: undefined value output at a[4]+a[5]
+  a[4]+a[6] = 100
+  a[0]*a[1] (0 * garbage) = 0
+  report: undefined value output at a[2]*a[1]
+copy of a has 4 undefined bytes (same positions: 1)
+branch on calloc sum: 0
+branch on undefined byte: 0 (message: uninitialised branch at a[1])
+after memset: branch=1 undefined=0
+total reports: 4

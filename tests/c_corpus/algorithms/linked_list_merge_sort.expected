@@ -1,0 +1,14 @@
+n=0    depth=0 
+n=1    depth=0  head=25/0 tail: 25/0
+n=2    depth=1  head=8/1 tail: 9/0
+n=5    depth=3  head=3/1 tail: 46/0
+n=17   depth=5  head=0/15 tail: 49/12
+n=100  depth=7  head=0/54 tail: 49/89
+n=1000 depth=10 head=0/31 tail: 49/893
+natural n=0    rounds=0
+natural n=1    rounds=1
+natural n=2    rounds=1
+natural n=5    rounds=1
+natural n=17   rounds=3
+natural n=100  rounds=6
+natural n=1000 rounds=9

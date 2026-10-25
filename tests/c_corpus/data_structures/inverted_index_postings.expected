@@ -1,0 +1,4 @@
+index: 250 docs, 40 words, 4355 postings, raw 62604 bytes -> varint 15705 bytes (25.1%)
+queries: and=300 or=300 andnot=300 phrase=300, total hits=84367
+skip intersection comparisons=49217, plain merge comparisons=49389
+most common word 0 is in 213 of 250 docs; rarest present word 38 is in 39

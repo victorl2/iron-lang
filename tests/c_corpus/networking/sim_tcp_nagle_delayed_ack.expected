@@ -1,0 +1,19 @@
+config nagle=0 delayed_ack=0
+  trickle 20x10B/5ms     nagle=0 delayed=0  segs=20 (small 20) acks=20  last_data@105  last_ack@115
+  header+body (4B,60B)   nagle=0 delayed=0  segs= 2 (small  2) acks= 2  last_data@ 11  last_ack@ 21
+  bulk 1130B burst       nagle=0 delayed=0  segs=17 (small  6) acks=17  last_data@ 10  last_ack@ 20
+config nagle=0 delayed_ack=1
+  trickle 20x10B/5ms     nagle=0 delayed=1  segs=20 (small 20) acks=10  last_data@105  last_ack@115
+  header+body (4B,60B)   nagle=0 delayed=1  segs= 2 (small  2) acks= 1  last_data@ 11  last_ack@ 21
+  bulk 1130B burst       nagle=0 delayed=1  segs=17 (small  6) acks= 9  last_data@ 10  last_ack@ 60
+config nagle=1 delayed_ack=0
+  trickle 20x10B/5ms     nagle=1 delayed=0  segs= 6 (small  6) acks= 6  last_data@110  last_ack@120
+  header+body (4B,60B)   nagle=1 delayed=0  segs= 2 (small  2) acks= 2  last_data@ 30  last_ack@ 40
+  bulk 1130B burst       nagle=1 delayed=0  segs=14 (small  1) acks=14  last_data@ 30  last_ack@ 40
+config nagle=1 delayed_ack=1
+  trickle 20x10B/5ms     nagle=1 delayed=1  segs= 3 (small  2) acks= 3  last_data@120  last_ack@170
+  header+body (4B,60B)   nagle=1 delayed=1  segs= 2 (small  2) acks= 2  last_data@ 70  last_ack@120
+  bulk 1130B burst       nagle=1 delayed=1  segs=14 (small  1) acks= 8  last_data@ 70  last_ack@120
+  stall check            nagle=1 delayed=1  segs= 2 (small  2) acks= 2  last_data@ 70  last_ack@120
+  stall check            nagle=0 delayed=1  segs= 2 (small  2) acks= 1  last_data@ 11  last_ack@ 21
+body delivered at 70 with Nagle, 11 without: stall = 59 ms

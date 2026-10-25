@@ -1,0 +1,12 @@
+n=0     passes= 0 result_in=a checksum=0
+n=1     passes= 0 result_in=a checksum=0
+n=2     passes= 1 result_in=b checksum=1
+n=3     passes= 2 result_in=a checksum=3
+n=7     passes= 3 result_in=b checksum=43
+n=8     passes= 3 result_in=b checksum=79
+n=9     passes= 4 result_in=a checksum=69
+n=100   passes= 7 result_in=b checksum=85042
+n=1023  passes=10 result_in=a checksum=92178154
+n=1024  passes=10 result_in=a checksum=88318883
+n=1025  passes=11 result_in=b checksum=90753703
+n=5000  passes=13 result_in=b checksum=10427571594

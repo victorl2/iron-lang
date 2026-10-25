@@ -1,0 +1,3 @@
+clock=12199 sets=14958 gets=25103 live hits=4491
+stored entries=132 expired by wheel=12033 lazy misses before sweep=101
+fullest wheel slot=9 of 64 slots

@@ -1,0 +1,4 @@
+insert=5273 insert_unique=2220 erase_one=1926 erase_all=896 range=2516 nearest=2169
+final n=1421 avg_size=964
+min=0 median=154 max=299
+count of 100..199 = 486

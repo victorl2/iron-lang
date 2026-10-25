@@ -1,0 +1,7 @@
+scenario               copies   lits litbytes   delta
+identical                  93      1      48     237
+insert 13 bytes            92      2     125     314
+delete 200 bytes           89      2     104     287
+scattered byte edits       81     11     816    1003
+append tail                93      1     348     538
+unrelated                   0      1    6000    6004

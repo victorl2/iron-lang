@@ -1,0 +1,10 @@
+limit read back as lowered value: 1
+descriptors open in total when open() failed: 48 (limit 48)
+open() failure was EMFILE: 1
+pipe() failure was EMFILE: 1
+dup() failure was EMFILE: 1
+dup2 above the limit failed with EBADF: 1
+lowest closed number handed out first: 1
+three more opens after freeing four: 1
+parent limit unchanged
+parent opened 80 descriptors: 1

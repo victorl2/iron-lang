@@ -1,0 +1,7 @@
+file bytes=146173 records=4000 index at 130173
+average probes per lookup=11.98
+prefix "ca-": 165 keys
+prefix "dd": 184 keys
+prefix "zz": 0 keys
+whole-file crc=791033b3
+corrupt variants rejected=4 accepted=0

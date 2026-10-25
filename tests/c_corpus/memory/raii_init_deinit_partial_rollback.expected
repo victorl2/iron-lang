@@ -1,0 +1,13 @@
+fail= 0 -> rolled back inits=0 deinits=0
+fail= 1 -> rolled back inits=1 deinits=1
+fail= 2 -> rolled back inits=2 deinits=2
+fail= 3 -> rolled back inits=3 deinits=3
+fail= 4 -> rolled back inits=4 deinits=4
+fail= 5 -> rolled back inits=5 deinits=5
+fail= 6 -> rolled back inits=6 deinits=6
+fail= 7 -> rolled back inits=7 deinits=7
+fail= 8 -> rolled back inits=8 deinits=8
+fail= 9 -> rolled back inits=9 deinits=9
+fail=10 -> ready inits=10 deinits=0
+  sequence: L+G+L+L+G+L+L+G+L+L+
+failures=10

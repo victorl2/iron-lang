@@ -1,0 +1,13 @@
+threads=6 permits=2 rounds=150
+thread 0 acquired 150
+thread 1 acquired 150
+thread 2 acquired 150
+thread 3 acquired 150
+thread 4 acquired 150
+thread 5 acquired 150
+total grants 900, tickets issued 900
+fairness spread 0
+own ticket order violations 0
+over-limit observations 0, max in-flight within limit yes
+try_acquire successes 2 of 5
+final count 2

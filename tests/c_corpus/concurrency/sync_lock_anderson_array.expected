@@ -1,0 +1,6 @@
+threads=5 slots=8 acquisitions=1250
+tickets granted in issue order: yes
+slot usage: 157 157 156 156 156 156 156 156
+fields a=1250 b=2500 violations=0
+laps of the slot ring: 156
+exactly one slot armed at rest: yes

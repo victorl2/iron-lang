@@ -1,0 +1,5 @@
+case 0: n=92 k=2 cost=213639 dc_evals=706 cubic_evals=4278
+case 1: n=42 k=7 cost=708 dc_evals=1232 cubic_evals=4613
+case 2: n=80 k=2 cost=122459 dc_evals=602 cubic_evals=3240
+case 3: n=69 k=5 cost=8167 dc_evals=1686 cubic_evals=9049
+case 4: n=59 k=7 cost=1982 dc_evals=1882 cubic_evals=9475

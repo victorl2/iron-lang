@@ -1,0 +1,10 @@
+unique keys: 2981
+pages=230 height=3 root=229
+all keys found, pages touched per lookup: 3
+absent probes among 2000: 1974
+range [0,1000]: count=18 sum=8901
+range [5000,5100]: count=2 sum=10081
+range [99000,101000]: count=24 sum=2403250
+range [0,199999]: count=2981 sum=291226530
+range [150000,150000]: count=0 sum=0
+range [199990,300000]: count=0 sum=0

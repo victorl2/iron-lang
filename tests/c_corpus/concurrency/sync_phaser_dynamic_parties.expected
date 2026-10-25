@@ -1,0 +1,9 @@
+phases completed: 7, terminated: yes
+phase 0: 5 parties (expected 5)
+phase 1: 5 parties (expected 5)
+phase 2: 6 parties (expected 6)
+phase 3: 5 parties (expected 5)
+phase 4: 4 parties (expected 4)
+phase 5: 2 parties (expected 2)
+phase 6: 1 parties (expected 1)
+missing writes seen after a phase: 0

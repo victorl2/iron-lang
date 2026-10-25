@@ -1,0 +1,25 @@
+n=10
+  double    grows=5      copied=15        amort_x1000=1500   waste=6      sum=315
+  x1.5      grows=6      copied=24        amort_x1000=2400   waste=3      sum=315
+  plus16    grows=1      copied=0         amort_x1000=0      waste=6      sum=315
+  fibonacci grows=5      copied=18        amort_x1000=1800   waste=3      sum=315
+  exact     grows=10     copied=45        amort_x1000=4500   waste=0      sum=315
+n=100
+  double    grows=8      copied=127       amort_x1000=1270   waste=28     sum=4956
+  x1.5      grows=12     copied=283       amort_x1000=2830   waste=41     sum=4956
+  plus16    grows=7      copied=336       amort_x1000=3360   waste=12     sum=4956
+  fibonacci grows=10     copied=230       amort_x1000=2300   waste=44     sum=4956
+  exact     grows=100    copied=4950      amort_x1000=49500  waste=0      sum=4956
+n=1000
+  double    grows=11     copied=1023      amort_x1000=1023   waste=24     sum=49875
+  x1.5      grows=17     copied=2136      amort_x1000=2136   waste=66     sum=49875
+  plus16    grows=63     copied=31248     amort_x1000=31248  waste=8      sum=49875
+  fibonacci grows=15     copied=2581      amort_x1000=2581   waste=597    sum=49875
+  exact     grows=1000   copied=499500    amort_x1000=499500 waste=0      sum=49875
+n=20000
+  double    grows=16     copied=32767     amort_x1000=1638   waste=12768  sum=999907
+  x1.5      grows=25     copied=54628     amort_x1000=2731   waste=7310   sum=999907
+  plus16    grows=1250   copied=12490000  amort_x1000=624500 waste=0      sum=999907
+  fibonacci grows=21     copied=46365     amort_x1000=2318   waste=8657   sum=999907
+  exact     grows=20000  copied=199990000 amort_x1000=9999500 waste=0      sum=999907
+double 100000: grows=18 copied=131071 cap=131072

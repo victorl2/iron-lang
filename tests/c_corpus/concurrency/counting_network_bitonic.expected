@@ -1,0 +1,6 @@
+width 4: balancers=6 tokens=15006
+  outputs: 3752 3752 3751 3751
+  step property holds, values 0..15005 each handed out once
+width 8: balancers=24 tokens=15006
+  outputs: 1876 1876 1876 1876 1876 1876 1875 1875
+  step property holds, values 0..15005 each handed out once

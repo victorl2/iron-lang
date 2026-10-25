@@ -1,0 +1,20 @@
+metainfo 180 bytes: d13:announce-listl31:http://tracker.example/announcee13:creation datei1700000000e4:infod6:lengthi1048576e4:name10:sample.txt12:piece lengthi262144e6:pieces20:\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14ee
+re-encode identical; top-level keys sorted: announce-list creation date info
+random 0: 5:6\xe8\xb7\xea\x8a
+random 1: d4:k17a3:\xe9xJe
+random 2: lli-57296526000ed3:k3ali10685227ei379789103ee4:k95bleeelll3:...
+60 random trees round-tripped, 3718 encoded bytes
+bad  0 i03e                       leading zero
+bad  1 i-0e                       negative zero
+bad  2 i12                        malformed integer
+bad  3 ie                         malformed integer
+bad  4 5:abc                      string overruns input
+bad  5 03:abc                     leading zero in length
+bad  6 l                          unterminated container
+bad  7 d3:foo3:bar3:bar3:baze     dictionary keys not strictly sorted
+bad  8 d3:zzzi1e3:aaai2ee         dictionary keys not strictly sorted
+bad  9 di1ei2ee                   dictionary key is not a string
+bad 10 x                          unexpected byte
+bad 11 i9223372036854775808e      integer overflow
+bad 12 lllllllllllllllllllee      nesting too deep
+bad 13 d3:fooi1e3:foo1:xe         dictionary keys not strictly sorted

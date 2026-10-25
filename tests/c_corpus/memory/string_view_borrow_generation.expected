@@ -1,0 +1,8 @@
+field 0: key=[name] value=[iron]
+field 1: key=[kind] value=[lang]
+field 2: key=[ver] value=[4.2]
+field 3: key=[tag] value=[alpha]
+owned copy: [kind=lang] len=9
+valid views before append: 4, after: 0
+fields after append: 5, keeper still [kind=lang]
+literal view valid: 1

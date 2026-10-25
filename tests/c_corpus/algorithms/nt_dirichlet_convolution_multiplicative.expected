@@ -1,0 +1,14 @@
+1 * mu = eps : verified up to 2000
+phi * 1 = id : verified up to 2000
+1 * 1 = tau : verified up to 2000
+id * 1 = sigma : verified up to 2000
+mu * id = phi : verified up to 2000
+lambda * 1 = [n is a square]: 44 squares up to 2000
+inverse of id at 1..12: 1 -2 -3 0 -5 6 -7 0 0 10 -11 0
+associativity (phi*tau)*mu vs phi*(tau*mu): equal
+mu, phi, tau, sigma, lambda multiplicative on coprime pairs: yes
+mu(360) = 0
+phi(360) = 96
+tau(360) = 24
+sigma(360) = 1170
+lambda(360) = 1

@@ -1,0 +1,9 @@
+cycle 0: send reported EAGAIN after buffering some bytes: yes
+cycle 0: writable again after the reader drained: yes
+cycle 1: send reported EAGAIN after buffering some bytes: yes
+cycle 1: writable again after the reader drained: yes
+cycle 2: send reported EAGAIN after buffering some bytes: yes
+cycle 2: writable again after the reader drained: yes
+cycle 3: send reported EAGAIN after buffering some bytes: yes
+cycle 3: writable again after the reader drained: yes
+all cycles: sent equals received: yes, hashes equal: yes

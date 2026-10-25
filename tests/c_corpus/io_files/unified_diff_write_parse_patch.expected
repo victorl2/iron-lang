@@ -1,0 +1,31 @@
+a: 30 lines, b: 30 lines, b has no final newline: 1
+context 0: 6 hunks, patch 283 bytes, +4 -4; forward and reverse apply ok
+context 1: 5 hunks, patch 368 bytes, +4 -4; forward and reverse apply ok
+--- a/file.txt
++++ b/file.txt
+@@ -6,3 +6,3 @@
+ foxtrot 5
+-golf 6
++golf 6 CHANGED
+ hotel 7
+@@ -11,2 +11,3 @@
+ kilo 10
++inserted after 10
+ lima 11
+@@ -14,3 +15,2 @@
+ bravo 13
+-charlie 14
+ delta 15
+@@ -18,5 +18,4 @@
+ foxtrot 17
+-golf 18
++golf 18 CHANGED
+ hotel 19
+-india 20
+ juliet 21
+@@ -30,1 +29,2 @@
+ foxtrot 29
++final line without newline
+\ No newline at end of file
+patch against modified file: context mismatch
+context 3: 2 hunks, patch 408 bytes, +4 -4; forward and reverse apply ok

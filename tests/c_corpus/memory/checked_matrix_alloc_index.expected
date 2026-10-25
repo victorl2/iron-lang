@@ -1,0 +1,17 @@
+new(3 x 4): ok
+new(0 x 5): zero-dim
+new(5 x 0): zero-dim
+new(1000 x 1000): ok
+new(2048 x 2048): too-big
+new(99999999 x 2): overflow
+new(99999999 x 99999999): overflow
+new(99999999 x 1): overflow
+new(1 x 99999999): too-big
+new(1 x 1): ok
+get(3,5)=0, get(4,0)=5, get(0,6)=5, get(SIZE_MAX,0)=5
+a[3][5]=35
+view(1,2,2,3): ok sum=108
+view(3,0,2,1): index
+view(SIZE_MAX,0,1,1): index
+view(0,0,4,6): ok sum=420
+transpose 4x6 -> 6x4 consistent=1

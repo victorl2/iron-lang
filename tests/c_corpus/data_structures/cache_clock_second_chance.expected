@@ -1,0 +1,5 @@
+policy       hot   loop random
+CLOCK       5908   5793   1283  sweep steps=7677
+GCLOCK-3    6321   5831   1273  sweep steps=9750
+GCLOCK-7    6461   5854   1274  sweep steps=10393
+FIFO        4868   5734   1264

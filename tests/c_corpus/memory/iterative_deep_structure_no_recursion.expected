@@ -1,0 +1,5 @@
+chain: height=200000 max_stack=1 sum=20000100000
+freed 200000 nodes
+full tree: nodes=16383 height=14 max_stack=14 sum=134209536
+freed 16383 nodes
+chunked hash=b7196578 chunks=367 direct=b7196578

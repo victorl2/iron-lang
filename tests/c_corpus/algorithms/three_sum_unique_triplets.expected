@@ -1,0 +1,10 @@
+unique zero-sum triples over 60 trials: 656
+demo zero-sum triples: 2
+  (-1, -1, 2)
+  (-1, 0, 1)
+closest triple sum to 0: 4
+closest triple sum to 50: 41
+closest triple sum to 100: 100
+closest triple sum to 300: 304
+closest triple sum to 1000: 341
+closest triple sum to -1000: -125

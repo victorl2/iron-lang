@@ -1,0 +1,14 @@
+known-answer vectors passed for 4 functions x 5 inputs
+fnv1a("hello")=4f9f2cab murmur3("hello")=248bfa47 oaat("hello")=c8fd181b
+fnv1a    mean output bits flipped=12.773 (ideal 16) worst bias=0.500 cells with |p-0.5|>0.15: 417/1024
+djb2     mean output bits flipped=5.263 (ideal 16) worst bias=0.500 cells with |p-0.5|>0.15: 928/1024
+oaat     mean output bits flipped=16.175 (ideal 16) worst bias=0.269 cells with |p-0.5|>0.15: 30/1024
+murmur3  mean output bits flipped=15.998 (ideal 16) worst bias=0.037 cells with |p-0.5|>0.15: 0/1024
+mix32    mean output bits flipped=16.008 (ideal 16) worst bias=0.029 cells with |p-0.5|>0.15: 0/1024
+x^x>>16  mean output bits flipped=1.500 (ideal 16) worst bias=0.500 cells with |p-0.5|>0.15: 1024/1024
+fnv1a    chi-square over 64 low-bit buckets (expected ~63): 0.0
+djb2     chi-square over 64 low-bit buckets (expected ~63): 0.0
+oaat     chi-square over 64 low-bit buckets (expected ~63): 52.2
+murmur3  chi-square over 64 low-bit buckets (expected ~63): 52.7
+mix32    chi-square over 64 low-bit buckets (expected ~63): 67.8
+x^x>>16  chi-square over 64 low-bit buckets (expected ~63): 0.0

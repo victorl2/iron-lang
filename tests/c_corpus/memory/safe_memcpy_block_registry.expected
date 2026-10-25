@@ -1,0 +1,14 @@
+a[0..8]->b                 -> ok
+a[0..16]->b                -> ok
+a[0..17]->b                -> dst-overflow
+b[10..]x9->a               -> src-overread
+a[24..]<-a x9              -> dst-overflow
+stack->b                   -> src-unknown
+a->stack                   -> dst-unknown
+a[0..8]->a[4..]            -> overlap
+memmove a[0..8]->a[4..]    -> ok
+a[16..24]->a[0..8]         -> ok
+huge len                   -> len-wrap
+zero len wild              -> ok
+final state: a[4]=21 a[11]=8 a[12]=13
+copy into freed a: dst-unknown

@@ -1,0 +1,8 @@
+v0 built: live chunks=8 copies=0
+snapshot: live chunks=8 shared=8/8
+v1 edited 3 cells in 2 chunks: live=10 copies=2 shared=6
+v0 write to chunk 0: copies=2 shared(v0,v1)=6 shared(v1,v2)=8
+cell 3: v0=333 v1=-3 v2=-3
+history of 6: live chunks=16 (a full copy each would be 72), shared chunk pairs with head=27
+checksums: v0=737629 v1=805150 v2=178246 h0=805150 h5=358630
+final live chunks=0

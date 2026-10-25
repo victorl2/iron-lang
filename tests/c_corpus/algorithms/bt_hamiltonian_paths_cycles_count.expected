@@ -1,0 +1,9 @@
+grid 2x2: undirected paths=   4 cycles=  1 nodes plain=     28 pruned=     28
+grid 2x3: undirected paths=   8 cycles=  1 nodes plain=    104 pruned=     92
+grid 3x3: undirected paths=  20 cycles=  0 nodes plain=    653 pruned=    369
+grid 3x4: undirected paths=  62 cycles=  2 nodes plain=   3248 pruned=   1376
+grid 4x4: undirected paths= 276 cycles=  6 nodes plain=  28512 pruned=   7664
+grid 3x5: undirected paths= 132 cycles=  0 nodes plain=  14253 pruned=   3927
+grid 4x5: undirected paths=1006 cycles= 14 nodes plain= 222080 pruned=  35840
+complete graphs K3..K8 verified against n! and (n-1)!
+60 random graphs: paths=159832 cycles=4734 graphs with a Hamiltonian cycle=24

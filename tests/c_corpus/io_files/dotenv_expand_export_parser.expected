@@ -1,0 +1,13 @@
+APP_NAME       ok     <iron2>
+HOME_DIR       ok     </srv/iron2>
+LOG_DIR        ok     </srv/iron2/logs>
+QUOTED         ok     <line1\nline2\t"end">
+LITERAL        ok     <${APP_NAME} stays $literal>
+WITH_DEFAULT   ok     <fallback/x>
+EMPTY          ok     <>
+EMPTY_DEFAULT  ok     <was empty>
+CYC_A          cyclic <>
+CYC_B          ok     <b>
+SELF           cyclic <>
+URL            ok     <http://host:80/p?x=1#frag>
+vars=12 errors=3

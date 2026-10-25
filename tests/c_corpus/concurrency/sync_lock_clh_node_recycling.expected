@@ -1,0 +1,4 @@
+threads=4 words=16 acquisitions=1200
+words[0]=1200 words[15]=1200
+torn views 0, violations 0
+tail node released and freed

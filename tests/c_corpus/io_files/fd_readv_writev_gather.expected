@@ -1,0 +1,7 @@
+writev of 4 pieces wrote 20 bytes
+readv into 4/4/5/32 buffers read 20 bytes
+magic=FRM1 len=11 first5=hello rest= world
+readv at EOF: 0
+wrote 60 frames, 2901 bytes
+payload checksum match
+pipe writev_all delivered 120000 bytes: a=40000 b=40000 c=40000

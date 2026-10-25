@@ -1,0 +1,12 @@
+seq 0 'zero': 1 transmission
+seq 1 'one': 1 transmission
+seq 2 'two': 2 transmissions
+seq 3 'three': 1 transmission
+seq 4 'four': 2 transmissions
+seq 5 'five': 1 transmission
+seq 6 'six': 2 transmissions
+seq 7 'seven': 1 transmission
+seq 8 'eight': 2 transmissions
+seq 9 'nine': 2 transmissions
+total transmissions 15, data dropped 2, acks dropped 3, duplicates suppressed 3
+delivered in order without gaps: yes

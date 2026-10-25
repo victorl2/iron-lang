@@ -1,0 +1,16 @@
+names=40 table=147 naive=234 saved=87 shared=18
+all 40 lookups verified
+duplicate pairs sharing storage: 2
+  main     -> offset  58
+  init     -> offset  48
+  _init    -> offset  47
+  printf   -> offset  94
+  memcpy   -> offset  21
+  open     -> offset  71
+  fclose   -> offset 108
+  a        -> offset 145
+  ab       -> offset 130
+  (empty)  -> offset 146
+  debug    -> offset  78
+stored strings: 22
+disjoint set: table=24 naive=24 shared=0

@@ -1,0 +1,7 @@
+objects allocated: 972
+cycles: 13 (4 forced), concurrent ticks: 113
+initial-mark pause work: 117, remark pause work total 66 max 18
+marker scanned concurrently: 138
+SATB entries logged: 22 (already marked: 15), buffer flushes: 9
+allocated marked: 48, swept: 967, floating garbage: 40
+oracle checks: 13

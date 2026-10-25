@@ -1,0 +1,11 @@
+n= 1 levels=1 root=754cf810b7328be0 max-proof=0 verified=1
+n= 2 levels=2 root=5481588c52c41313 max-proof=1 verified=2
+n= 3 levels=3 root=551640271df5247b max-proof=2 verified=3
+n= 4 levels=3 root=91cc470fd7164349 max-proof=2 verified=4
+n= 5 levels=4 root=827566a2057de2f0 max-proof=3 verified=5
+n= 7 levels=4 root=32134a868161b635 max-proof=3 verified=7
+n= 8 levels=4 root=b0518e7ad3b45165 max-proof=3 verified=8
+n=13 levels=5 root=830780527243e60b max-proof=4 verified=13
+n=31 levels=6 root=466a93ca105c639e max-proof=5 verified=31
+n=64 levels=7 root=34f84dac539bb27e max-proof=6 verified=64
+domain separation ok: 8e6a572c36ae3bfe

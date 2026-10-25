@@ -1,0 +1,8 @@
+shrink 13/10 rule11=0: rounds=30 cmps=53378
+shrink 13/10 rule11=1: rounds=28 cmps=49371
+shrink 5/4 rule11=0: rounds=30 cmps=52054
+shrink 3/2 rule11=0: rounds=176 cmps=347862
+shrink 2/1 rule11=0: rounds=1047 cmps=2090969
+shrink 6/5 rule11=0: rounds=36 cmps=62096
+shrink 4/3 rule11=1: rounds=26 cmps=46028
+turtles: rounds=27 cmps=47372 first=1 last=2989

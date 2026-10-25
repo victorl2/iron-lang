@@ -1,0 +1,28 @@
+simple GET                   ok: GET /index.html HTTP/1.1 headers=2 host=example.com body=none
+POST with body length        ok: POST /submit HTTP/1.1 headers=3 host=a body=length
+                               content-length=11, body bytes present=11
+HTTP/1.0 without Host        ok: GET / HTTP/1.0 headers=0 host=- body=none
+OWS trimmed, mixed case      ok: PUT /x HTTP/1.1 headers=2 host=spaced.example body=none
+chunked request              ok: POST /up HTTP/1.1 headers=2 host=h body=chunked
+duplicate equal CL           ok: POST / HTTP/1.1 headers=3 host=h body=length
+                               content-length=5, body bytes present=0
+obs-fold                     REJECT obs-fold
+space before colon           REJECT space-before-colon
+bare LF                      REJECT bare-lf
+bare CR in value             REJECT bare-cr
+conflicting CL               REJECT conflicting-content-length
+TE plus CL smuggling         REJECT te-and-content-length
+signed CL                    REJECT bad-content-length
+hex CL                       REJECT bad-content-length
+missing Host 1.1             REJECT missing-host
+bad version                  REJECT bad-version
+lowercase method ok as token ok: get / HTTP/1.1 headers=1 host=h body=none
+space in target              REJECT bad-version
+double space                 REJECT bad-target
+NUL in header                REJECT nul-byte
+header name with space char  REJECT space-before-colon
+unknown transfer coding      REJECT unsupported-transfer-encoding
+truncated head               REJECT incomplete
+empty header name            REJECT bad-header-line
+accepted 7, rejected 17
+trimmed values: [spaced.example] [tabbed value]

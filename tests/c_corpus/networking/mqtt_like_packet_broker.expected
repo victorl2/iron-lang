@@ -1,0 +1,24 @@
+remaining-length vectors: 8 ok
+pub    <- CONNACK rc=0
+sub-a  <- CONNACK rc=0
+sub-b  <- CONNACK rc=0
+bad1   <- CONNACK rc=4
+bad2   <- CONNACK rc=2
+sub-a  <- SUBACK id=10 granted=01,01,80
+sub-b  <- SUBACK id=11 granted=00
+pub    <- PUBACK id=100
+sub-a  <- PUBLISH qos=1 retain=0 topic=sensors/kitchen/temp pid=1 payload=2 bytes "21"
+sub-b  <- PUBLISH qos=0 retain=0 topic=sensors/kitchen/temp pid=0 payload=2 bytes "21"
+sub-a  <- PUBLISH qos=0 retain=0 topic=alerts/fire pid=0 payload=2 bytes "!!"
+pub    <- PUBACK id=101
+sub-b  <- PUBLISH qos=0 retain=0 topic=sensors/hall/humidity pid=0 payload=3 bytes "40%"
+sub-b  <- SUBACK id=12 granted=01
+sub-b  <- PUBLISH qos=1 retain=1 topic=alerts/fire pid=1 payload=2 bytes "!!"
+pub    <- PINGRESP
+sub-a  <- UNSUBACK id=13
+pub    <- PUBACK id=102
+sub-b  <- PUBLISH qos=1 retain=0 topic=alerts/flood pid=2 payload=3 bytes "wet"
+pub    <- PUBACK id=103
+sub-a  <- PUBLISH qos=1 retain=0 topic=sensors/lab/temp pid=2 payload=300 bytes
+sub-b  <- PUBLISH qos=0 retain=0 topic=sensors/lab/temp pid=0 payload=300 bytes
+broker: published=5 delivered=8 puback_from_subscribers=2 refused=2

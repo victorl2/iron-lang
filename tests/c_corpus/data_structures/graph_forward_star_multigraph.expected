@@ -1,0 +1,6 @@
+round 0: edges=48 killed=11 odd=12 loops=2 extra_parallel=4 comps=1 fixed_edges=43 circuit=43
+round 1: edges=61 killed=14 odd=6 loops=7 extra_parallel=7 comps=1 fixed_edges=50 circuit=50
+round 2: edges=24 killed=6 odd=10 loops=2 extra_parallel=0 comps=2 fixed_edges=23 circuit=23
+round 3: edges=71 killed=14 odd=10 loops=2 extra_parallel=11 comps=1 fixed_edges=62 circuit=62
+round 4: edges=62 killed=13 odd=8 loops=5 extra_parallel=8 comps=1 fixed_edges=53 circuit=53
+round 5: edges=34 killed=7 odd=8 loops=3 extra_parallel=3 comps=2 fixed_edges=31 circuit=30

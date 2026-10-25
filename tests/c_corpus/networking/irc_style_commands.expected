@@ -1,0 +1,71 @@
+ann> JOIN #early
+  ann< :irc.iron 451 * :You have not registered
+ann> NICK ann
+ann> USER ann 0 * :Ann A
+  ann< :irc.iron 001 ann :Welcome to the Iron IRC network, ann
+bob> NICK ann
+  bob< :irc.iron 433 * ann :Nickname is already in use
+bob> NICK bob
+bob> USER bob 0 * :Bob B
+  bob< :irc.iron 001 bob :Welcome to the Iron IRC network, bob
+cy> NICK cy
+cy> USER cy 0 * :Cy C
+  cy< :irc.iron 001 cy :Welcome to the Iron IRC network, cy
+ann> JOIN #iron
+  ann< :ann JOIN #iron
+  ann< :irc.iron 353 ann = #iron :@ann
+  ann< :irc.iron 366 ann #iron :End of /NAMES list
+ann> TOPIC #iron :all about iron
+  ann< :ann TOPIC #iron :all about iron
+bob> JOIN #iron
+  ann< :bob JOIN #iron
+  bob< :bob JOIN #iron
+  bob< :irc.iron 332 bob #iron :all about iron
+  bob< :irc.iron 353 bob = #iron :@ann bob
+  bob< :irc.iron 366 bob #iron :End of /NAMES list
+cy> JOIN #iron
+  ann< :cy JOIN #iron
+  bob< :cy JOIN #iron
+  cy< :cy JOIN #iron
+  cy< :irc.iron 332 cy #iron :all about iron
+  cy< :irc.iron 353 cy = #iron :@ann bob cy
+  cy< :irc.iron 366 cy #iron :End of /NAMES list
+cy> JOIN #other
+  cy< :cy JOIN #other
+  cy< :irc.iron 353 cy = #other :@cy
+  cy< :irc.iron 366 cy #other :End of /NAMES list
+bob> PRIVMSG #iron :hello channel
+  ann< :bob PRIVMSG #iron :hello channel
+  cy< :bob PRIVMSG #iron :hello channel
+cy> PRIVMSG #other :talking to myself
+bob> PRIVMSG cy :psst
+  cy< :bob PRIVMSG cy :psst
+bob> PRIVMSG nobody :hi
+  bob< :irc.iron 401 bob nobody :No such nick
+bob> PRIVMSG #nochan :hi
+  bob< :irc.iron 403 bob #nochan :No such channel
+bob> PRIVMSG #other :not a member
+  bob< :irc.iron 404 bob #other :Cannot send to channel
+cy> TOPIC #iron
+  cy< :irc.iron 332 cy #iron :all about iron
+cy> KICK #iron ann
+  cy< :irc.iron 482 cy #iron :You're not channel operator
+ann> KICK #iron cy
+  ann< :ann KICK #iron cy
+  bob< :ann KICK #iron cy
+  cy< :ann KICK #iron cy
+cy> PING token42
+  cy< :irc.iron PONG irc.iron :token42
+bob> DANCE
+  bob< :irc.iron 421 bob DANCE :Unknown command
+bob> PART #iron
+  ann< :bob PART #iron
+  bob< :bob PART #iron
+bob> PART #iron
+  bob< :irc.iron 442 bob #iron :You're not on that channel
+bob> NAMES #iron
+  bob< :irc.iron 353 bob = #iron :@ann
+  bob< :irc.iron 366 bob #iron :End of /NAMES list
+cy> QUIT :gone fishing
+ann> QUIT :bye
+server processed 29 lines

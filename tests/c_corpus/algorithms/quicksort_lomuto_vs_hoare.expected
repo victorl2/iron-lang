@@ -1,0 +1,6 @@
+random       lomuto swaps=31572   depth=7  | hoare swaps=11330   depth=7
+sorted       lomuto swaps=23828   depth=10 | hoare swaps=0       depth=10
+reversed     lomuto swaps=26199   depth=10 | hoare swaps=2000    depth=10
+few-distinct lomuto swaps=10974   depth=1  | hoare swaps=21095   depth=10
+all-equal    lomuto swaps=7998    depth=0  | hoare swaps=23728   depth=10
+organ-pipe   lomuto swaps=4000002 depth=1  | hoare swaps=5986    depth=1

@@ -1,0 +1,7 @@
+random    bubble passes=110 cocktail passes= 67 swaps=3715
+sorted    bubble passes=  1 cocktail passes=  1 swaps=0
+reversed  bubble passes=120 cocktail passes=119 swaps=7140
+max-first bubble passes=  2 cocktail passes=  2 swaps=119
+min-last  bubble passes=120 cocktail passes=  3 swaps=119
+mod7      bubble passes=103 cocktail passes= 58 swaps=2958
+done

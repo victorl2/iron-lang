@@ -1,0 +1,34 @@
+--- connection 1 ---
+3 4 + .                                => OK = 7
+stack                                  => [7]
+2 *                                    => OK 
+stack                                  => [14]
+.                                      => OK = 14
+10 3 / . 10 3 % .                      => OK = 3 = 1
+-7 2 / . -7 2 % .                      => OK = -3 = -1
+1 0 /                                  => ERR division by zero
+stack                                  => [14 3 1 -3 -1]
+5 6 swap - .                           => OK = 1
+1 2 3 4 5 sum .                        => OK = 30
+stack                                  => [30]
+clear 1 2 over . drop drop drop        => OK = 1
+stack                                  => []
+9223372036854775807 1 +                => ERR overflow
+9223372036854775807 neg 1 - .          => OK = -9223372036854775808
+9223372036854775807 neg 2 -            => ERR overflow
+4611686018427387904 2 *                => ERR overflow
+99999999999999999999                   => ERR number out of range
+1 2 + frob                             => ERR unknown token
+stack                                  => [-9223372036854775808]
+def sq dup *                           => defined sq
+def cube dup sq *                      => defined cube
+7 sq . 3 cube .                        => OK = 49 = 27
+2 cube cube .                          => OK = 512
+def loop loop                          => defined loop
+loop                                   => ERR recursion too deep
+quit                                   => bye
+--- connection 2 ---
+300-digit line => ERR line too long
+stack => []
+5 sq (undefined here) => ERR unknown token
+quit => bye

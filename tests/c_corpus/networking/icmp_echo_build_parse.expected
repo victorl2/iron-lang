@@ -1,0 +1,14 @@
+seq 1: echo-reply id=0xbeef len=64 checksum=0x883a
+seq 2: echo-reply id=0xbeef len=64 checksum=0x8839
+seq 3: echo-reply id=0xbeef len=64 checksum=0x8838
+seq 4: reply bad-checksum
+seq 5: echo-reply id=0xbeef len=64 checksum=0x8836
+seq 6: echo-reply id=0xbeef len=64 checksum=0x8835
+5 replies, 1 lost
+payload 0 -> packet 8 bytes, checksum 0xf7fd
+payload 3 -> packet 11 bytes, checksum 0xd5ec
+payload 6 -> packet 14 bytes, checksum 0xc1c4
+payload 9 -> packet 17 bytes, checksum 0x93ad
+dest-unreachable code=3 quoted=28 bytes, quoted proto=17 dst port=53: ok
+time-exceeded quoted 28 bytes ttl=1
+rejections: truncated bad-checksum bad-code

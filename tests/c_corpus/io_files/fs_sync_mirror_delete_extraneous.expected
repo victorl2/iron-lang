@@ -1,0 +1,36 @@
+dry run:
+  update  README
+  copy    app/conf/extra.ini
+  update  app/conf/site.ini
+  delete  app/conf/stale.ini
+  chmod   data/blob
+  copy    datalink
+  relink  link
+  mkdir   newdir
+  mkdir   newdir/sub
+  copy    newdir/sub/f
+  replace now_file
+  delete  obsolete
+  chmod   script.sh
+  replace was_file
+dry run totals: mkdir=2 copy=3 update=2 delete=2 relink=1 chmod=2 replace=2 skipped=1
+destination untouched by dry run: yes
+first sync:
+  update  README
+  copy    app/conf/extra.ini
+  update  app/conf/site.ini
+  delete  app/conf/stale.ini
+  chmod   data/blob
+  copy    datalink
+  relink  link
+  mkdir   newdir
+  mkdir   newdir/sub
+  copy    newdir/sub/f
+  replace now_file
+  delete  obsolete
+  chmod   script.sh
+  replace was_file
+first sync totals: mkdir=2 copy=3 update=2 delete=2 relink=1 chmod=2 replace=2 skipped=1
+trees identical after sync: yes
+second sync:
+second sync totals: mkdir=0 copy=0 update=0 delete=0 relink=0 chmod=0 replace=0 skipped=11

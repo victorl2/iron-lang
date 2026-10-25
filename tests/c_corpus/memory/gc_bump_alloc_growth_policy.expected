@@ -1,0 +1,8 @@
+policy               gcs    copied  peakcap finalcap  resizes
+fixed 2600 words       4      2282     2600     2600        0
+2 x live              16      6704     2228     1120       11
+1.5 x live            26     11122     1692      840       18
+additive +400         10      6738     1856     1856        4
+35% occupancy         13      4168     3171     1600        7
+objects allocated per run: 2050
+oracle checks: 69

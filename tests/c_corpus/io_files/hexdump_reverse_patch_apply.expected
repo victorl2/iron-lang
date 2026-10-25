@@ -1,0 +1,16 @@
+00000000: 4142 4344 4546 4748 494a 4b4c 4d4e 4f50  ABCDEFGHIJKLMNOP
+00000010: 5152 5354 5b3a d9a3 dda8 288d 9f38 7567  QRST[:....(..8ug
+00000020: a7e1 2bf9 0f53 f2fa dc24 e281 cf01 b34f  ..+..S...$.....O
+00000030: 8591 e88f 3a26 1cc9 c8dc 3d12 6d7d 7213  ....:&....=.m}r.
+00000040: 6754 246a 6c28                           gT$jl(
+full reverse: 5 lines, 70 bytes, identical
+patched: 75 bytes (was 70), 3 lines, 11 bytes written
+00000000: 4142 4344 4869 4748 494a 4b4c 4d4e 4f50  ABCDHiGHIJKLMNOP
+00000040: 6754 246a 6c28 2121 2121 21              gT$jl(!!!!!
+sparse: 257 bytes, 256 zero-filled
+plain hex -> Hello, world
+canonical with '*': 84 bytes, 64 zero bytes, tail qrst
+bad 0: rejected
+bad 1: rejected
+bad 2: rejected
+bad 3: rejected
