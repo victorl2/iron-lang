@@ -108,8 +108,8 @@ fn language_config_matches_the_server_and_grammar() {
         .collect();
     assert_eq!(
         comments.first(),
-        Some(&"-- "),
-        "Iron line comments start with --"
+        Some(&"// "),
+        "Iron line comments start with //"
     );
     assert_eq!(
         c["path_suffixes"].as_array().unwrap()[0].as_str(),
