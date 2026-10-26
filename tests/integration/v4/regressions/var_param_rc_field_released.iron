@@ -1,0 +1,25 @@
+-- A field of an rc object passed to a var parameter keeps the object alive
+-- for the call, even if the callee drops the handle it was read through.
+object N {
+    var v: Int
+    init(v: Int) {
+        self.v = v
+    }
+}
+object H {
+    var r: rc N
+    init() {
+        self.r = rc N(5)
+    }
+}
+func touch(var x: Int, h: *var H) {
+    h.r = rc N(100)
+    x += 1
+    println("{x}")
+}
+func main() {
+    var h = H()
+    val keep = h.r
+    touch(h.r.v, &h)
+    println("{keep.v}")
+}

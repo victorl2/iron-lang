@@ -27,8 +27,9 @@ jobs:
     runs-on: ubuntu-latest
     # The acceptance corpus runs regression fixtures in both pipelines
     # (optimized and --no-optimize) one at a time. Keep enough headroom for
-    # normal runner variance; the limit guards against hangs, not growth.
-    timeout-minutes: 60
+    # normal runner variance; the limit guards against hangs, not growth
+    # (main already ran close to 60 minutes on a slow runner).
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 

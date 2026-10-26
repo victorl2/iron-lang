@@ -1,0 +1,32 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A pointer made from a place reached through another pointer (`&p.hp`)
+-- carries that pointer's generation. The escape analysis only followed the
+-- pointer itself, judged the block's scope unnecessary and gave the
+-- pointer a generation that lives for the whole function.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Hub {
+    var q: ?*Int
+    init() {
+        self.q = null
+    }
+}
+
+func main() {
+    var hub = Hub()
+    {
+        val x = P(5)
+        val p = &x
+        hub.q = &p.hp
+    }
+    val y = P(9)
+    val q = hub.q
+    if q != null {
+        println("{q} {y.hp}")
+    }
+}

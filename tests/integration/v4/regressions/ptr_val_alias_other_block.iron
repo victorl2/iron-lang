@@ -1,0 +1,31 @@
+-- A second name for a val in another block (`val b = a`) shares a's
+-- storage. It re-tagged the value with that block's scope, so `&a` taken in
+-- a sibling block carried the generation of a block that was never entered
+-- and a valid pointer panicked as stale.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+func pick(k: Int) -> Int {
+    val a = P(7)
+    if k > 0 {
+        var o: ?*P = null
+        o = &a
+        if o != null {
+            return o.hp
+        }
+    } elif k < 0 {
+        return -1
+    } else {
+        val b = a
+        return b.hp + 1
+    }
+    return 0
+}
+
+func main() {
+    println("{pick(1)} {pick(0)} {pick(-1)}")
+}

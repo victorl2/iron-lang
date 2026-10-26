@@ -1,0 +1,14 @@
+-- Elements of fixed arrays do not move: their addresses, and those of
+-- their fields, can be kept (#680).
+object P {
+    var x: Int
+    init(x: Int) { self.x = x }
+}
+func main() {
+    var arr: [P; 2] = [P(1), P(2)]
+    val p = &arr[1].x
+    println("{p}")
+    var fa: [Int; 3] = [4, 5, 6]
+    val q = &fa[1]
+    println("{q}")
+}

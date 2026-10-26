@@ -436,6 +436,7 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
             "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
             "}\n"
             "void Iron_List_%s_clear(Iron_List_%s *self) {\n"
+            "    IRON_LIST_PIN_CHECK(self->items);\n"
             "    for (int64_t _i = 0; _i < self->count; _i++) {\n"
             "        %s_drop(&self->items[_i]);\n"
             "    }\n"
@@ -454,6 +455,7 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
             "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
             "}\n"
             "void Iron_List_%s_clear(Iron_List_%s *self) {\n"
+            "    IRON_LIST_PIN_CHECK(self->items);\n"
             "    IRON_LIST_CANCEL_SPARE(self);\n"
             "    self->count = 0;\n"
             "}\n\n",
@@ -706,16 +708,19 @@ static void emit_object_soa_impl(EmitCtx *ctx, const char *m, Iron_ObjectDecl *o
         "  @_write(self, i, v);\n}\n"
         "$ @_pop(@ *self) {\n"
         "  if (self->count <= 0) iron_panic_index_oob(\"Iron_List_$_pop\", 0, -1, self->count);\n"
+        "  IRON_LIST_PIN_CHECK(self->items);\n"
         "  return @_read(*self, --self->count);\n}\n"
         "$ @_remove(@ *self, int64_t i) {\n"
         "  if ((uint64_t)i >= (uint64_t)self->count)\n"
         "    iron_panic_index_oob(\"Iron_List_$_remove\", 0, i, self->count);\n"
+        "  IRON_LIST_PIN_CHECK(self->items);\n"
         "  $ out = @_read(*self, i);\n"
         "  @_move(self, i, i + 1, self->count - i - 1);\n"
         "  self->count--;\n  return out;\n}\n"
         "void @_insert(@ *self, int64_t i, $ v) {\n"
         "  if ((uint64_t)i > (uint64_t)self->count)\n"
         "    iron_panic_index_oob(\"Iron_List_$_insert\", 0, i, self->count + 1);\n"
+        "  IRON_LIST_PIN_CHECK(self->items);\n"
         "  @_push(self, v);\n"
         "  @_move(self, i + 1, i, self->count - 1 - i);\n"
         "  @_write(self, i, v);\n}\n"
@@ -730,7 +735,10 @@ static void emit_object_soa_impl(EmitCtx *ctx, const char *m, Iron_ObjectDecl *o
     /* Ownership: clear and free drop each element once, clone copies each
      * one into a list of the same layout, take leaves an empty list of the
      * same layout behind. */
-    SOA("void @_clear(@ *self) {\n");
+    /* (A list with an element lent to a call in progress cannot lose
+     * elements, in either layout, #543.) */
+    SOA("void @_clear(@ *self) {\n"
+        "  IRON_LIST_PIN_CHECK(self->items);\n");
     if (drop)
         SOA("  for (int64_t i = 0; i < self->count; i++) { $ v = @_read(*self, i); $_drop(&v); }\n");
     SOA("  self->count = 0;\n}\n"
@@ -796,6 +804,29 @@ void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et) {
         iron_strbuf_appendf(&ctx->lifted_funcs,
             "static void %s_drop(%s *self) { %s_free(self); }\n\n",
             box_c, box_c, box_c);
+        return;
+    }
+
+    /* A list of Box[T] (#576): the element's C type is the per-T
+     * Iron_Box_<T> (emit_type_to_c emits its typedef first), not the
+     * surface name, and each element owns its heap cell, freed with the
+     * list. */
+    if (strcmp(bare_type, "Box") == 0 && et->object.elem) {
+        const char *bname = emit_type_to_c((Iron_Type *)et, ctx);
+        if (!bname || shgeti(ctx->emitted_mono_list_types, bname) >= 0) return;
+        shput(ctx->emitted_mono_list_types, bname, true);
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "/* A list of %s (#576) */\n"
+            "typedef struct Iron_List_%s {\n"
+            "    %s    *items;\n"
+            "    int64_t count;\n"
+            "    int64_t capacity;\n"
+            "} Iron_List_%s;\n"
+            "static void %s_free(%s *box);\n"
+            "static inline void %s_drop(%s *box) { %s_free(box); }\n"
+            "IRON_LIST_DECL(%s, %s)\n",
+            bname, bname, bname, bname, bname, bname, bname, bname, bname, bname, bname);
+        emit_list_impl_lifecycle(ctx, bname, true, false);
         return;
     }
 

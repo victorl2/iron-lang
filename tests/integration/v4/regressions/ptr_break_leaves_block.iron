@@ -1,0 +1,37 @@
+-- @expect-panic: dangling stack pointer to frame
+-- break leaves the loop body's scope like falling off its end: a pointer
+-- to a body local read after the loop panics (#537).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object V {
+    var p: ?*P
+    init() {
+        self.p = null
+    }
+}
+
+func main() {
+    var v = V()
+    var i = 0
+    while i < 5 {
+        i += 1
+        val x = P(i)
+        v.p = &x
+        if i == 2 {
+            continue
+        }
+        if i == 4 {
+            break
+        }
+    }
+    println("after {i}")
+    val q = v.p
+    if q != null {
+        println("{q.hp}")
+    }
+}

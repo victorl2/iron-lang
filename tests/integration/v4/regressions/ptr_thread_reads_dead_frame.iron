@@ -1,0 +1,29 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A spawned task reading a pointer to a local of a frame that returned:
+-- stack pointers read on another thread are checked against the owning
+-- thread's scopes (#538).
+import time
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+object V {
+    val p: *P
+}
+func start() {
+    val x = P(10)
+    val v = V(&x)
+    spawn("t") {
+        Time.sleep(100)
+        println("{v.p.hp}")
+        return 0
+    }
+}
+func main() {
+    val m = Mutex(0)
+    start()
+    Time.sleep(400)
+    println("main done")
+}

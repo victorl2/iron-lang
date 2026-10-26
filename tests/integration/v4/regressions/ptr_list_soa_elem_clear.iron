@@ -1,0 +1,51 @@
+-- @expect-panic: list changed
+-- Clearing the list while a call holds a pointer to one of its elements,
+-- layout: soa (a whole element is lent as a gathered copy and stored back, a field pointer points into the column block): the rules of manual 6.4 hold in both layouts.
+object P {
+    var x: Int
+    var y: Int
+    init(x: Int) {
+        self.x = x
+        self.y = x * 10
+    }
+    func bump(f: func()) {
+        f()
+        self.x += 1
+    }
+    func handle() -> *var Int {
+        return &self.x
+    }
+}
+object Hub {
+    var p: ?*P
+    var q: ?*Int
+    init() {
+        self.p = null
+        self.q = null
+    }
+}
+func keep(h: *var Hub, p: *P) {
+    h.p = p
+}
+func keepf(h: *var Hub, q: *Int) {
+    h.q = q
+}
+func touch(p: *var P, f: func()) {
+    p.x += 100
+    f()
+    p.y += 1
+    println("in {p.x} {p.y}")
+}
+func touchf(q: *Int, f: func()) {
+    f()
+    println("in {q}")
+}
+func nop() {
+}
+func main() {
+    var ps: [P, layout: soa] = [P(7), P(8)]
+    touch(&ps[0], func() {
+        ps.clear()
+    })
+    println("{ps.len()}")
+}

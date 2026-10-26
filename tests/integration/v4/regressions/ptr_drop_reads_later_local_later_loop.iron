@@ -1,0 +1,34 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A drop block reading a pointer to a local destroyed before its value
+-- (see ptr_drop_reads_later_local): later_loop form.
+object Cnt {
+    var n: Int
+    var name: String
+    init(n: Int) {
+        self.n = n
+        self.name = "counter number one with a long name"
+    }
+}
+object Guard {
+    var c: ?*Cnt
+    init() {
+        self.c = null
+    }
+    drop {
+        val q = self.c
+        if q != null {
+            println("sees {q.name}")
+        }
+    }
+}
+func main() {
+    for i in range(3) {
+        var g = Guard()
+        var c = Cnt(i)
+        if i == 1 {
+            g.c = &c
+            continue
+        }
+        println("it {i}")
+    }
+}

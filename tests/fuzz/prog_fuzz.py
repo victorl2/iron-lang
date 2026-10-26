@@ -32,6 +32,11 @@ Areas:
               enums, lists and maps as type arguments, deep instances
     ptredge   pointer fields, pointers across frames and closures, heap and
               global pointers, RawPtr / Ptr; dangling and stale pointer panics
+    ptrlife   pointer lifetimes: pointers to locals of blocks, loop iterations
+              and frames (deep recursion included), heap, arena (save, restore,
+              reset), rc, field, receiver and list element pointers, kept in a
+              hub and read later, also from a spawned task; the model decides
+              exactly which dereference panics and with which message
     ctedge    comptime Float, String and list computation, read_file, comptime
               results as constants, E0230 / E0231 / E0232
     dropord   destruction order of objects, interfaces, lists, closures, rc;
@@ -40,7 +45,7 @@ Areas:
               and the captures rejected with E0286 (#512)
 
     prog_fuzz.py AREA IRONC OUTDIR SEED [COUNT] [--valgrind | --helgrind [RTDIR] |
-                 --drd [RTDIR] | --asan RTDIR | --tsan RTDIR] [--runs N]
+                 --drd [RTDIR] | --asan RTDIR | --tsan RTDIR | --opts] [--runs N]
     prog_fuzz.py --suite IRONC OUTDIR [AREA...] (the fixed seeds ctest runs)
     prog_fuzz.py --gen AREA SEED               (print one program and its output)
     prog_fuzz.py AREA IRONC OUTDIR SEED --reduce
@@ -51,6 +56,11 @@ Areas:
 thread schedule that differs between runs can change the output). A run
 longer than PF_TIMEOUT seconds (default 120; lower it to reduce a hang)
 fails as a timeout.
+
+--opts builds every program three ways, with the default pipeline,
+--no-optimize (no IR passes) and --debug (C at -O0), and each binary must
+produce the expected outcome: a difference between them is an optimizer
+bug even where the model agrees with one of them.
 
 --asan RTDIR compiles the C that `ironc build --emit-c` writes with
 -fsanitize=address,undefined against a runtime built the same way into
@@ -87,7 +97,7 @@ from pf_lang import Bail, Expected  # noqa: E402
 
 AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime',
          'numedge', 'genedge', 'ptredge', 'ctedge', 'strcoll', 'dropord',
-         'sync', 'arenax', 'jsonp', 'crypto', 'http', 'nocopy', 'soa', 'fusible')
+         'sync', 'arenax', 'jsonp', 'crypto', 'http', 'nocopy', 'soa', 'fusible', 'ptrlife')
 
 
 def generator(area):
@@ -299,6 +309,12 @@ def check_text(ironc, d, name, src_text, expected, mode='plain', rtlib=None,
             f.write('-- then panics: ' + panic + '\n')
     if os.path.exists(exe):
         os.remove(exe)
+    if mode == 'opts':
+        for flags in ([], ['--no-optimize'], ['--debug']):
+            st = check_text(ironc, d, name, src_text, expected, 'plain', rtlib, flags)
+            if st[0] != 'ok':
+                return (st[0], '[' + (' '.join(flags) or 'default') + '] ' + st[1], st[2])
+        return st
     if mode in ('asan', 'tsan') or (mode == 'plain' and rtlib):
         b = asan_build(ironc, src, d, exe, rtlib, mode, build_args)
     elif mode in ('helgrind', 'drd') and rtlib:
@@ -369,12 +385,6 @@ def run_once(cmd, env, expected, panic, d, mode):
     if 'Sanitizer' in r.stderr or 'definitely lost' in r.stderr:
         err1 = next((l for l in r.stderr.splitlines() if 'Sanitizer' in l or 'lost' in l), err1)
     sig = ('rc' if r.returncode else 'ok', norm(err1))
-    if (panic and mode == 'asan' and 'heap-use-after-free' in r.stderr and
-            'iron_check_pointer_gen' in r.stderr):
-        # The stale pointer check reads the freed block's header (the
-        # release allocator has the block back); AddressSanitizer stops
-        # there, before the panic. Expected for a program that panics so.
-        return 'ok', '', ('ok',)
     if got != expected and not getattr(expected, 'any_output', False):
         sig = ('wrong',) + sig
         for i, (x, y) in enumerate(zip(expected, got)):
@@ -613,7 +623,8 @@ SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure'
          'ptredge': range(1, 49), 'ctedge': range(1, 25), 'dropord': range(1, 25),
          'sync': range(1, 9), 'arenax': range(1, 9), 'jsonp': range(1, 7), 'crypto': range(1, 7),
          'http': range(1, 5), 'nocopy': range(1, 33), 'soa': range(1, 25),
-         'fusible': range(1, 13)}
+         'fusible': range(1, 13),
+         'ptrlife': range(1, 41), 'ptrlife_opts': range(1001, 1013)}
 # `--suite IRONC OUTDIR` runs these; the other areas have ctest entries of
 # their own (`--suite IRONC OUTDIR conc`, `... num generic ptr comptime`,
 # `... sync arenax`, `... jsonp crypto http`).
@@ -629,15 +640,21 @@ def main(argv):
         return 0
     if argv[0] == '--suite':
         ironc, outdir = os.path.abspath(argv[1]), argv[2]
-        areas = argv[3:] or SUITE_DEFAULT
+        rest = argv[3:]
+        mode = 'plain'
+        if rest and rest[0] == '--opts':
+            mode, rest = 'opts', rest[1:]
+        areas = rest or SUITE_DEFAULT
         jobs = min(4, os.cpu_count() or 1)
         bad = 0
-        for area in areas:
-            seeds = SUITE[area]
+        for key in areas:
+            # `<area>_opts` names a second seed set of the area (--opts runs)
+            area = key[:-5] if key.endswith('_opts') else key
+            seeds = SUITE[key]
             if area not in available():
                 continue
-            n = run(ironc, outdir, area, seeds, quiet=True, jobs=jobs)
-            print(f'{area}: {len(seeds) - n}/{len(seeds)} ok')
+            n = run(ironc, outdir, area, seeds, mode=mode, quiet=True, jobs=jobs)
+            print(f'{key}: {len(seeds) - n}/{len(seeds)} ok')
             bad += n
         return 1 if bad else 0
     mode, rtlib, jobs, reduce = 'plain', None, 1, False
@@ -651,8 +668,8 @@ def main(argv):
             i += 1
         elif argv[i].startswith('-j') and argv[i][2:].isdigit():
             jobs = int(argv[i][2:])
-        elif argv[i] == '--valgrind':
-            mode = 'valgrind'
+        elif argv[i] in ('--valgrind', '--opts'):
+            mode = argv[i][2:]
         elif argv[i] in ('--helgrind', '--drd'):
             # RTDIR is optional: with it, programs and runtime are built
             # unoptimized for the suppressions (see SAN_FLAGS['vg'])

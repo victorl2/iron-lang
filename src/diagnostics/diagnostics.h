@@ -679,6 +679,7 @@ void iron_diag_set_user_start_line(uint32_t line);
 #define IRON_ERR_CTOR_SPELLING            333   /* `Channel.new(4)` / `Arena.with_capacity(n)`: containers are constructed as `Channel[Int](4)` / `Arena(n)` */
 #define IRON_ERR_LOOP_JUMP_OUTSIDE        335   /* `break` / `continue` outside a loop, in a lambda, defer or spawn body inside one, or in a parallel for */
 #define IRON_ERR_RETURN_IN_DEFER          336   /* `return` inside a defer body */
+#define IRON_ERR_LIST_CHANGED_IN_LOOP     346   /* a `for` loop body adds to, removes from or replaces the list it iterates (#734) */
 #define IRON_ERR_ALIGN_VALUE           368   /* `//iron:align=N`: N not a power of two from 1 to 4096 (or cacheline), below the natural alignment, or for storage that cannot honor it yet */
 #define IRON_ERR_VIEW_ESCAPE           369   /* a view stored in a field, list, global or other compound type, captured by a stored closure or unawaited spawn, or returned without the single source parameter */
 #define IRON_ERR_VIEW_SOURCE           370   /* the source of a live view is resized, reassigned, taken or passed to a var parameter, or is not borrowable (a temporary, a list behind a pointer) */

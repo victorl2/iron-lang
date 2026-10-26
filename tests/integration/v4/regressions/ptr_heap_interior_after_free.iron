@@ -1,0 +1,18 @@
+-- @expect-panic: stale pointer dereference
+-- A pointer to a field of a heap value (an interior pointer) read after
+-- the value was freed. The check looked for the allocation header 16
+-- bytes before the field, and read freed memory (#540).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+func main() {
+    var h = heap P(7)
+    val p = &h.hp
+    println("live {p}")
+    free h
+    println("{p}")
+}

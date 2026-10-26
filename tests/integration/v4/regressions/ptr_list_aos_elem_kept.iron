@@ -1,0 +1,53 @@
+-- @expect-panic: stale pointer dereference
+-- An element pointer the callee keeps is stale once the call returns,
+-- the default layout: the rules of manual 6.4 hold in both layouts.
+object P {
+    var x: Int
+    var y: Int
+    init(x: Int) {
+        self.x = x
+        self.y = x * 10
+    }
+    func bump(f: func()) {
+        f()
+        self.x += 1
+    }
+    func handle() -> *var Int {
+        return &self.x
+    }
+}
+object Hub {
+    var p: ?*P
+    var q: ?*Int
+    init() {
+        self.p = null
+        self.q = null
+    }
+}
+func keep(h: *var Hub, p: *P) {
+    h.p = p
+}
+func keepf(h: *var Hub, q: *Int) {
+    h.q = q
+}
+func touch(p: *var P, f: func()) {
+    p.x += 100
+    f()
+    p.y += 1
+    println("in {p.x} {p.y}")
+}
+func touchf(q: *Int, f: func()) {
+    f()
+    println("in {q}")
+}
+func nop() {
+}
+func main() {
+    var ps: [P] = [P(7), P(8)]
+    var hub = Hub()
+    keep(&hub, &ps[0])
+    val q = hub.p
+    if q != null {
+        println("{q.x}")
+    }
+}

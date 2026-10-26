@@ -1,0 +1,39 @@
+-- @expect-panic: an arena value was reset while one of its methods is running
+-- A field of an arena value passed to a var parameter keeps the value
+-- pinned for the call: resetting the arena aborts.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Hub {
+    var p: ?*P
+    var q: ?*Int
+    init() {
+        self.p = null
+        self.q = null
+    }
+}
+
+func clobber() -> Int {
+    val y = P(9)
+    val z = P(10)
+    return y.hp + z.hp
+}
+
+func touch(var x: Int, f: func()) {
+    f()
+    x += 1
+    println("{x}")
+}
+func main() {
+    val a = Arena(4096)
+    var q = heap(in: a) P(5)
+    touch(q.hp, func() {
+        a.reset()
+        val o = heap(in: a) P(50)
+        println("{o.hp}")
+    })
+}

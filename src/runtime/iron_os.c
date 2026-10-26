@@ -52,8 +52,16 @@
  * out of memory (a list of an object with no fields aborted on push). */
 void  *iron_mem_alloc(size_t size)                        { return malloc(size ? size : 1); }
 void  *iron_mem_calloc(size_t count, size_t size)         { return calloc(count ? count : 1, size ? size : 1); }
-void  *iron_mem_realloc(void *ptr, size_t size)           { return realloc(ptr, size ? size : 1); }
-void   iron_mem_free(void *ptr)                           { free(ptr); }
+/* A list buffer an element pointer is borrowed from (iron_list_pin) must
+ * not move or go away while the borrowing call runs (#543). */
+void  *iron_mem_realloc(void *ptr, size_t size) {
+    IRON_LIST_PIN_CHECK(ptr);
+    return realloc(ptr, size ? size : 1);
+}
+void   iron_mem_free(void *ptr) {
+    IRON_LIST_PIN_CHECK(ptr);
+    free(ptr);
+}
 void  *iron_mem_copy(void *dst, const void *src, size_t n) { return memcpy(dst, src, n); }
 void  *iron_mem_move(void *dst, const void *src, size_t n) { return memmove(dst, src, n); }
 void  *iron_mem_set(void *dst, int byte, size_t n)        { return memset(dst, byte, n); }
@@ -204,6 +212,7 @@ static DWORD WINAPI iron_thread_proc(void *p) {
     void *arg = t->arg;
     free(t);
     fn(arg);
+    iron_stack_thread_exit();   /* its scope table and cached slots go back */
     return 0;
 }
 uint64_t iron_thread_os_id(void) { return (uint64_t)GetCurrentThreadId(); }
@@ -337,7 +346,11 @@ static void *iron_thread_proc(void *p) {
      * proportional to the pages actually touched. */
     iron_thread_disable_stack_huge_pages();
 #endif
-    return fn(arg);
+    /* Every runtime thread ends here, which gives back its stack scope
+     * table number and its cached generation slots. */
+    void *r = fn(arg);
+    iron_stack_thread_exit();
+    return r;
 }
 
 int iron_thread_create(iron_thread_t *t, void *(*fn)(void *), void *arg) {

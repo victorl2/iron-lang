@@ -1,0 +1,46 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A method that returns `&self.n`, called through a pointer parameter: the
+-- result carries the generation of the pointer's target. The escape
+-- analysis did not see that the receiver's generation leaves through the
+-- method, so the frame that owns the target got no scope.
+object Counter {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func handle() -> *var Int {
+        return &self.n
+    }
+}
+
+object Hub {
+    var q: ?*Int
+    init() {
+        self.q = null
+    }
+}
+
+func f(p: *var Counter, hub: *var Hub) {
+    hub.q = p.handle()
+}
+
+func g(hub: *var Hub) {
+    var c = Counter(1)
+    f(&c, hub)
+}
+
+func clobber() -> Int {
+    var a = Counter(9)
+    var b = Counter(10)
+    return a.n + b.n
+}
+
+func main() {
+    var hub = Hub()
+    g(&hub)
+    println("{clobber()}")
+    val q = hub.q
+    if q != null {
+        println("{q}")
+    }
+}

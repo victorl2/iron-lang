@@ -1,0 +1,26 @@
+-- A var parameter of a method takes the caller's binding by reference,
+-- as a function's does; the method's writes went to a copy (#604).
+object C {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func log(var out: [Int]) {
+        out.push(self.n)
+    }
+    func log2(var out: [Int], var count: Int) {
+        out.push(self.n * 10)
+        count += 1
+    }
+}
+
+func main() {
+    var c = C(1)
+    var out: [Int] = []
+    var count = 0
+    c.log(out)
+    c.log2(out, count)
+    var cs = [C(5)]
+    cs[0].log(out)
+    println("{out.len()} {out[0]} {out[1]} {out[2]} {count}")
+}

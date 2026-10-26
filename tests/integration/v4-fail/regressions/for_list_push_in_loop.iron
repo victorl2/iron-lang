@@ -1,0 +1,8 @@
+-- Adding to the list a for loop iterates, in its body, is E0346 (#734): the
+-- loop reads the elements in place and the list would move them.
+func main() {
+    var xs = [1, 2, 3]
+    for x in xs {
+        xs.push(x)
+    }
+}

@@ -1,0 +1,18 @@
+-- @expect-panic: list changed while a pointer to one of its elements is in use
+-- f(&xs[0], ...) borrows an element for the call; the callee growing the
+-- list moved the buffer and read freed memory. The list is pinned for
+-- the call and growing it panics (#543).
+func f(p: *Int, grow: func()) -> String {
+    grow()
+    return "{p}"
+}
+
+func main() {
+    var xs = [1, 2, 3]
+    val r = f(&xs[0], func() {
+        for i in range(1000) {
+            xs.push(i)
+        }
+    })
+    println("{r}")
+}

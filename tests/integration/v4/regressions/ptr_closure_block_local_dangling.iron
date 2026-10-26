@@ -1,0 +1,19 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A closure called after the block whose local it points at ended reads a
+-- dangling pointer (#537).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+func main() {
+    var f: func() -> Int = func() -> Int { return 0 }
+    {
+        val x = P(5)
+        val px = &x
+        f = func() -> Int { return px.hp }
+        println("inside {f()}")
+    }
+    println("{f()}")
+}

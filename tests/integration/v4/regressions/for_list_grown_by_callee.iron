@@ -1,0 +1,15 @@
+-- @expect-panic: list changed
+-- A list grown by a function the loop body calls: the loop pins the list,
+-- so the growth aborts instead of the loop reading the freed buffer (#734).
+var xs: [String] = ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2"]
+func grow() {
+    for i in range(2000) {
+        xs.push("pppppppppppppppppppppppppppppppppppppppppppppp{i}")
+    }
+}
+func main() {
+    for x in xs {
+        grow()
+        println(x)
+    }
+}

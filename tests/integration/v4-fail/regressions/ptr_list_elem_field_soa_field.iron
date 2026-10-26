@@ -1,0 +1,12 @@
+-- The address of a place inside a growable list element can only be a
+-- call argument, whatever leads to it (#680): E0330.
+object P {
+    var x: Int
+    init(x: Int) { self.x = x }
+}
+func main() {
+    var ps: [P, layout: soa] = [P(7)]
+    val p = &ps[0].x
+    ps.push(P(8))
+    println("{p}")
+}

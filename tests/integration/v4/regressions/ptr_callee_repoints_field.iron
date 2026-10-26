@@ -1,0 +1,31 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A callee repoints a pointer field at one of its own locals; the read
+-- after the call must be checked again. The optimizer took both reads of
+-- v.p for the same pointer and dropped the second check (#539).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object V {
+    var p: *P
+    init(p: *P) {
+        self.p = p
+    }
+}
+
+func repoint(v: *var V) {
+    val x = P(9)
+    v.p = &x
+}
+
+func main() {
+    val a = P(5)
+    var v = V(&a)
+    val s1 = v.p.hp
+    repoint(&v)
+    val s2 = v.p.hp
+    println("{s1} {s2}")
+}

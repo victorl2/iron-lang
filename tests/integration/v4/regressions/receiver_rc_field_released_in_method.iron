@@ -1,0 +1,38 @@
+-- @expect-panic: a value was freed while one of its methods is running
+-- A method called through a pointer to an rc object's field releases the
+-- last handle to that object and goes on using self: the receiver's
+-- generation is pinned for the call and ending it panics (#650).
+object Inner {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func poke(h: *var Holder) {
+        h.r = rc Outer(Inner(9))
+        self.n += 1
+        println("{self.n}")
+    }
+}
+
+object Outer {
+    var inner: Inner
+    init(inner: Inner) {
+        self.inner = inner
+    }
+}
+
+object Holder {
+    var r: rc Outer
+    init(r: rc Outer) {
+        self.r = r
+    }
+}
+
+func reach(p: *var Inner, h: *var Holder) {
+    p.poke(h)
+}
+
+func main() {
+    var h = Holder(rc Outer(Inner(1)))
+    reach(&h.r.inner, &h)
+}

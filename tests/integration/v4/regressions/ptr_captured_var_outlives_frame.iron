@@ -1,0 +1,46 @@
+-- The cell of a captured var outlives the function that declared it while
+-- a closure holds it, and so does a pointer to the var.
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Hub {
+    var p: ?*P
+    var q: ?*Int
+    init() {
+        self.p = null
+        self.q = null
+    }
+}
+
+func clobber() -> Int {
+    val y = P(9)
+    val z = P(10)
+    return y.hp + z.hp
+}
+
+object FB {
+    val f: func()
+}
+func mk(h: *var Hub) -> FB {
+    var x = P(5)
+    h.p = &x
+    val f = func() {
+        x.hp += 1
+    }
+    return FB(f)
+}
+func main() {
+    var hub = Hub()
+    val b = mk(&hub)
+    b.f()
+    val q = hub.p
+    if q != null {
+        println("{q.hp}")
+        b.f()
+        println("{q.hp}")
+    }
+}

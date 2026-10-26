@@ -1,0 +1,34 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A readonly method called through a pointer field whose target frame
+-- returned panics at the call: the receiver is dereferenced there (#539).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Q {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+    readonly func get() -> Int {
+        return self.hp
+    }
+}
+
+object V {
+    val p: *Q
+}
+
+func mk() -> V {
+    val x = Q(5)
+    return V(&x)
+}
+
+func main() {
+    val v = mk()
+    println("made")
+    println("{v.p.get()}")
+}
