@@ -411,6 +411,51 @@ func main() {
 }
 ```
 
+### Pointers
+
+`&x` gives a checked pointer (`*T`, or `*var T` for a `var`); `?*T` may be
+`null`. Read and write fields through it with `p.field`, call methods with
+`p.m()`; there is no `*p`. Passing a binding to a `*T` parameter takes its
+address automatically. A pointer is valid while what it points at lives:
+a local until the end of its block (a loop body is a new block every
+iteration), a `heap` value until `free`, an arena value until the arena is
+reset or restored past it, an `rc` object while a handle exists, a list
+element only during the call it is passed to (`f(&xs[i])`; `val p =
+&xs[i]` is E0330, and changing the list during that call aborts). Every
+dereference is checked at run time; a dead pointer aborts the program
+("dangling stack pointer to frame", "stale pointer dereference"). Keep
+pointers short-lived: pass them down to calls, or store a value or an
+`rc` handle instead of a pointer to a local. Locals die in reverse order
+of declaration, so a `drop` block may read a pointer to a local declared
+before its value, not after. A list or `Map` cannot be used through a
+pointer to it (E0220): go through a field (`p.items.push(x)`). A `for`
+loop body must not add to or remove from the list it iterates (E0346).
+
+```iron
+object Player {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+func heal(p: *var Player, n: Int) {
+    p.hp += n
+}
+
+func total(p: *Int, q: *Int) -> String {
+    return "{p} {q}"
+}
+
+func main() {
+    var hero = Player(10)
+    heal(&hero, 5)
+    var scores = [3, 4]
+    println(total(&scores[0], &scores[1]))
+    println("hp={hero.hp}")
+}
+```
+
 ## Concurrency and compile time
 
 ```iron

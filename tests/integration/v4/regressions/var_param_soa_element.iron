@@ -1,0 +1,23 @@
+-- An element and a field of an element of a column layout list passed to
+-- var parameters.
+object P2 {
+    var x: Int
+    var y: Int
+    init(x: Int) {
+        self.x = x
+        self.y = x * 10
+    }
+}
+func tweak(var p: P2, d: Int) {
+    p.x += d
+}
+func bumpx(var x: Int) {
+    x += 1
+}
+func main() {
+    var ps: [P2, layout: soa] = [P2(7), P2(8)]
+    tweak(ps[0], 1)
+    println("{ps[0].x} {ps[0].y}")
+    bumpx(ps[1].x)
+    println("{ps[1].x}")
+}

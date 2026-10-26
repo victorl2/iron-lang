@@ -47,6 +47,30 @@ static inline uint64_t iron_arena_rt_align16(uint64_t n) {
     return (n + 15u) & ~(uint64_t)15u;
 }
 
+/* Arena epochs are unique across all arenas, so a save point taken in
+ * another arena's first segment never passes for one of this arena. */
+static iron_atomic_u64 s_arena_epoch = 1;
+
+/* Open a fresh segment: a new generation for the allocations from here on. */
+static void arena_seg_open(Iron_Arena_RT *a) {
+    if (a->nsegs == a->segcap) {
+        uint64_t cap = a->segcap ? a->segcap * 2 : 8;
+        uint64_t *n = (uint64_t *)realloc(a->segs, (size_t)cap * sizeof(uint64_t));
+        if (!n) iron_oom_abort("iron_arena_rt: segments");
+        a->segs = n;
+        a->segcap = cap;
+    }
+    uint64_t g = iron_gen_new(true);
+    a->segs[a->nsegs++] = g;
+    IRON_ATOMIC_U64_STORE_RELEASE(a->gen, g);
+    IRON_ATOMIC_U64_STORE_RELEASE(a->used, 0);
+}
+
+/* End segments [from, nsegs): every pointer into them goes stale. */
+static void arena_seg_end_from(Iron_Arena_RT *a, uint64_t from) {
+    while (a->nsegs > from) (void)iron_gen_end(a->segs[--a->nsegs]);
+}
+
 Iron_Arena_RT *iron_arena_rt_new(uint64_t capacity, bool threadsafe,
                               const char *name) {
     Iron_Arena_RT *a = (Iron_Arena_RT *)malloc(sizeof *a);
@@ -58,9 +82,15 @@ Iron_Arena_RT *iron_arena_rt_new(uint64_t capacity, bool threadsafe,
     a->threadsafe = threadsafe;
     a->name       = name;
     a->prev       = NULL;
+    a->segs       = NULL;
+    a->nsegs      = 0;
+    a->segcap     = 0;
+    a->epoch      = IRON_ATOMIC_U64_FETCH_ADD_RELAXED(s_arena_epoch, 1);
     IRON_ATOMIC_U64_INIT(a->atomic_offset, 0);
-    IRON_ATOMIC_U64_INIT(a->gen, 1);  /* Pitfall 3: gen starts at 1 */
+    IRON_ATOMIC_U64_INIT(a->gen, 0);
+    IRON_ATOMIC_U64_INIT(a->used, 0);
     IRON_ATOMIC_U64_INIT(a->refs, 1);
+    arena_seg_open(a);
     return a;
 }
 
@@ -90,27 +120,17 @@ Iron_FatPtr iron_arena_rt_alloc(Iron_Arena_RT *a, uint64_t size) {
     }
 
     IronArenaAllocHdr *hdr = (IronArenaAllocHdr *)(a->base + off);
-    hdr->arena_gen = &a->gen;   /* back-ref to live counter (GA1) */
+    hdr->arena_gen = &a->gen;   /* the arena's current segment generation */
     hdr->size      = size;
 
-    /* Per-allocation generation tag (GA1, monotonic). FETCH_ADD returns the
-     * PRE-increment value: the allocation's snapshot is that old value, and the
-     * arena's live counter advances by one. The deref check (iron_runtime.h)
-     * holds the invariant "valid iff snapshot < live gen" — so a pointer is
-     * valid the instant it is handed out (old < old+1) and stays valid until a
-     * reset()/restore() lowers the live counter to or below its snapshot.
-     *
-     * Why per-alloc (not per-reset-only) increment: it is the only scheme that
-     * lets restore() selectively invalidate exactly the post-save allocations
-     * while pre-save pointers survive — both share the same arena-LEVEL counter,
-     * so they must be distinguished by their MONOTONIC snapshot ordering, not by
-     * a single bump (which cannot tell pre- from post-save apart). reset() lowers
-     * the counter to the floor (1) to invalidate every outstanding pointer in
-     * O(1); restore() lowers it to the saved snapshot. gen never reaches 0 (the
-     * Phase-19 reserved freed sentinel, iron_runtime.h:153). */
+    /* The allocation's generation is its segment's (#432): it stays valid
+     * until a reset, a restore to a save point taken before it, or the
+     * arena's end ends that segment. Nothing in the arena is read by a
+     * check. */
     Iron_FatPtr fp;
     fp.addr = (char *)hdr + sizeof *hdr;                  /* 16B-aligned payload */
-    fp.gen  = IRON_ATOMIC_U64_FETCH_ADD_RELAXED(a->gen, 1); /* snapshot = old gen */
+    fp.gen  = IRON_ATOMIC_U64_LOAD_ACQUIRE(a->gen);
+    if (!IRON_ATOMIC_U64_LOAD_ACQUIRE(a->used)) IRON_ATOMIC_U64_STORE_RELEASE(a->used, 1);
     return fp;
 }
 
@@ -120,37 +140,41 @@ void iron_arena_rt_reset(Iron_Arena_RT *a) {                  /* ARENA-06 */
     } else {
         a->offset = 0;
     }
-    /* Lower the live counter to the floor (1). Every outstanding snapshot is
-     * >= 1, so all become stale (snapshot >= cur) in O(1). Subsequent allocs
-     * resume handing out 1, 2, 3, ... again. (STORE, not INIT: atomic_init
-     * on a live atomic racing concurrent fetch_adds is C11 UB.) */
-    IRON_ATOMIC_U64_STORE_RELEASE(a->gen, 1);
+    /* Every segment ends: every outstanding pointer goes stale, and so does
+     * every save point (a new epoch). */
+    arena_seg_end_from(a, 0);
+    a->epoch = IRON_ATOMIC_U64_FETCH_ADD_RELAXED(s_arena_epoch, 1);
+    arena_seg_open(a);
 }
 
 Iron_ArenaSave iron_arena_rt_save(Iron_Arena_RT *a) {         /* ARENA-01 */
     Iron_ArenaSave s;
     s.offset = a->threadsafe ? IRON_ATOMIC_U64_LOAD_ACQUIRE(a->atomic_offset)
                              : a->offset;
-    /* The live counter == the snapshot the NEXT allocation will receive, i.e.
-     * one past the last handed-out snapshot. restore() lowers gen back to this
-     * value: allocations made after save() carry snapshots >= gen_snapshot and
-     * go stale; allocations made before save() carry snapshots < gen_snapshot
-     * and survive. */
-    s.gen_snapshot = IRON_ATOMIC_U64_LOAD_ACQUIRE(a->gen);
+    /* Allocations after the save point must not share a segment with the
+     * ones before it: open a new segment unless the current one is empty. */
+    if (IRON_ATOMIC_U64_LOAD_ACQUIRE(a->used)) arena_seg_open(a);
+    s.seg = a->nsegs - 1;
+    s.gen_snapshot = s.seg > 0 ? a->segs[s.seg - 1] : a->epoch;
     return s;
 }
 
 void iron_arena_rt_restore(Iron_Arena_RT *a, Iron_ArenaSave s) {  /* ARENA-07 */
+    /* A save point is valid while everything allocated before it still is:
+     * no reset since, and no restore to an earlier save point. */
+    if (s.seg >= a->nsegs ||
+        (s.seg > 0 ? a->segs[s.seg - 1] : a->epoch) != s.gen_snapshot) {
+        iron_panic_arena_stale_save(a->name);
+    }
     if (a->threadsafe) {
         IRON_ATOMIC_U64_STORE_RELEASE(a->atomic_offset, s.offset);
     } else {
         a->offset = s.offset;
     }
-    /* Lower the live counter to the saved snapshot: invalidates exactly the
-     * post-save allocations (snapshot >= gen_snapshot) while pre-save pointers
-     * (snapshot < gen_snapshot) stay valid. O(1). (STORE, not INIT — see
-     * iron_arena_rt_reset.) */
-    IRON_ATOMIC_U64_STORE_RELEASE(a->gen, s.gen_snapshot);
+    /* Nothing allocated since the save point: nothing to end. */
+    if (s.seg == a->nsegs - 1 && !IRON_ATOMIC_U64_LOAD_ACQUIRE(a->used)) return;
+    arena_seg_end_from(a, s.seg);
+    arena_seg_open(a);
 }
 
 uint64_t iron_arena_rt_used(Iron_Arena_RT *a) {               /* ARENA-01 */
@@ -175,6 +199,9 @@ void iron_arena_rt_destroy(Iron_Arena_RT *a) {
     IRON_ATOMIC_FENCE_ACQUIRE();
     IRON_HB_AFTER(&a->refs);
     (void)IRON_ATOMIC_U64_LOAD_ACQUIRE(a->refs);
+    /* The arena's end: pointers into it go stale before its memory goes. */
+    arena_seg_end_from(a, 0);
+    free(a->segs);
     free(a->base);
     free(a);
 }

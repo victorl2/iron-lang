@@ -1,0 +1,17 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A String method called through a pointer to a local of a frame that
+-- returned is checked like any other dereference (#575, #539).
+object V {
+    val s: *String
+}
+
+func mk() -> V {
+    val t = "gone"
+    return V(&t)
+}
+
+func main() {
+    val v = mk()
+    println("made")
+    println("{v.s.len()}")
+}

@@ -706,6 +706,11 @@ static void pattern_locals(Iron_Node *pat, StrSet **locals) {
 /* Walk `node` collecting all IRON_NODE_IDENT references that are outer-scope
  * captures into `captures`. `locals` is the set of names defined inside this
  * lambda (params + local decls). */
+/* `free x` / `leak x` of a binding the body captures, seen by the last
+ * collect_idents walk (#545): a lambda or spawn body works on its own copy
+ * of a captured heap binding, so it cannot free or leak the owner's. */
+static Iron_Node **s_captured_release;
+
 static void collect_idents(Iron_Node *node, StrSet **locals,
                             TmpCapture **captures, StrSet **seen) {
     if (!node) return;
@@ -974,11 +979,17 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
         }
         case IRON_NODE_FREE: {
             Iron_FreeStmt *fs = (Iron_FreeStmt *)node;
+            if (fs->expr && fs->expr->kind == IRON_NODE_IDENT &&
+                shgeti(*locals, ((Iron_Ident *)fs->expr)->name) < 0)
+                arrput(s_captured_release, node);
             collect_idents(fs->expr, locals, captures, seen);
             break;
         }
         case IRON_NODE_LEAK: {
             Iron_LeakStmt *ls = (Iron_LeakStmt *)node;
+            if (ls->expr && ls->expr->kind == IRON_NODE_IDENT &&
+                shgeti(*locals, ((Iron_Ident *)ls->expr)->name) < 0)
+                arrput(s_captured_release, node);
             collect_idents(ls->expr, locals, captures, seen);
             break;
         }
@@ -1001,6 +1012,24 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
     }
 }
 
+/* Report every `free` / `leak` of a captured binding the walk saw. */
+static void report_captured_release(CaptureCtx *ctx, const char *what) {
+    for (int i = 0; i < (int)arrlen(s_captured_release); i++) {
+        Iron_Node *n = s_captured_release[i];
+        bool is_free = n->kind == IRON_NODE_FREE;
+        Iron_Node *e = is_free ? ((Iron_FreeStmt *)n)->expr : ((Iron_LeakStmt *)n)->expr;
+        char msg[256];
+        snprintf(msg, sizeof(msg), "cannot %s '%s' inside a %s that captured it",
+                 is_free ? "free" : "leak", ((Iron_Ident *)e)->name, what);
+        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR, IRON_ERR_FREE_NON_HEAP,
+                       n->span, msg,
+                       "the body has its own copy of the binding; free or leak the heap"
+                       " value in the function that allocated it");
+    }
+    arrfree(s_captured_release);
+    s_captured_release = NULL;
+}
+
 /* Core capture analysis for a single lambda node. */
 static void find_captures(CaptureCtx *ctx, Iron_LambdaExpr *le) {
     /* Build the locals set: lambda's own params */
@@ -1020,7 +1049,10 @@ static void find_captures(CaptureCtx *ctx, Iron_LambdaExpr *le) {
     /* Collect captures via ident walk */
     TmpCapture *captures = NULL;
     StrSet     *seen     = NULL;
+    arrfree(s_captured_release);
+    s_captured_release = NULL;
     collect_idents(le->body, &locals, &captures, &seen);
+    report_captured_release(ctx, "lambda");
 
     /* Copy to arena-allocated array */
     int count = arrlen(captures);
@@ -1127,7 +1159,10 @@ static void find_spawn_captures(CaptureCtx *ctx, Iron_SpawnStmt *ss) {
     /* Collect captures via ident walk */
     TmpCapture *captures = NULL;
     StrSet     *seen     = NULL;
+    arrfree(s_captured_release);
+    s_captured_release = NULL;
     collect_idents(ss->body, &locals, &captures, &seen);
+    report_captured_release(ctx, "spawn body");
 
     /* Copy to arena-allocated array */
     int count = (int)arrlen(captures);
@@ -1204,7 +1239,10 @@ static void find_pfor_captures(CaptureCtx *ctx, Iron_ForStmt *fs) {
     /* Collect captures via ident walk (also walk iterable for range expr) */
     TmpCapture *captures = NULL;
     StrSet     *seen     = NULL;
+    arrfree(s_captured_release);
+    s_captured_release = NULL;
     collect_idents(fs->body, &locals, &captures, &seen);
+    report_captured_release(ctx, "parallel for body");
 
     /* Copy to arena-allocated array */
     int count = (int)arrlen(captures);

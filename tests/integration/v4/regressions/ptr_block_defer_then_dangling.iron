@@ -1,0 +1,22 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A defer in a block runs before the block's scope ends, so it reads its
+-- locals through pointers; a pointer kept past the block dangles (#537).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+func main() {
+    var keep: ?*P = null
+    {
+        val x = P(3)
+        val px = &x
+        defer println("defer {px.hp}")
+        keep = px
+    }
+    val k = keep
+    if k != null {
+        println("{k.hp}")
+    }
+}

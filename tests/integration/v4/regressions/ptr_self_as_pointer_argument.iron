@@ -1,0 +1,50 @@
+-- `self` handed to a pointer parameter (or `&self`) inside a mutating
+-- method is the receiver's address with the receiver's lifetime. It was
+-- the address of the method's own parameter slot.
+object Reg {
+    var c: ?*Counter
+    init() {
+        self.c = null
+    }
+}
+
+func store(r: *var Reg, c: *Counter) {
+    r.c = c
+}
+
+object Counter {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func reg(r: *var Reg) {
+        store(r, self)
+    }
+    func reg2(r: *var Reg) {
+        r.c = &self
+    }
+}
+
+func main() {
+    var r = Reg()
+    var c = Counter(3)
+    c.reg(&r)
+    val q = r.c
+    if q != null {
+        println("{q.n}")
+    }
+    c.n = 4
+    var r2 = Reg()
+    c.reg2(&r2)
+    val q2 = r2.c
+    if q2 != null {
+        println("{q2.n}")
+    }
+    var h = heap Counter(8)
+    h.reg(&r)
+    val q3 = r.c
+    if q3 != null {
+        println("{q3.n}")
+    }
+    free h
+}

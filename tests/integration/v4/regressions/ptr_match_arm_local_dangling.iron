@@ -1,0 +1,35 @@
+-- @expect-panic: dangling stack pointer to frame
+-- A match arm is a block: a pointer to one of its locals kept past the
+-- arm dangles (#537).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+enum E {
+    A(Int),
+    B
+}
+object V {
+    var p: ?*P
+    init() {
+        self.p = null
+    }
+}
+func main() {
+    var v = V()
+    val e = E.A(4)
+    match e {
+        E.A(n) -> {
+            val x = P(n)
+            v.p = &x
+            println("arm")
+        }
+        E.B -> println("b")
+    }
+    val q = v.p
+    if q != null {
+        println("{q.hp}")
+    }
+}

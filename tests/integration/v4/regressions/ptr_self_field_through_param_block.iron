@@ -1,0 +1,36 @@
+-- @expect-panic: dangling stack pointer to frame
+-- The same through a block local: the pointer `p.handle()` returns dies
+-- with the block that declared the receiver.
+object Counter {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func handle() -> *var Int {
+        return &self.n
+    }
+}
+
+object Hub {
+    var q: ?*Int
+    init() {
+        self.q = null
+    }
+}
+
+func f(p: *var Counter, hub: *var Hub) {
+    hub.q = p.handle()
+}
+
+func main() {
+    var hub = Hub()
+    {
+        var c = Counter(1)
+        f(&c, &hub)
+    }
+    var d = Counter(7)
+    val q = hub.q
+    if q != null {
+        println("{q} {d.n}")
+    }
+}

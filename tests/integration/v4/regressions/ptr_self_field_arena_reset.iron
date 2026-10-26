@@ -1,0 +1,28 @@
+-- @expect-panic: stale pointer dereference (arena)
+-- A pointer to a field of an arena receiver, taken in a method, dies
+-- with a reset of the arena (#542).
+object V {
+    val p: *Int
+}
+
+object Q {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func view() -> V {
+        return V(&self.n)
+    }
+    func view2() -> V {
+        return self.view()
+    }
+}
+
+func main() {
+    val a = Arena(4096)
+    var h = heap(in: a) Q(4)
+    val v = h.view2()
+    println("live {v.p}")
+    a.reset()
+    println("{v.p}")
+}

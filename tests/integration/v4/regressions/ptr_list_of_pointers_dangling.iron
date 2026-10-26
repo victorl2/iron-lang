@@ -1,0 +1,23 @@
+-- @expect-panic: dangling stack pointer to frame
+-- Pointers to locals kept in a [*P] list returned from the function that
+-- owned the locals: reading one panics. List elements of pointer type
+-- were read with no check at all (#539).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+func mk() -> [*P] {
+    val x = P(5)
+    var out: [*P] = []
+    out.push(&x)
+    return out
+}
+
+func main() {
+    val ps = mk()
+    println("made {ps.len()}")
+    println("{ps[0].hp}")
+}

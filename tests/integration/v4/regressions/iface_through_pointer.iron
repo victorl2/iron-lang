@@ -1,0 +1,47 @@
+-- @expect-panic: dangling stack pointer to frame
+-- Interface methods called through a pointer to an interface value, readonly
+-- and mutating; the pointer to a block local is dangling after the block
+-- (#575, #537). Method calls through such a pointer typed as Void.
+interface Shape {
+    readonly func area() -> Int
+    func grow(n: Int)
+}
+object Sq impl Shape {
+    var s: Int
+    init(s: Int) {
+        self.s = s
+    }
+    readonly func area() -> Int {
+        return self.s * self.s
+    }
+    func grow(n: Int) {
+        self.s += n
+    }
+}
+object Keep {
+    var p: ?*var Shape
+    init() {
+        self.p = null
+    }
+}
+func show(p: *var Shape) -> Int {
+    p.grow(1)
+    return p.area()
+}
+func main() {
+    var a: Shape = Sq(2)
+    println("{show(&a)} {a.area()}")
+    var k = Keep()
+    {
+        var b: Shape = Sq(5)
+        k.p = &b
+        val q = k.p
+        if q != null {
+            println("inside {q.area()}")
+        }
+    }
+    val q = k.p
+    if q != null {
+        println("{q.area()}")
+    }
+}

@@ -1,0 +1,15 @@
+-- @expect-panic: list changed
+-- A list field popped inside a loop over it (#734).
+object Bag {
+    var xs: [Int]
+    init() {
+        self.xs = [1, 2, 3]
+    }
+}
+func main() {
+    var b = Bag()
+    for x in b.xs {
+        b.xs.pop()
+        println("{x}")
+    }
+}

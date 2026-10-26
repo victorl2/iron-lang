@@ -108,6 +108,14 @@ typedef enum {
     IRON_LIR_ARENA_ALLOC,
     IRON_LIR_ARENA_PUSH,
     IRON_LIR_ARENA_POP,
+    /* Stack scopes (#537): entry to and exit from an inner block whose
+     * locals have their address taken. SCOPE_ENTER gives the block a scope
+     * id of its own (iron_stack_enter) and SCOPE_LEAVE, emitted on every
+     * exit edge by the scope-exit drop-stack pump, ends it, so a pointer to
+     * one of its locals is dangling afterwards. The function's own scope is
+     * the prologue/epilogue pair, not these. */
+    IRON_LIR_SCOPE_ENTER,
+    IRON_LIR_SCOPE_LEAVE,
     /* Phase 26 POL-06 (Plan 26-02): rc retain/release opcodes — emitted at
      * HIR-to-LIR copy sites (STORE / CALL arg / RETURN with IRON_TYPE_RC
      * target) and at scope-exit drop entries. emit_c.c lowers these to
@@ -200,9 +208,10 @@ typedef enum IronLIR_GenSource {
      * sibling). Pitfall 1: an untagged arena ptr would be checked by the heap
      * helper and read garbage. */
     IRON_LIR_GEN_ARENA,
-    /* Provenance was erased by storage in a field, closure environment or
-     * parameter.  Runtime dispatch uses the generation tag/range. */
-    IRON_LIR_GEN_DYNAMIC
+    /* A pointer whose producer does not say where it points (a field, a
+     * list element, a parameter, a call result, a capture): the check reads
+     * the regime off the generation itself (iron_check_ptr, #539). */
+    IRON_LIR_GEN_ANY
 } IronLIR_GenSource;
 
 /* ── Instruction (tagged union) ───────────────────────────────────────────── */
@@ -266,6 +275,10 @@ struct IronLIR_Instr {
              * standing for `(*_vN_box)`; the scope-exit release goes
              * through iron_cell_release. */
             bool        is_boxed;
+            /* The stack scope that owns the slot (#537): 0 for the
+             * function's own scope, otherwise the id of the inner block
+             * scope (IRON_LIR_SCOPE_ENTER) a `&` of it names. */
+            int         scope_id;
             /* `//iron:align=N` on the binding (IRON_ALIGN_CACHELINE =
              * cacheline); emitted as _Alignas. 0 = natural alignment. */
             uint16_t    align;
@@ -341,6 +354,26 @@ struct IronLIR_Instr {
              * if a future extern happens to share a prefix but takes its
              * receiver by value. */
             bool            self_by_addr;
+            /* Receiver provenance (#542): set by iron_lir_prune_stack_scopes
+             * when the callee is a pointer-receiver method that needs its
+             * receiver's generation (it takes `&self...`); the emitter then
+             * hands the generation over in iron_self_gen right before the
+             * call. recv_scope is the scope of the receiver when it is a
+             * local. */
+            bool            pass_self_gen;
+            int             recv_scope;
+            /* List element borrows (#543): the receiver is an element of a
+             * growable list and the callee might change lists (or needs
+             * the receiver's generation): pin the list for the call. */
+            bool            pin_recv;
+            /* Receiver pins: the callee might free or reset storage: a
+             * receiver reached through a heap or arena handle or a pointer
+             * has its generation pinned for the call (iron_gen_pin). */
+            bool            pin_gen_recv;
+            /* Interface receiver pins (#650): a method dispatched on an
+             * interface value that other code can reach (a capture cell, a
+             * global, a field) pins the value's storage for the call. */
+            bool            pin_iface_recv;
             /* 2026-07 remediation (ARENA-10 arena-OOM panic name): when the
              * call is an Arena ctor stub (arena_new / arena_new_threadsafe /
              * arena_with_capacity) bound by a LET, hir_to_lir records the
@@ -407,6 +440,9 @@ struct IronLIR_Instr {
         /* IRON_LIR_ARENA_PUSH (Phase 28 ARENA-04) — push arena onto TLS stack.
          * IRON_LIR_ARENA_POP carries no operands (pops the TLS top). */
         struct { IronLIR_ValueId arena_val; } arena_push;
+
+        /* IRON_LIR_SCOPE_ENTER / IRON_LIR_SCOPE_LEAVE: the scope id (> 0). */
+        struct { int id; } scope;
 
         /* IRON_LIR_RC_RETAIN / IRON_LIR_RC_RELEASE (Phase 26 POL-06) */
         struct { IronLIR_ValueId target; } rc_retain;
@@ -514,6 +550,10 @@ struct IronLIR_Instr {
         struct {
             IronLIR_ValueId    target;     /* lvalue whose address is taken */
             IronLIR_GenSource gen_source;
+            /* The scope that owns the local the place lives in (#537),
+             * stamped by iron_lir_prune_stack_scopes before any pass
+             * rewrites value ids: 0 for the function's own scope. */
+            int               scope_id;
         } addr_of;
 
         /* IRON_LIR_PTR_LOAD — Phase 20 PTR-06 read half.
@@ -665,6 +705,16 @@ struct IronLIR_Func {
      * through the receiver persist to the caller's binding — the MUT-07
      * mutation-persistence contract. Default false via lir.c memset. */
     bool               is_mut_receiver_method;
+    /* Receiver provenance (#542): a pointer-receiver method whose body
+     * takes the address of (a part of) self, directly or by passing self
+     * on to such a method. Its prologue takes the receiver's generation
+     * from iron_self_gen. */
+    bool               needs_self_gen;
+    /* The function takes an address (or hands a receiver's generation to
+     * a method): its pointers need a generation even when its own scope is
+     * elided because none of them escapes (emit_scope_gen falls back to
+     * the generation live at entry, _iron_fg). */
+    bool               has_addr_of;
     /* IRON_HINT_* (parser/ast.h): `//iron:inline` emits always_inline,
      * `noinline` noinline (and keeps the LIR inliner away), `cold` cold. */
     uint8_t            hints;
@@ -732,6 +782,14 @@ struct IronLIR_Func {
      * their names on the alloca / IronLIR_Param. `ironc build --debug`
      * names the C locals after them so a debugger shows Iron names. */
     struct { IronLIR_ValueId key; const char *value; } *value_names;
+    /* The scope that declared each `val` binding's value (#537): a val has
+     * no slot, so `&v` addresses the value and takes this scope. */
+    struct { IronLIR_ValueId key; int value; } *val_scopes;
+    /* Scopes opened in the function's own body after a local with a
+     * destructor (key: scope id). They end where the function's scope does,
+     * with only destructors running after them, so for code of the function
+     * itself their locals live as long as the function's own. */
+    struct { int key; bool value; } *flat_scopes;
     /* The Iron function's closing `}` (0 when unknown), from IronHIR_Func:
      * --debug puts the C function's closing brace, where clang places the
      * shared return, on it. */
@@ -897,6 +955,10 @@ IronLIR_Instr *iron_lir_arena_alloc(IronLIR_Func *fn, IronLIR_Block *block,
                                     Iron_Type *type, Iron_Span span);
 IronLIR_Instr *iron_lir_arena_push(IronLIR_Func *fn, IronLIR_Block *block,
                                    IronLIR_ValueId arena_val, Iron_Span span);
+IronLIR_Instr *iron_lir_scope_enter(IronLIR_Func *fn, IronLIR_Block *block,
+                                    int scope_id, Iron_Span span);
+IronLIR_Instr *iron_lir_scope_leave(IronLIR_Func *fn, IronLIR_Block *block,
+                                    int scope_id, Iron_Span span);
 IronLIR_Instr *iron_lir_arena_pop(IronLIR_Func *fn, IronLIR_Block *block,
                                   Iron_Span span);
 IronLIR_Instr *iron_lir_rc_retain(IronLIR_Func *fn, IronLIR_Block *block,

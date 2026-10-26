@@ -1,0 +1,46 @@
+-- A val narrowed from T? never changes: its address can be kept. A pointer
+-- to a narrowed var passed to a call writes into the var (it wrote into an
+-- unwrapped copy).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object Hub {
+    var p: ?*P
+    var q: ?*Int
+    init() {
+        self.p = null
+        self.q = null
+    }
+}
+
+func clobber() -> Int {
+    val y = P(9)
+    val z = P(10)
+    return y.hp + z.hp
+}
+
+func bump(p: *var P) {
+    p.hp += 1
+}
+func main() {
+    var hub = Hub()
+    val o2: P? = P(5)
+    if o2 != null {
+        hub.p = &o2
+    }
+    val q = hub.p
+    if q != null {
+        println("{q.hp}")
+    }
+    var o3: P? = P(5)
+    if o3 != null {
+        bump(o3)
+        bump(&o3)
+        o3.hp -= 1
+        println("{o3.hp}")
+    }
+}

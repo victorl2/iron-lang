@@ -1,0 +1,22 @@
+-- @expect-panic: stale pointer dereference (arena)
+-- A pointer to an arena value kept in an object field and read after
+-- a.reset() panics (manual 6.6) instead of reading reclaimed memory (#539).
+object P {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+object V {
+    val p: *P
+}
+
+func main() {
+    val a = Arena(4096)
+    val h = heap(in: a) P(3)
+    val v = V(&h)
+    println("live {v.p.hp}")
+    a.reset()
+    println("{v.p.hp}")
+}

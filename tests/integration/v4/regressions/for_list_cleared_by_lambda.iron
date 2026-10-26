@@ -1,0 +1,14 @@
+-- @expect-panic: list changed
+-- A lambda passed to a call in the body clears the iterated list (#734).
+func each(f: func()) {
+    f()
+}
+func main() {
+    var xs = [1, 2, 3]
+    for x in xs {
+        each(func() {
+            xs.clear()
+        })
+        println("{x}")
+    }
+}

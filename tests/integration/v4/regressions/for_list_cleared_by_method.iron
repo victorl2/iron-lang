@@ -1,0 +1,25 @@
+-- @expect-panic: list changed
+-- A list cleared by a method the loop body calls (#734).
+object Bag {
+    var xs: [Int]
+    init() {
+        self.xs = [1, 2, 3]
+    }
+    func wipe() {
+        self.xs.clear()
+    }
+    func total() -> Int {
+        var s = 0
+        for x in self.xs {
+            s += x
+            if x == 2 {
+                self.wipe()
+            }
+        }
+        return s
+    }
+}
+func main() {
+    var b = Bag()
+    println("{b.total()}")
+}

@@ -1,0 +1,14 @@
+-- @expect-panic: list changed while a pointer to one of its elements is in use
+-- An element of a global list, which the callee grows (#543).
+var g: [Int] = [1, 2, 3]
+
+func f(p: *Int) -> String {
+    for i in range(1000) {
+        g.push(i)
+    }
+    return "{p}"
+}
+
+func main() {
+    println("{f(&g[0])}")
+}

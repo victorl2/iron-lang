@@ -73,19 +73,34 @@ typedef struct Iron_Arena_RT {
     uint64_t         offset;        /* current bump offset (plain path) */
     iron_atomic_u64  atomic_offset; /* current bump offset (threadsafe path) */
     uint64_t         capacity;      /* ARENA-01 capacity() */
-    iron_atomic_u64  gen;           /* shared live generation; bumped on reset/restore */
+    iron_atomic_u64  gen;           /* the current segment's generation (see below) */
     bool             threadsafe;    /* ARENA-02 selects atomic vs plain bump */
     const char      *name;          /* arena-specific panic message (ARENA-10) */
     struct Iron_Arena_RT *prev;     /* unused: the active-arena stack keeps its own array (ARENA-11) */
     iron_atomic_u64  refs;          /* the owner's and each spawned task's (manual 7.1) */
+    /* Segments (#432, #540): the allocations between two save points share
+     * a generation-table slot. segs[nsegs - 1] is the current segment and
+     * `gen` mirrors it for the allocation path; `used` says whether the
+     * current segment holds an allocation yet. A restore ends every segment
+     * opened since its save point, a reset and the arena's end all of them,
+     * and a fresh segment is opened, so no generation is ever reused.
+     * `epoch` changes on reset; a save point taken in the first segment
+     * names it. */
+    uint64_t        *segs;
+    uint64_t         nsegs, segcap;
+    iron_atomic_u64  used;
+    uint64_t         epoch;
 } Iron_Arena_RT;
 
-/* ── Save point (GA1) ───────────────────────────────────────────────────────
- * save() captures the current bump offset + the generation snapshot.
- * restore() lowers the bump pointer to `offset` AND bumps `gen` (ARENA-07). */
+/* ── Save point ─────────────────────────────────────────────────────────────
+ * save() captures the current bump offset, the index of the first segment
+ * holding allocations made after it (`seg`), and the generation of the
+ * segment before that one (`gen_snapshot`; the arena's epoch when seg is 0),
+ * which a restore checks to know the save point is still valid. */
 typedef struct {
     uint64_t offset;
     uint64_t gen_snapshot;
+    uint64_t seg;
 } Iron_ArenaSave;
 
 /* ── Public arena API (the Plan 28-01 unit-test contract) ──────────────────── */

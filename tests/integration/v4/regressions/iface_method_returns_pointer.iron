@@ -1,0 +1,27 @@
+-- An interface method may return a checked pointer, also one into its
+-- receiver; called through the interface (and through a pointer to an
+-- interface value) it carries the receiver's lifetime. The dispatcher's
+-- return type did not compile (#656, #575, #542).
+interface Grip {
+    func handle() -> *var Int
+}
+object Counter impl Grip {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    func handle() -> *var Int {
+        return &self.n
+    }
+}
+func via(h: *var Grip) -> *var Int {
+    return h.handle()
+}
+func main() {
+    var c: Grip = Counter(4)
+    val p = c.handle()
+    println("{p}")
+    var d: Grip = Counter(6)
+    val q = via(&d)
+    println("{q}")
+}

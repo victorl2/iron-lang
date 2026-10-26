@@ -1,0 +1,29 @@
+-- @expect-panic: list changed
+-- The loop pin holds for a column layout list too (#734).
+object P {
+    var x: Int
+    init(x: Int) {
+        self.x = x
+    }
+}
+object Bag {
+    var ps: [P, layout: soa]
+    init() {
+        self.ps = [P(1), P(2)]
+    }
+    func grow() {
+        for i in range(2000) {
+            self.ps.push(P(i))
+        }
+    }
+    func run() {
+        for p in self.ps {
+            self.grow()
+            println("{p.x}")
+        }
+    }
+}
+func main() {
+    var b = Bag()
+    b.run()
+}

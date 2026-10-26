@@ -1,0 +1,49 @@
+-- The pin of a for loop ends on every way out (return, break, the end of
+-- the loop): the list can change again afterwards (#734).
+func show(x: Int) {
+    println("{x}")
+}
+func find(xs: [Int], k: Int) -> Int {
+    for x in xs {
+        show(x)
+        if x == k {
+            return x
+        }
+    }
+    return -1
+}
+func main() {
+    var xs = [1, 2, 3]
+    println("ret {find(xs, 2)}")
+    for x in xs {
+        show(x)
+        if x == 1 {
+            println("brk")
+            break
+        }
+    }
+    xs.push(4)
+    println("{xs.len()}")
+    for x in xs {
+        if x < 4 {
+            continue
+        }
+        show(x)
+    }
+    xs.push(5)
+    println("{xs.len()} {xs[4]}")
+    var n = 0
+    for x in xs {
+        for y in xs {
+            if y == x {
+                n += 0
+            }
+        }
+        n += 1
+        if n == 3 {
+            break
+        }
+    }
+    xs.pop()
+    println("{n}")
+}

@@ -154,6 +154,7 @@ the invalid internal state being reported.
 | E0335 | `IRON_ERR_LOOP_JUMP_OUTSIDE` | `break` or `continue` has no legal enclosing loop. | Put `break` in a lambda nested in a loop. | emitted |
 | E0336 | `IRON_ERR_RETURN_IN_DEFER` | `return` appears directly in deferred work. | `defer { return }` | emitted |
 | E0345 | `IRON_ERR_GLOBAL_INIT_CYCLE` | Global initialization dependency graph has a cycle. | `val a = b` and `val b = a`. | emitted |
+| E0346 | `IRON_ERR_LIST_CHANGED_IN_LOOP` | A `for` loop body adds to, removes from or replaces the list it iterates (a lambda in the body is covered by the loop's run-time pin instead). | `for x in xs { xs.push(x) }` | emitted |
 | E0350 | `IRON_ERR_STATIC_ON_VALUE` | Static function is called through a value. | `value.parse(text)` for a static `parse`. | emitted |
 | E0351 | `IRON_ERR_METHOD_ON_TYPE` | Instance method is called through a type. | `Point.move()` when `move` uses `self`. | emitted |
 | E0352 | `IRON_ERR_IFACE_STATIC_MISMATCH` | Interface and implementor disagree about `static`. | Static interface function implemented as a method. | emitted |

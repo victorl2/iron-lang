@@ -636,8 +636,10 @@ class ArenaGen(Gen):
                 out.append(mk)
         return out
 
-    def s_save(self, ctx, depth):
-        a = self.r.choice(self.resettable(ctx))
+    def s_save(self, ctx, depth, arena=None):
+        # (a save point is restored on the arena it was taken on: a save
+        # point of another arena is invalid, manual 6.6)
+        a = arena if arena is not None else self.r.choice(self.resettable(ctx))
         au = self.uid(a)
         name = self.fresh('mk')
         uid = self.bind(name, 'mark', False)
@@ -900,7 +902,7 @@ class ArenaGen(Gen):
         au = self.uid(a)
         mk = None
         if r.random() < 0.5:
-            out.extend(self.s_save(ctx, 0))
+            out.extend(self.s_save(ctx, 0, a))
             mk = out[-1].name
         t = r.choice(['Pt', 'Pt', 'Seg'])
         args = self.ctor_args(t, ctx)
