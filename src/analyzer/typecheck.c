@@ -2451,6 +2451,13 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
 
     Iron_TypeAnnotation *ann = (Iron_TypeAnnotation *)ann_node;
 
+    if (ann->reflected_field) {
+        emit_error(ctx, IRON_ERR_REFLECTION_CONTEXT, ann->span,
+                   "reflected field type is only valid during compile-time field expansion",
+                   "use f.type inside `comptime for f in fields(T)`");
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+
     /* Phase 27 POL-08 (Plan 27-02): lower `weak rc T` to IRON_TYPE_WEAK_RC.
      * Placement: BEFORE the pointer arm so `weak rc T` annotations never
      * dispatch through the pointer-lowering path. */
@@ -2682,7 +2689,11 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     else if (strcmp(name, "Float64") == 0) base = iron_type_make_primitive(IRON_TYPE_FLOAT64);
     else if (strcmp(name, "Bool")    == 0) base = iron_type_make_primitive(IRON_TYPE_BOOL);
     else if (strcmp(name, "String")  == 0) base = iron_type_make_primitive(IRON_TYPE_STRING);
-    else if (strcmp(name, "void")    == 0) base = iron_type_make_primitive(IRON_TYPE_VOID);
+    /* A user type named `void` (legal: only C reserves the word) wins over
+     * the lowercase spelling of Void. */
+    else if (strcmp(name, "void")    == 0 &&
+             !iron_scope_lookup(ctx->global_scope, name))
+        base = iron_type_make_primitive(IRON_TYPE_VOID);
     else if (strcmp(name, "Void")    == 0) base = iron_type_make_primitive(IRON_TYPE_VOID);
     /* Views (manual 2.15): `Bytes` is View[UInt8]. A user type of the same
      * name wins. */
@@ -9241,6 +9252,14 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FIELD_ACCESS: {
             Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
+            if (fa->reflected_field) {
+                emit_error(ctx, IRON_ERR_REFLECTION_CONTEXT, fa->span,
+                           "reflected field access is only valid during compile-time field expansion",
+                           "use value.(f) inside `comptime for f in fields(T)`");
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                fa->resolved_type = result;
+                break;
+            }
             Iron_Type *obj_type = check_expr(ctx, fa->object);
 
             if (!obj_type || obj_type->kind == IRON_TYPE_ERROR) {
@@ -9355,7 +9374,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
-            if (matched_field && !ctx->in_synth_accessor) {
+            if (matched_field && !ctx->in_synth_accessor && !fa->is_generated) {
                 char what_f[256];
                 snprintf(what_f, sizeof(what_f), "field '%s' of '%s'",
                          matched_field->name, od->name ? od->name : "?");
@@ -12156,6 +12175,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * out, and the code after the if sees what an early exit left
              * behind. */
             Iron_IfStmt *is_s = (Iron_IfStmt *)node;
+            if (is_s->is_comptime) break;
             int n_conds = 1 + is_s->elif_count;
             Iron_Node **conds = (Iron_Node **)iron_arena_alloc(
                 ctx->arena, (size_t)n_conds * sizeof(Iron_Node *), _Alignof(Iron_Node *));
@@ -12338,6 +12358,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
+            if (fs->is_comptime) break;
             Iron_Node *saved_for_iterable = ctx->for_iterable;
             ctx->for_iterable = fs->iterable;  /* the unwrap checks it too */
             rc_list_unwrap_expr(ctx, &fs->iterable);
@@ -12538,6 +12559,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_MATCH: {
             Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
+            if (ms->is_comptime) break;
             Iron_Type *subject_type = check_expr(ctx, ms->subject);
             /* v4 hole-closure (E0323): HIR->LIR lowers `match` to a C
              * `switch`, which only implements integer-literal patterns and

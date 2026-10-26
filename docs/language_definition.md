@@ -3136,6 +3136,122 @@ func main() {
 256 120 9 4
 ```
 
+### 8.1 Compile-time field reflection
+
+Field reflection is a source expansion facility. It runs after a generic
+function is materialized or an interface default is copied to an implementing
+object, while the reflected object type is concrete. The resulting program
+contains ordinary field accesses and literals. There is no run-time type or
+field descriptor.
+
+`comptime for f in fields(T)` visits the fields of object `T` in declaration
+order. `T` may be `Self`, a type parameter that has become concrete, or a
+concrete object type. Inside the loop, the field descriptor has these
+compile-time properties:
+
+| Form | Compile-time value |
+|---|---|
+| `f.name` | declared field name as a `String` |
+| `f.index` | zero-based declaration index as an `Int` |
+| `f.type` | declared type, usable in a type position or `comptime match` |
+| `f.is_var` | whether the field was declared `var` |
+| `f.is_nullable` | whether the declared type is nullable |
+| `f.is_pub` | whether the field is public |
+| `f.visibility` | `"public"` or `"private"` |
+| `f.doc` | the field's documentation (section 1.2) as a `String`, or `null` |
+| `f.tag(name)` | the value of the field's `//name:value` directive as a `String`, or `null` |
+
+`name` must be a string literal. A directive belongs to the field when it is
+on its own line in the comment run directly above the field, or at the end of
+the field's line; `//json:` gives `""`, and when a key is written more than
+once the first value is used. The compiler gives directive keys no meaning of
+its own: each library reads and validates its own. The object-level forms are
+`typeinfo(T).doc` and `typeinfo(T).tag(name)`, read from the comments above
+the object declaration.
+
+```iron
+interface Columns {
+    readonly func columns() -> String {
+        var out = ""
+        comptime for f in fields(Self) {
+            comptime if f.tag("db") != "skip" {
+                comptime if f.tag("db") == null {
+                    out = out + f.name + ";"
+                } else {
+                    out = out + f.tag("db") + ";"
+                }
+            }
+        }
+        return out
+    }
+}
+
+object Row impl Columns {
+    // The primary key.
+    val id: Int          //db:row_id
+    val name: String
+    val secret: String   //db:skip
+}
+
+func main() {
+    println(Row(1, "a", "s").columns())
+}
+```
+
+```output
+row_id;name;
+```
+
+`value.(f)` becomes a direct access to that field. It may appear on either
+side of assignment when the field and value are writable. A default method
+in an interface may read private fields after an object opts in with `impl`.
+
+```iron
+interface Describe {
+    readonly func describe() -> String {
+        var out = ""
+        comptime for f in fields(Self) {
+            out = out + f.name + "="
+            comptime match f.type {
+                Int -> { out = out + self.(f).to_string() }
+                String -> { out = out + self.(f) }
+                E? -> { out = out + "nullable" }
+                else -> comptime error("Describe does not support this field")
+            }
+            out = out + ";"
+        }
+        return out
+    }
+}
+
+object User impl Describe {
+    val id: Int
+    val name: String
+}
+```
+
+`comptime if` selects a branch from compile-time field metadata. An unselected
+branch is removed before name resolution and type checking. `comptime match`
+does the same for a type. It accepts exact named types, nullable patterns such
+as `E?`, list patterns such as `[E]`, constructed type patterns such as
+`Map[K, V]`, and an interface name implemented by the subject type. Pattern
+identifiers bind types for use in the selected body. If no arm applies and
+there is no `else`, the compiler reports `E0360`. `comptime error(message)`
+reports `E0232` only when its containing branch is selected.
+
+`Fields[T]()` supports construction by reflected assignment in an opted-in
+interface default. If `T` has a zero-argument `init`, construction calls it so
+its defaults are preserved. Otherwise the compiler constructs the object
+field by field. `b.(f) = value` marks a field present, `b.missing()` returns
+the first missing non-nullable field name as `String?`, and `b.build()` returns
+the completed `T`. Nullable fields are not required.
+
+Reflection forms are compile-time-only. Using one where no concrete reflected
+type is available is `E0357`; reflecting a non-object is `E0358`; a condition
+that is not a reflection constant is `E0359`; and a type that cannot be safely
+initialized for `Fields[T]` is `E0361`. Enums and reflection over generic
+object declarations are not part of this stage.
+
 ---
 
 ## 9. The standard library
@@ -4283,6 +4399,7 @@ codes cited in this manual:
 | E0354 | static function, or method built from `Self`, called through an interface value |
 | E0355 | `T.f()` on a type parameter whose constraint declares no static function `f` |
 | E0356 | `__fields`, reserved for code the compiler generates |
+| E0357 to E0361 | reflection outside expansion; non-object reflection target; non-constant `comptime if`; unmatched `comptime match`; field builder cannot initialize a type |
 | E0331, E0332, E0333, E0334 | list extension with a body; refutable nested pattern; `Channel.new(4)` and the other `.new` constructor spellings; interpolating a value with no text form |
 | E0345 | initialization cycle between globals |
 | E0501 | `await` on the web target |
@@ -4396,6 +4513,7 @@ init_expr      ::= spawn_expr | expr
 block          ::= '{' { stmt } '}'
 stmt           ::= val_decl | var_decl | return_stmt | if_stmt | while_stmt | for_stmt
                  | match_stmt | defer_stmt | free_stmt | leak_stmt | in_arena_stmt
+                 | comptime_for_stmt | comptime_if_stmt | comptime_match_stmt
                  | spawn_expr | block | expr_stmt
 return_stmt    ::= 'return' [ expr ]
 if_stmt        ::= 'if' expr block { 'elif' expr block } [ 'else' block ]
@@ -4405,6 +4523,12 @@ for_stmt       ::= 'for' ( IDENT | '(' IDENT ',' IDENT ')' ) 'in' expr
 match_stmt     ::= 'match' expr '{' { match_arm } [ 'else' '->' arm_body ] '}'
 match_arm      ::= pattern '->' arm_body
 arm_body       ::= block | stmt
+comptime_for_stmt ::= 'comptime' 'for' IDENT 'in' 'fields' '(' type ')' block
+comptime_if_stmt ::= 'comptime' 'if' expr block
+                     { 'elif' expr block } [ 'else' block ]
+comptime_match_stmt ::= 'comptime' 'match' type '{'
+                        { type '->' arm_body }
+                        [ 'else' '->' arm_body ] '}'
 pattern        ::= [ IDENT '.' ] IDENT [ '(' [ sub_pattern { ',' sub_pattern } [ ',' ] ] ')' ]
                  | expr
 sub_pattern    ::= '_' | IDENT '.' IDENT [ '(' [ sub_pattern { ',' sub_pattern } [ ',' ] ] ')' ] | IDENT
@@ -4425,6 +4549,7 @@ unary          ::= '-' unary | 'not' unary | '~' unary | '&' unary
 heap_opts      ::= '(' heap_opt { ',' heap_opt } ')'
 heap_opt       ::= 'in' ':' expr | 'allow_drop_skip' ':' ( 'true' | 'false' )
 postfix        ::= primary { '.' NAME [ type_args ] [ call_args ]
+                           | '.' '(' IDENT ')'
                            | '[' expr [ '..' [ expr ] ] ']'
                            | '[' elem { ',' elem } ']'
                            | call_args }
@@ -4445,7 +4570,9 @@ type           ::= 'weak' 'rc' type
                  | tuple_type
                  | list_type
                  | func_type
+                 | reflected_type
                  | named_type
+reflected_type ::= IDENT '.' 'type'
 ptr_type       ::= '*' [ 'var' ] [ 'unchecked' ] type
 tuple_type     ::= '(' type ',' type { ',' type } ')'
 list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']' [ '?' ]

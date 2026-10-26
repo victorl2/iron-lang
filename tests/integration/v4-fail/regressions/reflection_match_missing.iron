@@ -1,0 +1,12 @@
+object ReflectFloatBox {
+    val value: Float
+}
+
+func main() {
+    comptime for f in fields(ReflectFloatBox) {
+        comptime match f.type {
+            Int -> println("int")
+            String -> println("string")
+        }
+    }
+}

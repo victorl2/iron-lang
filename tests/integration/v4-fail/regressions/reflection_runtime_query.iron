@@ -1,0 +1,8 @@
+object ReflectQuery {
+    val value: Int
+}
+
+func invalid() {
+    val value = fields(ReflectQuery)
+    println("{value}")
+}

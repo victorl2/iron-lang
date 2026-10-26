@@ -1,0 +1,4 @@
+func main() {
+    val pair = (1, 2)
+    println("tuple created")
+}

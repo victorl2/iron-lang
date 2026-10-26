@@ -1,0 +1,10 @@
+object ReflectTagged {
+    val value: Int
+}
+
+func invalid(key: String) {
+    comptime for f in fields(ReflectTagged) {
+        val value = f.tag(key)
+        println("{value}")
+    }
+}

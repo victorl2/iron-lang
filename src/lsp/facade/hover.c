@@ -32,6 +32,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -86,6 +87,132 @@ static void sb_append(SB *sb, const char *s) {
     memcpy(sb->buf + sb->len, s, slen);
     sb->len += slen;
     sb->buf[sb->len] = '\0';
+}
+
+static bool hover_reflection_loop_contains(const char *text, size_t len,
+                                           size_t cursor,
+                                           const char *receiver,
+                                           size_t receiver_len) {
+    if (!text || !receiver || receiver_len == 0 || cursor > len) return false;
+    size_t best_open = len;
+    for (size_t at = 0; at + 8 <= cursor; at++) {
+        if (memcmp(text + at, "comptime", 8) != 0) continue;
+        size_t p = at + 8;
+#define SKIP_REFLECT_SPACE() while (p < cursor && isspace((unsigned char)text[p])) p++
+        SKIP_REFLECT_SPACE();
+        if (p + 3 > cursor || memcmp(text + p, "for", 3) != 0) continue;
+        p += 3; SKIP_REFLECT_SPACE();
+        if (p + receiver_len > cursor ||
+            memcmp(text + p, receiver, receiver_len) != 0) continue;
+        p += receiver_len; SKIP_REFLECT_SPACE();
+        if (p + 2 > cursor || memcmp(text + p, "in", 2) != 0) continue;
+        p += 2; SKIP_REFLECT_SPACE();
+        if (p + 6 > cursor || memcmp(text + p, "fields", 6) != 0) continue;
+        p += 6; SKIP_REFLECT_SPACE();
+        if (p >= cursor || text[p] != '(') continue;
+        while (p < cursor && text[p] != '{') p++;
+        if (p < cursor) best_open = p;
+#undef SKIP_REFLECT_SPACE
+    }
+    if (best_open == len) return false;
+    int depth = 0;
+    for (size_t p = best_open; p < cursor; p++) {
+        if (text[p] == '{') depth++;
+        else if (text[p] == '}') depth--;
+    }
+    return depth > 0;
+}
+
+static bool reflection_hover(const IronLsp_Document *doc,
+                             IronLsp_Position pos,
+                             IronLsp_PositionEncoding enc,
+                             Iron_Arena *arena,
+                             IronLsp_HoverResult *out) {
+    if (!doc || !doc->text || !arena || !out) return false;
+    size_t cursor = ilsp_document_position_to_byte(
+        doc, pos.line, pos.character, enc);
+    if (cursor >= doc->text_len ||
+        !(isalnum((unsigned char)doc->text[cursor]) ||
+          doc->text[cursor] == '_')) {
+        if (cursor == 0 ||
+            !(isalnum((unsigned char)doc->text[cursor - 1]) ||
+              doc->text[cursor - 1] == '_')) return false;
+        cursor--;
+    }
+    size_t start = cursor;
+    size_t end = cursor + 1;
+    while (start > 0 &&
+           (isalnum((unsigned char)doc->text[start - 1]) ||
+            doc->text[start - 1] == '_')) start--;
+    while (end < doc->text_len &&
+           (isalnum((unsigned char)doc->text[end]) ||
+            doc->text[end] == '_')) end++;
+    if (start == 0 || doc->text[start - 1] != '.') return false;
+    size_t receiver_end = start - 1;
+    size_t receiver_start = receiver_end;
+    while (receiver_start > 0 &&
+           (isalnum((unsigned char)doc->text[receiver_start - 1]) ||
+            doc->text[receiver_start - 1] == '_')) receiver_start--;
+    if (!hover_reflection_loop_contains(doc->text, doc->text_len, end,
+                                        doc->text + receiver_start,
+                                        receiver_end - receiver_start))
+        return false;
+
+    struct ReflectionHoverInfo {
+        const char *name;
+        const char *signature;
+        const char *description;
+    };
+    static const struct ReflectionHoverInfo infos[] = {
+        { "name", "field.name: String", "The declared field name as a compile-time string constant." },
+        { "index", "field.index: Int", "The zero-based declaration index as a compile-time integer." },
+        { "type", "field.type", "The declared field type, usable in type positions and comptime match." },
+        { "is_var", "field.is_var: Bool", "Whether the field was declared var." },
+        { "is_nullable", "field.is_nullable: Bool", "Whether the declared field type is nullable." },
+        { "is_pub", "field.is_pub: Bool", "Whether the field is public." },
+        { "visibility", "field.visibility: String", "The compile-time string public or private." },
+        { "doc", "field.doc: String?", "The field's // documentation comment as a compile-time string, or null." },
+        { "tag", "field.tag(name: String) -> String?", "The value of the field's //name:value directive as a compile-time string, or null." },
+    };
+    const struct ReflectionHoverInfo *info = NULL;
+    for (size_t i = 0; i < sizeof(infos) / sizeof(infos[0]); i++) {
+        size_t n = strlen(infos[i].name);
+        if (n == end - start && memcmp(doc->text + start, infos[i].name, n) == 0) {
+            info = &infos[i];
+            break;
+        }
+    }
+    if (!info) return false;
+
+    SB md; sb_init(&md, arena);
+    sb_append(&md, "```iron\n");
+    sb_append(&md, info->signature);
+    sb_append(&md, "\n```\n\n");
+    sb_append(&md, info->description);
+    out->markdown = md.buf;
+
+    size_t line_start = ilsp_byte_of_line(&doc->line_idx, pos.line);
+    size_t line_end = line_start;
+    while (line_end < doc->text_len && doc->text[line_end] != '\n') line_end++;
+    const char *line = doc->text + line_start;
+    size_t line_len = line_end - line_start;
+    size_t start_in_line = start >= line_start ? start - line_start : 0;
+    size_t end_in_line = end >= line_start ? end - line_start : 0;
+    out->range.start.line = pos.line;
+    out->range.end.line = pos.line;
+    if (enc == ILSP_ENC_UTF16) {
+        out->range.start.character = ilsp_utf8_byte_to_utf16_column(
+            line, line_len, start_in_line);
+        out->range.end.character = ilsp_utf8_byte_to_utf16_column(
+            line, line_len, end_in_line);
+    } else {
+        out->range.start.character = ilsp_utf8_byte_to_utf8_column(
+            line, line_len, start_in_line);
+        out->range.end.character = ilsp_utf8_byte_to_utf8_column(
+            line, line_len, end_in_line);
+    }
+    out->has_range = true;
+    return true;
 }
 
 /* ── Param rendering ──────────────────────────────────────────────── */
@@ -862,6 +989,8 @@ void ilsp_facade_hover(struct IronLsp_Server   *server,
     if (!server || !doc || !arena) return;
 
     IronLsp_PositionEncoding enc = server->position_encoding;
+
+    if (reflection_hover(doc, pos, enc, arena, out)) return;
 
     Iron_Arena walk_arena = iron_arena_create(64 * 1024);
     Iron_DiagList diags   = iron_diaglist_create();

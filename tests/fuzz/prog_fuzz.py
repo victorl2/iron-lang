@@ -97,7 +97,7 @@ from pf_lang import Bail, Expected  # noqa: E402
 
 AREAS = ('stmt', 'coll', 'obj', 'closure', 'conc', 'arena', 'num', 'generic', 'ptr', 'comptime',
          'numedge', 'genedge', 'ptredge', 'ctedge', 'strcoll', 'dropord',
-         'sync', 'arenax', 'jsonp', 'crypto', 'http', 'nocopy', 'soa', 'fusible', 'ptrlife')
+         'sync', 'arenax', 'jsonp', 'crypto', 'http', 'reflect', 'nocopy', 'soa', 'fusible', 'ptrlife')
 
 
 def generator(area):
@@ -622,7 +622,7 @@ SUITE = {'stmt': range(1, 9), 'coll': range(1, 9), 'obj': range(1, 9), 'closure'
          'numedge': range(1, 49), 'strcoll': range(1, 49), 'genedge': range(1, 49),
          'ptredge': range(1, 49), 'ctedge': range(1, 25), 'dropord': range(1, 25),
          'sync': range(1, 9), 'arenax': range(1, 9), 'jsonp': range(1, 7), 'crypto': range(1, 7),
-         'http': range(1, 5), 'nocopy': range(1, 33), 'soa': range(1, 25),
+         'http': range(1, 5), 'reflect': range(1, 9), 'nocopy': range(1, 33), 'soa': range(1, 25),
          'fusible': range(1, 13),
          'ptrlife': range(1, 41), 'ptrlife_opts': range(1001, 1013)}
 # `--suite IRONC OUTDIR` runs these; the other areas have ctest entries of

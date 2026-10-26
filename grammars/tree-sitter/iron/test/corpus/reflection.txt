@@ -1,0 +1,93 @@
+==================
+Compile-time field reflection
+==================
+
+func inspect[T](v: T) {
+    comptime for f in fields(T) {
+        comptime if f.is_var {
+            v.(f) = v.(f)
+        } else {
+            println(f.name)
+        }
+        comptime match f.type {
+            Int -> { println("int") }
+            [E] -> { println("list") }
+            E? -> { println("nullable") }
+            else -> comptime error("unsupported")
+        }
+    }
+}
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    (generic_params
+      (identifier))
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    body: (block
+      (comptime_for_statement
+        variable: (identifier)
+        iterable: (call_expression
+          function: (identifier)
+          (identifier))
+        body: (block
+          (comptime_if_statement
+            condition: (member_expression
+              object: (identifier)
+              property: (identifier))
+            consequence: (block
+              (assignment_statement
+                target: (reflected_member_expression
+                  object: (identifier)
+                  field: (identifier))
+                value: (reflected_member_expression
+                  object: (identifier)
+                  field: (identifier))))
+            (else_clause
+              consequence: (block
+                (expression_statement
+                  (call_expression
+                    function: (identifier)
+                    (member_expression
+                      object: (identifier)
+                      property: (identifier)))))))
+          (comptime_match_statement
+            subject: (reflected_field_type
+              field: (identifier))
+            (comptime_match_arm
+              pattern: (type_identifier
+                (identifier))
+              body: (block
+                (expression_statement
+                  (call_expression
+                    function: (identifier)
+                    (string_literal)))))
+            (comptime_match_arm
+              pattern: (array_type
+                (type_identifier
+                  (identifier)))
+              body: (block
+                (expression_statement
+                  (call_expression
+                    function: (identifier)
+                    (string_literal)))))
+            (comptime_match_arm
+              pattern: (nullable_type
+                (type_identifier
+                  (identifier)))
+              body: (block
+                (expression_statement
+                  (call_expression
+                    function: (identifier)
+                    (string_literal)))))
+            (match_else_arm
+              body: (comptime_expression
+                (call_expression
+                  function: (identifier)
+                  (string_literal))))))))))

@@ -1,0 +1,4 @@
+func invalid() {
+    val value = Fields[Int]()
+    println("{value}")
+}

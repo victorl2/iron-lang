@@ -162,6 +162,11 @@ the invalid internal state being reported.
 | E0354 | `IRON_ERR_IFACE_VALUE_CALL` | Interface value cannot dispatch a static or Self-dependent function. | Call a static interface function through `i: I`. | emitted |
 | E0355 | `IRON_ERR_CONSTRAINT_NO_STATIC` | Generic constraint declares no requested static function. | Call `T.parse()` without such a constrained member. | emitted |
 | E0356 | `IRON_ERR_GENERATED_ONLY` | Compiler-only member name is used by source code. | Call or declare `__fields`. | emitted |
+| E0357 | `IRON_ERR_REFLECTION_CONTEXT` | Reflection form is used outside a compile-time field expansion. | `v.(f)` outside `comptime for f in fields(T)`, or `Fields[T]` outside an opted-in generated implementation. | emitted |
+| E0358 | `IRON_ERR_REFLECTION_TYPE` | `fields(T)` or `Fields[T]` names a type that is not a concrete object. | `comptime for f in fields(Int)`. | emitted |
+| E0359 | `IRON_ERR_COMPTIME_CONDITION` | `comptime if` condition is not a reflection-time constant. | `comptime if x > 0` with a runtime `x`. | emitted |
+| E0360 | `IRON_ERR_COMPTIME_MATCH` | No `comptime match` arm applies to the concrete type. | `comptime match T { Int -> ... }` instantiated with `String` and no `else`. | emitted |
+| E0361 | `IRON_ERR_FIELDS_DEFAULT` | `Fields[T]` cannot give every field a safe initial value. | A recursive required field whose type has no zero-argument init. | emitted |
 | E0368 | `IRON_ERR_ALIGN_VALUE` | `//iron:align` is invalid or cannot be honored. | Alignment 3, or below the natural alignment. | emitted |
 | E0369 | `IRON_ERR_VIEW_ESCAPE` | A borrowed view escapes its block. | Store a view in an object field or return it. | emitted |
 | E0370 | `IRON_ERR_VIEW_SOURCE` | A view's borrowed source is invalid or changed. | Mutate the source list while the view is live. | emitted |

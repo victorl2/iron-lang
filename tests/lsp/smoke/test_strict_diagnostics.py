@@ -17,6 +17,12 @@ from lsprotocol import types
 
 
 _CASES = {
+    "E0357": (
+        "object ReflectAccess { val value: Int }\n"
+        "func invalid(value: ReflectAccess, f: Int) -> Int {\n"
+        "    return value.(f)\n"
+        "}\n"
+    ),
     "E0264": (
         "object Point {\n"
         "    var x: Float\n"

@@ -38,6 +38,28 @@ static Iron_Span var_keyword_span_from(Iron_Span s) {
     return r;
 }
 
+/* Fields[T]() is expanded only after an interface default is copied into a
+ * concrete implementor. The unexpanded default remains in the interface AST
+ * for tooling, where its builder still necessarily needs `var`. */
+static bool is_fields_builder_init(Iron_Node *n) {
+    if (!n) return false;
+    if (n->kind == IRON_NODE_CONSTRUCT) {
+        const char *name = ((Iron_ConstructExpr *)n)->type_name;
+        return name && strcmp(name, "Fields") == 0;
+    }
+    if (n->kind == IRON_NODE_METHOD_CALL) {
+        Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)n;
+        return mc->is_generated && mc->method &&
+               strcmp(mc->method, "__fields") == 0;
+    }
+    if (n->kind == IRON_NODE_CALL)
+        return is_fields_builder_init(((Iron_CallExpr *)n)->callee);
+    if (n->kind == IRON_NODE_INDEX)
+        return is_fields_builder_init(((Iron_IndexExpr *)n)->object);
+    return n->kind == IRON_NODE_IDENT && ((Iron_Ident *)n)->name &&
+           strcmp(((Iron_Ident *)n)->name, "Fields") == 0;
+}
+
 /* Mark a tracker entry as reassigned.
  *
  * Matching strategy: we use NAME equality. The pass currently does not wire
@@ -414,7 +436,9 @@ static void check_function_body(UnusedVarCtx *ctx,
                     t.sym = NULL;
                     t.is_param = false;
                     t.was_reassigned = false;
-                    t.requires_mutable = vd->requires_mutable;
+                    t.requires_mutable = vd->requires_mutable ||
+                                         vd->is_reflection_builder ||
+                                         is_fields_builder_init(vd->init);
                     arrput(ctx->trackers, t);
                 }
             }

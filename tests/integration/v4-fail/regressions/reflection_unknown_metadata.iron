@@ -1,0 +1,10 @@
+object ReflectMetadata {
+    val value: Int
+}
+
+func invalid() {
+    comptime for f in fields(ReflectMetadata) {
+        val value = f.unknown
+        println("{value}")
+    }
+}

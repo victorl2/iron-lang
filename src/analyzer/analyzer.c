@@ -5,6 +5,7 @@
 #include "analyzer/capture.h"
 #include "analyzer/iface_defaults.h"
 #include "analyzer/generics.h"
+#include "analyzer/expand.h"
 #include "analyzer/init_check.h"
 #include "analyzer/global_order.h"
 #include "analyzer/list_ownership.h"
@@ -222,6 +223,10 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
     iron_generics_reset();
     int diag_mark = diags->count;
     for (int round = 0; ; round++) {
+        /* Reflection is source expansion. Run it before each resolve round so
+         * newly materialised generic instances are expanded with concrete
+         * type arguments, while generic templates remain intact. */
+        iron_expand_reflection(program, arena, diags);
         /* Step 2: Name resolution */
         result.global_scope = iron_resolve(program, arena, diags, cancel_flag);
 

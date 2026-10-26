@@ -1,0 +1,8 @@
+object ReflectPlain {
+    val value: Int
+}
+
+func invalid() -> ReflectPlain {
+    val b = Fields[ReflectPlain]()
+    return b.build()
+}

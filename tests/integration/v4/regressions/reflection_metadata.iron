@@ -1,0 +1,68 @@
+// Directive and documentation metadata read by compile-time reflection.
+interface Columns {
+    readonly func columns() -> String {
+        var out = ""
+        comptime if typeinfo(Self).tag("db") != null {
+            out = out + typeinfo(Self).tag("db") + ":"
+        }
+        comptime for f in fields(Self) {
+            comptime if f.tag("db") != "skip" {
+                comptime if f.tag("db") == null {
+                    out = out + f.name
+                } else {
+                    out = out + f.tag("db")
+                }
+                comptime if f.tag("json") != null {
+                    out = out + "/" + f.tag("json")
+                }
+                out = out + ";"
+            }
+        }
+        return out
+    }
+}
+
+interface Docs {
+    readonly func docs() -> String {
+        var out = ""
+        comptime if typeinfo(Self).doc != null {
+            out = out + "[" + typeinfo(Self).doc + "]"
+        }
+        comptime for f in fields(Self) {
+            comptime if f.doc == null {
+                out = out + f.name + "=none;"
+            } else {
+                out = out + f.name + "=" + f.doc + ";"
+            }
+        }
+        return out
+    }
+}
+
+// A stored row.
+// Second line: {braces} and "quotes" stay literal.
+//db:rows
+object Row impl Columns, Docs {
+    // The primary key.
+    //db:row_id
+    val id: Int          //json:id
+    val name: String     //json:
+    // Never written out.
+    val secret: String   //db:skip
+    //db:first
+    //db:second
+    val count: Int
+}
+
+object Plain impl Columns, Docs {
+    val a: Int
+}
+
+func main() {
+    val r = Row(1, "a", "s", 2)
+    println(r.columns())
+    println(r.docs())
+    val p = Plain(3)
+    println(p.columns())
+    println(p.docs())
+}

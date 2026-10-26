@@ -83,6 +83,8 @@ module.exports = grammar({
     [$._expression, $.generic_expression, $.type_identifier],
     [$.parameter, $.type_identifier],
     [$._handle_type_arguments, $._type],
+    [$._expression, $.reflected_field_type],
+    [$.type_identifier, $.reflected_field_type],
   ],
 
   // Tokens that look like keywords (`self`, `super`, `true`, `false`, `null`)
@@ -401,6 +403,9 @@ module.exports = grammar({
       $.while_statement,
       $.for_statement,
       $.match_statement,
+      $.comptime_for_statement,
+      $.comptime_if_statement,
+      $.comptime_match_statement,
       $.return_statement,
       $.break_statement,
       $.continue_statement,
@@ -448,6 +453,36 @@ module.exports = grammar({
         optional(seq('(', field('pool', $._expression), ')')),
       )),
       field('body', $.block),
+    ),
+
+    comptime_for_statement: $ => seq(
+      'comptime', 'for',
+      field('variable', $.identifier),
+      'in',
+      field('iterable', $.call_expression),
+      field('body', $.block),
+    ),
+
+    comptime_if_statement: $ => seq(
+      'comptime', 'if',
+      field('condition', $._expression),
+      field('consequence', $.block),
+      repeat($.elif_clause),
+      optional($.else_clause),
+    ),
+
+    comptime_match_statement: $ => seq(
+      'comptime', 'match',
+      field('subject', $._type),
+      '{',
+      repeat($.comptime_match_arm),
+      optional($.match_else_arm),
+      '}',
+    ),
+    comptime_match_arm: $ => seq(
+      field('pattern', $._type),
+      '->',
+      field('body', $._match_arm_body),
     ),
 
     match_statement: $ => seq(
@@ -542,6 +577,7 @@ module.exports = grammar({
       $.is_expression,
       $.call_expression,
       $.member_expression,
+      $.reflected_member_expression,
       $.index_expression,
       $.slice_expression,
       $.generic_expression,
@@ -598,6 +634,11 @@ module.exports = grammar({
       field('object', $._expression),
       '.',
       field('property', $.identifier),
+    )),
+
+    reflected_member_expression: $ => prec.left(14, seq(
+      field('object', $._expression),
+      '.', '(', field('field', $.identifier), ')',
     )),
 
     index_expression: $ => prec.left(14, seq(
@@ -780,10 +821,17 @@ module.exports = grammar({
       $.weak_rc_type,
       $.nullable_type,
       $.generic_type,
+      $.reflected_field_type,
       $.type_identifier,
     ),
 
     type_identifier: $ => $.identifier,
+
+    // `f.type` of a reflected field. After `[` it competes with a member
+    // expression (`[E.A]`), so the choice is left to GLR (see conflicts).
+    reflected_field_type: $ => seq(
+      field('field', $.identifier), '.', 'type',
+    ),
 
     nullable_type: $ => prec(1, seq(choice($.type_identifier, $.generic_type), '?')),
 
@@ -796,7 +844,7 @@ module.exports = grammar({
 
     // [T], [T]? or [T; Size] (the parser permits the nullable suffix on
     // every bracketed collection type).
-    array_type: $ => prec(3, seq(
+    array_type: $ => prec.right(3, seq(
       '[',
       $._type,
       // Phase 48 layout hints: , layout: soa / , unordered — tolerated.
@@ -813,7 +861,7 @@ module.exports = grammar({
     // Distinguished from array_type by the literal `<=` token between `;`
     // and the size expression — tree-sitter's GLR picks the right form by
     // lookahead. Strict form `[T; N]` stays in array_type.
-    bounded_vector_type: $ => prec(3, seq(
+    bounded_vector_type: $ => prec.right(3, seq(
       '[', $._type,
       repeat(seq(',', choice(
         seq('layout', ':', choice('soa', 'aos')),

@@ -14730,24 +14730,26 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                      * value receiver, which passed a struct where a pointer was
                      * expected and failed to compile for every mutating impl. */
                     bool recv_is_ptr = false;
+                    const char *callee = NULL;
                     bool wants_self_gen = false;
                     {
                         char want[512];
                         snprintf(want, sizeof(want), "%s_%s", impl_lower, sig->name);
+                        char ir_want[512];
+                        snprintf(ir_want, sizeof(ir_want), "%s_%s",
+                                 impl->type_name, sig->name);
                         for (int fi = 0; fi < ctx.module->func_count; fi++) {
                             IronLIR_Func *f = ctx.module->funcs[fi];
                             if (!f || !f->name) continue;
                             const char *cname = emit_mangle_func_name(f->name, ctx.arena);
                             /* The method of a generic instance keeps the case
                              * of its type arguments (Iron_gh__Gp__Int_show for
-                             * GH[Gp[Int]]): call it by its own name. */
-                            if (cname && emit_ascii_caseeq(cname, want)) {
-                                size_t cl = strlen(cname) - strlen(sig->name) - 1;
-                                char *own = (char *)iron_arena_alloc(ctx.arena, cl + 1, 1);
-                                if (!own) iron_oom_abort("emit_c.c:iface dispatch impl name");
-                                memcpy(own, cname, cl);
-                                own[cl] = '\0';
-                                impl_lower = own;
+                             * GH[Gp[Int]]), and the method of a type whose
+                             * name collides with a C keyword is encoded whole
+                             * (`_Alignas.h`): call it by its own name. */
+                            if (cname && (strcmp(f->name, ir_want) == 0 ||
+                                          emit_ascii_caseeq(cname, want))) {
+                                callee = cname;
                                 /* Same predicate emit_func_signature uses to
                                  * decide `T *_v1` for the receiver slot. */
                                 recv_is_ptr = f->is_mut_receiver_method &&
@@ -14756,6 +14758,13 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                                 break;
                             }
                         }
+                    }
+                    if (!callee) {
+                        size_t cl = strlen(impl_lower) + 1 + strlen(sig->name) + 1;
+                        char *fallback = (char *)iron_arena_alloc(ctx.arena, cl, 1);
+                        if (!fallback) iron_oom_abort("emit_c.c:iface dispatch impl name");
+                        snprintf(fallback, cl, "%s_%s", impl_lower, sig->name);
+                        callee = fallback;
                     }
                     /* The receiver's generation a caller handed over (#542)
                      * goes to an implementor that reads it; for any other
@@ -14768,20 +14777,20 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                         : (is_indirect ? "*" : "");
                     if (returns_self) {
                         iron_strbuf_appendf(&ctx.lifted_funcs,
-                            "        case %s_TAG_%s: %sreturn %s_from_%s(%s_%s(%sself%sdata.%s%s));\n",
+                            "        case %s_TAG_%s: %sreturn %s_from_%s(%s(%sself%sdata.%s%s));\n",
                             iface_mangled, impl_c, gen_reset,
                             iface_mangled, impl_c,
-                            impl_lower, sig->name,
+                            callee,
                             recv_prefix,
                             sig_is_mut ? "->" : ".",
                             impl_c,
                             fwd_args);
                     } else {
                         iron_strbuf_appendf(&ctx.lifted_funcs,
-                            "        case %s_TAG_%s: %s%s%s_%s(%sself%sdata.%s%s); break;\n",
+                            "        case %s_TAG_%s: %s%s%s(%sself%sdata.%s%s); break;\n",
                             iface_mangled, impl_c, gen_reset,
                             has_return ? "return " : "",
-                            impl_lower, sig->name,
+                            callee,
                             recv_prefix,
                             sig_is_mut ? "->" : ".",
                             impl_c,

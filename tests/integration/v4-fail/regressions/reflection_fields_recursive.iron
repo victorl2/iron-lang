@@ -1,0 +1,10 @@
+interface MakeUnsupported {
+    static func make() -> Self {
+        var b = Fields[Self]()
+        return b.build()
+    }
+}
+
+object UnsupportedReflect impl MakeUnsupported {
+    val callback: func(Int) -> Int
+}
