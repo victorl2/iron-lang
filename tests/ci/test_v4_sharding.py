@@ -2,6 +2,7 @@
 """Prove that the eight acceptance shards partition the full v4 corpus."""
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,9 @@ def main() -> int:
         for path in (repo / "tests/integration/v4").rglob("*.iron")
     }
     observed: set[str] = set()
+    # The runner only lists fixtures here, but it wants a compiler binary
+    # that exists. `true` is /bin/true on Linux and /usr/bin/true on macOS.
+    stand_in = shutil.which("true") or "/usr/bin/true"
     for shard in range(1, 9):
         env = os.environ.copy()
         env.update(
@@ -26,7 +30,7 @@ def main() -> int:
             IRON_TEST_JOBS="1",
         )
         result = subprocess.run(
-            [str(repo / "tests/run_tests.sh"), "v4", "/bin/true"],
+            [str(repo / "tests/run_tests.sh"), "v4", stand_in],
             cwd=repo,
             env=env,
             check=True,
