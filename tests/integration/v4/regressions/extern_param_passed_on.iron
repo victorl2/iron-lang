@@ -1,0 +1,54 @@
+-- A parameter of the calling function passed straight to an extern: the
+-- `String` to `const char *` conversion looked the argument up among the
+-- function's instructions, where a parameter has no entry, so a wrapper
+-- such as `length` below handed the runtime string struct to C and the
+-- generated code did not compile.
+extern func strlen(s: String) -> Int
+extern func strcmp(a: String, b: String) -> Int32
+extern func toupper(c: Int32) -> Int32
+extern func puts(s: String) -> Int32
+extern func sqrtf(x: Float32) -> Float32
+
+func length(s: String) -> Int {
+    return strlen(s)
+}
+
+func same(a: String, b: String) -> Bool {
+    return strcmp(a, b) == 0
+}
+
+func longer(a: String, b: String) -> String {
+    if strlen(a) >= strlen(b) { return a }
+    return b
+}
+
+func upper(c: Int32) -> Int32 {
+    return toupper(c)
+}
+
+func say(s: String) {
+    puts(s)
+}
+
+func root(x: Float32) -> Float32 {
+    return sqrtf(x)
+}
+
+func total(words: [String]) -> Int {
+    var n = 0
+    for w in words {
+        n = n + length(w)
+    }
+    return n
+}
+
+func main() {
+    println("{length("four")} {upper(97)} {longer("ab", "abc")}")
+    say("said")
+    println("{same("iron", "iron")} {same("iron", "gold")}")
+    println("{total(["a", "bb", "ccc"])}")
+    val f = func(s: String) -> Int { return strlen(s) }
+    println("{f("lambda")}")
+    val r: Float32 = 2.25
+    println("{root(r)}")
+}

@@ -7873,10 +7873,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             bool is_string_arg = false;
             bool needs_int_cast = false;
             bool needs_float_cast = false;
-            if (is_extern_call && arg_id != IRON_LIR_VALUE_INVALID &&
-                arg_id < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                fn->value_table[arg_id] != NULL) {
-                Iron_Type *arg_type = fn->value_table[arg_id]->type;
+            if (is_extern_call && arg_id != IRON_LIR_VALUE_INVALID) {
+                /* A parameter of the enclosing function has no instruction
+                 * in the value table; its type comes from the signature.
+                 * Without it a `String` parameter passed on to an extern
+                 * was handed over as the runtime struct. */
+                Iron_Type *arg_type = emit_get_value_type(fn, arg_id);
 
                 /* Resolve the extern's corresponding C parameter type, if any. */
                 Iron_Type *pt = NULL;
