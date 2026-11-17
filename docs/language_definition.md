@@ -597,8 +597,8 @@ changes is where the bytes are:
 
 For an element type that is not an object (numbers, `String`, enums) the
 attribute is accepted and changes nothing. Fixed arrays and bounded
-vectors take no attributes by definition, although the compiler currently
-accepts and ignores them there ([#841](https://github.com/victorl2/iron-lang/issues/841)). Traversing every field of every element is
+vectors take no attributes: `[T, layout: soa; 4]` and `[T, unordered; <= 4]`
+are errors (`E0101`). Traversing every field of every element is
 not faster in a `layout: soa` list; use it for lists whose hot loops read
 a few fields of many elements. The debugger formatters show the elements
 of either layout.

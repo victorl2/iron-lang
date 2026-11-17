@@ -31,7 +31,7 @@ var arr: [Int; 4]
       (integer_literal))))
 
 ==========
-attributes precede the bounded size
+list attributes before the bounded size still parse (the compiler rejects them, E0101)
 ==========
 
 val xs: [Point, layout: soa; <= 4] = []
