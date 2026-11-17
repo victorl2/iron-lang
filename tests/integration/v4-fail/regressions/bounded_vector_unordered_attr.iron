@@ -1,0 +1,6 @@
+-- @expected-error: E0101
+-- #841: `unordered` is a list attribute, a bounded vector does not take it.
+func main() {
+    val bounded: [Int, unordered; <= 4] = []
+    println("{bounded.len()}")
+}

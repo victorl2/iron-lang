@@ -1,0 +1,10 @@
+-- @expected-error: E0101
+-- #841: `layout:` is a list attribute, a fixed array has no layout to choose.
+object Point {
+    val x: Int
+}
+
+func main() {
+    val fixed: [Point, layout: soa; 2] = [Point(1), Point(2)]
+    println("{fixed[0].x}")
+}

@@ -1132,9 +1132,11 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         }
 
         /* Phase 48: Parse optional layout attributes: [T, layout: soa/aos] [T, unordered] */
+        Iron_Token *first_attr = NULL;
         while (iron_match(p, IRON_TOK_COMMA)) {
             Iron_Token *attr = iron_current(p);
             if (iron_check(p, IRON_TOK_IDENTIFIER)) {
+                if (!first_attr) first_attr = attr;
                 if (strcmp(attr->value, "layout") == 0) {
                     iron_advance(p);  /* consume "layout" */
                     iron_expect(p, IRON_TOK_COLON);
@@ -1174,6 +1176,21 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
                 ann->bounded = true;
             }
             ann->array_size = iron_parse_expr(p);
+            /* `layout:` and `unordered` are list attributes (manual 2.3): a
+             * fixed array and a bounded vector store their elements inline
+             * and have no layout to choose (#841). */
+            if (first_attr) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, first_attr),
+                               ann->bounded
+                                   ? "a bounded vector takes no list attributes"
+                                   : "a fixed array takes no list attributes",
+                               "`layout:` and `unordered` belong to a list: "
+                               "`[T, layout: soa]`, `[T, unordered]`");
+                ann->layout_hint  = IRON_LAYOUT_HINT_NONE;
+                ann->is_unordered = false;
+            }
         }
 
         iron_expect(p, IRON_TOK_RBRACKET);
