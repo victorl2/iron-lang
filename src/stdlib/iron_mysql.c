@@ -2682,7 +2682,11 @@ static size_t put_out(char *out, size_t cap, const char *buf, size_t n) {
 static char *put_fraction(char *p, int64_t micro, int digits) {
     if (digits <= 0) return p;
     if (digits > 6) digits = 6;
-    char tmp[8];
+    /* Six digits are written. The buffer has room for anything put_num can
+     * write (a sign and twenty digits): GCC 15 does not see the bound of the
+     * value through the call and rejects a smaller one
+     * (-Wstringop-overflow). */
+    char tmp[24];
     put_num(tmp, micro < 0 ? 0 : micro % 1000000, 6);
     *p++ = '.';
     memcpy(p, tmp, (size_t)digits);
