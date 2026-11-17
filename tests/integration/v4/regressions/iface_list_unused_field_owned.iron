@@ -1,0 +1,37 @@
+-- An interface list stores only the fields a program reads (`unused`, `pad`
+-- are never read). An implementor with a String field or a drop hook keeps
+-- its whole struct: the list's clear, copy and free run the type's glue on
+-- the stored elements, and the reduced struct did not compile there.
+interface Shape {
+    readonly func area() -> Int
+}
+object Sq impl Shape {
+    val s: Int
+    val unused: Int
+    readonly func area() -> Int { return self.s * self.s }
+}
+object Rect impl Shape {
+    val w: Int
+    val h: Int
+    val name: String
+    val pad: Int
+    readonly func area() -> Int { return self.w * self.h }
+}
+object Tok impl Shape {
+    val n: Int
+    val pad: Int
+    readonly func area() -> Int { return self.n }
+    drop { println("drop tok {self.n}") }
+}
+func total(xs: [Shape]) -> Int {
+    var t = 0
+    for x in xs { t += x.area() }
+    return t
+}
+func main() {
+    var lit: [Shape] = [Sq(1, 0), Rect(1, 2, "literal rectangle with a heap allocated name", 0), Tok(5, 0)]
+    println("{total(lit)} {lit.len()}")
+    val c = lit.copy()
+    lit.clear()
+    println("{lit.len()} {total(c)}")
+}

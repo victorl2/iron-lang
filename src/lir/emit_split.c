@@ -443,8 +443,14 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
         /* Emit reduced storage typedef if some fields are dead */
         bool elem_assigned = ctx->iface_elem_assigned &&
             shgeti(ctx->iface_elem_assigned, iface_mangled) >= 0;
+        /* An implementor with drop or copy work (a String, list or rc
+         * field, a hook) keeps its whole struct: the list's clear, copy and
+         * free run the type's glue on each stored element, which takes the
+         * full struct (the reduced one did not compile there), and a field
+         * left out of the storage could never be released. */
+        bool owns = od_needs_drop(ctx, od) || od_needs_copy_fixup(ctx, od);
         if (used_fields < total_fields && used_fields > 0 &&
-            arrlen(iface_collection_vids) > 0 && !elem_assigned &&
+            arrlen(iface_collection_vids) > 0 && !elem_assigned && !owns &&
             !split_impl_is_boxed(ctx, iface_mangled, impl2)) {
             const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
             iron_strbuf_appendf(sb,
