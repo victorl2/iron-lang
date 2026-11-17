@@ -1874,7 +1874,11 @@ static int64_t send_response_transport(HttpTransport transport,
     char fixed[256];
     int fixed_len = http_status_head(fixed, sizeof(fixed), response.status,
                                      reason, reason_len, body_len, keep_alive);
-    if (fixed_len < 0) return IRON_ERR_HTTP_INVALID_ARGUMENT;
+    /* http_status_head never writes past `fixed`; the upper bound is stated
+     * here because GCC 15 does not see it through the call and rejects the
+     * copy out of `fixed` below (-Warray-bounds, with _FORTIFY_SOURCE). */
+    if (fixed_len < 0 || (size_t)fixed_len > sizeof(fixed))
+        return IRON_ERR_HTTP_INVALID_ARGUMENT;
     /* One write for the whole message: separate small writes for the status
      * line, headers and body meet Nagle's algorithm and the peer's delayed
      * ACK on a keep-alive connection and stall each response by ~40 ms. */
