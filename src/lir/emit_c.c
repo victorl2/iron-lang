@@ -766,6 +766,18 @@ static bool emit_optional_cast(Iron_StrBuf *sb, IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, ").value");
         return true;
     }
+    /* A concrete implementor converted to its interface: the value handed
+     * to a slot the emitter cannot see the type of (a Map value, a channel
+     * element, a lock's content), wrapped into the interface's union. */
+    if (dst->kind == IRON_TYPE_INTERFACE && dst->interface.decl &&
+        src->kind == IRON_TYPE_OBJECT && src->object.decl && src->object.decl->name) {
+        iron_strbuf_appendf(sb, "%s_from_%s(",
+                            emit_mangle_name(dst->interface.decl->name, ctx->arena),
+                            emit_c_user_identifier(src->object.decl->name, ctx->arena));
+        emit_iface_wrap_operand(sb, instr->cast.value, fn, ctx, use_block_id, depth + 1);
+        iron_strbuf_appendf(sb, ")");
+        return true;
+    }
     return false;
 }
 

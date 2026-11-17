@@ -1,0 +1,20 @@
+-- A concrete implementor sent on a channel of an interface type, or stored
+-- in a lock of one, is converted to the interface (it used to fail in the C
+-- compiler).
+interface Shape { readonly func area() -> Int }
+object Sq impl Shape {
+    val s: Int
+    val name: String
+    readonly func area() -> Int { return self.s * self.s }
+}
+func main() {
+    val ch = Channel[Shape](2)
+    ch.send(Sq(3, "a square with a long heap allocated name"))
+    val got = ch.recv()
+    println("{got.area()}")
+    val first: Shape = Sq(1, "one")
+    val mu = Mutex[Shape](first)
+    val g = mu.lock()
+    g.set(Sq(5, "another square with a long heap allocated name"))
+    println("{g.get().area()}")
+}

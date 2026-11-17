@@ -1,0 +1,60 @@
+-- A Map whose value type is an interface: `put` and `get_or` take a concrete
+-- implementor (it used to reach the table unconverted and fail in the C
+-- compiler), an implementor with owned fields is copied and dropped through
+-- the interface glue, and `values()` builds a list of the interface type.
+-- `Big` is large enough to be stored behind a pointer in the interface.
+interface Shape {
+    readonly func area() -> Int
+    readonly func label() -> String
+}
+object Sq impl Shape {
+    val s: Int
+    readonly func area() -> Int { return self.s * self.s }
+    readonly func label() -> String { return "square" }
+}
+object Rect impl Shape {
+    val w: Int
+    val h: Int
+    val name: String
+    val pad: Int
+    readonly func area() -> Int { return self.w * self.h }
+    readonly func label() -> String { return self.name }
+}
+object Big impl Shape {
+    val a: Int
+    val b: Int
+    val c: Int
+    val d: Int
+    val e: Int
+    val f: Int
+    val g: Int
+    val h: Int
+    val i: Int
+    val j: Int
+    val k: Int
+    val l: Int
+    val note: String
+    readonly func area() -> Int { return self.a + self.l }
+    readonly func label() -> String { return self.note }
+}
+func total(xs: [Shape]) -> Int {
+    var t = 0
+    for x in xs { t += x.area() }
+    return t
+}
+func main() {
+    var m: Map[Int, Shape] = Map()
+    m.put(1, Sq(2))
+    m.put(2, Rect(2, 3, "a rectangle with a long heap allocated name", 9))
+    m.put(3, Big(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, "a big shape with a long heap allocated note"))
+    val vs = m.values()
+    println("{vs.len()} {total(vs)}")
+    var labels = 0
+    for v in vs { labels += v.label().len() }
+    println("{labels}")
+    val c = m.copy()
+    m.clear()
+    println("{m.len()} {c.len()} {c.get(3).area()} {c.get(2).label()}")
+    for (k, v) in c { if k == 3 { println("{k} {v.area()}") } }
+    println("{c.has(2)} {c.get_or(9, Sq(7)).area()}")
+}

@@ -2927,6 +2927,15 @@ static void hash_elem_protos(EmitCtx *ctx, const Iron_Type *t, Iron_StrBuf *prot
         if (od_needs_drop(ctx, t->object.decl))
             iron_strbuf_appendf(protos, "static void %s_drop(%s *self);\n", tc, tc);
     }
+    /* An interface value: its glue switches over the implementors and is
+     * emitted with the lifted functions as well. */
+    if (t->kind == IRON_TYPE_INTERFACE && t->interface.decl) {
+        const char *tc = emit_type_to_c(t, ctx);
+        if (iface_needs_glue(ctx, t, true))
+            iron_strbuf_appendf(protos, "static void %s_copied(%s *self);\n", tc, tc);
+        if (iface_needs_glue(ctx, t, false))
+            iron_strbuf_appendf(protos, "static void %s_drop(%s *self);\n", tc, tc);
+    }
     /* A `T?` value (#289): its optional glue is emitted with the lifted
      * functions too. */
     if (t->kind == IRON_TYPE_NULLABLE) {
@@ -3053,6 +3062,46 @@ static void emit_hash_list_builder(EmitCtx *ctx, const char *table, const Iron_T
     const char *e_c = emit_type_to_c(E, ctx);
     const char *slot = is_map ? (values ? "vals" : "keys") : "items";
     const char *fix = (is_map && values) ? "vcopy" : "kcopy";
+    /* A list of an interface type stores its elements per implementor and
+     * has no push of an interface value: each copy goes to the array of
+     * the implementor its tag names (a boxed payload moves out of its
+     * box, as in a push of an interface value). */
+    Iron_IfaceEntry *ie = iface_entry_of(ctx, E);
+    if (ie) {
+        const char *ic = emit_mangle_name(ie->iface_name, ctx->arena);
+        Iron_StrBuf *sb = &ctx->lifted_funcs;
+        iron_strbuf_appendf(sb,
+            "static %s %s(const %s *t) {\n"
+            "    %s out = {0};\n"
+            "    for (int64_t i = 0; i < t->cap; i++) {\n"
+            "        if (t->st[i] != IRON_HSLOT_FULL) continue;\n"
+            "        %s e = t->%s[i]; %s_%s(&e);\n"
+            "        switch (e.tag) {\n",
+            list_c, key, table, list_c, e_c, slot, table, fix);
+        for (int j = 0; j < ie->impl_count; j++) {
+            Iron_IfaceImpl *im = &ie->impls[j];
+            if (!im->is_alive) continue;
+            const char *impl_c = emit_c_user_identifier(im->type_name, ctx->arena);
+            if (iface_variant_indirect(ctx, ic, im->type_name))
+                iron_strbuf_appendf(sb,
+                    "        case %d: Iron_SplitList_%s_push_%s(&out, *e.data.%s); "
+                    "iron_mem_free(e.data.%s); break;\n",
+                    im->tag, ic, impl_c, impl_c, impl_c);
+            else
+                iron_strbuf_appendf(sb,
+                    "        case %d: Iron_SplitList_%s_push_%s(&out, e.data.%s); break;\n",
+                    im->tag, ic, impl_c, impl_c);
+        }
+        iron_strbuf_appendf(sb,
+            "        default: break;\n"
+            "        }\n"
+            "    }\n"
+            "    return out;\n"
+            "}\n\n");
+        iron_strbuf_appendf(&ctx->struct_bodies, "static %s %s(const %s *t);\n",
+                            list_c, key, table);
+        return;
+    }
     iron_strbuf_appendf(&ctx->lifted_funcs,
         "static %s %s(const %s *t) {\n"
         "    %s out = %s_create();\n"
