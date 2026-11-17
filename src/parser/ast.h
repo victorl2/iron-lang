@@ -321,6 +321,11 @@ typedef struct Iron_ObjectDecl {
     bool          is_nocopy;
     /* `//iron:align=N` above the object: every instance's alignment. */
     uint16_t      align;
+    /* On a patch: how many interfaces its `impl` list named, kept after the
+     * list is merged into the target (which sets implements_count to 0);
+     * implements_names still holds them. The visibility check of an
+     * interface named in an `impl` list reads where it was written (#842). */
+    int           patch_implements_count;
 } Iron_ObjectDecl;
 
 typedef struct Iron_InterfaceDecl {
@@ -329,6 +334,8 @@ typedef struct Iron_InterfaceDecl {
     const char   *name;
     Iron_Node   **method_sigs;
     int           method_count;
+    /* `pub interface`: visible from the package's other files (#842). */
+    bool          is_pub;
     /* Phase 3 NAV-14: documentation text (see Iron_Directive); NULL if none. */
     const char   *doc_comment;
     Iron_Directive *directives;       /* see Iron_Directive */

@@ -671,6 +671,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
         case IRON_NODE_INTERFACE_DECL: {
             Iron_InterfaceDecl *n = (Iron_InterfaceDecl *)node;
             print_leading_comments(ctx, n->doc_comment, n->directives, n->directive_count);
+            if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             iron_strbuf_appendf(ctx->sb, "interface %s {", n->name);
             print_trailing_directives(ctx, n->directives, n->directive_count);
             iron_strbuf_appendf(ctx->sb, "\n");

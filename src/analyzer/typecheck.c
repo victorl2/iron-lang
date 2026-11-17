@@ -229,6 +229,11 @@ typedef struct {
      * binding has the tuple list in its type and in its literal (#322). */
     const char        *tuple_list_file;
     uint32_t           tuple_list_line;
+    /* Where a private interface of another file was last reported: an
+     * annotation is resolved more than once (signature pre-pass, body). */
+    const char        *private_iface_file;
+    uint32_t           private_iface_line;
+    uint32_t           private_iface_col;
     /* defer bodies enclosing the statement, for return; 0 inside a lambda
      * or spawn body. */
     int                defer_depth;
@@ -1164,6 +1169,26 @@ static bool report_private_member(TypeCtx *ctx, bool is_pub, Iron_Span decl_span
     emit_error(ctx, IRON_ERR_CROSS_MODULE_PRIVATE, use_span, msg,
                "mark it `pub` to use it from other files");
     return true;
+}
+
+/* An interface without `pub` is private to the file that declares it, as
+ * every other top-level declaration (#842). An interface is named in type
+ * annotations, `impl` lists and generic bounds, which the resolver's check
+ * of identifiers in expressions does not see. */
+static void report_private_interface(TypeCtx *ctx, Iron_Symbol *sym, Iron_Span use_span) {
+    if (!sym || sym->sym_kind != IRON_SYM_INTERFACE || sym->is_pub || !sym->name) return;
+    if (ctx->private_iface_file && use_span.filename &&
+        use_span.line == ctx->private_iface_line &&
+        use_span.col == ctx->private_iface_col &&
+        strcmp(ctx->private_iface_file, use_span.filename) == 0)
+        return;
+    char what[256];
+    snprintf(what, sizeof(what), "interface '%s'", sym->name);
+    if (report_private_member(ctx, false, sym->span, use_span, what)) {
+        ctx->private_iface_file = use_span.filename;
+        ctx->private_iface_line = use_span.line;
+        ctx->private_iface_col  = use_span.col;
+    }
 }
 
 /* A method that implements an interface method is as visible as the
@@ -2736,6 +2761,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, name);
         if (sym) {
             base = sym->type;
+            report_private_interface(ctx, sym, ann->span);
             /* Phase 33 OQ-01 (Plan 33-02): enforce generic-object constraints
              * at the TYPE-ANNOTATION site. `Map[K: Hashable, V]` /
              * `Set[T: Hashable]` are generic OBJECTs; a binding like
@@ -13902,6 +13928,69 @@ static void check_method_decl_inner(TypeCtx *ctx, Iron_MethodDecl *md) {
 
 /* ── Interface completeness check ────────────────────────────────────────── */
 
+/* The interfaces a declaration names outside type annotations: an object's
+ * or patch's `impl` list and the bounds of generic parameters. One that is
+ * private to another file is E0320 (#842). */
+static void check_generic_bound_visibility(TypeCtx *ctx, Iron_Node **params, int count) {
+    for (int i = 0; i < count; i++) {
+        if (!params || !params[i] || params[i]->kind != IRON_NODE_IDENT) continue;
+        Iron_Ident *gp = (Iron_Ident *)params[i];
+        if (!gp->constraint_name) continue;
+        report_private_interface(ctx,
+            iron_scope_lookup(ctx->global_scope, gp->constraint_name), gp->span);
+    }
+}
+
+static void check_interface_visibility(TypeCtx *ctx, Iron_Program *program) {
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *decl = program->decls[i];
+        if (!decl) continue;
+        if (decl->kind == IRON_NODE_FUNC_DECL) {
+            Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
+            check_generic_bound_visibility(ctx, fd->generic_params, fd->generic_param_count);
+            continue;
+        }
+        if (decl->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
+            check_generic_bound_visibility(ctx, md->generic_params, md->generic_param_count);
+            continue;
+        }
+        if (decl->kind == IRON_NODE_ENUM_DECL) {
+            Iron_EnumDecl *ed = (Iron_EnumDecl *)decl;
+            check_generic_bound_visibility(ctx, ed->generic_params, ed->generic_param_count);
+            continue;
+        }
+        if (decl->kind != IRON_NODE_OBJECT_DECL) continue;
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)decl;
+        check_generic_bound_visibility(ctx, od->generic_params, od->generic_param_count);
+        if (od->is_patch) {
+            /* Written in the patch's `impl` list (merged into the target). */
+            for (int j = 0; j < od->patch_implements_count; j++)
+                report_private_interface(ctx,
+                    iron_scope_lookup(ctx->global_scope, od->implements_names[j]), od->span);
+            continue;
+        }
+        for (int j = 0; j < od->implements_count; j++) {
+            const char *nm = od->implements_names[j];
+            if (!nm) continue;
+            /* A name a patch added is checked where the patch wrote it. */
+            bool from_patch = false;
+            for (int k = 0; k < program->decl_count && !from_patch; k++) {
+                Iron_Node *pd = program->decls[k];
+                if (!pd || pd->kind != IRON_NODE_OBJECT_DECL) continue;
+                Iron_ObjectDecl *patch = (Iron_ObjectDecl *)pd;
+                if (!patch->is_patch || !patch->target_type_name || !od->name ||
+                    strcmp(patch->target_type_name, od->name) != 0) continue;
+                for (int t = 0; t < patch->patch_implements_count; t++)
+                    if (patch->implements_names[t] &&
+                        strcmp(patch->implements_names[t], nm) == 0) { from_patch = true; break; }
+            }
+            if (from_patch) continue;
+            report_private_interface(ctx, iron_scope_lookup(ctx->global_scope, nm), od->span);
+        }
+    }
+}
+
 static void check_interface_completeness(TypeCtx *ctx, Iron_Program *program) {
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
@@ -14829,6 +14918,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     iron_type_patch_registry_free(patch_registry);
 
     /* Interface completeness */
+    check_interface_visibility(&ctx, program);
     check_interface_completeness(&ctx, program);
 
     /* Phase 87 IFACE-02: tier-strengthening scan. Runs after method bodies

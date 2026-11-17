@@ -1,0 +1,25 @@
+object Bag impl Sized {
+    val n: Int
+    readonly func size() -> Int { return self.n }
+}
+
+patch object Crate impl Sized {
+    pub readonly func size() -> Int { return self.n * 2 }
+}
+
+func largest[T: Sized](a: T, b: T) -> Int {
+    if a.size() > b.size() { return a.size() }
+    return b.size()
+}
+
+func total(xs: [Sized]) -> Int {
+    var t = 0
+    for x in xs { t += x.size() }
+    return t
+}
+
+func main() {
+    val s: Sized = Bag(3)
+    val all: [Sized] = [Bag(1), Crate(5)]
+    println("{s.size()} {largest(Bag(2), Bag(9))} {total(all)} {labs(-4)}")
+}

@@ -2184,12 +2184,11 @@ is available without an import.
 
 ### 5.10 Visibility
 
-Functions, objects, patches, enums and global bindings are private to their
-file unless marked `pub`; global bindings use `pub val` and `pub var`.
-Interfaces are currently visible package-wide even without `pub`, while an
-extern function stays file-private even when written `pub extern func`
-([#842](https://github.com/victorl2/iron-lang/issues/842)). Using any other
-private declaration from another file of the package is an error (`E0320`). Object members are private to the declaring
+Functions, extern functions, objects, patches, interfaces, enums and global
+bindings are private to their file unless marked `pub`; global bindings use
+`pub val` and `pub var`. Using a private declaration from another file of
+the package is an error (`E0320`); for an interface that is naming it in a
+type, an `impl` list or the bound of a generic parameter. Object members are private to the declaring
 file unless marked `pub` (section 5.3). The word `private` is not accepted
 (`E0101`). Visibility does not make names local: all files of a package
 share one namespace, so two files may not declare the same top-level name,
@@ -4137,8 +4136,7 @@ a filter that starts with `-`); any other argument is an error, as is a
 second file given to `ironc`. Builds and checks of the same package may run
 at the same time. All files of a package share one namespace: a
 `pub` declaration in one file is visible in every other file, and a
-private one only in its own (`E0320`), subject to the interface and extern
-exceptions in section 5.10. `import` of a package file is
+private one only in its own (`E0320`, section 5.10). `import` of a package file is
 optional and documents the dependency. The files are compiled in this
 order, which is the order of their globals' initialization where those do
 not depend on each other (section 5.7): the vendored files, `src/lib.iron`,

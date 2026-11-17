@@ -169,6 +169,7 @@ static void merge_patch_conformance(Iron_Program *program, Iron_Arena *arena) {
                 target->implements_count++;
             }
         }
+        patch->patch_implements_count = patch->implements_count;
         patch->implements_count = 0;
     }
 }

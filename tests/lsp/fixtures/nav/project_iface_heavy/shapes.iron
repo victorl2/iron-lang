@@ -1,4 +1,4 @@
 /// A 2D shape contract.
-interface Shape {
+pub interface Shape {
     func area() -> Float
 }

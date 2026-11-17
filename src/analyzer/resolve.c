@@ -364,11 +364,9 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             /* HARD-09 CR-03: skip this decl on arena OOM. */
             if (!sym) { ctx->in_error_recovery = true; break; }
             sym->type = ty;
-            /* Phase 93 RESEARCH Open Question 3: `pub interface` is deferred.
-             * Interfaces are always treated as not-pub at the cross-module
-             * gate; the gate predicate excludes IRON_SYM_INTERFACE anyway,
-             * so this is documentation only. */
-            sym->is_pub = false;
+            /* An interface is private to its file unless marked `pub`, as
+             * every other top-level declaration (#842). */
+            sym->is_pub = id->is_pub;
             if (!iron_scope_define_type(ctx->global_scope, ctx->arena, sym)) {
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_DUPLICATE_DECL, id->span,
@@ -729,10 +727,11 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                  * TYPE / ENUM / ENUM_VARIANT). Locals, params, fields, self,
                  * super, Self are never subject to this check (they are
                  * either earlier in this case body or have a different
-                 * Iron_SymbolKind). IRON_SYM_INTERFACE is intentionally
-                 * excluded — `pub interface` is deferred per RESEARCH Open
-                 * Question 3. Stdlib carve-out (line-offset based) makes
-                 * stdlib decls implicitly pub. */
+                 * Iron_SymbolKind). An interface named in an expression
+                 * (`Parse.from(...)`, a static call) is checked here; one
+                 * named in a type annotation or an `impl` list is checked
+                 * by the type checker (#842). Stdlib carve-out (line-offset
+                 * based) makes stdlib decls implicitly pub. */
                 bool global_binding = sym->sym_kind == IRON_SYM_VARIABLE && sym->decl_node &&
                     ((sym->decl_node->kind == IRON_NODE_VAL_DECL &&
                       ((Iron_ValDecl *)sym->decl_node)->is_global) ||
@@ -743,6 +742,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     sym->sym_kind == IRON_SYM_TYPE     ||
                     sym->sym_kind == IRON_SYM_ENUM     ||
                     sym->sym_kind == IRON_SYM_ENUM_VARIANT ||
+                    sym->sym_kind == IRON_SYM_INTERFACE ||
                     global_binding;
                 if (is_global && !sym->is_pub &&
                     sym->span.filename && id->span.filename &&
