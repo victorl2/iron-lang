@@ -1,0 +1,27 @@
+-- A tuple binding drops its elements at scope exit (issue 450): a tuple
+-- of strings leaked one reference to each. Destructuring a binding copies
+-- the elements (twice is fine), destructuring a call's tuple moves them,
+-- and a tuple copied into another binding, reassigned or passed through a
+-- function is released exactly once.
+func trio(n: Int) -> (String, Int, String) {
+    return ("first heap string {n} zzzzzzzzzzzzzzzzzzzzzz", n, "third heap string {n} wwwwwwwwwwwwwwwwwwwwww")
+}
+
+func pass(t: (String, Int, String)) -> (String, Int, String) {
+    return t
+}
+
+func main() {
+    val tup = trio(4)
+    val (x, y, z) = tup
+    val (x2, y2, z2) = tup
+    println("{x.len()} {z.len()} {x2.len()} {z2.len()} {y + y2}")
+    val (a, b, c) = trio(5)
+    println("{a.len()} {b} {c.len()}")
+    var t2 = trio(6)
+    t2 = trio(7)
+    val t3 = t2
+    val (p, q, r) = t3
+    val (_, w, _) = pass(t2)
+    println("{p.len()} {q} {r.len()} {w}")
+}
