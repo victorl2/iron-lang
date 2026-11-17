@@ -144,13 +144,11 @@ module.exports = grammar({
     import_path: $ => seq($.identifier, repeat(seq('.', $.identifier))),
 
     // object Name[<GenericParams>] [extends Parent] [impl I1, I2] { val name: T, var name: T }
-    // A declaration may have `pub` or `nocopy`, but the compiler does not yet
-    // accept both together (#840).
+    // A declaration may have `pub`, `nocopy` or both, in that order
+    // (`pub nocopy object`).
     object_declaration: $ => seq(
-      optional(choice(
-        $.visibility_modifier,
-        field('marker', $.nocopy_modifier),
-      )),
+      optional($.visibility_modifier),
+      optional(field('marker', $.nocopy_modifier)),
       'object',
       field('name', $.identifier),
       optional($.generic_params),

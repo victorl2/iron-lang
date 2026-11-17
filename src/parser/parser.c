@@ -7454,24 +7454,6 @@ Iron_Node *iron_parse(Iron_Parser *p) {
             iron_advance(p);
             continue;
         }
-        /* Phase 24 DROP-08 (Plan 24-01): `nocopy object T { ... }` modifier.
-         * Detect `nocopy` prefix, consume it, and require `object` to follow.
-         * Threads is_nocopy into iron_parse_decl → iron_parse_object_decl. */
-        bool is_nocopy = false;
-        if (iron_check(p, IRON_TOK_NOCOPY)) {
-            is_nocopy = true;
-            iron_advance(p);  /* consume 'nocopy' */
-            if (!iron_check(p, IRON_TOK_OBJECT)) {
-                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                               IRON_ERR_UNEXPECTED_TOKEN,
-                               iron_token_span(p, iron_current(p)),
-                               "'nocopy' modifier only valid on `object` declarations",
-                               NULL);
-                iron_parser_sync_toplevel(p);
-                continue;
-            }
-        }
-
         /* Phase 93 VIS-01: accept `pub` and `private` at top level in either
          * order. Mutual exclusion: `pub` + `private` together is a hard
          * error with the caret on the second-seen modifier. Duplicates
@@ -7527,6 +7509,33 @@ Iron_Node *iron_parse(Iron_Parser *p) {
                 continue;
             }
             break;
+        }
+
+        /* `nocopy object T { ... }`: the modifier sits next to `object`, after
+         * the visibility (`pub nocopy object`, the one accepted order, #840).
+         * Threads is_nocopy into iron_parse_decl -> iron_parse_object_decl. */
+        bool is_nocopy = false;
+        if (iron_check(p, IRON_TOK_NOCOPY)) {
+            is_nocopy = true;
+            iron_advance(p);  /* consume 'nocopy' */
+            if (iron_check(p, IRON_TOK_PUB)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "`pub` comes before `nocopy`",
+                               "write `pub nocopy object`");
+                iron_advance(p);  /* consume 'pub' and parse on */
+                is_pub = true;
+            }
+            if (!iron_check(p, IRON_TOK_OBJECT)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "'nocopy' modifier only valid on `object` declarations",
+                               NULL);
+                iron_parser_sync_toplevel(p);
+                continue;
+            }
         }
 
         Iron_Node *d = iron_parse_decl(p, decl_start, is_private, is_pub,

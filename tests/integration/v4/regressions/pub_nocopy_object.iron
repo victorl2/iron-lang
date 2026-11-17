@@ -1,0 +1,12 @@
+-- #840: a nocopy object can also be public (`pub nocopy object`).
+pub nocopy object Ticket {
+    val id: Int
+    drop {
+        println("release {self.id}")
+    }
+}
+
+func main() {
+    val t = Ticket(7)
+    println("ticket {t.id}")
+}

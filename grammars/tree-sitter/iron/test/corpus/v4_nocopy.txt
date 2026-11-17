@@ -42,3 +42,23 @@ nocopy object FileHandle {
           (call_expression
             function: (identifier)
             (string_literal)))))))
+
+==========
+pub nocopy object
+==========
+
+pub nocopy object Token {
+  val id: Int
+}
+
+---
+
+(source_file
+  (object_declaration
+    (visibility_modifier)
+    marker: (nocopy_modifier)
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))))

@@ -371,21 +371,24 @@
           "type": "CHOICE",
           "members": [
             {
-              "type": "CHOICE",
-              "members": [
-                {
-                  "type": "SYMBOL",
-                  "name": "visibility_modifier"
-                },
-                {
-                  "type": "FIELD",
-                  "name": "marker",
-                  "content": {
-                    "type": "SYMBOL",
-                    "name": "nocopy_modifier"
-                  }
-                }
-              ]
+              "type": "SYMBOL",
+              "name": "visibility_modifier"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "marker",
+              "content": {
+                "type": "SYMBOL",
+                "name": "nocopy_modifier"
+              }
             },
             {
               "type": "BLANK"
