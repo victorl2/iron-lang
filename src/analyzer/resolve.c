@@ -17,6 +17,7 @@
 #include "parser/ast.h"
 #include "vendor/stb_ds.h"
 
+#include <stdint.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -423,6 +424,56 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
                     }
                 }
                 iron_scope_define(ctx->global_scope, ctx->arena, vsym);
+            }
+            /* Two variants of a payload-free enum with the same run-time
+             * value (`Red = 1, Green = 1`, or `A = 1, B = 0, C`): they would
+             * compare equal and `match` could not tell them apart; the C
+             * had two `case` labels of one value and did not compile. An
+             * enum with payloads is tagged by position, so its values
+             * cannot collide. */
+            if (!ed->has_payloads) {
+                int64_t value = -1;
+                int64_t *seen = NULL;
+                for (int i = 0; i < ed->variant_count; i++) {
+                    Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
+                    if (!ev) { arrput(seen, INT64_MIN); continue; }
+                    value = ev->has_explicit_value ? (int64_t)ev->explicit_value
+                                                   : value + 1;
+                    if (value > (int64_t)INT32_MAX) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "the value of enum variant '%s.%s' is out of range",
+                                 ed->name ? ed->name : "?", ev->name ? ev->name : "?");
+                        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                       IRON_ERR_DUPLICATE_DECL, ev->span,
+                                       iron_arena_strdup(ctx->arena, msg, strlen(msg)),
+                                       "a variant without a value takes the previous "
+                                       "variant's value plus one; the largest value is "
+                                       "2147483647");
+                        break;
+                    }
+                    for (int j = 0; j < i; j++) {
+                        if (seen[j] != value) continue;
+                        Iron_EnumVariant *pv = (Iron_EnumVariant *)ed->variants[j];
+                        char msg[320];
+                        snprintf(msg, sizeof(msg),
+                                 "enum variants '%s.%s' and '%s.%s' have the same value %lld",
+                                 ed->name ? ed->name : "?", pv->name ? pv->name : "?",
+                                 ed->name ? ed->name : "?", ev->name ? ev->name : "?",
+                                 (long long)value);
+                        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                       IRON_ERR_DUPLICATE_DECL, ev->span,
+                                       iron_arena_strdup(ctx->arena, msg, strlen(msg)),
+                                       ev->has_explicit_value
+                                           ? "give each variant its own value"
+                                           : "a variant without a value takes the previous "
+                                             "variant's value plus one: give this one an "
+                                             "explicit value, or reorder the variants");
+                        break;
+                    }
+                    arrput(seen, value);
+                }
+                arrfree(seen);
             }
             break;
         }

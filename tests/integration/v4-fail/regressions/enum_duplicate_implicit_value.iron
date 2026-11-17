@@ -1,0 +1,11 @@
+-- @expected-error: E0201
+-- `Low` takes the value after `Off`, which is the value of `High`.
+enum Level {
+    High = 1,
+    Off = 0,
+    Low,
+}
+
+func main() {
+    println("{Level.Low}")
+}
