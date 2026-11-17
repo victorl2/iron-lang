@@ -2709,7 +2709,8 @@ instance is destroyed (stack scope exit, `free`, last `rc` handle released,
 list cleared), with `self` bound to the dying value. It may contain a
 `copy { ... }` block, run after each implicit or explicit copy of the value
 (`x.copy()` copies an object explicitly, retaining its `rc` fields and
-cloning its list fields). An object declared `nocopy object` cannot be
+cloning its list fields). An object declared `nocopy object` (`pub nocopy
+object` when it is public, in that order) cannot be
 copied at all: assigning it to another binding, passing it by value or
 storing it is an error (`E0286`), which is how `Box`, `Channel`, `Mutex`,
 `RWLock` and `FileHandle` guarantee a single owner. A list of `nocopy`
@@ -4423,7 +4424,6 @@ so that older material is not mistaken for the current language:
 - Reading and writing a primitive through a pointer (`*p`).
 - Lambda parameter inference outside a function-typed parameter position.
 - `String`, `Bool` and `Float` subjects in `match`.
-- A `nocopy object` cannot currently also be `pub` ([#840](https://github.com/victorl2/iron-lang/issues/840)).
 - raylib in Linux cross builds: it needs the system's OpenGL, which a
   static musl executable cannot load.
 - over-aligned heap, rc, arena, interface, closure and spawned-task storage;
@@ -4470,7 +4470,7 @@ program        ::= { decl }
 decl           ::= import_decl
                  | val_decl
                  | var_decl
-                 | [ ( 'nocopy' | 'pub' ) ] object_decl
+                 | [ 'pub' ] [ 'nocopy' ] object_decl
                  | [ 'pub' ] ( func_decl | extern_decl | patch_decl | interface_decl | enum_decl | array_ext_decl
                              | type_method_decl )
                  | test_decl

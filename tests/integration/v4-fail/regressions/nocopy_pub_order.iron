@@ -1,0 +1,7 @@
+-- @expected-error: E0101
+-- #840: the one accepted order is `pub nocopy object`.
+nocopy pub object Ticket {
+    val id: Int
+}
+
+func main() {}
