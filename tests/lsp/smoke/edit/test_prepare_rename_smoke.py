@@ -129,7 +129,7 @@ async def test_prepare_rename_reject_on_keyword(client, tmp_path):
 async def test_prepare_rename_reject_on_extern(client, tmp_path):
     """Cursor on an extern symbol use-site → null + showMessage Info."""
     src = (
-        "extern func puts(s: String) -> Int\n"
+        "extern func puts(s: String) -> Int32\n"
         "func main() {\n"
         "    puts(\"hi\")\n"
         "}\n"

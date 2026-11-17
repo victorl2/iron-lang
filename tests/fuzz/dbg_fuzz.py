@@ -658,13 +658,13 @@ def frame_bytes(body):
 
 
 SESSION_PROGRAMS = {
-    "exit": ("extern func exit(code: Int)\n\nfunc main() {\n    var x = 1\n"
+    "exit": ("extern func exit(code: Int32)\n\nfunc main() {\n    var x = 1\n"
              "    for i in range(3) {\n        x = x + i\n    }\n    println(\"x {x}\")\n"
              "    exit(3)\n}\n", 6),
     "output": ("func main() {\n    var x = 0\n    for i in range(200000) {\n"
                "        println(\"line {i} with some text to make it longer\")\n"
                "        x = x + 1\n    }\n    println(\"done {x}\")\n}\n", 5),
-    "fork": ("extern func fork() -> Int\n\nfunc main() {\n    var x = 2\n"
+    "fork": ("extern func fork() -> Int32\n\nfunc main() {\n    var x = 2\n"
              "    val p = fork()\n    x = x + 1\n    println(\"forked {p >= 0} {x}\")\n}\n", 6),
     "crash": ("func main() {\n    val xs = [1, 2]\n    var i = 1\n    i = i + 4\n"
               "    println(\"{xs[i]}\")\n}\n", 4),

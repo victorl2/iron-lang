@@ -1,0 +1,23 @@
+-- #877: a C `int` parameter or result is declared with `Int32`, which is
+-- int32_t in the prototype, so a negative C result keeps its sign.
+extern func atoi(s: String) -> Int32
+extern func strcmp(a: String, b: String) -> Int32
+extern func toupper(c: Int32) -> Int32
+extern func srand(seed: UInt32)
+extern func rand() -> Int32
+
+func main() {
+    val n = atoi("-42")
+    val c = strcmp("a", "b")
+    println("{n} {c < 0} {toupper(97)}")
+
+    val total = Int(n) + 2
+    println("{total}")
+
+    val code: Int32 = 98
+    println("{toupper(code)}")
+
+    srand(7)
+    val r = rand()
+    println("{r >= 0}")
+}

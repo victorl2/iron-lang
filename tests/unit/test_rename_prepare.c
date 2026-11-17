@@ -251,7 +251,7 @@ static void test_prepare_reject_on_extern(void) {
     fx_t f;
     /* Declare an extern func; cursor on the extern ident's use. */
     const char *src =
-        "extern func puts(s: String) -> Int\n"
+        "extern func puts(s: String) -> Int32\n"
         "func main() {\n"
         "    puts(\"hi\")\n"
         "}\n";

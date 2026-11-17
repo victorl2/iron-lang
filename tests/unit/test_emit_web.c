@@ -262,11 +262,13 @@ void test_emit_web_no_iron_main_function(void) {
  *   "use of undeclared identifier 'Color'".
  *
  * This test builds a module with one Color object decl, three extern decls
- * (InitWindow taking Int/Int/String, ClearBackground taking Color,
- * WindowShouldClose returning Bool with no params), and the canonical
+ * (InitWindow taking Int32/Int32/String, ClearBackground taking Color,
+ * WindowShouldClose returning Bool with no params), one more for the
+ * 64-bit `Int` (llabs), and the canonical
  * web main loop. After emit_web_module runs the output must contain:
  *   - struct Color { ... }   (bare name, not Iron_Color)
- *   - void InitWindow(int _p0, int _p1, const char *_p2);
+ *   - void InitWindow(int32_t _p0, int32_t _p1, const char *_p2);
+ *   - int64_t llabs(int64_t _p0);   (#877: Int is int64_t, never C int)
  *   - void ClearBackground(Color _p0);
  *   - bool WindowShouldClose(void);
  */
@@ -281,14 +283,16 @@ static IronLIR_Module *build_module_with_raylib_extern_decls(Iron_Arena *a) {
     iron_lir_module_add_type_decl(mod, IRON_LIR_TYPE_OBJECT, "Color", color_type);
 
     Iron_Type *int_type    = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *int32_type  = iron_type_make_primitive(IRON_TYPE_INT32);
     Iron_Type *bool_type   = iron_type_make_primitive(IRON_TYPE_BOOL);
     Iron_Type *string_type = iron_type_make_primitive(IRON_TYPE_STRING);
 
-    /* InitWindow(Int, Int, String) → emit `void InitWindow(int _p0, int _p1, const char *_p2);` */
+    /* InitWindow(Int32, Int32, String) → emit
+     * `void InitWindow(int32_t _p0, int32_t _p1, const char *_p2);` */
     Iron_Type **init_params = (Iron_Type **)iron_arena_alloc(
         a, sizeof(Iron_Type *) * 3, _Alignof(Iron_Type *));
-    init_params[0] = int_type;
-    init_params[1] = int_type;
+    init_params[0] = int32_type;
+    init_params[1] = int32_type;
     init_params[2] = string_type;
     iron_lir_module_add_extern(mod, "InitWindow", "InitWindow", init_params, 3, NULL);
 
@@ -301,6 +305,12 @@ static IronLIR_Module *build_module_with_raylib_extern_decls(Iron_Arena *a) {
     /* WindowShouldClose() → emit `bool WindowShouldClose(void);` (zero-arg path) */
     iron_lir_module_add_extern(mod, "WindowShouldClose", "WindowShouldClose",
                                NULL, 0, bool_type);
+
+    /* llabs(Int) -> Int → emit `int64_t llabs(int64_t _p0);` */
+    Iron_Type **ll_params = (Iron_Type **)iron_arena_alloc(
+        a, sizeof(Iron_Type *), _Alignof(Iron_Type *));
+    ll_params[0] = int_type;
+    iron_lir_module_add_extern(mod, "llabs", "llabs", ll_params, 1, int_type);
 
     return mod;
 }
@@ -330,8 +340,11 @@ void test_emit_web_extern_prototypes_and_struct_bodies(void) {
     /* Extern function prototypes — emit_extern_prototypes formats them
      * with `_p<i>` parameter names. */
     TEST_ASSERT_NOT_NULL_MESSAGE(
-        strstr(c, "void InitWindow(int _p0, int _p1, const char *_p2);"),
+        strstr(c, "void InitWindow(int32_t _p0, int32_t _p1, const char *_p2);"),
         "InitWindow forward declaration missing — extern prototype loop did not run on web target");
+    TEST_ASSERT_NOT_NULL_MESSAGE(
+        strstr(c, "int64_t llabs(int64_t _p0);"),
+        "an Int parameter and result of an extern must be int64_t (#877)");
     TEST_ASSERT_NOT_NULL_MESSAGE(
         strstr(c, "void ClearBackground(Color _p0);"),
         "ClearBackground forward declaration missing — extern prototype loop did not run on web target");

@@ -240,7 +240,7 @@ func Point.translate(dx: Int) -> Point { return self }
 extern func signature
 ==========
 
-extern func puts(s: String) -> Int
+extern func puts(s: String) -> Int32
 
 ---
 
