@@ -1,0 +1,51 @@
+-- The name of an `extern func` used as a value (bound, passed, stored,
+-- returned) produced C that named a value which was never declared; only a
+-- direct call worked. It is now a function value like the name of any
+-- other top-level function.
+extern func strlen(s: String) -> Int
+extern func toupper(c: Int32) -> Int32
+extern func tolower(c: Int32) -> Int32
+extern func sqrt(x: Float) -> Float
+extern func puts(s: String) -> Int32
+extern func srand(seed: UInt32)
+extern func atoi(s: String) -> Int32
+
+object Ops {
+    val f: func(Int32) -> Int32
+}
+
+func apply(f: func(Int32) -> Int32, v: Int32) -> Int32 {
+    return f(v)
+}
+
+func measure(f: func(String) -> Int, s: String) -> Int {
+    return f(s)
+}
+
+func pick(up: Bool) -> func(Int32) -> Int32 {
+    if up { return toupper }
+    return func(x: Int32) -> Int32 { return x }
+}
+
+func main() {
+    println("{apply(toupper, 97)}")
+    val f = toupper
+    println("{f(98)} {apply(f, 99)}")
+    println("{measure(strlen, "four")}")
+    val r = sqrt
+    println("{r(2.25)}")
+    val o = Ops(tolower)
+    println("{o.f(65)}")
+    val fs = [toupper, tolower]
+    println("{fs[0](100)} {fs[1](66)} {pick(true)(101)} {pick(false)(102)}")
+    val say = puts
+    say("said")
+    val seed = srand
+    seed(3)
+    val parse = atoi
+    println("{parse("-12")}")
+    var g = toupper
+    g = tolower
+    println("{g(67)}")
+    println("{toupper(104)}")
+}

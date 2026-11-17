@@ -2329,9 +2329,13 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         const char *fn_name = func_ref_hir_name(ctx, id);
         for (int i = 0; i < mod->func_count; i++) {
             if (strcmp(mod->funcs[i]->name, fn_name) == 0) {
+                /* A C extern (`extern func`, which has a C name) is a
+                 * value like any other function: the thunk calls it, so
+                 * the call gets the extern argument conversions. A runtime
+                 * stub (extern without a C name) is not called this way. */
                 if (!ctx->lowering_callee && id->resolved_type &&
                     id->resolved_type->kind == IRON_TYPE_FUNC &&
-                    !mod->funcs[i]->is_extern)
+                    (!mod->funcs[i]->is_extern || mod->funcs[i]->extern_c_name))
                     return make_func_value(ctx, fn_name, id->resolved_type, span);
                 return iron_hir_expr_func_ref(mod, fn_name,
                                               id->resolved_type, span);
