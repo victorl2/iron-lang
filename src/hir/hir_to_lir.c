@@ -914,6 +914,8 @@ static IronLIR_ValueId copy_for_new_owner(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *src
  * Returns an stb_ds array the caller frees. */
 static IronLIR_ValueId coerce_to_optional(HIR_to_LIR_Ctx *ctx, IronLIR_ValueId v,
                                           Iron_Type *target, Iron_Span span);
+static IronLIR_ValueId coerce_to_interface(HIR_to_LIR_Ctx *ctx, IronLIR_ValueId v,
+                                           Iron_Type *target, Iron_Span span);
 static IronLIR_ValueId *lower_construct_fields(HIR_to_LIR_Ctx *ctx,
                                                Iron_Type *obj_type,
                                                IronHIR_Expr **vals, int count,
@@ -2553,6 +2555,28 @@ static IronLIR_ValueId coerce_to_optional(HIR_to_LIR_Ctx *ctx, IronLIR_ValueId v
     return iron_lir_cast(fn, ctx->current_block, v, target, span)->id;
 }
 
+/* A concrete object handed to a slot of an interface type the emitter does
+ * not see (the value of a `Map[K, Shape]`, the element of a
+ * `Channel[Shape]`, the content of a lock): converted here, as a call's
+ * argument or a store is converted by the emitter. */
+static IronLIR_ValueId coerce_to_interface(HIR_to_LIR_Ctx *ctx, IronLIR_ValueId v,
+                                           Iron_Type *target, Iron_Span span) {
+    if (v == IRON_LIR_VALUE_INVALID || !target ||
+        target->kind != IRON_TYPE_INTERFACE || !ctx->current_block ||
+        block_is_terminated(ctx->current_block))
+        return v;
+    IronLIR_Func *fn = ctx->current_func;
+    IronLIR_Instr *vi = ((ptrdiff_t)v < arrlen(fn->value_table)) ? fn->value_table[v] : NULL;
+    Iron_Type *vt = NULL;
+    if (vi) {
+        vt = vi->type;
+    } else if ((int)v >= 1 && (int)v <= fn->param_count) {
+        vt = fn->params[v - 1].type;
+    }
+    if (!vt || vt->kind != IRON_TYPE_OBJECT || !vt->object.decl) return v;
+    return iron_lir_cast(fn, ctx->current_block, v, target, span)->id;
+}
+
 static IronLIR_ValueId lower_expr_as(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr,
                                      Iron_Type *target) {
     IronLIR_ValueId v = lower_expr(ctx, expr);
@@ -3624,6 +3648,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                  strcmp(rn, "RWWriteGuard") == 0)
                             slot_t = elem;
                         av = coerce_to_optional(ctx, av, slot_t, span);
+                        av = coerce_to_interface(ctx, av, slot_t, span);
                     }
                     arrput(cargs, av);
                 }
