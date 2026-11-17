@@ -6259,6 +6259,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             const char     *iface_name;
             const char     *impl;
             bool            indirect;
+            bool            is_place;   /* a field or element, not a binding's slot */
         } ifw[16];
         int ifw_count = 0;
         if (instr->call.args_by_addr && ctx->iface_reg) {
@@ -6284,14 +6285,18 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Instr *slot_in = (sv != IRON_LIR_VALUE_INVALID &&
                                           sv < (IronLIR_ValueId)arrlen(fn->value_table))
                                          ? fn->value_table[sv] : NULL;
-                if (!slot_in || slot_in->kind != IRON_LIR_ALLOCA ||
-                    emit_vid_global_slot(fn, sv) ||
-                    !slot_in->alloca.alloc_type ||
-                    slot_in->alloca.alloc_type->kind != IRON_TYPE_OBJECT ||
-                    !slot_in->alloca.alloc_type->object.decl ||
-                    !slot_in->alloca.alloc_type->object.decl->name) continue;
+                if (!slot_in || emit_vid_global_slot(fn, sv)) continue;
+                /* The source is a binding's slot, or a place: a `var` field
+                 * or an element holding the concrete object (`run(h.game)`,
+                 * `run(gs[i])`), read and written back in its own storage
+                 * (#731). */
+                bool is_place = slot_in->kind != IRON_LIR_ALLOCA;
+                Iron_Type *src_t = is_place ? emit_get_value_type(fn, sv)
+                                            : slot_in->alloca.alloc_type;
+                if (!src_t || src_t->kind != IRON_TYPE_OBJECT ||
+                    !src_t->object.decl || !src_t->object.decl->name) continue;
                 const char *iface_c = emit_mangle_name(pt->interface.decl->name, ctx->arena);
-                const char *impl = slot_in->alloca.alloc_type->object.decl->name;
+                const char *impl = src_t->object.decl->name;
                 char ikey[512];
                 snprintf(ikey, sizeof(ikey), "%s:%s", iface_c, impl);
                 bool indirect = ctx->indirect_variants &&
@@ -6300,7 +6305,13 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 iron_strbuf_appendf(sb, "%s _ifw%d_%d = %s_from_%s(",
                                     iface_c, (int)instr->id, i, iface_c,
                                     emit_c_user_identifier(impl, ctx->arena));
-                emit_val(sb, sv);
+                if (is_place) {
+                    iron_strbuf_appendf(sb, "*(");
+                    emit_receiver_addr(sb, fn, ctx, sv, ctx->current_block_id);
+                    iron_strbuf_appendf(sb, ")");
+                } else {
+                    emit_val(sb, sv);
+                }
                 iron_strbuf_appendf(sb, ");\n");
                 ifw[ifw_count].arg_index  = i;
                 ifw[ifw_count].slot       = sv;
@@ -6308,6 +6319,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 ifw[ifw_count].iface_name = pt->interface.decl->name;
                 ifw[ifw_count].impl       = impl;
                 ifw[ifw_count].indirect   = indirect;
+                ifw[ifw_count].is_place   = is_place;
                 ifw_count++;
             }
         }
@@ -8103,7 +8115,13 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_c_user_identifier(ifw[k].impl, ctx->arena),
                 ifw[k].iface_name, ifw[k].impl);
             emit_indent(sb, ind);
-            emit_val(sb, ifw[k].slot);
+            if (ifw[k].is_place) {
+                iron_strbuf_appendf(sb, "*(");
+                emit_receiver_addr(sb, fn, ctx, ifw[k].slot, ctx->current_block_id);
+                iron_strbuf_appendf(sb, ")");
+            } else {
+                emit_val(sb, ifw[k].slot);
+            }
             iron_strbuf_appendf(sb, " = %s_ifw%d_%d.data.%s;\n",
                 ifw[k].indirect ? "*" : "", (int)instr->id, ifw[k].arg_index,
                 emit_c_user_identifier(ifw[k].impl, ctx->arena));

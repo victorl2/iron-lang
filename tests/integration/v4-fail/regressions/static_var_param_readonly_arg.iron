@@ -1,0 +1,19 @@
+-- @expected-error: E0267
+-- The first parameter of a static method is an ordinary parameter: a
+-- read-only argument cannot be bound to it when it is `var`.
+object Counter {
+    var n: Int
+    init(n: Int) { self.n = n }
+    static func twice(var x: Int) { x *= 2 }
+    static func swap(var a: Int, var b: Int) {
+        val t = a
+        a = b
+        b = t
+    }
+}
+
+func main() {
+    val a = 5
+    Counter.twice(a)
+    println("{a}")
+}
