@@ -1637,8 +1637,9 @@ func main() {
 ```
 
 A top-level function name is a function value: `val f = twice`,
-`apply(twice, 4)` and `[twice]` work like the equivalent lambdas.
-Compiler built-ins such as `print`, `println`, `len`, `range` and `fill`
+`apply(twice, 4)` and `[twice]` work like the equivalent lambdas. The
+name of an `extern func` (section 5.8) is a function value in the same
+way. Compiler built-ins such as `print`, `println`, `len`, `range` and `fill`
 are calls, not values: naming one without calling it is `E0202`.
 
 Compiler hints on the line directly above a function are
