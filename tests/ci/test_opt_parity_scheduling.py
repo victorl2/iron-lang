@@ -34,9 +34,12 @@ def main() -> int:
             """#!/usr/bin/env bash
 set -eu
 state=$IRON_PARITY_TEST_STATE
-if mkdir "$state/build-lock" 2>/dev/null; then
+# The lock is an exclusive create made by the shell itself. `mkdir` is not
+# one everywhere: uutils mkdir reports success for a directory that another
+# process created between its existence check and its own create.
+if ( set -C; : > "$state/build-lock" ) 2>/dev/null; then
     sleep 0.2
-    rmdir "$state/build-lock"
+    rm "$state/build-lock"
 else
     touch "$state/build-overlap"
     sleep 0.2
@@ -47,10 +50,10 @@ cat > "$name" <<'PROGRAM'
 #!/usr/bin/env bash
 set -eu
 state=$IRON_PARITY_TEST_STATE
-if mkdir "$state/run-lock" 2>/dev/null; then
+if ( set -C; : > "$state/run-lock" ) 2>/dev/null; then
     sleep 0.2
     echo ok
-    rmdir "$state/run-lock"
+    rm "$state/run-lock"
 else
     touch "$state/run-overlap"
     echo collision
