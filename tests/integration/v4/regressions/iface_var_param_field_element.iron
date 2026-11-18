@@ -1,0 +1,43 @@
+-- #731: a field or an element holding a concrete object, given to a `var`
+-- parameter of an interface type: wrapped into the interface for the call and
+-- written back into the field or element afterwards, as a binding is.
+interface Game {
+    func tick()
+    readonly func score() -> Int
+}
+object Pong impl Game {
+    var s: Int
+    init() { self.s = 0 }
+    func tick() { self.s += 1 }
+    readonly func score() -> Int { return self.s }
+}
+object Held {
+    var game: Pong
+    init() { self.game = Pong() }
+}
+object Runner {
+    val steps: Int
+    readonly func run(var g: Game) {
+        var i = 0
+        while i < self.steps {
+            g.tick()
+            i += 1
+        }
+    }
+}
+func run(var g: Game) { g.tick() }
+
+func main() {
+    var p = Pong()
+    run(p)
+    var h = Held()
+    run(h.game)
+    var gs: [Pong] = [Pong(), Pong()]
+    run(gs[1])
+    println("{p.score()} {h.game.score()} {gs[0].score()} {gs[1].score()}")
+    val r = Runner(3)
+    r.run(p)
+    r.run(h.game)
+    r.run(gs[0])
+    println("{p.score()} {h.game.score()} {gs[0].score()} {gs[1].score()}")
+}

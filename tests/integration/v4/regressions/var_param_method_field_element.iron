@@ -1,0 +1,56 @@
+-- #731: a `var` field or a list element given to a `var` parameter of a
+-- method, a static method or a named init is passed by address: the callee's
+-- writes land in the field or element (it used to be passed by value, which
+-- did not compile).
+object Counter {
+    var n: Int
+    var name: String
+    init(n: Int) {
+        self.n = n
+        self.name = "counter"
+    }
+    func bump(var x: Int) { x += 1 }
+    func rename(var s: String) { s = "{s} renamed by {self.name}" }
+    func grow(var xs: [Int]) { xs.push(self.n) }
+    static func twice(var x: Int) { x *= 2 }
+}
+
+object Holder {
+    var items: [Int]
+    var inner: Counter
+    init() {
+        self.items = [1]
+        self.inner = Counter(40)
+    }
+}
+
+object Bag {
+    var total: Int
+    init with(var n: Int) {
+        self.total = n
+        n = 0
+    }
+}
+
+func main() {
+    var c = Counter(1)
+    var d = Counter(5)
+    c.bump(d.n)
+    c.bump(c.n)
+    var xs: [Int] = [3, 4]
+    c.bump(xs[0])
+    c.bump(xs[1])
+    println("{c.n} {d.n} {xs[0]} {xs[1]}")
+    var names: [String] = ["first name long enough to live on the heap"]
+    c.rename(names[0])
+    c.rename(d.name)
+    println("{names[0]} | {d.name}")
+    var h = Holder()
+    c.grow(h.items)
+    c.bump(h.inner.n)
+    c.bump(h.items[1])
+    Counter.twice(h.inner.n)
+    println("{h.items.len()} {h.items[1]} {h.inner.n}")
+    val b = Bag.with(xs[1])
+    println("{b.total} {xs[1]}")
+}

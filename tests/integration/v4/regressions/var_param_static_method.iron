@@ -1,0 +1,18 @@
+-- A `var` parameter of a `static func` takes the caller's binding by
+-- reference. Its first parameter was skipped as if it were the receiver, so
+-- the function wrote to a copy and the caller saw no change.
+object Counter {
+    var n: Int
+    init(n: Int) { self.n = n }
+    static func twice(var x: Int) { x *= 2 }
+}
+
+func main() {
+    var a = 5
+    Counter.twice(a)
+    var c = Counter(7)
+    Counter.twice(c.n)
+    var xs = [9]
+    Counter.twice(xs[0])
+    println("{a} {c.n} {xs[0]}")
+}

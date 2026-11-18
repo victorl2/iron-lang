@@ -3487,10 +3487,15 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
              * synthesized self. */
             if (!is_stub) {
                 int off = total_params - md->param_count;
+                /* The receiver is not a `var` parameter. A `static func` has
+                 * none: its first parameter is an ordinary one (it was
+                 * skipped as if it were the receiver, so `static func
+                 * f(var x: Int)` wrote to a copy). */
+                int recv = iron_method_recv_count(md);
                 bool any_var = false;
                 for (int p = 0; p < md->param_count; p++) {
                     Iron_Param *ap = (Iron_Param *)md->params[p];
-                    if (ap && ap->is_var && !(md->is_receiver_form && p == 0)) any_var = true;
+                    if (ap && ap->is_var && p >= recv) any_var = true;
                 }
                 if (any_var && off >= 0) {
                     bool *pv = (bool *)iron_arena_alloc(
@@ -3499,7 +3504,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                     memset(pv, 0, (size_t)total_params * sizeof(bool));
                     for (int p = 0; p < md->param_count; p++) {
                         Iron_Param *ap = (Iron_Param *)md->params[p];
-                        pv[p + off] = ap && ap->is_var && !(md->is_receiver_form && p == 0);
+                        pv[p + off] = ap && ap->is_var && p >= recv;
                     }
                     f->param_is_var = pv;
                 }

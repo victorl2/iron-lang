@@ -4288,6 +4288,31 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 }
             }
             IronLIR_ValueId av = lower_expr(ctx, ae);
+            /* A `var` field or an element given to a `var` parameter
+             * (`c.bump(d.n)`, `c.bump(xs[0])`): the place's value chain,
+             * flagged by address, as for a free function. emit_c addresses
+             * the field or element in its own storage; passed by value it
+             * was an integer handed to a pointer parameter (#731). */
+            {
+                int vpi = (int)arrlen(args);
+                if (callee_tf && callee_tf->param_is_var && vpi < callee_tf->param_count &&
+                    callee_tf->param_is_var[vpi] && ae &&
+                    (ae->kind == IRON_HIR_EXPR_FIELD_ACCESS ||
+                     ae->kind == IRON_HIR_EXPR_INDEX)) {
+                    if (!m_by_addr) {
+                        size_t n = (size_t)(callee_tf->param_count +
+                                            expr->method_call.arg_count + 1);
+                        m_by_addr = (bool *)iron_arena_alloc(ctx->lir_arena,
+                                                             n * sizeof(bool), _Alignof(bool));
+                        if (!m_by_addr) iron_oom_abort("hir_to_lir.c:method by_addr place");
+                        memset(m_by_addr, 0, n * sizeof(bool));
+                    }
+                    m_by_addr[vpi] = true;
+                    m_any_by_addr = true;
+                    arrput(args, av);
+                    continue;
+                }
+            }
             note_owned_temp(ctx, &temps, ae, av, span);
             /* A `T?` parameter takes a T argument (or null) wrapped, as a
              * function call does: `w.show("x")` and `T("t")` through an
