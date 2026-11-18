@@ -173,7 +173,7 @@ static Iron_Node *iron_parse_decl(Iron_Parser *p, int start_pos, bool is_private
 static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, bool is_pub);
 static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool is_pub, bool is_nocopy, Iron_Node ***extra_decls_out);
 static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub, Iron_Node ***extra_decls_out);
-static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private);
+static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private, bool is_pub);
 static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub);
 static Iron_Node *iron_parse_import_decl(Iron_Parser *p);
 static Iron_Node *iron_parse_val_decl(Iron_Parser *p);
@@ -4506,7 +4506,7 @@ static const char *iron_snake_to_camel(Iron_Arena *arena, const char *name) {
 
 /* ── Parse extern func declaration ───────────────────────────────────────── */
 
-static Iron_Node *iron_parse_extern_func(Iron_Parser *p, bool is_private) {
+static Iron_Node *iron_parse_extern_func(Iron_Parser *p, bool is_private, bool is_pub) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'extern' */
 
@@ -4558,10 +4558,9 @@ static Iron_Node *iron_parse_extern_func(Iron_Parser *p, bool is_private) {
     f->return_type          = ret;
     f->body                 = NULL;        /* extern funcs have no body */
     f->is_private           = is_private;
-    /* Phase 93 VIS-01: extern declarations are not pub-eligible in v3.2;
-     * `pub extern func` is dispatched through iron_parse_decl which currently
-     * does not thread is_pub here. Default false for clarity. */
-    f->is_pub               = false;
+    /* `pub extern func` is visible from the package's other files, like
+     * any other top-level declaration (#842). */
+    f->is_pub               = is_pub;
     f->is_extern            = true;
     f->extern_c_name        = c_name;
     f->generic_params       = NULL;
@@ -6852,7 +6851,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
     return (Iron_Node *)n;
 }
 
-static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
+static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private, bool is_pub) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'interface' */
 
@@ -7017,6 +7016,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
     if (!n->name) { /* HARD-09 REPLACE (iron_parse_interface_decl InterfaceDecl name) */ n->name = "?"; }
     n->method_sigs        = AST_ARR(method_sigs);
     n->method_count       = method_count;
+    n->is_pub             = is_pub;
     (void)is_private;
     return (Iron_Node *)n;
 }
@@ -7313,7 +7313,7 @@ static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_
             return iron_make_error(p);
         }
         case IRON_TOK_EXTERN:    {
-            Iron_Node *n = iron_parse_extern_func(p, is_private);
+            Iron_Node *n = iron_parse_extern_func(p, is_private, is_pub);
             p->in_error_recovery = false;
             p->stmt_errored = false;
             return n;
@@ -7338,7 +7338,7 @@ static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_
             return n;
         }
         case IRON_TOK_INTERFACE: {
-            Iron_Node *n = iron_parse_interface_decl(p, is_private);
+            Iron_Node *n = iron_parse_interface_decl(p, is_private, is_pub);
             p->in_error_recovery = false;
             p->stmt_errored = false;
             return n;

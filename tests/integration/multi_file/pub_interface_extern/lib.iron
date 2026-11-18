@@ -1,0 +1,12 @@
+// #842: an interface and an extern function marked `pub` are visible from
+// the package's other files; a patch in another file may add the interface
+// to an object.
+pub interface Sized {
+    readonly func size() -> Int
+}
+
+pub extern func labs(x: Int) -> Int
+
+pub object Crate {
+    pub val n: Int
+}
