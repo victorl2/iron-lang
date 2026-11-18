@@ -2587,10 +2587,13 @@ void emit_extern_prototypes(EmitCtx *ctx) {
          * generated unit includes none now (#235), so every extern gets
          * the prototype its Iron signature implies. */
 
+        /* Each Iron scalar has one C type in an extern prototype (#877):
+         * `Int` and `Int64` are int64_t, `Int32` is int32_t, and so on for
+         * the other widths, as emit_type_to_c spells them. A C function
+         * that takes or returns `int` is declared with `Int32`. */
         const char *ret_c = "void";
         if (ed->return_type) {
             if (ed->return_type->kind == IRON_TYPE_BOOL) ret_c = "bool";
-            else if (ed->return_type->kind == IRON_TYPE_INT) ret_c = "int";
             else if (ed->return_type->kind == IRON_TYPE_FLOAT32) ret_c = "float";
             else ret_c = emit_type_to_c(ed->return_type, ctx);
         }
@@ -2603,8 +2606,6 @@ void emit_extern_prototypes(EmitCtx *ctx) {
             Iron_Type *pt = ed->param_types[pi];
             if (pt && pt->kind == IRON_TYPE_STRING) {
                 iron_strbuf_appendf(&ctx->prototypes, "const char *_p%d", pi);
-            } else if (pt && (pt->kind == IRON_TYPE_INT || pt->kind == IRON_TYPE_INT64)) {
-                iron_strbuf_appendf(&ctx->prototypes, "int _p%d", pi);
             } else if (pt && pt->kind == IRON_TYPE_FLOAT32) {
                 iron_strbuf_appendf(&ctx->prototypes, "float _p%d", pi);
             } else if (pt && pt->kind == IRON_TYPE_BOOL) {

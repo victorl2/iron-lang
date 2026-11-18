@@ -1,5 +1,5 @@
 -- hir_import_io: I/O via extern puts
-extern func puts(s: String) -> Int
+extern func puts(s: String) -> Int32
 
 func main() {
   puts("io line 1")

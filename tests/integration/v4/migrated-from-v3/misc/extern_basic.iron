@@ -1,4 +1,4 @@
-extern func puts(s: String) -> Int
+extern func puts(s: String) -> Int32
 
 func main() {
   puts("hello from extern")

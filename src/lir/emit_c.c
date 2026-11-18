@@ -7894,7 +7894,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
             /* For extern calls, apply FFI type conversions:
              * - Iron_String → const char* via iron_string_cstr()
-             * - int64_t → int via (int) cast when extern param is Int
+             * - int64_t → int32_t via a cast when extern param is Int32
+             *   (an Int param is int64_t in the prototype, #877)
              * - Float64 → float via (float) cast when extern param is Float32
              * This bridges Iron's uniform types to C's native types.
              *
@@ -7937,8 +7938,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             break;
                         case IRON_TYPE_INT:
                         case IRON_TYPE_INT64:
-                            if (pt && (pt->kind == IRON_TYPE_INT ||
-                                       pt->kind == IRON_TYPE_INT32)) {
+                            if (pt && pt->kind == IRON_TYPE_INT32) {
                                 needs_int_cast = true;
                             }
                             break;
@@ -7965,7 +7965,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ")");
             } else if (needs_int_cast) {
-                iron_strbuf_appendf(sb, "(int)(");
+                iron_strbuf_appendf(sb, "(int32_t)(");
                 emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ")");
             } else if (needs_float_cast) {

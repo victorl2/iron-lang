@@ -2148,25 +2148,49 @@ call compiles to a direct C call; the C name is the Iron name with each
 (`init_window` becomes `InitWindow`), and a name without underscores is
 used unchanged. Only functions whose declarations the generated C already
 includes (the C standard library, and raylib when it is imported) can be
-called; there is no way to name a header. `Int` maps to `int64_t`,
-`Float` to `double`, `Bool` to `bool`, `String` to the runtime string
-struct and `*unchecked T` to a raw pointer. Declaring an extern with the
+called; there is no way to name a header. Declaring an extern with the
 name of an Iron built-in is a duplicate declaration (`E0201`).
 
+Each Iron type stands for one C type in the declaration:
+
+| Iron type | C type |
+|-----------|--------|
+| `Int`, `Int64` | `int64_t` |
+| `Int8`, `Int16`, `Int32` | `int8_t`, `int16_t`, `int32_t` |
+| `UInt`, `UInt64` | `uint64_t` |
+| `UInt8`, `UInt16`, `UInt32` | `uint8_t`, `uint16_t`, `uint32_t` |
+| `Float` | `double` |
+| `Float32` | `float` |
+| `Bool` | `bool` |
+| `*unchecked T` | a raw pointer |
+| `String` parameter | `const char *`, terminated by a zero byte |
+
+The declaration must use the type whose width the C function has: a C
+`int` parameter or result is `Int32`, `unsigned int` is `UInt32`, and
+`Int` is only right for `long long`, `int64_t` and types of the same
+width. The compiler does not check the declaration against the C one, and
+a wrong width passes or reads the wrong number of bits: declaring
+`strcmp` with a result of `Int` reads a negative result as a large
+positive number. Arguments follow the usual rules for a parameter type, so
+an `Int` value is passed to an `Int32` parameter as `Int32(x)`. A `String`
+result is not converted from a C string
+([#879](https://github.com/victorl2/iron-lang/issues/879)).
+
 ```iron
-extern func labs(x: Int) -> Int
-extern func srand(seed: Int)
-extern func rand() -> Int
+extern func llabs(x: Int) -> Int
+extern func srand(seed: UInt32)
+extern func rand() -> Int32
+extern func strcmp(a: String, b: String) -> Int32
 
 func main() {
     srand(1)
     val r = rand()
-    println("{labs(-9)} {r >= 0}")
+    println("{llabs(-5000000000)} {r >= 0} {strcmp("a", "b") < 0}")
 }
 ```
 
 ```output
-9 true
+5000000000 true true
 ```
 
 ### 5.9 Imports

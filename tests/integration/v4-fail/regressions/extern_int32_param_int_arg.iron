@@ -1,0 +1,9 @@
+-- @expected-error: E0217
+-- #877: `Int` is 64-bit in an extern declaration too, so an `Int` value is
+-- not passed to an `Int32` parameter (a C `int`) without a conversion.
+extern func toupper(c: Int32) -> Int32
+
+func main() {
+    val x = 97
+    println("{toupper(x)}")
+}

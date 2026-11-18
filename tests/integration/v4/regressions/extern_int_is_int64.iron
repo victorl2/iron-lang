@@ -1,0 +1,19 @@
+-- #877: in an `extern func`, `Int` is C int64_t. The prototype used to say
+-- `int`, so a 64-bit argument was truncated and a 64-bit result was read as
+-- 32 bits (llabs(-5000000000) gave 705032704, llabs(-3) gave -3).
+extern func llabs(x: Int) -> Int
+extern func strlen(s: String) -> Int
+
+func main() {
+    val big = -5000000000
+    println("{llabs(big)} {llabs(-3)} {strlen("iron")}")
+
+    var acc = 0
+    for i in range(3) {
+        acc = acc + llabs(big - i)
+    }
+    println("{acc}")
+
+    val wide: Int64 = -9000000000
+    println("{llabs(Int(wide))}")
+}
