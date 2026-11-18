@@ -1,0 +1,32 @@
+-- Tuples held by other owners (issue 450): the value of a map (replaced
+-- once), the element of a channel (one is left in it), the payload of an
+-- enum and the field of an object (with a list inside, copied with the
+-- object). Each element is released once.
+enum Value {
+    Empty,
+    Pair((String, String)),
+}
+object Wrap {
+    val t: (String, [Int])
+}
+func main() {
+    var m = Map[String, (String, Int)]()
+    m.put("k", ("a map tuple value string long enough for the heap", 1))
+    m.put("k", ("a second map tuple value string long enough for heap", 2))
+    val (s, n) = m.get("k")
+    println("{s.len()} {n} {m.len()}")
+    val ch = Channel[(String, Int)](2)
+    ch.send(("a channel tuple string long enough for the heap ok", 3))
+    ch.send(("left in the channel, long enough for the heap, yes", 4))
+    val (cs, cn) = ch.recv()
+    println("{cs.len()} {cn}")
+    val v = Value.Pair(("first of pair long enough for heap", "second of pair long enough for heap"))
+    val v2 = v
+    match v2 {
+        Value.Empty -> println("empty")
+        Value.Pair(p) -> println("pair")
+    }
+    val w = Wrap(("wrapped tuple string long enough for the heap", [1, 2, 3]))
+    val w2 = w.copy()
+    println("wrapped")
+}

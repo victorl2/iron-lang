@@ -1,0 +1,56 @@
+-- Tuples of other owning shapes (issue 450): a tuple binding that holds a
+-- list (it cannot be taken apart, E0328, and frees the list at scope exit), a
+-- tuple field of an object, a nested tuple, a tuple of an object with a drop
+-- hook and a tuple binding per loop iteration are each released once.
+object Holder {
+    val pair: (String, Int)
+}
+
+object Token {
+    val n: Int
+    drop { println("drop token {self.n}") }
+}
+
+func make(n: Int) -> (String, [Int]) {
+    var xs: [Int] = []
+    xs.push(n)
+    val t = ("local tuple string that is long {n} zzzzzzzzzz", xs.take())
+    return t
+}
+
+func nested() -> (Int, (String, String)) {
+    return (1, ("nested one long enough to be heap", "nested two long enough to be heap"))
+}
+
+func tokens() -> (Token, String) {
+    return (Token(7), "a token label long enough to be on the heap")
+}
+
+func early(flag: Bool) -> Int {
+    val t = make(9)
+    if flag { return 1 }
+    val u = nested()
+    return 2
+}
+
+func main() {
+    val m = make(3)
+    val (s, l) = make(4)
+    println("{s.len()} {l[0]}")
+    val h = Holder(("field tuple string long enough for heap", 9))
+    val h2 = h
+    val (hs, hn) = h2.pair
+    println("{hs.len()} {hn}")
+    val n = nested()
+    val (a, inner) = n
+    val (p, q) = inner
+    println("{a} {p.len()} {q.len()}")
+    var acc = 0
+    for i in range(3) {
+        val t = make(i)
+        acc += 1
+    }
+    println("{acc} {early(true)} {early(false)}")
+    val tk = tokens()
+    println("end")
+}
