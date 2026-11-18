@@ -1,0 +1,17 @@
+-- @expected-error: E0201
+-- Two variants with one value compare equal and cannot be matched apart
+-- (the generated C had two `case` labels of the same value).
+enum Color {
+    Red = 1,
+    Green = 1,
+    Blue,
+}
+
+func main() {
+    val c = Color.Green
+    match c {
+        Color.Red -> println("r")
+        Color.Green -> println("g")
+        Color.Blue -> println("b")
+    }
+}

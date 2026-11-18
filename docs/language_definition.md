@@ -2039,7 +2039,8 @@ A variant may carry a payload of one or more types, or an explicit integer
 value (`= 5`; a variant without one takes the previous variant's value
 plus one, the first 0). The value is what a variant of an enum without
 payloads is at run time, and what C receives through a binding
-(`KeyboardKey.SPACE` is 32). Unit variants are written `Name.Variant`, payload variants
+(`KeyboardKey.SPACE` is 32). No two variants of such an enum may have the
+same value (`E0201`). Unit variants are written `Name.Variant`, payload variants
 are constructed with `Name.Variant(args)`. Enum values are compared with
 `==` and inspected with `match`. Enums have no methods and cannot be
 converted to integers; put behavior in functions that take the enum. Enums

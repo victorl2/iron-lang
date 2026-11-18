@@ -1,0 +1,23 @@
+-- Explicit enum values need not ascend, as long as no two variants share one.
+enum Level {
+    High = 7,
+    Off = 0,
+    Low,
+    Mid = 4,
+}
+
+func name(l: Level) -> String {
+    match l {
+        Level.High -> return "high"
+        Level.Off -> return "off"
+        Level.Low -> return "low"
+        Level.Mid -> return "mid"
+    }
+    return "?"
+}
+
+func main() {
+    println("{name(Level.High)} {name(Level.Off)} {name(Level.Low)} {name(Level.Mid)}")
+    println("{Level.Low} {Level.Mid}")
+    println("{Level.Low == Level.Off}")
+}
